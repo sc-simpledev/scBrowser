@@ -1,4 +1,4 @@
-import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ModelRef, ModelRole, ProviderProtocol } from './ai'
+import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn } from './ai'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
 import type { OverlayState, OverlayView } from './overlay'
@@ -41,6 +41,10 @@ export interface ChromeCommands {
   'ai:cancel': (streamId: string) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'ai:open-settings': () => void
+  'chats:list': () => ChatSummary[]
+  'chats:get': (id: string) => SavedChat | null
+  'chats:save': (id: string, turns: SavedTurn[]) => void
+  'chats:delete': (id: string) => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -106,7 +110,11 @@ export const COMMAND_CHANNELS = [
   'ai:send',
   'ai:cancel',
   'ai:set-site',
-  'ai:open-settings'
+  'ai:open-settings',
+  'chats:list',
+  'chats:get',
+  'chats:save',
+  'chats:delete'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -171,6 +179,7 @@ export interface InternalCommands {
   'ai:models': (id: string) => { models: string[]; error: string | null }
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
+  'chats:clear': () => void
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -197,7 +206,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:remove-provider',
   'ai:models',
   'ai:set-role',
-  'ai:set-site'
+  'ai:set-site',
+  'chats:clear'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

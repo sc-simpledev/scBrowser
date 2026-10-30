@@ -6,6 +6,7 @@ import { AiStore } from './ai/store'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
 import { SettingsStore } from './settings'
 import { BookmarksRepo } from './storage/bookmarks'
+import { ChatsRepo } from './storage/chats'
 import { openDatabase } from './storage/database'
 import { DownloadsRepo } from './storage/downloads'
 import { HistoryRepo } from './storage/history'
@@ -62,7 +63,8 @@ if (!app.requestSingleInstanceLock()) {
         bookmarks: new BookmarksRepo(db),
         downloads: new DownloadsRepo(db),
         permissions: new PermissionsRepo(db),
-        aiStore: new AiStore(kv)
+        aiStore: new AiStore(kv),
+        chats: new ChatsRepo(db)
       },
       urlsFromArgv(process.argv)
     )

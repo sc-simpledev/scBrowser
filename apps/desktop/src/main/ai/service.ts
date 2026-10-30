@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { AiError, createProvider, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type Provider } from '@scbrowser/ai'
 import type { AssistantEvent, AssistantRequest } from '@scbrowser/shared'
-import { extractPageText } from './pageText'
+import { extractContext, UnreadablePdfError } from './pageText'
 import type { AiStore } from './store'
 
 const MAX_OUTPUT_TOKENS = 16_000
@@ -44,7 +44,10 @@ export class AiService {
       const chat = this.store.roles().chat
       if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')
       const provider = this.provider(chat.providerId)
-      const page = await this.readPage(request, streamId, emit)
+      const page = await this.readPage(request, streamId, emit).catch((error: unknown) => {
+        if (error instanceof UnreadablePdfError) throw new AiError('bad-request', error.message)
+        throw error
+      })
       if (controller.signal.aborted) return
 
       let stopReason: string | null = null
@@ -57,7 +60,7 @@ export class AiService {
       })
       for await (const event of stream) {
         if (event.type === 'text') emit({ streamId, type: 'text', text: event.text })
-        if (event.type === 'usage') this.store.addUsage(chat.providerId, event.inputTokens, event.outputTokens)
+        if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
         if (event.type === 'stop') stopReason = event.reason
       }
       emit({ streamId, type: 'done', stopReason })
@@ -75,10 +78,10 @@ export class AiService {
     if (!contents) return null
     const url = URL.canParse(contents.getURL()) ? new URL(contents.getURL()) : null
     if (url && this.store.disabledHosts().includes(url.host)) return null
-    const page = await extractPageText(contents)
+    const page = await extractContext(contents)
     if (!page) return null
     const { text, truncated } = trimPage(page.text)
-    emit({ streamId, type: 'context', title: page.title, truncated })
+    emit({ streamId, type: 'context', title: page.title, truncated, source: page.source })
     return { ...page, text }
   }
 }

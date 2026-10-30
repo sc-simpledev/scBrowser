@@ -1,10 +1,40 @@
-import { ArrowUp, FileText, Plus, Quote, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, SUMMARISE_PROMPT } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
 import { AssistantMarkdown } from './AssistantMarkdown'
+
+function contextLabel({ truncated, source }: Turn) {
+  const what = source === 'transcript' ? 'the transcript of ' : source === 'pdf' ? 'the PDF ' : ''
+  return `Read ${truncated ? `the start of ${what || ''}` : what}`
+}
+
+function ChatList() {
+  const chats = useAssistant((s) => s.chats) ?? []
+  const { openChat, deleteChat } = useAssistant.getState()
+  if (chats.length === 0) return <p className="flex-1 px-3 py-2 text-text-muted">No saved chats yet.</p>
+  return (
+    <ul aria-label="Saved chats" className="min-h-0 flex-1 overflow-y-auto px-1.5">
+      {chats.map((chat) => (
+        <li key={chat.id} className="group flex h-9 items-center gap-1 rounded-md pr-1 hover:bg-surface-hover">
+          <button type="button" onClick={() => openChat(chat.id)} className="h-full min-w-0 flex-1 truncate px-1.5 text-left">
+            {chat.title}
+          </button>
+          <IconButton
+            size="sm"
+            label="Delete chat"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            onClick={() => deleteChat(chat.id)}
+          >
+            <Trash2 size={12} strokeWidth={1.75} />
+          </IconButton>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
   if (turn.role === 'user') {
@@ -16,7 +46,7 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
         <div className="flex items-center gap-1 text-xs text-text-faint">
           <FileText aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">
-            {turn.truncated ? 'Read the start of ' : 'Read '}
+            {contextLabel(turn)}
             {turn.pageTitle}
           </span>
         </div>
@@ -34,8 +64,8 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
 }
 
 export function AssistantPanel() {
-  const { open, status, turns, streamId, includePage, selection, focusRequest } = useAssistant()
-  const { close, reset, send, stop, setIncludePage, clearSelection } = useAssistant.getState()
+  const { open, status, turns, streamId, includePage, selection, focusRequest, chats } = useAssistant()
+  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats } = useAssistant.getState()
   const tab = useActiveTab()
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -70,6 +100,9 @@ export function AssistantPanel() {
         {streamId && <div aria-hidden className="sc-generating absolute inset-x-0 top-0 h-0.5" />}
         <header className="flex h-10 shrink-0 items-center gap-1 pr-1 pl-3">
           <div className="min-w-0 flex-1 truncate text-xs text-text-muted">{status.model ?? 'Assistant'}</div>
+          <IconButton size="sm" label="Saved chats" aria-pressed={!!chats} onClick={toggleChats}>
+            <History size={14} strokeWidth={1.75} />
+          </IconButton>
           <IconButton size="sm" label="New chat" disabled={turns.length === 0} onClick={reset}>
             <Plus size={14} strokeWidth={1.75} />
           </IconButton>
@@ -85,6 +118,8 @@ export function AssistantPanel() {
               Set up AI
             </Button>
           </div>
+        ) : chats ? (
+          <ChatList />
         ) : (
           <>
             <div ref={logRef} role="log" aria-label="Conversation" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-2">

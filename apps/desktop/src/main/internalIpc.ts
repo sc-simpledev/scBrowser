@@ -5,6 +5,7 @@ import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
+import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { PermissionsRepo } from './storage/permissions'
 import type { TabManager } from './tabs/TabManager'
@@ -23,6 +24,7 @@ interface InternalServices {
   onBookmarksChanged: () => void
   aiStore: AiStore
   ai: AiService
+  chats: ChatsRepo
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -58,7 +60,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats } = services
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
@@ -113,7 +115,8 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (role !== 'chat' && role !== 'fast') throw new Error('Unknown role')
       aiStore.setRole(role, { providerId: text(providerId, 64), model: text(model, 256) })
     },
-    'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true)
+    'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
+    'chats:clear': () => chats.clear()
   }
 
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { startAiMock, type AiMock } from './aiMock'
-import { activeTab, go, launch, omnibox, serveSite, shortcut, titled, type Harness, type Site } from './app'
+import { activeTab, go, launch, omnibox, serveSite, setSetting, shortcut, titled, type Harness, type Site } from './app'
 
 const API_KEY = 'test-key-not-real-12345'
 
@@ -153,6 +153,64 @@ test('asks from the address bar without sending the page', async () => {
 
   await expect(panel().getByText('Hello there')).toBeVisible()
   expect(lastUserMessage()).toBe('why is the sky blue')
+})
+
+test('reads PDFs in the viewer', async () => {
+  await addProvider('openai')
+  await go(h, site.url('/report.pdf'))
+  await expect(omnibox(h)).toHaveValue(site.url('/report.pdf'))
+  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  await expect(panel().getByText(/report\.pdf/)).toBeVisible()
+  await ask('What is the code word?')
+  await expect(panel().getByText('Hello there')).toBeVisible()
+  await expect(panel().getByText(/Read the PDF/)).toBeVisible()
+  expect(lastUserMessage()).toContain('marigold')
+})
+
+test('explains when a PDF has no text', async () => {
+  await addProvider('openai')
+  await go(h, site.url('/empty.pdf'))
+  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  await ask('Hi')
+  await expect(panel().getByRole('alert')).toContainText('no text')
+  expect(mock.requests).toHaveLength(0)
+})
+
+test('keeps chats across restarts without storing page text', async () => {
+  await addProvider('openai')
+  await openOnArticle()
+  await ask('What is the ingredient?')
+  await expect(panel().getByText('Hello there')).toBeVisible()
+  await h.close()
+
+  for (const file of readdirSync(h.profile).filter((f) => f.startsWith('browser.db'))) {
+    expect(readFileSync(join(h.profile, file)).includes('cardamom')).toBe(false)
+  }
+
+  h = await launch(h.profile)
+  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  await panel().getByRole('button', { name: 'Saved chats' }).click()
+  await panel().getByRole('button', { name: 'What is the ingredient?' }).click()
+  await expect(panel().getByText('Hello there')).toBeVisible()
+
+  await ask('And another')
+  await expect(panel().getByText('Hello there')).toHaveCount(2)
+  expect(mock.requests.at(-1)?.body.messages?.filter((m) => m.role === 'user')).toHaveLength(2)
+
+  await panel().getByRole('button', { name: 'Saved chats' }).click()
+  await panel().getByRole('listitem').hover()
+  await panel().getByRole('button', { name: 'Delete chat' }).click()
+  await expect(panel().getByText('No saved chats yet.')).toBeVisible()
+})
+
+test('does not save chats when that is turned off', async () => {
+  await addProvider('openai')
+  await setSetting(h, { saveChats: false })
+  await openOnArticle()
+  await ask('Private question')
+  await expect(panel().getByText('Hello there')).toBeVisible()
+  await panel().getByRole('button', { name: 'Saved chats' }).click()
+  await expect(panel().getByText('No saved chats yet.')).toBeVisible()
 })
 
 test('keyboard shortcut toggles the panel', async () => {

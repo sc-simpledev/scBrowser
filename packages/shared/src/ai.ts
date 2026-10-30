@@ -41,6 +41,35 @@ export interface ModelRef {
 export interface ProviderUsage {
   inputTokens: number
   outputTokens: number
+  /** Estimated spend in US dollars; null when any usage came from a model with no known price. */
+  estimatedUsd: number | null
+}
+
+/** Published US dollar prices per million tokens, for Anthropic's own API. */
+const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+  'claude-fable-5-1': { input: 10, output: 50 },
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-opus-5-5': { input: 4, output: 20 },
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-sonnet-5-5': { input: 2, output: 10 },
+  'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
+  'claude-haiku-4-5': { input: 1, output: 5 }
+}
+
+/** Claude Haiku 5.5 charges more once a prompt passes this size. */
+const HAIKU_LONG_PROMPT_TOKENS = 100_000
+const HAIKU_LONG_PROMPT_PRICE = { input: 0.5, output: 2.5 }
+
+export function estimateCost(model: string, inputTokens: number, outputTokens: number): number | null {
+  const base = MODEL_PRICES[model]
+  if (!base) return null
+  const price = model === 'claude-haiku-5-5' && inputTokens > HAIKU_LONG_PROMPT_TOKENS ? HAIKU_LONG_PROMPT_PRICE : base
+  return (inputTokens * price.input + outputTokens * price.output) / 1_000_000
 }
 
 /** What the settings page sees; holds no secrets. */
@@ -75,11 +104,30 @@ export interface AssistantRequest {
   selection: string | null
 }
 
+/** Where the text sent with a message came from. */
+export type ContextSource = 'page' | 'transcript' | 'pdf'
+
 export type AssistantEvent =
-  | { streamId: string; type: 'context'; title: string; truncated: boolean }
+  | { streamId: string; type: 'context'; title: string; truncated: boolean; source: ContextSource }
   | { streamId: string; type: 'text'; text: string }
   | { streamId: string; type: 'done'; stopReason: string | null }
   | { streamId: string; type: 'error'; message: string }
+
+export interface SavedTurn extends AssistantMessage {
+  pageTitle?: string
+  source?: ContextSource
+  truncated?: boolean
+}
+
+export interface ChatSummary {
+  id: string
+  title: string
+  updatedAt: number
+}
+
+export interface SavedChat extends ChatSummary {
+  turns: SavedTurn[]
+}
 
 /** Hands a prompt to the assistant panel, e.g. from a menu or the omnibox. */
 export interface AssistantPrompt {

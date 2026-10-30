@@ -162,6 +162,17 @@ export function SettingsPage() {
         </Row>
       </Section>
 
+      <Section title="Assistant">
+        <Row label="Keep chats on this device" hint="Page text sent with a message isn't kept.">
+          <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
+        </Row>
+        <Row label="Saved chats">
+          <Button variant="ghost" onClick={() => void api().invoke('chats:clear')}>
+            Delete all
+          </Button>
+        </Row>
+      </Section>
+
       <Section title="Site permissions">
         {permissions.length === 0 && <Row label="No sites have asked for permissions yet">{null}</Row>}
         {permissions.map(({ origin, permission, allowed }) => (

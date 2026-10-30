@@ -34,7 +34,14 @@ const MIGRATIONS: string[] = [
      permission TEXT NOT NULL,
      allowed INTEGER NOT NULL,
      PRIMARY KEY (origin, permission)
-   );`
+   );`,
+  `CREATE TABLE chats (
+     id TEXT PRIMARY KEY,
+     title TEXT NOT NULL,
+     turns TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+   );
+   CREATE INDEX chats_updated_at ON chats (updated_at DESC);`
 ]
 
 export function openDatabase(path: string): DatabaseSync {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAnthropicProvider } from './anthropic'
-import { MAX_PAGE_CHARS, trimPage, withContext } from './context'
+import { formatTranscript, MAX_PAGE_CHARS, trimPage, withContext } from './context'
 import { createOpenAiProvider } from './openai'
 import { readServerEvents } from './sse'
 import { AiError, type ChatEvent } from './types'
@@ -103,6 +103,14 @@ describe('withContext', () => {
     expect(message?.content.match(/<\/page>/g)).toHaveLength(1)
     expect(message?.content).not.toContain('<selection>')
     expect(message?.content).not.toContain('title=""')
+  })
+})
+
+describe('formatTranscript', () => {
+  it('keeps the timestamp and text, in any language', () => {
+    expect(formatTranscript(['0:18\n18 seconds\nHello there', ' 1:02 \n 1 Minute, 2 Sekunden \n Hallo \n', '', 'Only text'])).toBe(
+      '[0:18] Hello there\n[1:02] Hallo\nOnly text'
+    )
   })
 })
 

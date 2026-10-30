@@ -7,6 +7,7 @@ import {
   type CommandChannel,
   type OverlayState,
   type PageRect,
+  type SavedTurn,
   type Settings,
   type Suggestion
 } from '@scbrowser/shared'
@@ -18,6 +19,7 @@ import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
+import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { TabManager } from './tabs/TabManager'
 
@@ -63,6 +65,21 @@ const isAssistantRequest = (value: unknown): value is AssistantRequest => {
     (value.selection === null || isShortString(value.selection, MAX_CONVERSATION_CHARS))
   )
 }
+
+const isTurns = (value: unknown): value is SavedTurn[] =>
+  Array.isArray(value) &&
+  value.length <= 500 &&
+  value.every(
+    (t: unknown) =>
+      record(t) &&
+      (t.role === 'user' || t.role === 'assistant') &&
+      isShortString(t.content, MAX_CONVERSATION_CHARS) &&
+      (t.pageTitle === undefined || isShortString(t.pageTitle, 2048)) &&
+      (t.source === undefined || ['page', 'transcript', 'pdf'].includes(t.source as string)) &&
+      (t.truncated === undefined || typeof t.truncated === 'boolean')
+  )
+
+const chatIdArg = (args: unknown[]): args is [string] => args.length === 1 && isShortString(args[0], 64)
 
 const isOverlayState = (value: unknown): value is OverlayState => {
   if (!record(value)) return false
@@ -126,7 +143,12 @@ const validators: Validators = {
   'ai:cancel': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
   'ai:set-site': (args): args is [string, boolean] =>
     args.length === 2 && isShortString(args[0], 512) && typeof args[1] === 'boolean',
-  'ai:open-settings': noArgs
+  'ai:open-settings': noArgs,
+  'chats:list': noArgs,
+  'chats:get': chatIdArg,
+  'chats:save': (args): args is [string, SavedTurn[]] =>
+    args.length === 2 && isShortString(args[0], 64) && isTurns(args[1]),
+  'chats:delete': chatIdArg
 }
 
 interface IpcServices {
@@ -140,6 +162,7 @@ interface IpcServices {
   onBookmarksChanged: () => void
   aiStore: AiStore
   ai: AiService
+  chats: ChatsRepo
 }
 
 /**
@@ -147,7 +170,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai } = services
+  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai, chats } = services
 
   const handlers: Handlers = {
     'tabs:create': (url) => tabs.create(url),
@@ -203,7 +226,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     },
     'ai:cancel': (streamId) => ai.cancel(streamId),
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
-    'ai:open-settings': () => actions.openPage('ai')
+    'ai:open-settings': () => actions.openPage('ai'),
+    'chats:list': () => chats.list(),
+    'chats:get': (id) => chats.get(id),
+    'chats:save': (id, turns) => {
+      if (settings.get().saveChats) chats.save(id, turns)
+    },
+    'chats:delete': (id) => chats.delete(id)
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

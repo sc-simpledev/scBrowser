@@ -7,6 +7,9 @@ import { api } from '../api'
 const CUSTOM = 'custom'
 const numberFormat = new Intl.NumberFormat()
 
+const formatUsd = (amount: number) =>
+  amount > 0 && amount < 0.01 ? 'under $0.01' : amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
@@ -185,6 +188,7 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
       {usage && (
         <p className="text-xs text-text-faint">
           Used {numberFormat.format(usage.inputTokens)} input and {numberFormat.format(usage.outputTokens)} output tokens
+          {usage.estimatedUsd !== null && provider.firstParty && `, about ${formatUsd(usage.estimatedUsd)} at list prices`}
         </p>
       )}
     </li>

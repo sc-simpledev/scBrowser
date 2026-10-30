@@ -347,7 +347,9 @@ export class TabManager {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        webviewTag: false
+        webviewTag: false,
+        // Enables Chromium's built-in PDF viewer.
+        plugins: true
       }
     })
     view.setBorderRadius(PAGE_RADIUS)

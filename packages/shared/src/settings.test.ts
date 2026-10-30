@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { estimateCost } from './ai'
 import { engineById, sanitizeSettings } from './settings'
 
 describe('sanitizeSettings', () => {
@@ -10,6 +11,18 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ theme: 'neon', sleepAfterMinutes: -1, searchEngine: 'x', evil: true })).toEqual({})
     expect(sanitizeSettings({ toString: 'x', constructor: 1 })).toEqual({})
     expect(sanitizeSettings(null)).toEqual({})
+  })
+})
+
+describe('estimateCost', () => {
+  it('prices known models and applies the long-prompt rate', () => {
+    expect(estimateCost('claude-opus-5-5', 1_000_000, 1_000_000)).toBe(24)
+    expect(estimateCost('claude-haiku-5-5', 1_000, 0)).toBeCloseTo(0.0001)
+    expect(estimateCost('claude-haiku-5-5', 200_000, 0)).toBeCloseTo(0.1)
+  })
+
+  it('returns null rather than guessing', () => {
+    expect(estimateCost('some-local-model', 10, 10)).toBeNull()
   })
 })
 

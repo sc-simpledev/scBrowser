@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BookmarksRepo } from './bookmarks'
+import { ChatsRepo } from './chats'
 import { migrate } from './database'
 import { DownloadsRepo } from './downloads'
 import { HistoryRepo } from './history'
@@ -20,6 +21,27 @@ describe('BookmarksRepo', () => {
     repo.toggle('https://a.dev/', 'A')
     expect(repo.list().map((b) => b.title)).toEqual(['A'])
     repo.toggle('https://a.dev/', 'A')
+    expect(repo.list()).toEqual([])
+  })
+})
+
+describe('ChatsRepo', () => {
+  const turns = [
+    { role: 'user' as const, content: 'A very long first question '.repeat(10) },
+    { role: 'assistant' as const, content: 'Answer' }
+  ]
+
+  it('saves, updates, lists newest first and deletes', () => {
+    const repo = new ChatsRepo(db)
+    repo.save('a', turns, 1)
+    repo.save('b', turns, 2)
+    repo.save('a', [...turns, { role: 'user', content: 'More' }], 3)
+    expect(repo.list().map((c) => c.id)).toEqual(['a', 'b'])
+    expect(repo.list()[0]?.title.length).toBeLessThanOrEqual(80)
+    expect(repo.get('a')?.turns).toHaveLength(3)
+    repo.delete('a')
+    expect(repo.get('a')).toBeNull()
+    repo.clear()
     expect(repo.list()).toEqual([])
   })
 })

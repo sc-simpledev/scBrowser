@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import type { ProviderSecret } from '@scbrowser/ai'
-import type { AiState, AiStatus, ModelRef, ModelRole, ProviderConfig, ProviderProtocol, ProviderUsage } from '@scbrowser/shared'
+import { estimateCost, type AiState, type AiStatus, type ModelRef, type ModelRole, type ProviderConfig, type ProviderProtocol, type ProviderUsage } from '@scbrowser/shared'
 import type { KeyValueRepo } from '../storage/kv'
 
 const PROVIDERS = 'ai:providers'
@@ -144,14 +144,17 @@ export class AiStore {
     this.notify()
   }
 
-  addUsage(providerId: string, inputTokens: number, outputTokens: number): void {
+  addUsage(providerId: string, model: string, inputTokens: number, outputTokens: number): void {
     const usage = this.usage()
-    const current = usage[providerId] ?? { inputTokens: 0, outputTokens: 0 }
+    const current = usage[providerId] ?? { inputTokens: 0, outputTokens: 0, estimatedUsd: 0 }
+    // Gateways set their own prices, so only Anthropic's own API gets an estimate.
+    const cost = this.provider(providerId)?.firstParty ? estimateCost(model, inputTokens, outputTokens) : null
     this.kv.set(USAGE, {
       ...usage,
       [providerId]: {
         inputTokens: current.inputTokens + inputTokens,
-        outputTokens: current.outputTokens + outputTokens
+        outputTokens: current.outputTokens + outputTokens,
+        estimatedUsd: cost === null || current.estimatedUsd === null ? null : current.estimatedUsd + cost
       }
     })
     this.notify()

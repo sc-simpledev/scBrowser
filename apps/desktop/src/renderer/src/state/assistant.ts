@@ -1,11 +1,8 @@
 import { create } from 'zustand'
-import type { AiStatus, AssistantEvent, AssistantMessage, AssistantPrompt } from '@scbrowser/shared'
+import type { AiStatus, AssistantEvent, AssistantPrompt, ChatSummary, SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 
-export interface Turn extends AssistantMessage {
-  /** Page title sent along with this turn. */
-  pageTitle?: string
-  truncated?: boolean
+export interface Turn extends SavedTurn {
   error?: string
   /** Why the reply ended early, in words. */
   note?: string
@@ -15,6 +12,9 @@ interface AssistantStore {
   open: boolean
   status: AiStatus
   turns: Turn[]
+  /** Set once the conversation has been saved or reopened. */
+  chatId: string | null
+  chats: ChatSummary[] | null
   streamId: string | null
   includePage: boolean
   selection: string | null
@@ -25,6 +25,9 @@ interface AssistantStore {
   setIncludePage: (includePage: boolean) => void
   clearSelection: () => void
   reset: () => void
+  toggleChats: () => void
+  openChat: (id: string) => void
+  deleteChat: (id: string) => void
   send: (text: string) => void
   stop: () => void
   applyPrompt: (prompt: AssistantPrompt) => void
@@ -41,6 +44,8 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   open: false,
   status: { ready: false, model: null, providerName: null, disabledHosts: [] },
   turns: [],
+  chatId: null,
+  chats: null,
   streamId: null,
   includePage: true,
   selection: null,
@@ -52,15 +57,35 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   clearSelection: () => set({ selection: null }),
   reset: () => {
     get().stop()
-    set({ turns: [], selection: null, includePage: true, streamId: null })
+    set({ turns: [], chatId: null, chats: null, selection: null, includePage: true, streamId: null })
+  },
+
+  toggleChats: () => {
+    if (get().chats) set({ chats: null })
+    else void window.scb.invoke('chats:list').then((chats) => set({ chats }))
+  },
+
+  openChat: (id) => {
+    get().stop()
+    void window.scb.invoke('chats:get', id).then((chat) => {
+      if (chat) set({ turns: chat.turns, chatId: chat.id, chats: null, streamId: null, selection: null })
+    })
+  },
+
+  deleteChat: (id) => {
+    void window.scb.invoke('chats:delete', id)
+    set((s) => ({
+      chats: s.chats?.filter((chat) => chat.id !== id) ?? null,
+      ...(s.chatId === id ? { chatId: null, turns: [] } : {})
+    }))
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns } = get()
+    const { streamId, status, includePage, selection, turns, chatId } = get()
     if (streamId || !status.ready || !text.trim()) return
     const id = crypto.randomUUID()
     const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
-    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null })
+    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, chatId: chatId ?? crypto.randomUUID(), chats: null })
     void window.scb.invoke('ai:send', id, {
       messages: sent.map(({ role, content }) => ({ role, content })),
       tabId: useTabs.getState().activeId,
@@ -80,6 +105,20 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   }
 }))
 
+function saveChat() {
+  const { chatId, turns } = useAssistant.getState()
+  const saved = turns
+    .filter((turn) => turn.content && !turn.error)
+    .map(({ role, content, pageTitle, source, truncated }) => ({
+      role,
+      content,
+      ...(pageTitle === undefined ? {} : { pageTitle }),
+      ...(source === undefined ? {} : { source }),
+      ...(truncated === undefined ? {} : { truncated })
+    }))
+  if (chatId && saved.length > 0) void window.scb.invoke('chats:save', chatId, saved)
+}
+
 function onEvent(event: AssistantEvent) {
   const { streamId, turns } = useAssistant.getState()
   if (event.streamId !== streamId) return
@@ -90,12 +129,13 @@ function onEvent(event: AssistantEvent) {
   if (event.type === 'text') {
     useAssistant.setState({ turns: update({ content: last.content + event.text }) })
   } else if (event.type === 'context') {
-    useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated }) })
+    useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated, source: event.source }) })
   } else if (event.type === 'error') {
     useAssistant.setState({ turns: update({ error: event.message }), streamId: null })
   } else {
     const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
     useAssistant.setState({ turns: update(note ? { note } : {}), streamId: null })
+    saveChat()
   }
 }
 

@@ -52,6 +52,8 @@ export interface Settings {
   /** Empty means the system Downloads folder. */
   downloadDir: string
   askWhereToSave: boolean
+  /** Keep assistant chats on this device between sessions. */
+  saveChats: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -64,7 +66,8 @@ export const DEFAULT_SETTINGS: Settings = {
   startup: 'restore',
   sleepAfterMinutes: 30,
   downloadDir: '',
-  askWhereToSave: false
+  askWhereToSave: false,
+  saveChats: true
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -79,7 +82,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,
-  askWhereToSave: (v) => typeof v === 'boolean'
+  askWhereToSave: (v) => typeof v === 'boolean',
+  saveChats: (v) => typeof v === 'boolean'
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

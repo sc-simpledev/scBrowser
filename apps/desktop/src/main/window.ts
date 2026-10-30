@@ -22,6 +22,7 @@ import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
 import type { BookmarksRepo } from './storage/bookmarks'
+import type { ChatsRepo } from './storage/chats'
 import type { DownloadsRepo } from './storage/downloads'
 import type { HistoryRepo } from './storage/history'
 import type { KeyValueRepo } from './storage/kv'
@@ -42,6 +43,7 @@ export interface Services {
   downloads: DownloadsRepo
   permissions: PermissionsRepo
   aiStore: AiStore
+  chats: ChatsRepo
 }
 
 export interface BrowserWindowHandle {
@@ -163,7 +165,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     actions,
     onBookmarksChanged: publishBookmarks,
     aiStore,
-    ai
+    ai,
+    chats: services.chats
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -175,7 +178,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     permissions: services.permissions,
     onBookmarksChanged: publishBookmarks,
     aiStore,
-    ai
+    ai,
+    chats: services.chats
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
   const unsubscribeAi = aiStore.subscribe(() => send('ai:changed', aiStore.status()))

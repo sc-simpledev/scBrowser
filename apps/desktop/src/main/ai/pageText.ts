@@ -1,11 +1,15 @@
 import type { WebContents } from 'electron'
 import readabilitySource from '@mozilla/readability/Readability.js?raw'
+import { formatTranscript } from '@scbrowser/ai'
+import type { ContextSource } from '@scbrowser/shared'
+import { readPdf } from './pdfText'
 
 /** A private JS world: the page can't see this code or tamper with what it reads. */
 const ISOLATED_WORLD = 1001
 const MIN_ARTICLE_CHARS = 200
+const TRANSCRIPT_WAIT_MS = 6000
 
-const EXTRACT = `(() => {
+const ARTICLE = `(() => {
   ${readabilitySource}
   try {
     const article = new Readability(document.cloneNode(true)).parse()
@@ -16,19 +20,62 @@ const EXTRACT = `(() => {
   return { title: document.title, text: document.body ? document.body.innerText : '' }
 })()`
 
+// YouTube has no public transcript API and its caption URLs now need a token only its
+// player can make, so this does what a person would: press "Show transcript" and read it.
+const YOUTUBE_TRANSCRIPT = `(async () => {
+  const SEGMENTS = 'ytd-transcript-segment-renderer, transcript-segment-view-model'
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  const read = () => [...document.querySelectorAll(SEGMENTS)].map((segment) => segment.innerText)
+  const title = document.querySelector('ytd-watch-metadata h1')?.innerText || document.title
+  let segments = read()
+  if (segments.length === 0) {
+    document.querySelector('#description-inline-expander #expand')?.click()
+    await sleep(300)
+    const button = document.querySelector('ytd-video-description-transcript-section-renderer button')
+    if (!button) return null
+    button.click()
+    for (let waited = 0; waited < ${TRANSCRIPT_WAIT_MS} && segments.length === 0; waited += 200) {
+      await sleep(200)
+      segments = read()
+    }
+  }
+  return segments.length > 0 ? { title, segments } : null
+})()`
+
+export class UnreadablePdfError extends Error {}
+
 export interface PageText {
   title: string
   url: string
   text: string
+  source: ContextSource
 }
 
-/** Reads the main text of a web page; returns null for pages that aren't web content. */
-export async function extractPageText(contents: WebContents): Promise<PageText | null> {
+const isYouTubeWatch = (url: string) => {
+  const { hostname, pathname } = new URL(url)
+  return ['www.youtube.com', 'm.youtube.com', 'youtube.com'].includes(hostname) && pathname === '/watch'
+}
+
+const run = <T>(contents: WebContents, code: string) =>
+  contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }]) as Promise<T>
+
+/** Reads what the tab is showing: a video transcript, a PDF, or the page's main text. */
+export async function extractContext(contents: WebContents): Promise<PageText | null> {
   const url = contents.getURL()
   if (!/^(https?|file):/i.test(url)) return null
-  const result = (await contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: EXTRACT }])) as {
-    title: string
-    text: string
+
+  if (isYouTubeWatch(url)) {
+    const video = await run<{ title: string; segments: string[] } | null>(contents, YOUTUBE_TRANSCRIPT).catch(() => null)
+    if (video) return { url, title: video.title, text: formatTranscript(video.segments), source: 'transcript' }
   }
-  return { url, title: result.title, text: result.text }
+
+  if ((await run<string>(contents, 'document.contentType')) === 'application/pdf') {
+    const pdf = await readPdf(contents)
+    if (!pdf) throw new UnreadablePdfError("This PDF couldn't be read. It may be locked, or too large.")
+    if (!pdf.text) throw new UnreadablePdfError("This PDF has no text to read. It may be a scan.")
+    return { url, title: pdf.title || contents.getTitle(), text: pdf.text, source: 'pdf' }
+  }
+
+  const article = await run<{ title: string; text: string }>(contents, ARTICLE)
+  return { url, ...article, source: 'page' }
 }

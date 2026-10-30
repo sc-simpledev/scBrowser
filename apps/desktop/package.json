@@ -28,6 +28,7 @@
     "electron-builder": "^26.0.0",
     "electron-vite": "^6.0.0",
     "lucide-react": "^1.64.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
