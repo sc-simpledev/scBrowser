@@ -1,8 +1,13 @@
+import { join } from 'node:path'
 import { app } from 'electron'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
+import { openDatabase } from './storage/database'
+import { HistoryRepo } from './storage/history'
 import { createBrowserWindow, type BrowserWindowHandle } from './window'
 
 app.setName('scBrowser')
+// Lets tests (and power users) run with a throwaway profile.
+if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 registerInternalScheme()
 
 // Present a plain Chrome user agent: some sites (notably Google sign-in) refuse
@@ -25,7 +30,9 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     handleInternalPages()
-    main = createBrowserWindow(urlsFromArgv(process.argv))
+    const db = openDatabase(join(app.getPath('userData'), 'browser.db'))
+    app.on('will-quit', () => db.close())
+    main = createBrowserWindow(new HistoryRepo(db), urlsFromArgv(process.argv))
     main.window.on('closed', () => (main = null))
   })
 

@@ -15,8 +15,13 @@ export default defineConfig({
   },
   preload: {
     build: {
+      // Sandboxed preloads can't load shared chunks, so each entry is bundled on its own.
+      isolatedEntries: true,
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/preload/index.ts') }
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          overlay: resolve(__dirname, 'src/preload/overlay.ts')
+        }
       }
     }
   },
@@ -26,7 +31,10 @@ export default defineConfig({
     build: {
       minify: true,
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/renderer/index.html') }
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          overlay: resolve(__dirname, 'src/renderer/overlay.html')
+        }
       }
     }
   }

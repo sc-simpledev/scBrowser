@@ -6,6 +6,24 @@ Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: 
 - **AI:** Bring-your-own API key, plus user-defined **custom providers** (any OpenAI- or Anthropic-compatible endpoint, local Ollama, etc.).
 - **Business model:** decide later — architecture keeps room for a hosted "Pro" tier, sync, or a paid licence without rewrites.
 
+## Status
+
+**Phase 0 — mostly done.** Monorepo, tokens, base components, typed IPC, CI, Playwright E2E. Still to do: Storybook with visual regression, token lint rule, Style Dictionary.
+
+**Phase 1 — in progress.**
+- [x] Tabs (horizontal), new/close/switch/reopen, tab shortcuts
+- [x] Omnibox with history, open-tab and search-engine suggestions
+- [x] Overlay layer for popups and tooltips
+- [x] History storage (SQLite)
+- [ ] Session restore
+- [ ] Bookmarks and bookmarks bar
+- [ ] Downloads manager
+- [ ] Find in page, zoom, print
+- [ ] Permission prompts
+- [ ] Vertical tabs, drag to reorder
+- [ ] `sc://settings`, `sc://history`, search engine choice
+- [ ] Set as default browser, crash recovery, background tab sleeping
+
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.
 
@@ -41,12 +59,12 @@ The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Fi
 | Language / build | TypeScript, `electron-vite`, pnpm workspaces (via `corepack`; Node 22 is installed) |
 | Browser UI ("chrome") | React + Zustand; Tailwind configured **only** from our design tokens (no default palette); Radix primitives (unstyled) skinned by `packages/ui`; Motion (Framer) for springs |
 | Design system | Style Dictionary tokens, Storybook, Lucide/Phosphor icons, bundled Geist/Inter fonts |
-| Storage | SQLite (`better-sqlite3`) for history/bookmarks/sessions; `sqlite-vec` for local embeddings |
+| Storage | SQLite via Electron's built-in `node:sqlite` (no native rebuilds) for history/bookmarks/sessions; embeddings store to be chosen in Phase 4 |
 | Secrets | Electron `safeStorage` (libsecret on Linux, DPAPI on Windows) for API keys |
 | Ad/tracker blocking | `@ghostery/adblocker-electron` with EasyList/EasyPrivacy |
 | Extensions | `electron-chrome-extensions` (partial MV3 — scoped to popular extensions, e.g. password managers) |
 | Reader / page extraction | `@mozilla/readability` in an isolated preload |
-| Packaging / updates | `electron-builder` → AppImage, .deb, .rpm, Flatpak; NSIS + MSIX on Windows; `electron-updater` |
+| Packaging / updates | `electron-builder` → AppImage, .deb (later .rpm, Flatpak); NSIS + MSIX on Windows; `electron-updater` |
 | Tests / CI | Vitest (units), Playwright `_electron` (E2E), GitHub Actions matrix (ubuntu + windows) |
 
 ## Repository layout

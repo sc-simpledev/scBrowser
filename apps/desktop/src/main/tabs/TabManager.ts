@@ -20,6 +20,9 @@ interface TabManagerOptions {
   /** Lets the caller hook keyboard shortcuts and other per-tab behaviour. */
   onTabCreated: (contents: WebContents) => void
   onActivate: (tab: TabState) => void
+  /** A tab committed a navigation (including same-document ones). */
+  onVisit: (url: string) => void
+  onTitle: (url: string, title: string) => void
 }
 
 const PAGE_RADIUS = 10
@@ -204,9 +207,19 @@ export class TabManager {
 
     contents.on('did-start-loading', () => sync({ isLoading: true }))
     contents.on('did-stop-loading', () => sync({ isLoading: false }))
-    contents.on('did-navigate', (_e, url) => sync({ url, faviconUrl: null }))
-    contents.on('did-navigate-in-page', (_e, url) => sync({ url }))
-    contents.on('page-title-updated', (_e, title) => sync({ title }))
+    contents.on('did-navigate', (_e, url) => {
+      sync({ url, faviconUrl: null })
+      this.options.onVisit(url)
+    })
+    contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+      if (!isMainFrame) return
+      sync({ url })
+      this.options.onVisit(url)
+    })
+    contents.on('page-title-updated', (_e, title) => {
+      sync({ title })
+      this.options.onTitle(state.url, title)
+    })
     contents.on('page-favicon-updated', (_e, favicons) => sync({ faviconUrl: favicons[0] ?? null }))
 
     // Links with target=_blank and window.open land in a new tab next to their opener.

@@ -8,13 +8,17 @@ files:
   - package.json
 asar: true
 linux:
-  target: [AppImage, deb, rpm]
+  target: [AppImage, deb]
+  maintainer: sc-simpledev <sc-simpledev@users.noreply.github.com>
   category: Network;WebBrowser
   executableName: scbrowser
   mimeTypes: [text/html, x-scheme-handler/http, x-scheme-handler/https]
   desktop:
     entry:
       StartupWMClass: scBrowser
+deb:
+  packageName: scbrowser
+  artifactName: scbrowser_${version}_${arch}.${ext}
 win:
   target: [nsis]
   executableName: scBrowser

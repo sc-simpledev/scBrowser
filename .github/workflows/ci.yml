@@ -22,6 +22,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm build
+      - name: End-to-end tests (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          xvfb-run -a pnpm exec playwright test
+      - name: End-to-end tests (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm exec playwright test
       - run: pnpm dist
       - uses: actions/upload-artifact@v4
         with:

@@ -1,5 +1,5 @@
 export { cx } from './cx'
 export { Button } from './components/Button'
 export { IconButton } from './components/IconButton'
-export { Tooltip, TooltipProvider } from './components/Tooltip'
+export { Tooltip, TooltipBubble, TooltipProvider, type TooltipAnchor, type TooltipHost } from './components/Tooltip'
 export { NATIVE_THEME } from './native-theme'

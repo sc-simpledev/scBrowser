@@ -11,9 +11,11 @@
     "dist": "pnpm --filter @scbrowser/desktop dist",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "postinstall": "node node_modules/electron/install.js"
+    "postinstall": "node node_modules/electron/install.js",
+    "e2e": "pnpm build && playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
   }

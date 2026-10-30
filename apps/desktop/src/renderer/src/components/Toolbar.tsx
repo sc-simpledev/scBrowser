@@ -11,26 +11,25 @@ export function Toolbar() {
 
   return (
     <div className="relative flex h-(--sc-toolbar-height) shrink-0 items-center gap-1 px-1.5">
-      {/* Tooltips open upwards: anything below the toolbar is covered by the page view. */}
       <div className="flex items-center">
-        <IconButton label="Back" shortcut="Alt ←" side="top" disabled={!tab?.canGoBack} onClick={() => invoke('tabs:back')}>
+        <IconButton label="Back" shortcut="Alt ←" disabled={!tab?.canGoBack} onClick={() => invoke('tabs:back')}>
           <ArrowLeft size={16} strokeWidth={1.75} />
         </IconButton>
         <IconButton
           label="Forward"
           shortcut="Alt →"
-          side="top"
+         
           disabled={!tab?.canGoForward}
           onClick={() => invoke('tabs:forward')}
         >
           <ArrowRight size={16} strokeWidth={1.75} />
         </IconButton>
         {tab?.isLoading ? (
-          <IconButton label="Stop" side="top" onClick={() => invoke('tabs:stop')}>
+          <IconButton label="Stop" onClick={() => invoke('tabs:stop')}>
             <X size={16} strokeWidth={1.75} />
           </IconButton>
         ) : (
-          <IconButton label="Reload" shortcut="Ctrl R" side="top" disabled={!tab} onClick={() => invoke('tabs:reload')}>
+          <IconButton label="Reload" shortcut="Ctrl R" disabled={!tab} onClick={() => invoke('tabs:reload')}>
             <RotateCw size={15} strokeWidth={1.75} />
           </IconButton>
         )}

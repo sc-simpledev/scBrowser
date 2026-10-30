@@ -12,6 +12,7 @@ pnpm install
 pnpm dev          # run with hot reload
 pnpm typecheck
 pnpm test
+pnpm e2e          # drive the built app with Playwright
 pnpm dist         # build installers into apps/desktop/release
 ```
 

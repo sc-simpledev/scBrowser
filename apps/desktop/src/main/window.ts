@@ -3,7 +3,9 @@ import { BrowserWindow, nativeTheme, shell } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import { isNewTabUrl, type ChromeEvents, type EventChannel } from '@scbrowser/shared'
 import { registerIpc } from './ipc'
+import { Overlay } from './overlay'
 import { attachShortcuts } from './shortcuts'
+import type { HistoryRepo } from './storage/history'
 import { TabManager } from './tabs/TabManager'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
@@ -15,7 +17,7 @@ export interface BrowserWindowHandle {
   tabs: TabManager
 }
 
-export function createBrowserWindow(initialUrls: string[] = []): BrowserWindowHandle {
+export function createBrowserWindow(history: HistoryRepo, initialUrls: string[] = []): BrowserWindowHandle {
   const colors = nativeColors()
   const window = new BrowserWindow({
     width: 1320,
@@ -50,12 +52,18 @@ export function createBrowserWindow(initialUrls: string[] = []): BrowserWindowHa
       const active = snapshot.tabs.find((t) => t.id === snapshot.activeId)
       window.setTitle(active?.title ? `${active.title} — scBrowser` : 'scBrowser')
     },
-    onTabCreated: (contents) => attachShortcuts(contents, { tabs, focusOmnibox }),
-    onActivate: (tab) => (isNewTabUrl(tab.url) ? focusOmnibox() : tabs.focusActive())
+    onTabCreated: (contents) => {
+      attachShortcuts(contents, { tabs, focusOmnibox })
+      overlay.raise()
+    },
+    onActivate: (tab) => (isNewTabUrl(tab.url) ? focusOmnibox() : tabs.focusActive()),
+    onVisit: (url) => history.recordVisit(url),
+    onTitle: (url, title) => history.updateTitle(url, title)
   })
+  const overlay = new Overlay(window, (index) => send('omnibox:pick', index))
 
   attachShortcuts(chromeUi, { tabs, focusOmnibox })
-  const disposeIpc = registerIpc(chromeUi, tabs)
+  const disposeIpc = registerIpc(chromeUi, { tabs, history, overlay })
 
   // The chrome UI itself must never navigate away or open windows.
   chromeUi.on('will-navigate', (event) => event.preventDefault())
@@ -83,6 +91,7 @@ export function createBrowserWindow(initialUrls: string[] = []): BrowserWindowHa
   window.on('closed', () => {
     nativeTheme.off('updated', syncTheme)
     disposeIpc()
+    overlay.destroy()
     tabs.destroy()
   })
 
