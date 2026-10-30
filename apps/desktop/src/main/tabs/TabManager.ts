@@ -3,8 +3,8 @@ import { WebContentsView, type BaseWindow, type WebContents } from 'electron'
 import {
   effectiveUrl,
   ERROR_PAGE_URL,
-  errorPageUrl,
   isNewTabUrl,
+  isReaderUrl,
   NEW_TAB_URL,
   resolveOmniboxInput,
   type PageRect,
@@ -44,6 +44,8 @@ interface TabManagerOptions {
   onFound: (result: { active: number; total: number }) => void
   onFullscreen: (fullscreen: boolean) => void
   engine: () => SearchEngine
+  /** Builds the error page address for a failed load. */
+  errorUrl: (url: string, reason: string) => string
 }
 
 const PAGE_RADIUS = 10
@@ -198,6 +200,13 @@ export class TabManager {
     else contents?.reload()
   }
 
+  /** Leaves reader view for the original page. */
+  exitReader(id: TabId): void {
+    const contents = this.contents(id)
+    const url = contents?.getURL() ?? ''
+    if (isReaderUrl(url)) void contents?.loadURL(effectiveUrl(url))
+  }
+
   stop(id: TabId): void {
     this.contents(id)?.stop()
   }
@@ -269,6 +278,15 @@ export class TabManager {
     return this.contents(id)
   }
 
+  noteBlocked(webContentsId: number): void {
+    for (const tab of this.tabs.values()) {
+      if (tab.view && !tab.view.webContents.isDestroyed() && tab.view.webContents.id === webContentsId) {
+        tab.state.blockedCount++
+        this.emitChange()
+      }
+    }
+  }
+
   owns(contents: WebContents): boolean {
     return [...this.tabs.values()].some((tab) => tab.view?.webContents === contents)
   }
@@ -325,7 +343,8 @@ export class TabManager {
         canGoBack: false,
         canGoForward: false,
         isSleeping: saved !== null,
-        zoomPercent: 100
+        zoomPercent: 100,
+        blockedCount: 0
       },
       view: null,
       saved,
@@ -407,7 +426,7 @@ export class TabManager {
     contents.on('did-start-loading', () => sync({ isLoading: true }))
     contents.on('did-stop-loading', () => sync({ isLoading: false }))
     contents.on('did-navigate', (_e, url) => {
-      sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
+      sync({ url, faviconUrl: null, blockedCount: 0, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
       this.options.onVisit(url)
     })
     contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -426,11 +445,11 @@ export class TabManager {
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 
     contents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
-      if (isMainFrame && code !== ABORTED && !isInternal(url)) void contents.loadURL(errorPageUrl(url, description))
+      if (isMainFrame && code !== ABORTED && !isInternal(url)) void contents.loadURL(this.options.errorUrl(url, description))
     })
     contents.on('render-process-gone', (_e, { reason }) => {
       if (reason === 'clean-exit') return
-      void contents.loadURL(errorPageUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
+      void contents.loadURL(this.options.errorUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
     })
 
     contents.on('enter-html-full-screen', () => this.setFullscreen(true))

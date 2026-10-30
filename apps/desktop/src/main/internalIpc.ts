@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type Perm
 import type { AiService } from './ai/service'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
+import type { PrivacyService } from './privacy/service'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -25,6 +26,7 @@ interface InternalServices {
   aiStore: AiStore
   ai: AiService
   chats: ChatsRepo
+  privacy: PrivacyService
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -60,7 +62,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy } = services
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
@@ -116,7 +118,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
       aiStore.setRole(role, { providerId: text(providerId, 64), model: text(model, 256) })
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
-    'chats:clear': () => chats.clear()
+    'chats:clear': () => chats.clear(),
+    'privacy:off-hosts': () => privacy.offHosts(),
+    'privacy:toggle-site': (host) => privacy.toggleSite(text(host, 512)),
+    'privacy:allow-http': (url) => privacy.allowHttp(text(url))
   }
 
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {

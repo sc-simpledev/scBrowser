@@ -45,6 +45,8 @@ export interface ChromeCommands {
   'chats:get': (id: string) => SavedChat | null
   'chats:save': (id: string, turns: SavedTurn[]) => void
   'chats:delete': (id: string) => void
+  'privacy:toggle-site': (host: string) => void
+  'reader:toggle': () => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -62,12 +64,15 @@ export interface ChromeEvents {
   'ai:event': AssistantEvent
   'ui:assistant-toggle': void
   'ui:assistant-prompt': AssistantPrompt
+  'privacy:changed': string[]
 }
 
 /** Commands the overlay view sends to the main process. */
 export interface OverlayCommands {
   'overlay:pick': (index: number) => void
   'overlay:permission': (requestId: number, allow: boolean) => void
+  'overlay:palette-run': (id: string) => void
+  'overlay:palette-close': () => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -114,7 +119,9 @@ export const COMMAND_CHANNELS = [
   'chats:list',
   'chats:get',
   'chats:save',
-  'chats:delete'
+  'chats:delete',
+  'privacy:toggle-site',
+  'reader:toggle'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -129,10 +136,11 @@ export const EVENT_CHANNELS = [
   'ai:changed',
   'ai:event',
   'ui:assistant-toggle',
-  'ui:assistant-prompt'
+  'ui:assistant-prompt',
+  'privacy:changed'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -180,6 +188,9 @@ export interface InternalCommands {
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'chats:clear': () => void
+  'privacy:off-hosts': () => string[]
+  'privacy:toggle-site': (host: string) => void
+  'privacy:allow-http': (url: string) => void
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -207,7 +218,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:models',
   'ai:set-role',
   'ai:set-site',
-  'chats:clear'
+  'chats:clear',
+  'privacy:off-hosts',
+  'privacy:toggle-site',
+  'privacy:allow-http'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

@@ -32,6 +32,8 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (key === 'f11') return run(actions.toggleFullscreen)
   if (mod && !input.shift && key === 'f') return run(actions.openFind)
   if (mod && !input.shift && key === 'd') return run(actions.toggleBookmark)
+  if (mod && !input.shift && key === 'k') return run(actions.togglePalette)
+  if (key === 'f9') return run(actions.toggleReader)
   if (mod && input.shift && key === 'a') return run(actions.toggleAssistant)
   if (mod && input.shift && key === 'b') return run(actions.toggleBookmarksBar)
   if (mod && input.shift && key === 'o') return run(() => actions.openPage('bookmarks'))

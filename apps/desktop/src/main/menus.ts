@@ -29,6 +29,15 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { label: 'Copy image', click: () => contents.copyImageAt(params.x, params.y) }
     ])
   }
+  if (params.mediaType === 'video') {
+    groups.push([
+      {
+        label: 'Picture in picture',
+        // Browsers only allow this from a user gesture, which the second argument vouches for.
+        click: () => void contents.executeJavaScript('document.querySelector("video")?.requestPictureInPicture()', true).catch(() => undefined)
+      }
+    ])
+  }
   if (params.isEditable) {
     groups.push([
       { role: 'undo', label: 'Undo', enabled: params.editFlags.canUndo },
@@ -114,6 +123,8 @@ export function popupAppMenu(actions: BrowserActions, showBookmarksBar: boolean,
     { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: showBookmarksBar, click: actions.toggleBookmarksBar },
     { type: 'separator' },
     { label: 'Find in page…', accelerator: 'Ctrl+F', click: actions.openFind },
+    { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
+    { label: 'Command palette', accelerator: 'Ctrl+K', click: actions.togglePalette },
     { label: 'Print…', accelerator: 'Ctrl+P', click: onActive((id) => tabs.print(id)) },
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,

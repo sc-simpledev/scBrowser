@@ -11,7 +11,8 @@ const tab = (id: number, url: string, title = ''): TabState => ({
   canGoBack: false,
   canGoForward: false,
   isSleeping: false,
-  zoomPercent: 100
+  zoomPercent: 100,
+  blockedCount: 0
 })
 
 const visit = (url: string, title = ''): HistoryEntry => ({ url, title, visitCount: 1, lastVisit: 0 })

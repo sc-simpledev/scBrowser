@@ -11,6 +11,8 @@ export interface BrowserActions {
   toggleFullscreen: () => void
   openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'downloads') => void
   toggleAssistant: () => void
+  toggleReader: () => void
+  togglePalette: () => void
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void
 }

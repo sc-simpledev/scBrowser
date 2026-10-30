@@ -1,5 +1,6 @@
 import type { PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
+import type { AccentId } from './privacy'
 import type { PageRect } from './tabs'
 
 /**
@@ -33,6 +34,9 @@ export interface PermissionPopupState {
 
 export interface OverlayView extends OverlayState {
   permission: PermissionPopupState | null
+  /** Left edge and top of the command palette, when it's open. */
+  palette: { x: number; y: number } | null
+  accent: AccentId
 }
 
 export const EMPTY_OVERLAY: OverlayState = { omnibox: null, tooltip: null }
@@ -44,6 +48,7 @@ export const POPUP_PADDING = 4
 export const POPUP_GAP = 4
 export const TOOLTIP_GAP = 6
 export const TOOLTIP_REGION = { width: 320, height: 28 }
+export const PALETTE_POPUP = { width: 560, height: 380, top: 72 }
 export const PERMISSION_POPUP = { width: 340, height: 120, inset: 8 }
 
 /** Window-space rectangle each popup occupies, including its shadow margin. */
@@ -65,6 +70,14 @@ export function overlayRegions(state: OverlayView): PageRect[] {
       y: anchor.y + anchor.height + TOOLTIP_GAP - OVERLAY_MARGIN,
       width: TOOLTIP_REGION.width,
       height: TOOLTIP_REGION.height + OVERLAY_MARGIN * 2
+    })
+  }
+  if (state.palette) {
+    regions.push({
+      x: state.palette.x - OVERLAY_MARGIN,
+      y: state.palette.y - OVERLAY_MARGIN,
+      width: PALETTE_POPUP.width + OVERLAY_MARGIN * 2,
+      height: PALETTE_POPUP.height + OVERLAY_MARGIN * 2
     })
   }
   if (state.permission) {

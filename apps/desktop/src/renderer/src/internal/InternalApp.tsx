@@ -24,6 +24,12 @@ export function InternalApp() {
     document.title = title
   }, [title])
 
+  useEffect(() => {
+    void window.scbInternal.invoke('settings:get').then(({ accent }) => {
+      document.documentElement.dataset.accent = accent
+    })
+  }, [])
+
   return (
     <TooltipProvider>
       <div className="flex h-full">

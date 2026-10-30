@@ -4,9 +4,11 @@ import {
   EMPTY_OVERLAY,
   overlayRegions,
   unionRect,
+  type AccentId,
   type OverlayState,
   type OverlayView,
-  type PermissionPopupState
+  type PermissionPopupState,
+  PALETTE_POPUP
 } from '@scbrowser/shared'
 
 /**
@@ -17,12 +19,14 @@ export class Overlay {
   readonly view: WebContentsView
   private state: OverlayState = EMPTY_OVERLAY
   private permission: PermissionPopupState | null = null
+  private palette: { x: number; y: number } | null = null
   private destroyed = false
 
   constructor(
     private readonly window: BaseWindow,
     onPick: (index: number) => void,
-    onPermission: (requestId: number, allow: boolean) => void
+    onPermission: (requestId: number, allow: boolean) => void,
+    private readonly hooks: { onPaletteRun: (id: string) => void; onPaletteClose: () => void; accent: () => AccentId }
   ) {
     this.view = new WebContentsView({
       webPreferences: {
@@ -49,6 +53,16 @@ export class Overlay {
       if (!Number.isInteger(requestId) || typeof allow !== 'boolean') throw new Error('Invalid arguments')
       onPermission(requestId as number, allow)
     })
+    ipcMain.handle('overlay:palette-run', (event, id: unknown) => {
+      if (event.sender !== contents) throw new Error('Rejected overlay:palette-run from untrusted sender')
+      if (typeof id !== 'string') throw new Error('Invalid arguments')
+      this.closePalette()
+      hooks.onPaletteRun(id)
+    })
+    ipcMain.handle('overlay:palette-close', (event) => {
+      if (event.sender !== contents) throw new Error('Rejected overlay:palette-close from untrusted sender')
+      this.closePalette()
+    })
     // A crashed overlay shouldn't take popups down for the rest of the session.
     contents.on('render-process-gone', () => contents.reload())
 
@@ -71,8 +85,26 @@ export class Overlay {
     this.render()
   }
 
+  togglePalette(): void {
+    if (this.palette) {
+      this.closePalette()
+      return
+    }
+    const { width } = this.window.getContentBounds()
+    this.palette = { x: Math.max(0, Math.round((width - PALETTE_POPUP.width) / 2)), y: PALETTE_POPUP.top }
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  private closePalette(): void {
+    if (!this.palette) return
+    this.palette = null
+    this.render()
+    this.hooks.onPaletteClose()
+  }
+
   private current(): OverlayView {
-    return { ...this.state, permission: this.permission }
+    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent() }
   }
 
   private render(): void {
@@ -100,6 +132,8 @@ export class Overlay {
     this.destroyed = true
     ipcMain.removeHandler('overlay:pick')
     ipcMain.removeHandler('overlay:permission')
+    ipcMain.removeHandler('overlay:palette-run')
+    ipcMain.removeHandler('overlay:palette-close')
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 

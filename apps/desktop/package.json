@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json"
   },
   "devDependencies": {
+    "@ghostery/adblocker": "^2.20.3",
     "@mozilla/readability": "^0.6.0",
     "@scbrowser/ai": "workspace:*",
     "@scbrowser/shared": "workspace:*",

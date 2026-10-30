@@ -170,7 +170,9 @@ test('reads PDFs in the viewer', async () => {
 test('explains when a PDF has no text', async () => {
   await addProvider('openai')
   await go(h, site.url('/empty.pdf'))
+  await expect(omnibox(h)).toHaveValue(site.url('/empty.pdf'))
   await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  await expect(panel().getByText(/empty\.pdf/)).toBeVisible()
   await ask('Hi')
   await expect(panel().getByRole('alert')).toContainText('no text')
   expect(mock.requests).toHaveLength(0)

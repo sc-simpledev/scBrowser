@@ -11,6 +11,7 @@
 
 :root {
   color-scheme: light dark;
+  --sc-hue: 38;
 
   /* Colour — light */
   --sc-bg: oklch(0.955 0.004 80);
@@ -23,11 +24,11 @@
   --sc-text: oklch(0.22 0.01 70);
   --sc-text-muted: oklch(0.47 0.01 70);
   --sc-text-faint: oklch(0.6 0.008 70);
-  --sc-accent: oklch(0.62 0.18 38);
-  --sc-accent-hover: oklch(0.57 0.18 38);
-  --sc-accent-soft: oklch(0.62 0.18 38 / 0.12);
+  --sc-accent: oklch(0.62 0.18 var(--sc-hue));
+  --sc-accent-hover: oklch(0.57 0.18 var(--sc-hue));
+  --sc-accent-soft: oklch(0.62 0.18 var(--sc-hue) / 0.12);
   --sc-on-accent: oklch(0.99 0 0);
-  --sc-focus-ring: oklch(0.62 0.18 38 / 0.55);
+  --sc-focus-ring: oklch(0.62 0.18 var(--sc-hue) / 0.55);
   --sc-danger: oklch(0.58 0.2 25);
 
   /* Typography */
@@ -71,6 +72,23 @@
   --sc-page-inset: 6px;
 }
 
+/* The accent is one hue swapped across every shade above. */
+:root[data-accent='ocean'] {
+  --sc-hue: 240;
+}
+
+:root[data-accent='forest'] {
+  --sc-hue: 155;
+}
+
+:root[data-accent='iris'] {
+  --sc-hue: 285;
+}
+
+:root[data-accent='rose'] {
+  --sc-hue: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --sc-bg: oklch(0.185 0.006 70);
@@ -83,11 +101,11 @@
     --sc-text: oklch(0.94 0.006 80);
     --sc-text-muted: oklch(0.72 0.008 80);
     --sc-text-faint: oklch(0.56 0.008 80);
-    --sc-accent: oklch(0.7 0.16 42);
-    --sc-accent-hover: oklch(0.75 0.15 42);
-    --sc-accent-soft: oklch(0.7 0.16 42 / 0.16);
+    --sc-accent: oklch(0.7 0.16 var(--sc-hue));
+    --sc-accent-hover: oklch(0.75 0.15 var(--sc-hue));
+    --sc-accent-soft: oklch(0.7 0.16 var(--sc-hue) / 0.16);
     --sc-on-accent: oklch(0.18 0.01 60);
-    --sc-focus-ring: oklch(0.7 0.16 42 / 0.6);
+    --sc-focus-ring: oklch(0.7 0.16 var(--sc-hue) / 0.6);
     --sc-shadow-1: 0 0 0 1px var(--sc-border), 0 1px 2px oklch(0 0 0 / 0.3);
     --sc-shadow-2: 0 0 0 1px var(--sc-border), 0 4px 12px oklch(0 0 0 / 0.35);
     --sc-shadow-3: 0 0 0 1px var(--sc-border), 0 12px 32px oklch(0 0 0 / 0.5);

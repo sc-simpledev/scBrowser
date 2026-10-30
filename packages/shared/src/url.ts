@@ -44,13 +44,18 @@ export function isNewTabUrl(url: string): boolean {
 
 export const ERROR_PAGE_URL = 'sc://error/'
 
-export function errorPageUrl(failedUrl: string, reason: string): string {
-  return `${ERROR_PAGE_URL}?${new URLSearchParams({ url: failedUrl, reason })}`
+export const READER_PAGE_URL = 'sc://reader/'
+
+/** `httpUrl` offers a way back to plain HTTP when an automatic HTTPS upgrade failed. */
+export function errorPageUrl(failedUrl: string, reason: string, httpUrl?: string | null): string {
+  return `${ERROR_PAGE_URL}?${new URLSearchParams({ url: failedUrl, reason, ...(httpUrl ? { http: httpUrl } : {}) })}`
 }
 
-/** The address a tab should present and reload: an error page stands in for the page that failed. */
+export const isReaderUrl = (url: string) => url.startsWith(READER_PAGE_URL)
+
+/** The address a tab should present: error and reader pages stand in for the real page. */
 export function effectiveUrl(url: string): string {
-  if (!url.startsWith(ERROR_PAGE_URL)) return url
+  if (!url.startsWith(ERROR_PAGE_URL) && !isReaderUrl(url)) return url
   return new URL(url).searchParams.get('url') ?? url
 }
 

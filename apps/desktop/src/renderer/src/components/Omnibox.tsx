@@ -1,4 +1,4 @@
-import { Lock, Search, Star, TriangleAlert } from 'lucide-react'
+import { BookOpen, Lock, Search, ShieldCheck, ShieldOff, Star, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import {
@@ -6,6 +6,7 @@ import {
   displayUrl,
   effectiveUrl,
   engineById,
+  isReaderUrl,
   type HistoryEntry,
   type Suggestion
 } from '@scbrowser/shared'
@@ -70,6 +71,8 @@ export function Omnibox() {
   const bookmarks = useApp((s) => s.bookmarks)
   const searchEngine = useApp((s) => s.settings.searchEngine)
   const assistantModel = useAssistant((s) => s.status.model)
+  const protection = useApp((s) => s.settings.trackingProtection)
+  const privacyOffHosts = useApp((s) => s.privacyOffHosts)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
@@ -79,6 +82,7 @@ export function Omnibox() {
 
   const url = tab ? displayUrl(tab.url) : ''
   const bookmarked = bookmarks.some((b) => b.url === url)
+  const protectionOff = !!tab && URL.canParse(tab.url) && privacyOffHosts.includes(new URL(tab.url).host)
   const value = draft ?? url
   const formatted = !focused && draft === null ? formatUrl(url) : null
 
@@ -225,6 +229,29 @@ export function Omnibox() {
           </div>
         )}
       </div>
+      {tab && /^https?:/.test(tab.url) && protection !== 'off' && (
+        <IconButton
+          size="sm"
+          label={protectionOff ? 'Tracking protection is off here' : `${tab.blockedCount} blocked. Turn off for this site`}
+          className="w-auto min-w-6 gap-0.5 px-1"
+          onClick={() => void window.scb.invoke('privacy:toggle-site', new URL(tab.url).host)}
+        >
+          {protectionOff ? <ShieldOff size={14} strokeWidth={1.75} /> : <ShieldCheck size={14} strokeWidth={1.75} />}
+          {!protectionOff && tab.blockedCount > 0 && <span className="text-2xs font-medium">{tab.blockedCount}</span>}
+        </IconButton>
+      )}
+      {tab && (/^https?:/.test(tab.url) || isReaderUrl(tab.url)) && (
+        <IconButton
+          size="sm"
+          label={isReaderUrl(tab.url) ? 'Leave reader view' : 'Reader view'}
+          shortcut="F9"
+          aria-pressed={isReaderUrl(tab.url)}
+          className={isReaderUrl(tab.url) ? 'text-accent' : undefined}
+          onClick={() => void window.scb.invoke('reader:toggle')}
+        >
+          <BookOpen size={14} strokeWidth={1.75} />
+        </IconButton>
+      )}
       {tab && tab.zoomPercent !== 100 && (
         <button
           type="button"

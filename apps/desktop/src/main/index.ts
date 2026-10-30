@@ -53,7 +53,8 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(null)
     handleInternalPages()
     const db = openDatabase(join(app.getPath('userData'), 'browser.db'))
-    app.on('will-quit', () => db.close())
+    // The last step of quitting: tabs winding down can still touch the database until then.
+    app.on('quit', () => db.close())
     const kv = new KeyValueRepo(db)
     main = createBrowserWindow(
       {

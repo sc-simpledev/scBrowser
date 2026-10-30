@@ -11,6 +11,8 @@ export interface TabState {
   /** Unloaded to save memory; wakes when activated. */
   isSleeping: boolean
   zoomPercent: number
+  /** Ads and trackers stopped on the current page. */
+  blockedCount: number
 }
 
 export interface TabsSnapshot {

@@ -4,6 +4,7 @@ import { net, protocol, session } from 'electron'
 import { INTERNAL_PAGES, type InternalPage } from '@scbrowser/shared'
 import { errorPage } from './error'
 import { newTabPage } from './newtab'
+import { READER_CSP, readerPage } from './reader'
 
 export const INTERNAL_SCHEME = 'sc'
 
@@ -47,6 +48,11 @@ export function handleInternalPages(): void {
   session.defaultSession.protocol.handle(INTERNAL_SCHEME, (request) => {
     const url = new URL(request.url)
     if (isAppPage(url.host)) return serveAppPage(url)
+    if (url.host === 'reader') {
+      const page = readerPage(url.searchParams.get('id'))
+      if (!page) return new Response('This article has expired.', { status: 404 })
+      return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': READER_CSP } })
+    }
     const render = staticPages[url.host]
     if (!render) return new Response('Not found', { status: 404 })
     return new Response(render(), {

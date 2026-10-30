@@ -1,3 +1,4 @@
+import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
 
 export interface EngineOption extends SearchEngine {
@@ -54,6 +55,10 @@ export interface Settings {
   askWhereToSave: boolean
   /** Keep assistant chats on this device between sessions. */
   saveChats: boolean
+  /** Standard blocks ads and trackers; strict also blocks annoyances like cookie banners. */
+  trackingProtection: 'off' | 'standard' | 'strict'
+  httpsOnly: boolean
+  accent: AccentId
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -67,7 +72,10 @@ export const DEFAULT_SETTINGS: Settings = {
   sleepAfterMinutes: 30,
   downloadDir: '',
   askWhereToSave: false,
-  saveChats: true
+  saveChats: true,
+  trackingProtection: 'standard',
+  httpsOnly: true,
+  accent: 'ember'
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -83,7 +91,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,
   askWhereToSave: (v) => typeof v === 'boolean',
-  saveChats: (v) => typeof v === 'boolean'
+  saveChats: (v) => typeof v === 'boolean',
+  trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
+  httpsOnly: (v) => typeof v === 'boolean',
+  accent: (v) => ACCENTS.some((accent) => accent.id === v)
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

@@ -17,6 +17,7 @@ import type { AiStore } from './ai/store'
 import { popupAppMenu, popupBookmarkMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
+import type { PrivacyService } from './privacy/service'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -148,7 +149,9 @@ const validators: Validators = {
   'chats:get': chatIdArg,
   'chats:save': (args): args is [string, SavedTurn[]] =>
     args.length === 2 && isShortString(args[0], 64) && isTurns(args[1]),
-  'chats:delete': chatIdArg
+  'chats:delete': chatIdArg,
+  'privacy:toggle-site': (args): args is [string] => args.length === 1 && isShortString(args[0], 512),
+  'reader:toggle': noArgs
 }
 
 interface IpcServices {
@@ -163,6 +166,7 @@ interface IpcServices {
   aiStore: AiStore
   ai: AiService
   chats: ChatsRepo
+  privacy: PrivacyService
 }
 
 /**
@@ -170,7 +174,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai, chats } = services
+  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai, chats, privacy } = services
 
   const handlers: Handlers = {
     'tabs:create': (url) => tabs.create(url),
@@ -232,7 +236,12 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'chats:save': (id, turns) => {
       if (settings.get().saveChats) chats.save(id, turns)
     },
-    'chats:delete': (id) => chats.delete(id)
+    'chats:delete': (id) => chats.delete(id),
+    'privacy:toggle-site': (host) => {
+      privacy.toggleSite(host)
+      if (tabs.active) tabs.reload(tabs.active.id)
+    },
+    'reader:toggle': () => actions.toggleReader()
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

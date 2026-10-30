@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Select, Switch } from '@scbrowser/ui'
 import {
+  ACCENTS,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
   type InternalCommands,
@@ -35,12 +36,14 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [permissions, setPermissions] = useState<PermissionDecision[]>([])
   const [isDefault, setIsDefault] = useState(false)
+  const [offHosts, setOffHosts] = useState<string[]>([])
   const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
 
   useEffect(() => {
     void api().invoke('settings:get').then(setSettings)
     void api().invoke('permissions:list').then(setPermissions)
     void api().invoke('browser:is-default').then(setIsDefault)
+    void api().invoke('privacy:off-hosts').then(setOffHosts)
     void api().invoke('browser:version').then(setVersion)
   }, [])
 
@@ -66,6 +69,23 @@ export function SettingsPage() {
             <option value="dark">Dark</option>
           </Select>
         </Row>
+        <Row label="Accent colour">
+          <Select
+            aria-label="Accent colour"
+            value={settings.accent}
+            onChange={(e) => {
+              const accent = e.target.value as Settings['accent']
+              document.documentElement.dataset.accent = accent
+              update({ accent })
+            }}
+          >
+            {ACCENTS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </Select>
+        </Row>
         <Row label="Tab layout">
           <Select
             aria-label="Tab layout"
@@ -83,6 +103,36 @@ export function SettingsPage() {
             onChange={(showBookmarksBar) => update({ showBookmarksBar })}
           />
         </Row>
+      </Section>
+
+      <Section title="Privacy">
+        <Row label="Tracking protection" hint="Blocks ads and trackers. Filter lists download once and refresh when needed.">
+          <Select
+            aria-label="Tracking protection"
+            value={settings.trackingProtection}
+            onChange={(e) => update({ trackingProtection: e.target.value as Settings['trackingProtection'] })}
+          >
+            <option value="off">Off</option>
+            <option value="standard">Standard</option>
+            <option value="strict">Strict, also hides annoyances</option>
+          </Select>
+        </Row>
+        <Row label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one.">
+          <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
+        </Row>
+        {offHosts.map((host) => (
+          <Row key={host} label={host} hint="Tracking protection is off">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('privacy:toggle-site', host)
+                setOffHosts(offHosts.filter((h) => h !== host))
+              }}
+            >
+              Turn on
+            </Button>
+          </Row>
+        ))}
       </Section>
 
       <Section title="Search">

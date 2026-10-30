@@ -4,6 +4,9 @@ import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import {
   effectiveUrl,
   engineById,
+  errorPageUrl,
+  isReaderUrl,
+  SUMMARISE_PROMPT,
   isNewTabUrl,
   type ChromeEvents,
   type EventChannel,
@@ -17,6 +20,9 @@ import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
 import { attachPageMenu } from './menus'
 import { Overlay } from './overlay'
+import { extractArticle } from './ai/pageText'
+import { storeArticle } from './internal/reader'
+import { PrivacyService } from './privacy/service'
 import { PermissionService } from './permissions'
 import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
@@ -111,7 +117,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onTitle: (url, title) => history.updateTitle(url, title),
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
-    engine: () => engineById(settings.get().searchEngine)
+    engine: () => engineById(settings.get().searchEngine),
+    errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url))
   })
   const saver = new SessionSaver(kv, tabs)
 
@@ -132,6 +139,20 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page) => tabs.openInternal(`sc://${page}`),
     toggleAssistant: () => send('ui:assistant-toggle'),
+    toggleReader: () => {
+      const active = tabs.active
+      if (!active) return
+      if (isReaderUrl(active.url)) {
+        tabs.exitReader(active.id)
+        return
+      }
+      const contents = tabs.contentsFor(active.id)
+      if (!contents || !/^https?:/i.test(active.url)) return
+      void extractArticle(contents).then((article) => {
+        if (article) void contents.loadURL(storeArticle(article))
+      })
+    },
+    togglePalette: () => overlay.togglePalette(),
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit()
   }
@@ -148,8 +169,40 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   const overlay = new Overlay(
     window,
     (index) => send('omnibox:pick', index),
-    (requestId, allow) => permissionService.decide(requestId, allow)
+    (requestId, allow) => permissionService.decide(requestId, allow),
+    {
+      onPaletteRun: (id) => paletteActions[id]?.(),
+      onPaletteClose: () => tabs.focusActive(),
+      accent: () => settings.get().accent
+    }
   )
+  const onActive = (action: (id: number) => void) => () => {
+    if (tabs.active) action(tabs.active.id)
+  }
+  const paletteActions: Record<string, () => void> = {
+    'new-tab': () => tabs.create(),
+    'reopen-tab': () => tabs.reopenClosed(),
+    find: actions.openFind,
+    bookmark: actions.toggleBookmark,
+    'bookmarks-bar': actions.toggleBookmarksBar,
+    reader: actions.toggleReader,
+    assistant: actions.toggleAssistant,
+    summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
+    'vertical-tabs': () =>
+      settings.set({ tabLayout: settings.get().tabLayout === 'vertical' ? 'horizontal' : 'vertical' }),
+    history: () => actions.openPage('history'),
+    bookmarks: () => actions.openPage('bookmarks'),
+    downloads: () => actions.openPage('downloads'),
+    settings: () => actions.openPage('settings'),
+    'ai-settings': () => actions.openPage('ai'),
+    print: onActive((id) => tabs.print(id)),
+    fullscreen: actions.toggleFullscreen,
+    devtools: onActive((id) => tabs.toggleDevTools(id))
+  }
+  const privacy = new PrivacyService(session.defaultSession, settings, kv, {
+    onBlocked: (id) => tabs.noteBlocked(id),
+    onChanged: () => send('privacy:changed', privacy.offHosts())
+  })
   const downloads = new DownloadManager(session.defaultSession, services.downloads, settings, (progress) =>
     send('downloads:progress', progress)
   )
@@ -166,7 +219,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onBookmarksChanged: publishBookmarks,
     aiStore,
     ai,
-    chats: services.chats
+    chats: services.chats,
+    privacy
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -179,9 +233,11 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onBookmarksChanged: publishBookmarks,
     aiStore,
     ai,
-    chats: services.chats
+    chats: services.chats,
+    privacy
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
+  chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
   const unsubscribeAi = aiStore.subscribe(() => send('ai:changed', aiStore.status()))
 
   // The chrome UI itself must never navigate away or open windows.

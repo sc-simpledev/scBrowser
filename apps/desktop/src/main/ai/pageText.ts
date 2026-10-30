@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 import readabilitySource from '@mozilla/readability/Readability.js?raw'
 import { formatTranscript } from '@scbrowser/ai'
 import type { ContextSource } from '@scbrowser/shared'
+import type { ReaderArticle } from '../internal/reader'
 import { readPdf } from './pdfText'
 
 /** A private JS world: the page can't see this code or tamper with what it reads. */
@@ -41,6 +42,20 @@ const YOUTUBE_TRANSCRIPT = `(async () => {
   }
   return segments.length > 0 ? { title, segments } : null
 })()`
+
+const READER = `(() => {
+  ${readabilitySource}
+  const article = new Readability(document.cloneNode(true)).parse()
+  return article && article.content
+    ? { title: article.title || document.title, byline: article.byline, html: article.content }
+    : null
+})()`
+
+/** The article on a page for reader view, or null if there isn't one. */
+export async function extractArticle(contents: WebContents): Promise<ReaderArticle | null> {
+  const article = await run<Omit<ReaderArticle, 'url'> | null>(contents, READER).catch(() => null)
+  return article && { ...article, url: contents.getURL() }
+}
 
 export class UnreadablePdfError extends Error {}
 

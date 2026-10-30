@@ -10,16 +10,21 @@ import {
   type OverlayEvents,
   type PermissionPopupState
 } from '@scbrowser/shared'
+import { CommandPalette } from './CommandPalette'
 import { SuggestionList } from './SuggestionList'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'ember' }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
-  const { omnibox, tooltip, permission } = state
+  const { omnibox, tooltip, permission, palette, accent } = state
+
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent
+  }, [accent])
   return (
     <>
       {omnibox && omnibox.suggestions.length > 0 && (
@@ -38,6 +43,7 @@ export function OverlayApp() {
           />
         </div>
       )}
+      {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
       {tooltip && (
         <PlacedTooltip
