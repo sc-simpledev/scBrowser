@@ -10,6 +10,7 @@ import {
   type Suggestion
 } from '@scbrowser/shared'
 import { useApp } from '../state/app'
+import { useAssistant } from '../state/assistant'
 import { useOverlay } from '../state/overlay'
 import { useActiveTab, useTabs } from '../state/tabs'
 
@@ -68,6 +69,7 @@ export function Omnibox() {
   const setPopup = useOverlay((s) => s.setOmnibox)
   const bookmarks = useApp((s) => s.bookmarks)
   const searchEngine = useApp((s) => s.settings.searchEngine)
+  const assistantModel = useAssistant((s) => s.status.model)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
@@ -91,9 +93,10 @@ export function Omnibox() {
             tabs,
             activeTabId: tab?.id ?? null,
             searchSuggestions: phrases,
-            engine: engineById(searchEngine)
+            engine: engineById(searchEngine),
+            assistantModel
           }),
-    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine]
+    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantModel]
   )
   const open = focused && !dismissed && suggestions.length > 0
   const selected = Math.min(selectedIndex, Math.max(0, suggestions.length - 1))
@@ -111,8 +114,10 @@ export function Omnibox() {
   const run = useCallback(
     (suggestion: Suggestion | undefined) => {
       if (!tab || !suggestion) return
-      if (suggestion.action.type === 'switch-tab') void window.scb.invoke('tabs:activate', suggestion.action.tabId)
-      else void window.scb.invoke('tabs:navigate', tab.id, suggestion.action.url)
+      const { action } = suggestion
+      if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
+      else if (action.type === 'ask') useAssistant.getState().applyPrompt({ text: action.text, selection: null, includePage: false })
+      else void window.scb.invoke('tabs:navigate', tab.id, action.url)
       reset()
       inputRef.current?.blur()
     },

@@ -1,5 +1,7 @@
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent } from 'electron'
 import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type PermissionDecision } from '@scbrowser/shared'
+import type { AiService } from './ai/service'
+import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -19,6 +21,8 @@ interface InternalServices {
   downloads: DownloadManager
   permissions: PermissionsRepo
   onBookmarksChanged: () => void
+  aiStore: AiStore
+  ai: AiService
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -30,6 +34,21 @@ const int = (value: unknown): number => {
   return value as number
 }
 
+function providerInput(value: unknown): ProviderInput {
+  const input = (value ?? {}) as Record<string, unknown>
+  if (input.protocol !== 'anthropic' && input.protocol !== 'openai') throw new Error('Unknown protocol')
+  if (!Array.isArray(input.models) || input.models.length > 200) throw new Error('Too many models')
+  return {
+    id: input.id === null ? null : text(input.id, 64),
+    name: text(input.name, 128),
+    protocol: input.protocol,
+    baseUrl: text(input.baseUrl, 2048),
+    models: input.models.map((model) => text(model, 256)),
+    ...(input.apiKey === undefined ? {} : { apiKey: text(input.apiKey, 4096) }),
+    ...(input.headers === undefined ? {} : { headers: text(input.headers, 8192) })
+  }
+}
+
 export const isDefaultBrowser = () => app.isDefaultProtocolClient('https')
 
 /** Only the top frame of a tab showing an sc:// page may call these. */
@@ -39,7 +58,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai } = services
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
@@ -84,7 +103,17 @@ export function registerInternalIpc(services: InternalServices): () => void {
       app: app.getVersion(),
       chromium: process.versions.chrome ?? '',
       electron: process.versions.electron ?? ''
-    })
+    }),
+    'ai:state': () => aiStore.state(),
+    'ai:save-provider': (input) => aiStore.save(providerInput(input)),
+    'ai:remove-provider': (id) => aiStore.remove(text(id, 64)),
+    'ai:models': (id) => ai.models(text(id, 64)),
+    'ai:set-role': (role, ref) => {
+      const { providerId, model } = (ref ?? {}) as Record<string, unknown>
+      if (role !== 'chat' && role !== 'fast') throw new Error('Unknown role')
+      aiStore.setRole(role, { providerId: text(providerId, 64), model: text(model, 256) })
+    },
+    'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true)
   }
 
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {

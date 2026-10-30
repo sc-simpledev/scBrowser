@@ -43,5 +43,5 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'use MIDI devices'
 }
 
-export const INTERNAL_PAGES = ['settings', 'history', 'bookmarks', 'downloads'] as const
+export const INTERNAL_PAGES = ['settings', 'ai', 'history', 'bookmarks', 'downloads'] as const
 export type InternalPage = (typeof INTERNAL_PAGES)[number]

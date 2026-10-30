@@ -10,6 +10,8 @@ import {
   type PermissionPrompt
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
+import { AiService } from './ai/service'
+import type { AiStore } from './ai/store'
 import { DownloadManager } from './downloads'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
@@ -39,6 +41,7 @@ export interface Services {
   bookmarks: BookmarksRepo
   downloads: DownloadsRepo
   permissions: PermissionsRepo
+  aiStore: AiStore
 }
 
 export interface BrowserWindowHandle {
@@ -126,8 +129,12 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     toggleBookmarksBar: () => settings.set({ showBookmarksBar: !settings.get().showBookmarksBar }),
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page) => tabs.openInternal(`sc://${page}`),
+    toggleAssistant: () => send('ui:assistant-toggle'),
+    askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit()
   }
+  const { aiStore } = services
+  const ai = new AiService(aiStore, (id) => tabs.contentsFor(id))
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
@@ -154,7 +161,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     settings,
     overlay,
     actions,
-    onBookmarksChanged: publishBookmarks
+    onBookmarksChanged: publishBookmarks,
+    aiStore,
+    ai
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -164,9 +173,12 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     bookmarks,
     downloads,
     permissions: services.permissions,
-    onBookmarksChanged: publishBookmarks
+    onBookmarksChanged: publishBookmarks,
+    aiStore,
+    ai
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
+  const unsubscribeAi = aiStore.subscribe(() => send('ai:changed', aiStore.status()))
 
   // The chrome UI itself must never navigate away or open windows.
   chromeUi.on('will-navigate', (event) => event.preventDefault())
@@ -210,6 +222,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     clearInterval(sleepTimer)
     saver.stop()
     unsubscribeSettings()
+    unsubscribeAi()
     nativeTheme.off('updated', syncTheme)
     disposeIpc()
     disposeInternalIpc()

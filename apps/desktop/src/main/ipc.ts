@@ -2,6 +2,7 @@ import { ipcMain, type BaseWindow, type IpcMainInvokeEvent, type WebContents } f
 import {
   engineById,
   MAX_SUGGESTIONS,
+  type AssistantRequest,
   type ChromeCommands,
   type CommandChannel,
   type OverlayState,
@@ -10,6 +11,8 @@ import {
   type Suggestion
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
+import type { AiService } from './ai/service'
+import type { AiStore } from './ai/store'
 import { popupAppMenu, popupBookmarkMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
@@ -39,9 +42,26 @@ const isSuggestion = (value: unknown): value is Suggestion => {
   if (!record(value) || !record(value.action)) return false
   const { action } = value
   const validAction =
-    (action.type === 'navigate' && isShortString(action.url)) || (action.type === 'switch-tab' && isId(action.tabId))
+    (action.type === 'navigate' && isShortString(action.url)) || (action.type === 'switch-tab' && isId(action.tabId)) ||
+    (action.type === 'ask' && isShortString(action.text))
   return validAction && isShortString(value.id) && isShortString(value.kind, 32) && isShortString(value.title) &&
     (value.detail === undefined || isShortString(value.detail))
+}
+
+const MAX_CONVERSATION_CHARS = 2_000_000
+
+const isAssistantRequest = (value: unknown): value is AssistantRequest => {
+  if (!record(value) || !Array.isArray(value.messages) || value.messages.length === 0 || value.messages.length > 500) return false
+  const messagesOk = value.messages.every(
+    (m: unknown) =>
+      record(m) && (m.role === 'user' || m.role === 'assistant') && isShortString(m.content, MAX_CONVERSATION_CHARS)
+  )
+  return (
+    messagesOk &&
+    (value.tabId === null || isId(value.tabId)) &&
+    typeof value.includePage === 'boolean' &&
+    (value.selection === null || isShortString(value.selection, MAX_CONVERSATION_CHARS))
+  )
 }
 
 const isOverlayState = (value: unknown): value is OverlayState => {
@@ -99,7 +119,14 @@ const validators: Validators = {
   'zoom:reset': noArgs,
   'menu:open': (args): args is [number, number] =>
     args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
-  'downloads:open-page': noArgs
+  'downloads:open-page': noArgs,
+  'ai:status': noArgs,
+  'ai:send': (args): args is [string, AssistantRequest] =>
+    args.length === 2 && isShortString(args[0], 64) && isAssistantRequest(args[1]),
+  'ai:cancel': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
+  'ai:set-site': (args): args is [string, boolean] =>
+    args.length === 2 && isShortString(args[0], 512) && typeof args[1] === 'boolean',
+  'ai:open-settings': noArgs
 }
 
 interface IpcServices {
@@ -111,6 +138,8 @@ interface IpcServices {
   overlay: Overlay
   actions: BrowserActions
   onBookmarksChanged: () => void
+  aiStore: AiStore
+  ai: AiService
 }
 
 /**
@@ -118,7 +147,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged } = services
+  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai } = services
 
   const handlers: Handlers = {
     'tabs:create': (url) => tabs.create(url),
@@ -165,7 +194,16 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       if (tabs.active) tabs.setZoom(tabs.active.id, 1)
     },
     'menu:open': (x, y) => popupAppMenu(actions, settings.get().showBookmarksBar, window, x, y),
-    'downloads:open-page': () => actions.openPage('downloads')
+    'downloads:open-page': () => actions.openPage('downloads'),
+    'ai:status': () => aiStore.status(),
+    'ai:send': (streamId, request) => {
+      void ai.send(streamId, request, (event) => {
+        if (!chromeUi.isDestroyed()) chromeUi.send('ai:event', event)
+      })
+    },
+    'ai:cancel': (streamId) => ai.cancel(streamId),
+    'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
+    'ai:open-settings': () => actions.openPage('ai')
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

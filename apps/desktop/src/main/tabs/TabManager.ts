@@ -265,6 +265,10 @@ export class TabManager {
     if (this.activeId !== null) this.contents(this.activeId)?.focus()
   }
 
+  contentsFor(id: TabId): WebContents | undefined {
+    return this.contents(id)
+  }
+
   owns(contents: WebContents): boolean {
     return [...this.tabs.values()].some((tab) => tab.view?.webContents === contents)
   }

@@ -83,12 +83,15 @@ export async function go(h: Harness, address: string) {
 export const activeTab = (h: Harness) => h.chrome.getByRole('tab', { selected: true })
 
 /** Sends a real key press to the active tab, as the OS would; Playwright's bypass main-process hooks. */
-export const shortcut = (h: Harness, key: string) =>
-  h.app.evaluate(({ webContents }, keyCode) => {
-    const target = webContents.getAllWebContents().find((c) => c.isFocused()) ?? webContents.getFocusedWebContents()
-    target?.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['control'] })
-    target?.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['control'] })
-  }, key)
+export const shortcut = (h: Harness, key: string, modifiers: ('control' | 'shift')[] = ['control']) =>
+  h.app.evaluate(
+    ({ webContents }, { keyCode, modifiers }) => {
+      const target = webContents.getAllWebContents().find((c) => c.isFocused()) ?? webContents.getFocusedWebContents()
+      target?.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      target?.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+    },
+    { keyCode: key, modifiers }
+  )
 
 export const setSetting = (h: Harness, patch: Record<string, unknown>) =>
   h.chrome.evaluate((p) => window.scb.invoke('settings:set', p), patch)

@@ -42,6 +42,90 @@
   animation: sc-fade-in var(--sc-duration-fast) var(--sc-ease-out);
 }
 
+/* The one AI motif: a soft accent edge that moves while a reply is being written. */
+.sc-generating {
+  background: linear-gradient(90deg, transparent, var(--sc-accent), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: sc-generating 1.4s var(--sc-ease-in-out) infinite;
+}
+
+@keyframes sc-generating {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.sc-link {
+  color: var(--sc-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+}
+
+.sc-prose {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sc-space) * 2);
+  line-height: var(--sc-leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.sc-prose ul,
+.sc-prose ol {
+  padding-left: calc(var(--sc-space) * 5);
+}
+
+.sc-prose ul {
+  list-style: disc;
+}
+
+.sc-prose ol {
+  list-style: decimal;
+}
+
+.sc-prose h1,
+.sc-prose h2,
+.sc-prose h3 {
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-prose strong {
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-prose code {
+  font-family: var(--sc-font-mono);
+  font-size: var(--sc-text-xs);
+}
+
+.sc-prose pre {
+  overflow-x: auto;
+  padding: calc(var(--sc-space) * 2);
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-field);
+}
+
+.sc-prose blockquote {
+  padding-left: calc(var(--sc-space) * 3);
+  border-left: 2px solid var(--sc-border-strong);
+  color: var(--sc-text-muted);
+}
+
+.sc-prose table {
+  border-collapse: collapse;
+}
+
+.sc-prose th,
+.sc-prose td {
+  padding: var(--sc-space) calc(var(--sc-space) * 2);
+  border: 1px solid var(--sc-border);
+  text-align: left;
+}
+
 @keyframes sc-fade-in {
   from {
     opacity: 0;

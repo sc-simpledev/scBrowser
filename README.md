@@ -23,6 +23,7 @@ pnpm dist         # build installers into apps/desktop/release
 | `apps/desktop/src/main` | Main process: window, `TabManager`, keyboard shortcuts, IPC, `sc://` internal pages |
 | `apps/desktop/src/preload` | The only bridge between the chrome UI and the main process (`window.scb`) |
 | `apps/desktop/src/renderer` | Browser UI (React): chrome, the overlay above pages, and the `sc://` pages |
+| `packages/ai` | AI providers, streaming and prompt context; pure TypeScript with no Electron |
 | `packages/shared` | Typed IPC contract, tab types, omnibox URL/search resolution |
 | `packages/ui` | Design system: tokens, Tailwind theme, base components |
 
@@ -49,6 +50,7 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl D / Ctrl Shift B | Bookmark page / show bookmarks bar |
 | Ctrl H, Ctrl J, Ctrl Shift O | History, downloads, bookmarks |
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
+| Ctrl Shift A | Assistant |
 | Ctrl P | Print |
 | F11 | Full screen |
 | Ctrl Q | Quit |

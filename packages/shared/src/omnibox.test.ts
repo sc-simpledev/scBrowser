@@ -55,6 +55,17 @@ describe('buildSuggestions', () => {
     expect(result.map((s) => s.kind)).toEqual(['search', 'bookmark'])
   })
 
+  it('offers the assistant only for multi-word searches when a model is set', () => {
+    const base = { history: [], tabs: [], activeTabId: null, assistantModel: 'claude' }
+    expect(buildSuggestions('why is the sky blue', base)[1]).toMatchObject({
+      kind: 'ask',
+      action: { type: 'ask', text: 'why is the sky blue' }
+    })
+    expect(buildSuggestions('rust', base).some((s) => s.kind === 'ask')).toBe(false)
+    expect(buildSuggestions('example.com', base).some((s) => s.kind === 'ask')).toBe(false)
+    expect(buildSuggestions('why is it', { ...base, assistantModel: null }).some((s) => s.kind === 'ask')).toBe(false)
+  })
+
   it('caps the list and drops search suggestions equal to the input', () => {
     const history = Array.from({ length: 20 }, (_, i) => visit(`https://site${i}.dev/`))
     const result = buildSuggestions('site', {

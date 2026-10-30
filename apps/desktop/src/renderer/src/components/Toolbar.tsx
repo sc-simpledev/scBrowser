@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, Download, EllipsisVertical, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, RotateCw, X } from 'lucide-react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
+import { useAssistant } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
 import { Omnibox } from './Omnibox'
 
@@ -27,6 +28,7 @@ function DownloadsButton() {
 
 export function Toolbar({ titleBar }: { titleBar: boolean }) {
   const tab = useActiveTab()
+  const assistantOpen = useAssistant((s) => s.open)
   const invoke = (channel: 'tabs:back' | 'tabs:forward' | 'tabs:reload' | 'tabs:stop') => {
     if (tab) void window.scb.invoke(channel, tab.id)
   }
@@ -53,6 +55,15 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       </div>
       <Omnibox />
       <DownloadsButton />
+      <IconButton
+        label="Assistant"
+        shortcut="Ctrl Shift A"
+        aria-pressed={assistantOpen}
+        className={assistantOpen ? 'text-accent' : undefined}
+        onClick={useAssistant.getState().toggle}
+      >
+        <Bot size={16} strokeWidth={1.75} />
+      </IconButton>
       <IconButton
         label="Menu"
         onClick={(e) => {

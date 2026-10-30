@@ -1,3 +1,8 @@
+declare module '@mozilla/readability/Readability.js?raw' {
+  const content: string
+  export default content
+}
+
 declare module '*?raw' {
   const content: string
   export default content

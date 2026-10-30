@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, Menu } from 'electron'
+import { AiStore } from './ai/store'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
 import { SettingsStore } from './settings'
 import { BookmarksRepo } from './storage/bookmarks'
@@ -60,7 +61,8 @@ if (!app.requestSingleInstanceLock()) {
         history: new HistoryRepo(db),
         bookmarks: new BookmarksRepo(db),
         downloads: new DownloadsRepo(db),
-        permissions: new PermissionsRepo(db)
+        permissions: new PermissionsRepo(db),
+        aiStore: new AiStore(kv)
       },
       urlsFromArgv(process.argv)
     )

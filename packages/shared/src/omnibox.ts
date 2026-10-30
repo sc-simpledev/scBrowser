@@ -9,9 +9,12 @@ export interface HistoryEntry {
   lastVisit: number
 }
 
-export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion'
+export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion' | 'ask'
 
-export type SuggestionAction = { type: 'navigate'; url: string } | { type: 'switch-tab'; tabId: TabId }
+export type SuggestionAction =
+  | { type: 'navigate'; url: string }
+  | { type: 'switch-tab'; tabId: TabId }
+  | { type: 'ask'; text: string }
 
 export interface Suggestion {
   /** Stable within one result list, used as a React key. */
@@ -37,6 +40,8 @@ interface BuildOptions {
   tabs: TabState[]
   activeTabId: TabId | null
   searchSuggestions?: string[]
+  /** Name of the AI model; when set, typed questions can go to the assistant. */
+  assistantModel?: string | null
   engine?: SearchEngine
 }
 
@@ -58,6 +63,16 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
       ? { id: 'default', kind: 'search', title: input, detail: `Search ${engine.name}`, action: { type: 'navigate', url: resolved } }
       : { id: 'default', kind: 'navigate', title: resolved, action: { type: 'navigate', url: resolved } }
   ]
+  // Nothing typed goes to the AI unless this row is chosen.
+  if (isSearch && options.assistantModel && /\s/.test(input)) {
+    results.push({
+      id: 'ask',
+      kind: 'ask',
+      title: input,
+      detail: `Ask ${options.assistantModel}`,
+      action: { type: 'ask', text: input }
+    })
+  }
   const seenUrls = new Set([resolved])
 
   const tabs = options.tabs

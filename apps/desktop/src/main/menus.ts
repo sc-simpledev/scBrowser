@@ -1,5 +1,5 @@
 import { clipboard, Menu, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
-import type { Bookmark, TabId } from '@scbrowser/shared'
+import { SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
 
@@ -10,7 +10,8 @@ export function attachPageMenu(contents: WebContents, actions: BrowserActions, w
   })
 }
 
-function pageMenu(contents: WebContents, params: ContextMenuParams, { tabs }: BrowserActions): MenuItemConstructorOptions[] {
+function pageMenu(contents: WebContents, params: ContextMenuParams, actions: BrowserActions): MenuItemConstructorOptions[] {
+  const { tabs } = actions
   const openInTab = (url: string) => tabs.create(url, { activate: false, afterId: tabs.active?.id })
   const groups: MenuItemConstructorOptions[][] = []
 
@@ -39,7 +40,13 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, { tabs }: Br
       { role: 'selectAll', label: 'Select all' }
     ])
   } else if (params.selectionText) {
-    groups.push([{ role: 'copy', label: 'Copy' }])
+    groups.push([
+      { role: 'copy', label: 'Copy' },
+      {
+        label: 'Ask about selection',
+        click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false })
+      }
+    ])
   }
   if (groups.length === 0) {
     const { navigationHistory: history } = contents
@@ -50,6 +57,14 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, { tabs }: Br
       { type: 'separator' },
       { label: 'Print…', click: () => contents.print() }
     ])
+    if (/^(https?|file):/i.test(params.pageURL)) {
+      groups.push([
+        {
+          label: 'Summarise page',
+          click: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true })
+        }
+      ])
+    }
   }
   groups.push([{ label: 'Inspect', click: () => contents.inspectElement(params.x, params.y) }])
 
@@ -93,6 +108,7 @@ export function popupAppMenu(actions: BrowserActions, showBookmarksBar: boolean,
     { label: 'Reopen closed tab', accelerator: 'Ctrl+Shift+T', click: () => tabs.reopenClosed() },
     { type: 'separator' },
     { label: 'History', accelerator: 'Ctrl+H', click: () => actions.openPage('history') },
+    { label: 'Assistant', accelerator: 'Ctrl+Shift+A', click: actions.toggleAssistant },
     { label: 'Bookmarks', accelerator: 'Ctrl+Shift+O', click: () => actions.openPage('bookmarks') },
     { label: 'Downloads', accelerator: 'Ctrl+J', click: () => actions.openPage('downloads') },
     { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: showBookmarksBar, click: actions.toggleBookmarksBar },

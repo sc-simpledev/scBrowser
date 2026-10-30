@@ -1,3 +1,4 @@
+import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ModelRef, ModelRole, ProviderProtocol } from './ai'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
 import type { OverlayState, OverlayView } from './overlay'
@@ -35,6 +36,11 @@ export interface ChromeCommands {
   'zoom:reset': () => void
   'menu:open': (x: number, y: number) => void
   'downloads:open-page': () => void
+  'ai:status': () => AiStatus
+  'ai:send': (streamId: string, request: AssistantRequest) => void
+  'ai:cancel': (streamId: string) => void
+  'ai:set-site': (host: string, disabled: boolean) => void
+  'ai:open-settings': () => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -48,6 +54,10 @@ export interface ChromeEvents {
   'ui:open-find': void
   'find:result': { active: number; total: number }
   'downloads:progress': { active: number; fraction: number | null }
+  'ai:changed': AiStatus
+  'ai:event': AssistantEvent
+  'ui:assistant-toggle': void
+  'ui:assistant-prompt': AssistantPrompt
 }
 
 /** Commands the overlay view sends to the main process. */
@@ -91,7 +101,12 @@ export const COMMAND_CHANNELS = [
   'find:stop',
   'zoom:reset',
   'menu:open',
-  'downloads:open-page'
+  'downloads:open-page',
+  'ai:status',
+  'ai:send',
+  'ai:cancel',
+  'ai:set-site',
+  'ai:open-settings'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -102,7 +117,11 @@ export const EVENT_CHANNELS = [
   'settings:changed',
   'ui:open-find',
   'find:result',
-  'downloads:progress'
+  'downloads:progress',
+  'ai:changed',
+  'ai:event',
+  'ui:assistant-toggle',
+  'ui:assistant-prompt'
 ] as const satisfies readonly EventChannel[]
 
 export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission'] as const satisfies readonly (keyof OverlayCommands)[]
@@ -138,6 +157,20 @@ export interface InternalCommands {
   'browser:set-default': () => void
   'browser:open': (url: string) => void
   'browser:version': () => { app: string; chromium: string; electron: string }
+  'ai:state': () => AiState
+  'ai:save-provider': (input: {
+    id: string | null
+    name: string
+    protocol: ProviderProtocol
+    baseUrl: string
+    models: string[]
+    apiKey?: string
+    headers?: string
+  }) => string
+  'ai:remove-provider': (id: string) => void
+  'ai:models': (id: string) => { models: string[]; error: string | null }
+  'ai:set-role': (role: ModelRole, ref: ModelRef) => void
+  'ai:set-site': (host: string, disabled: boolean) => void
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -158,7 +191,13 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'browser:is-default',
   'browser:set-default',
   'browser:open',
-  'browser:version'
+  'browser:version',
+  'ai:state',
+  'ai:save-provider',
+  'ai:remove-provider',
+  'ai:models',
+  'ai:set-role',
+  'ai:set-site'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

@@ -1,4 +1,4 @@
-import { AppWindow, Globe, History, Search, Star, type LucideIcon } from 'lucide-react'
+import { AppWindow, Bot, Globe, History, Search, Star, type LucideIcon } from 'lucide-react'
 import { cx } from '@scbrowser/ui'
 import { POPUP_PADDING, SUGGESTION_ROW_HEIGHT, type Suggestion, type SuggestionKind } from '@scbrowser/shared'
 
@@ -7,6 +7,7 @@ const icons: Record<SuggestionKind, LucideIcon> = {
   search: Search,
   tab: AppWindow,
   bookmark: Star,
+  ask: Bot,
   history: History,
   'search-suggestion': Search
 }

@@ -25,6 +25,17 @@ Built but needs a manual check, as automated tests can't drive them: print dialo
 
 Known limits to pick up later: geolocation needs a Google API key in Electron; bookmarks have no folders yet; zoom isn't kept across restarts; HTTP auth dialogs aren't handled; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
 
+**Phase 2 — in progress.**
+- [x] Provider layer: Anthropic (official SDK), OpenAI, Gemini, OpenRouter, Ollama, LM Studio, custom endpoints with extra headers
+- [x] Keys encrypted with the OS keychain, never sent to any page or UI
+- [x] `sc://ai` settings: add providers, test connection, choose the chat model, token usage
+- [x] Assistant panel chatting with the current page, one-click summarise, ask about selection, per-site AI off
+- [x] Omnibox "Ask" row (opens the panel; the answer isn't inline yet)
+- [ ] YouTube transcript chat
+- [ ] PDF chat
+- [ ] Estimated cost next to token usage
+- [ ] Saved conversations (chats last until the app closes)
+
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.
 
