@@ -1,6 +1,13 @@
 import { join } from 'node:path'
 import { ipcMain, WebContentsView, type BaseWindow } from 'electron'
-import { EMPTY_OVERLAY, overlayRegions, unionRect, type OverlayState } from '@scbrowser/shared'
+import {
+  EMPTY_OVERLAY,
+  overlayRegions,
+  unionRect,
+  type OverlayState,
+  type OverlayView,
+  type PermissionPopupState
+} from '@scbrowser/shared'
 
 /**
  * A transparent view kept above every tab so chrome UI popups can draw over web pages.
@@ -9,10 +16,13 @@ import { EMPTY_OVERLAY, overlayRegions, unionRect, type OverlayState } from '@sc
 export class Overlay {
   readonly view: WebContentsView
   private state: OverlayState = EMPTY_OVERLAY
+  private permission: PermissionPopupState | null = null
+  private destroyed = false
 
   constructor(
     private readonly window: BaseWindow,
-    onPick: (index: number) => void
+    onPick: (index: number) => void,
+    onPermission: (requestId: number, allow: boolean) => void
   ) {
     this.view = new WebContentsView({
       webPreferences: {
@@ -34,6 +44,13 @@ export class Overlay {
       if (!Number.isInteger(index)) throw new Error('Invalid arguments for overlay:pick')
       onPick(index as number)
     })
+    ipcMain.handle('overlay:permission', (event, requestId: unknown, allow: unknown) => {
+      if (event.sender !== contents) throw new Error('Rejected overlay:permission from untrusted sender')
+      if (!Number.isInteger(requestId) || typeof allow !== 'boolean') throw new Error('Invalid arguments')
+      onPermission(requestId as number, allow)
+    })
+    // A crashed overlay shouldn't take popups down for the rest of the session.
+    contents.on('render-process-gone', () => contents.reload())
 
     if (process.env.ELECTRON_RENDERER_URL) void contents.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay.html`)
     else void contents.loadFile(join(__dirname, '../renderer/overlay.html'))
@@ -46,7 +63,21 @@ export class Overlay {
 
   set(state: OverlayState): void {
     this.state = state
-    const bounds = unionRect(overlayRegions(state))
+    this.render()
+  }
+
+  setPermission(permission: PermissionPopupState | null): void {
+    this.permission = permission
+    this.render()
+  }
+
+  private current(): OverlayView {
+    return { ...this.state, permission: this.permission }
+  }
+
+  private render(): void {
+    if (this.destroyed) return
+    const bounds = unionRect(overlayRegions(this.current()))
     if (!bounds) {
       this.view.setVisible(false)
       this.send()
@@ -66,8 +97,10 @@ export class Overlay {
   }
 
   destroy(): void {
+    this.destroyed = true
     ipcMain.removeHandler('overlay:pick')
-    this.view.webContents.close()
+    ipcMain.removeHandler('overlay:permission')
+    if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 
   private send(): void {
@@ -75,6 +108,6 @@ export class Overlay {
     if (contents.isDestroyed()) return
     // The overlay lays popups out relative to its own top-left corner.
     const origin = this.view.getBounds()
-    contents.send('overlay:state', { state: this.state, origin: { x: origin.x, y: origin.y } })
+    contents.send('overlay:state', { state: this.current(), origin: { x: origin.x, y: origin.y } })
   }
 }

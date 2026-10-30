@@ -26,6 +26,9 @@ export class HistoryRepo {
   private readonly upsertVisit: StatementSync
   private readonly setTitle: StatementSync
   private readonly searchQuery: StatementSync
+  private readonly listQuery: StatementSync
+  private readonly deleteUrl: StatementSync
+  private readonly deleteAll: StatementSync
 
   constructor(db: DatabaseSync) {
     this.upsertVisit = db.prepare(
@@ -36,6 +39,13 @@ export class HistoryRepo {
          title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END`
     )
     this.setTitle = db.prepare(`UPDATE history SET title = ? WHERE url = ?`)
+    this.listQuery = db.prepare(
+      `SELECT url, title, visit_count, last_visit FROM history
+       WHERE url LIKE :pattern ESCAPE '\\' OR title LIKE :pattern ESCAPE '\\'
+       ORDER BY last_visit DESC LIMIT :limit OFFSET :offset`
+    )
+    this.deleteUrl = db.prepare(`DELETE FROM history WHERE url = ?`)
+    this.deleteAll = db.prepare(`DELETE FROM history`)
     // Rank by frecency (visits decayed by age in days), boosting entries whose
     // address — ignoring scheme and "www." — starts with what was typed.
     this.searchQuery = db.prepare(
@@ -57,6 +67,20 @@ export class HistoryRepo {
 
   updateTitle(url: string, title: string): void {
     if (isRecordable(url) && title) this.setTitle.run(title, url)
+  }
+
+  /** Newest first, for the history page. */
+  list(query: string, limit: number, offset: number): HistoryEntry[] {
+    const pattern = `%${escapeLike(query.trim().toLowerCase())}%`
+    return (this.listQuery.all({ pattern, limit, offset }) as unknown as Row[]).map(toEntry)
+  }
+
+  delete(url: string): void {
+    this.deleteUrl.run(url)
+  }
+
+  clear(): void {
+    this.deleteAll.run()
   }
 
   search(query: string, limit = 8, now = Date.now()): HistoryEntry[] {

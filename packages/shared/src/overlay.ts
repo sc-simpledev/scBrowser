@@ -1,3 +1,4 @@
+import type { PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
 import type { PageRect } from './tabs'
 
@@ -23,6 +24,17 @@ export interface OverlayState {
   tooltip: TooltipState | null
 }
 
+/** Popups the main process owns, shown near the top-left of the page. */
+export interface PermissionPopupState {
+  prompt: PermissionPrompt
+  x: number
+  y: number
+}
+
+export interface OverlayView extends OverlayState {
+  permission: PermissionPopupState | null
+}
+
 export const EMPTY_OVERLAY: OverlayState = { omnibox: null, tooltip: null }
 
 /** Transparent space kept around popups so their shadows aren't clipped. */
@@ -32,9 +44,10 @@ export const POPUP_PADDING = 4
 export const POPUP_GAP = 4
 export const TOOLTIP_GAP = 6
 export const TOOLTIP_REGION = { width: 320, height: 28 }
+export const PERMISSION_POPUP = { width: 340, height: 120, inset: 8 }
 
 /** Window-space rectangle each popup occupies, including its shadow margin. */
-export function overlayRegions(state: OverlayState): PageRect[] {
+export function overlayRegions(state: OverlayView): PageRect[] {
   const regions: PageRect[] = []
   if (state.omnibox && state.omnibox.suggestions.length > 0) {
     const { anchor, suggestions } = state.omnibox
@@ -52,6 +65,14 @@ export function overlayRegions(state: OverlayState): PageRect[] {
       y: anchor.y + anchor.height + TOOLTIP_GAP - OVERLAY_MARGIN,
       width: TOOLTIP_REGION.width,
       height: TOOLTIP_REGION.height + OVERLAY_MARGIN * 2
+    })
+  }
+  if (state.permission) {
+    regions.push({
+      x: state.permission.x + PERMISSION_POPUP.inset - OVERLAY_MARGIN,
+      y: state.permission.y + PERMISSION_POPUP.inset - OVERLAY_MARGIN,
+      width: PERMISSION_POPUP.width + OVERLAY_MARGIN * 2,
+      height: PERMISSION_POPUP.height + OVERLAY_MARGIN * 2
     })
   }
   return regions

@@ -1,5 +1,6 @@
 export { cx } from './cx'
 export { Button } from './components/Button'
+export { Input, Select, Switch } from './components/Field'
 export { IconButton } from './components/IconButton'
 export { Tooltip, TooltipBubble, TooltipProvider, type TooltipAnchor, type TooltipHost } from './components/Tooltip'
 export { NATIVE_THEME } from './native-theme'

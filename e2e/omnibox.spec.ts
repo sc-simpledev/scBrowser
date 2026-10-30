@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { launch, serveSite, type Harness } from './app'
+import { go as goTo, launch, omnibox as box, serveSite, titled, type Harness, type Site } from './app'
 
 let h: Harness
-let site: Awaited<ReturnType<typeof serveSite>>
+let site: Site
 
 test.beforeEach(async () => {
-  site = await serveSite({ '/alpha': 'Alpha page', '/beta': 'Beta page' })
+  site = await serveSite({ '/alpha': titled('Alpha page'), '/beta': titled('Beta page') })
   h = await launch()
 })
 
@@ -14,13 +14,8 @@ test.afterEach(async () => {
   site.server.close()
 })
 
-const omnibox = () => h.chrome.getByRole('combobox', { name: 'Search or enter address' })
-
-async function go(address: string) {
-  await omnibox().click()
-  await omnibox().fill(address)
-  await omnibox().press('Enter')
-}
+const omnibox = () => box(h)
+const go = (address: string) => goTo(h, address)
 
 test('navigates, remembers history and offers it as suggestions', async () => {
   await go(site.url('/alpha'))

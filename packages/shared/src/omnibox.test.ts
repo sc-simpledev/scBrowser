@@ -9,7 +9,9 @@ const tab = (id: number, url: string, title = ''): TabState => ({
   faviconUrl: null,
   isLoading: false,
   canGoBack: false,
-  canGoForward: false
+  canGoForward: false,
+  isSleeping: false,
+  zoomPercent: 100
 })
 
 const visit = (url: string, title = ''): HistoryEntry => ({ url, title, visitCount: 1, lastVisit: 0 })
@@ -40,6 +42,17 @@ describe('buildSuggestions', () => {
     const history = [visit('https://github.com/issues', 'Issues'), visit('https://github.com/pulls', 'Pulls')]
     const result = buildSuggestions('github', { history, tabs, activeTabId: 1 })
     expect(result.map((s) => s.kind)).toEqual(['search', 'tab', 'history'])
+  })
+
+  it('lists matching bookmarks ahead of the same URL in history', () => {
+    const bookmarks = [{ id: 1, url: 'https://a.dev/', title: 'Alpha docs', createdAt: 0 }]
+    const result = buildSuggestions('alpha', {
+      history: [visit('https://a.dev/', 'Alpha docs')],
+      bookmarks,
+      tabs: [],
+      activeTabId: null
+    })
+    expect(result.map((s) => s.kind)).toEqual(['search', 'bookmark'])
   })
 
   it('caps the list and drops search suggestions equal to the input', () => {

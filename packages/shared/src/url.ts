@@ -42,7 +42,20 @@ export function isNewTabUrl(url: string): boolean {
   return url === NEW_TAB_URL || url === `${NEW_TAB_URL}/`
 }
 
+export const ERROR_PAGE_URL = 'sc://error/'
+
+export function errorPageUrl(failedUrl: string, reason: string): string {
+  return `${ERROR_PAGE_URL}?${new URLSearchParams({ url: failedUrl, reason })}`
+}
+
+/** The address a tab should present and reload: an error page stands in for the page that failed. */
+export function effectiveUrl(url: string): string {
+  if (!url.startsWith(ERROR_PAGE_URL)) return url
+  return new URL(url).searchParams.get('url') ?? url
+}
+
 /** Text to show in the omnibox for a URL; the new tab page shows as empty. */
 export function displayUrl(url: string): string {
-  return isNewTabUrl(url) || url === 'about:blank' ? '' : url
+  const shown = effectiveUrl(url)
+  return isNewTabUrl(shown) || shown === 'about:blank' ? '' : shown
 }

@@ -11,7 +11,30 @@ const MIGRATIONS: string[] = [
      visit_count INTEGER NOT NULL DEFAULT 0,
      last_visit INTEGER NOT NULL
    );
-   CREATE INDEX history_last_visit ON history (last_visit DESC);`
+   CREATE INDEX history_last_visit ON history (last_visit DESC);`,
+  `CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+   CREATE TABLE bookmarks (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     url TEXT NOT NULL UNIQUE,
+     title TEXT NOT NULL DEFAULT '',
+     created_at INTEGER NOT NULL
+   );
+   CREATE TABLE downloads (
+     id TEXT PRIMARY KEY,
+     url TEXT NOT NULL,
+     filename TEXT NOT NULL,
+     path TEXT NOT NULL,
+     received_bytes INTEGER NOT NULL,
+     total_bytes INTEGER NOT NULL,
+     state TEXT NOT NULL,
+     started_at INTEGER NOT NULL
+   );
+   CREATE TABLE permissions (
+     origin TEXT NOT NULL,
+     permission TEXT NOT NULL,
+     allowed INTEGER NOT NULL,
+     PRIMARY KEY (origin, permission)
+   );`
 ]
 
 export function openDatabase(path: string): DatabaseSync {

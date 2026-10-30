@@ -1,16 +1,25 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { TooltipBubble } from '@scbrowser/ui'
-import { EMPTY_OVERLAY, OVERLAY_MARGIN, POPUP_GAP, TOOLTIP_GAP, type OverlayEvents } from '@scbrowser/shared'
+import { Button, TooltipBubble } from '@scbrowser/ui'
+import {
+  EMPTY_OVERLAY,
+  OVERLAY_MARGIN,
+  PERMISSION_LABELS,
+  PERMISSION_POPUP,
+  POPUP_GAP,
+  TOOLTIP_GAP,
+  type OverlayEvents,
+  type PermissionPopupState
+} from '@scbrowser/shared'
 import { SuggestionList } from './SuggestionList'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: EMPTY_OVERLAY, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
-  const { omnibox, tooltip } = state
+  const { omnibox, tooltip, permission } = state
   return (
     <>
       {omnibox && omnibox.suggestions.length > 0 && (
@@ -29,6 +38,7 @@ export function OverlayApp() {
           />
         </div>
       )}
+      {permission && <PermissionPopup popup={permission} origin={origin} />}
       {tooltip && (
         <PlacedTooltip
           key={`${tooltip.label}:${tooltip.anchor.x}`}
@@ -39,6 +49,36 @@ export function OverlayApp() {
         />
       )}
     </>
+  )
+}
+
+function PermissionPopup({ popup, origin }: { popup: PermissionPopupState; origin: { x: number; y: number } }) {
+  const { prompt, x, y } = popup
+  const answer = (allow: boolean) => void window.scbOverlay.invoke('overlay:permission', prompt.requestId, allow)
+  const wants = prompt.permissions.map((p) => PERMISSION_LABELS[p]).join(' and ')
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Site permission"
+      className="absolute flex flex-col justify-between gap-3 rounded-lg bg-surface p-3 shadow-2"
+      style={{
+        left: x + PERMISSION_POPUP.inset - origin.x,
+        top: y + PERMISSION_POPUP.inset - origin.y,
+        width: PERMISSION_POPUP.width,
+        height: PERMISSION_POPUP.height
+      }}
+    >
+      <p>
+        <span className="block truncate font-medium">{new URL(prompt.origin).host}</span>
+        <span className="text-text-muted">wants to {wants}</span>
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button onClick={() => answer(false)}>Block</Button>
+        <Button variant="primary" onClick={() => answer(true)}>
+          Allow
+        </Button>
+      </div>
+    </div>
   )
 }
 

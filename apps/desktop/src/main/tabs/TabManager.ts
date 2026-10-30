@@ -1,17 +1,34 @@
+import { join } from 'node:path'
 import { WebContentsView, type BaseWindow, type WebContents } from 'electron'
 import {
+  effectiveUrl,
+  ERROR_PAGE_URL,
+  errorPageUrl,
   isNewTabUrl,
   NEW_TAB_URL,
   resolveOmniboxInput,
   type PageRect,
+  type SearchEngine,
   type TabId,
   type TabState,
   type TabsSnapshot
 } from '@scbrowser/shared'
 
+/** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
+export interface SavedTab {
+  url: string
+  title: string
+  faviconUrl: string | null
+  entries: { url: string; title: string }[]
+  entryIndex: number
+}
+
 interface Tab {
   state: TabState
-  view: WebContentsView
+  /** Null while asleep: the page is unloaded and only `saved` remains. */
+  view: WebContentsView | null
+  saved: SavedTab | null
+  lastActiveAt: number
 }
 
 interface TabManagerOptions {
@@ -19,22 +36,33 @@ interface TabManagerOptions {
   onChange: (snapshot: TabsSnapshot) => void
   /** Lets the caller hook keyboard shortcuts and other per-tab behaviour. */
   onTabCreated: (contents: WebContents) => void
+  onTabClosed: (id: TabId) => void
   onActivate: (tab: TabState) => void
   /** A tab committed a navigation (including same-document ones). */
   onVisit: (url: string) => void
   onTitle: (url: string, title: string) => void
+  onFound: (result: { active: number; total: number }) => void
+  onFullscreen: (fullscreen: boolean) => void
+  engine: () => SearchEngine
 }
 
 const PAGE_RADIUS = 10
 const CLOSED_TABS_LIMIT = 25
+const ABORTED = -3
+const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+
+const isInternal = (url: string) => url.startsWith('sc:')
+const isSavable = (url: string) => /^(https?|sc|file):/i.test(url)
 
 export class TabManager {
   private readonly tabs = new Map<TabId, Tab>()
   private order: TabId[] = []
   private activeId: TabId | null = null
+  private nextId = 1
   private pageRect: PageRect = { x: 0, y: 0, width: 0, height: 0 }
-  private closedUrls: string[] = []
+  private closed: SavedTab[] = []
   private changeQueued = false
+  private fullscreen = false
 
   constructor(
     private readonly window: BaseWindow,
@@ -42,42 +70,18 @@ export class TabManager {
   ) {}
 
   create(url: string = NEW_TAB_URL, { activate = true, afterId }: { activate?: boolean; afterId?: TabId } = {}): TabId {
-    const view = new WebContentsView({
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webviewTag: false
-      }
-    })
-    view.setBorderRadius(PAGE_RADIUS)
-    view.setVisible(false)
-
-    const contents = view.webContents
-    const state: TabState = {
-      id: contents.id,
-      url,
-      title: '',
-      faviconUrl: null,
-      isLoading: false,
-      canGoBack: false,
-      canGoForward: false
-    }
-    const tab: Tab = { state, view }
-    this.tabs.set(state.id, tab)
-
-    const index = afterId === undefined ? -1 : this.order.indexOf(afterId)
-    if (index === -1) this.order.push(state.id)
-    else this.order.splice(index + 1, 0, state.id)
-
-    this.window.contentView.addChildView(view)
-    this.wire(tab)
-    this.options.onTabCreated(contents)
-    void contents.loadURL(url)
-
-    if (activate || this.activeId === null) this.activate(state.id)
+    const tab = this.addTab(url, null, afterId)
+    this.wake(tab)
+    if (activate || this.activeId === null) this.activate(tab.state.id)
     else this.emitChange()
-    return state.id
+    return tab.state.id
+  }
+
+  /** Adds saved tabs without loading them; only the one that gets activated wakes up. */
+  restore(saved: SavedTab[], activeIndex: number): void {
+    const ids = saved.map((tab) => this.addTab(tab.url, tab).state.id)
+    const active = ids[activeIndex] ?? ids[0]
+    if (active !== undefined) this.activate(active)
   }
 
   close(id: TabId): void {
@@ -87,12 +91,10 @@ export class TabManager {
     const index = this.order.indexOf(id)
     this.order.splice(index, 1)
     this.tabs.delete(id)
-    if (!isNewTabUrl(tab.state.url)) {
-      this.closedUrls = [tab.state.url, ...this.closedUrls].slice(0, CLOSED_TABS_LIMIT)
-    }
+    if (!isNewTabUrl(tab.state.url)) this.closed = [this.toSaved(tab), ...this.closed].slice(0, CLOSED_TABS_LIMIT)
 
-    this.window.contentView.removeChildView(tab.view)
-    tab.view.webContents.close()
+    this.destroyView(tab)
+    this.options.onTabClosed(id)
 
     if (this.activeId === id) {
       this.activeId = null
@@ -104,20 +106,48 @@ export class TabManager {
     this.emitChange()
   }
 
+  closeOthers(id: TabId): void {
+    for (const other of [...this.order]) if (other !== id) this.close(other)
+  }
+
+  duplicate(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    const copy = this.addTab(tab.state.url, this.toSaved(tab), id)
+    this.activate(copy.state.id)
+  }
+
   reopenClosed(): void {
-    const url = this.closedUrls.shift()
-    if (url) this.create(url, { afterId: this.activeId ?? undefined })
+    const saved = this.closed.shift()
+    if (!saved) return
+    const tab = this.addTab(saved.url, saved, this.activeId ?? undefined)
+    this.activate(tab.state.id)
+  }
+
+  move(id: TabId, index: number): void {
+    const from = this.order.indexOf(id)
+    if (from === -1) return
+    this.order.splice(from, 1)
+    this.order.splice(Math.max(0, Math.min(index, this.order.length)), 0, id)
+    this.emitChange()
   }
 
   activate(id: TabId): void {
     const next = this.tabs.get(id)
     if (!next) return
     if (this.activeId !== null && this.activeId !== id) {
-      this.tabs.get(this.activeId)?.view.setVisible(false)
+      const previous = this.tabs.get(this.activeId)
+      if (previous) {
+        previous.view?.setVisible(false)
+        previous.lastActiveAt = Date.now()
+        previous.view?.webContents.stopFindInPage('clearSelection')
+      }
     }
     this.activeId = id
-    next.view.setBounds(this.pageRect)
-    next.view.setVisible(true)
+    this.wake(next)
+    next.lastActiveAt = Date.now()
+    this.applyBounds()
+    next.view?.setVisible(true)
     this.options.onActivate(next.state)
     this.emitChange()
   }
@@ -138,35 +168,93 @@ export class TabManager {
   navigate(id: TabId, input: string): void {
     const tab = this.tabs.get(id)
     if (!tab) return
-    void tab.view.webContents.loadURL(resolveOmniboxInput(input))
-    tab.view.webContents.focus()
+    this.wake(tab)
+    const contents = tab.view!.webContents
+    void contents.loadURL(resolveOmniboxInput(input, this.options.engine()))
+    contents.focus()
+  }
+
+  /** Opens an internal page, reusing a tab already showing it. */
+  openInternal(url: string): void {
+    const existing = this.order.find((id) => this.tabs.get(id)?.state.url.startsWith(url))
+    if (existing !== undefined) this.activate(existing)
+    else if (this.active && isNewTabUrl(this.active.url)) this.navigate(this.active.id, url)
+    else this.create(url, { afterId: this.activeId ?? undefined })
   }
 
   back(id: TabId): void {
-    this.history(id)?.goBack()
+    this.contents(id)?.navigationHistory.goBack()
   }
 
   forward(id: TabId): void {
-    this.history(id)?.goForward()
+    this.contents(id)?.navigationHistory.goForward()
   }
 
   reload(id: TabId, ignoreCache = false): void {
-    const contents = this.tabs.get(id)?.view.webContents
-    if (ignoreCache) contents?.reloadIgnoringCache()
+    const contents = this.contents(id)
+    const url = contents?.getURL() ?? ''
+    if (url.startsWith(ERROR_PAGE_URL)) void contents?.loadURL(effectiveUrl(url))
+    else if (ignoreCache) contents?.reloadIgnoringCache()
     else contents?.reload()
   }
 
   stop(id: TabId): void {
-    this.tabs.get(id)?.view.webContents.stop()
+    this.contents(id)?.stop()
   }
 
   toggleDevTools(id: TabId): void {
-    this.tabs.get(id)?.view.webContents.toggleDevTools()
+    this.contents(id)?.toggleDevTools()
+  }
+
+  print(id: TabId): void {
+    this.contents(id)?.print()
+  }
+
+  zoomBy(id: TabId, direction: 1 | -1): void {
+    const contents = this.contents(id)
+    if (!contents) return
+    const current = contents.getZoomFactor()
+    const step =
+      direction > 0 ? ZOOM_STEPS.find((z) => z > current + 0.001) : ZOOM_STEPS.findLast((z) => z < current - 0.001)
+    if (step !== undefined) this.setZoom(id, step)
+  }
+
+  setZoom(id: TabId, factor: number): void {
+    const tab = this.tabs.get(id)
+    if (!tab?.view) return
+    tab.view.webContents.setZoomFactor(factor)
+    tab.state.zoomPercent = Math.round(factor * 100)
+    this.emitChange()
+  }
+
+  find(text: string, options: { forward: boolean; findNext: boolean }): void {
+    if (this.activeId === null) return
+    const contents = this.contents(this.activeId)
+    if (!text) contents?.stopFindInPage('clearSelection')
+    else contents?.findInPage(text, options)
+  }
+
+  stopFind(): void {
+    if (this.activeId !== null) this.contents(this.activeId)?.stopFindInPage('clearSelection')
   }
 
   setPageRect(rect: PageRect): void {
     this.pageRect = rect
-    if (this.activeId !== null) this.tabs.get(this.activeId)?.view.setBounds(rect)
+    this.applyBounds()
+  }
+
+  get page(): PageRect {
+    return this.pageRect
+  }
+
+  /** Re-fits the active tab: the page area normally, the whole window for fullscreen video. */
+  applyBounds(): void {
+    if (this.activeId === null) return
+    const view = this.tabs.get(this.activeId)?.view
+    if (!view) return
+    const { width, height } = this.window.getContentBounds()
+    view.setBounds(this.fullscreen ? { x: 0, y: 0, width, height } : this.pageRect)
+    view.setBorderRadius(this.fullscreen ? 0 : PAGE_RADIUS)
   }
 
   get active(): TabState | null {
@@ -174,7 +262,16 @@ export class TabManager {
   }
 
   focusActive(): void {
-    if (this.activeId !== null) this.tabs.get(this.activeId)?.view.webContents.focus()
+    if (this.activeId !== null) this.contents(this.activeId)?.focus()
+  }
+
+  owns(contents: WebContents): boolean {
+    return [...this.tabs.values()].some((tab) => tab.view?.webContents === contents)
+  }
+
+  tabIdFor(contents: WebContents): TabId | null {
+    for (const tab of this.tabs.values()) if (tab.view?.webContents === contents) return tab.state.id
+    return null
   }
 
   snapshot(): TabsSnapshot {
@@ -184,19 +281,115 @@ export class TabManager {
     }
   }
 
+  /** What to write to disk so the session can be restored. */
+  session(): { tabs: SavedTab[]; activeIndex: number } {
+    const tabs = this.order.map((id) => this.toSaved(this.tabs.get(id)!))
+    return { tabs, activeIndex: this.activeId === null ? 0 : this.order.indexOf(this.activeId) }
+  }
+
+  /** Unloads background tabs idle for longer than `maxIdleMs`. */
+  sleepIdle(maxIdleMs: number, now = Date.now()): void {
+    for (const tab of this.tabs.values()) {
+      if (tab.state.id === this.activeId || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
+      const contents = tab.view.webContents
+      if (contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) continue
+      tab.saved = this.toSaved(tab)
+      this.destroyView(tab)
+      tab.state.isSleeping = true
+      this.emitChange()
+    }
+  }
+
   destroy(): void {
-    for (const tab of this.tabs.values()) tab.view.webContents.close()
+    for (const tab of this.tabs.values()) this.destroyView(tab)
     this.tabs.clear()
     this.order = []
   }
 
-  private history(id: TabId) {
-    return this.tabs.get(id)?.view.webContents.navigationHistory
+  private contents(id: TabId): WebContents | undefined {
+    return this.tabs.get(id)?.view?.webContents
   }
 
-  private wire({ state, view }: Tab): void {
+  private addTab(url: string, saved: SavedTab | null, afterId?: TabId): Tab {
+    const tab: Tab = {
+      state: {
+        id: this.nextId++,
+        url,
+        title: saved?.title ?? '',
+        faviconUrl: saved?.faviconUrl ?? null,
+        isLoading: false,
+        canGoBack: false,
+        canGoForward: false,
+        isSleeping: saved !== null,
+        zoomPercent: 100
+      },
+      view: null,
+      saved,
+      lastActiveAt: Date.now()
+    }
+    this.tabs.set(tab.state.id, tab)
+    const index = afterId === undefined ? -1 : this.order.indexOf(afterId)
+    if (index === -1) this.order.push(tab.state.id)
+    else this.order.splice(index + 1, 0, tab.state.id)
+    return tab
+  }
+
+  private wake(tab: Tab): void {
+    if (tab.view) return
+    const view = new WebContentsView({
+      webPreferences: {
+        // Only exposes anything on sc:// pages; see preload/internal.ts.
+        preload: join(__dirname, '../preload/internal.js'),
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webviewTag: false
+      }
+    })
+    view.setBorderRadius(PAGE_RADIUS)
+    view.setVisible(false)
+    tab.view = view
+    tab.state.isSleeping = false
+    this.window.contentView.addChildView(view)
+    this.wire(tab, view)
+    this.options.onTabCreated(view.webContents)
+
+    const { saved } = tab
+    tab.saved = null
+    const contents = view.webContents
+    if (saved && saved.entries.length > 0) {
+      contents.navigationHistory
+        .restore({ index: saved.entryIndex, entries: saved.entries })
+        .catch(() => contents.loadURL(saved.url).catch(() => undefined))
+    } else {
+      contents.loadURL(tab.state.url).catch(() => undefined)
+    }
+  }
+
+  private destroyView(tab: Tab): void {
+    if (!tab.view) return
+    // The window itself may already be gone when everything shuts down.
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(tab.view)
+    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+    tab.view = null
+  }
+
+  private toSaved(tab: Tab): SavedTab {
+    if (tab.saved) return tab.saved
+    const { url, title, faviconUrl } = tab.state
+    const contents = tab.view?.webContents
+    const history = contents?.navigationHistory
+    const all = history?.getAllEntries() ?? []
+    const entries = all.filter((e) => isSavable(e.url)).map((e) => ({ url: effectiveUrl(e.url), title: e.title }))
+    const entryIndex = Math.max(0, Math.min(entries.length - 1, history?.getActiveIndex() ?? 0))
+    return { url: effectiveUrl(url), title, faviconUrl, entries: entries.length === all.length ? entries : [], entryIndex }
+  }
+
+  private wire(tab: Tab, view: WebContentsView): void {
+    const { state } = tab
     const contents = view.webContents
     const sync = (patch: Partial<TabState> = {}) => {
+      if (contents.isDestroyed()) return
       Object.assign(state, patch, {
         url: patch.url || contents.getURL() || state.url,
         canGoBack: contents.navigationHistory.canGoBack(),
@@ -208,7 +401,7 @@ export class TabManager {
     contents.on('did-start-loading', () => sync({ isLoading: true }))
     contents.on('did-stop-loading', () => sync({ isLoading: false }))
     contents.on('did-navigate', (_e, url) => {
-      sync({ url, faviconUrl: null })
+      sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
       this.options.onVisit(url)
     })
     contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -221,12 +414,45 @@ export class TabManager {
       this.options.onTitle(state.url, title)
     })
     contents.on('page-favicon-updated', (_e, favicons) => sync({ faviconUrl: favicons[0] ?? null }))
+    contents.on('found-in-page', (_e, result) =>
+      this.options.onFound({ active: result.activeMatchOrdinal, total: result.matches })
+    )
+    contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
+
+    contents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+      if (isMainFrame && code !== ABORTED && !isInternal(url)) void contents.loadURL(errorPageUrl(url, description))
+    })
+    contents.on('render-process-gone', (_e, { reason }) => {
+      if (reason === 'clean-exit') return
+      void contents.loadURL(errorPageUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
+    })
+
+    contents.on('enter-html-full-screen', () => this.setFullscreen(true))
+    contents.on('leave-html-full-screen', () => this.setFullscreen(false))
+
+    // Web pages must never reach sc:// pages, which have extra privileges.
+    contents.on('will-navigate', (event) => {
+      if (isInternal(event.url) && !isInternal(contents.getURL())) event.preventDefault()
+    })
+    contents.on('will-redirect', (event) => {
+      if (isInternal(event.url)) event.preventDefault()
+    })
+    contents.on('will-frame-navigate', (event) => {
+      if (!event.isMainFrame && isInternal(event.url)) event.preventDefault()
+    })
 
     // Links with target=_blank and window.open land in a new tab next to their opener.
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      this.create(url, { activate: disposition !== 'background-tab', afterId: state.id })
+      const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(contents.getURL()))
+      if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id })
       return { action: 'deny' }
     })
+  }
+
+  private setFullscreen(fullscreen: boolean): void {
+    this.fullscreen = fullscreen
+    this.options.onFullscreen(fullscreen)
+    this.applyBounds()
   }
 
   private emitChange(): void {

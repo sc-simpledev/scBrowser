@@ -1,5 +1,7 @@
+import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
-import type { OverlayState } from './overlay'
+import type { OverlayState, OverlayView } from './overlay'
+import type { Settings } from './settings'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
 
 /**
@@ -20,6 +22,19 @@ export interface ChromeCommands {
   'history:search': (query: string) => HistoryEntry[]
   'search:suggestions': (query: string) => Promise<string[]>
   'overlay:set': (state: OverlayState) => void
+  'tabs:move': (id: TabId, index: number) => void
+  'tabs:context-menu': (id: TabId) => void
+  'tabs:open-in-background': (url: string) => void
+  'bookmarks:list': () => Bookmark[]
+  'bookmarks:toggle': (url: string, title: string) => void
+  'bookmarks:context-menu': (id: number) => void
+  'settings:get': () => Settings
+  'settings:set': (patch: Partial<Settings>) => void
+  'find:query': (text: string, options: { forward: boolean; findNext: boolean }) => void
+  'find:stop': () => void
+  'zoom:reset': () => void
+  'menu:open': (x: number, y: number) => void
+  'downloads:open-page': () => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -28,17 +43,23 @@ export interface ChromeEvents {
   'ui:focus-omnibox': void
   /** The user clicked a row in the omnibox dropdown (index into the current list). */
   'omnibox:pick': number
+  'bookmarks:changed': Bookmark[]
+  'settings:changed': Settings
+  'ui:open-find': void
+  'find:result': { active: number; total: number }
+  'downloads:progress': { active: number; fraction: number | null }
 }
 
 /** Commands the overlay view sends to the main process. */
 export interface OverlayCommands {
   'overlay:pick': (index: number) => void
+  'overlay:permission': (requestId: number, allow: boolean) => void
 }
 
 /** Events the main process pushes to the overlay view. */
 export interface OverlayEvents {
   /** `origin` is the overlay's top-left in window coordinates. */
-  'overlay:state': { state: OverlayState; origin: { x: number; y: number } }
+  'overlay:state': { state: OverlayView; origin: { x: number; y: number } }
 }
 
 export type CommandChannel = keyof ChromeCommands
@@ -57,12 +78,34 @@ export const COMMAND_CHANNELS = [
   'layout:page-rect',
   'history:search',
   'search:suggestions',
-  'overlay:set'
+  'overlay:set',
+  'tabs:move',
+  'tabs:context-menu',
+  'tabs:open-in-background',
+  'bookmarks:list',
+  'bookmarks:toggle',
+  'bookmarks:context-menu',
+  'settings:get',
+  'settings:set',
+  'find:query',
+  'find:stop',
+  'zoom:reset',
+  'menu:open',
+  'downloads:open-page'
 ] as const satisfies readonly CommandChannel[]
 
-export const EVENT_CHANNELS = ['tabs:changed', 'ui:focus-omnibox', 'omnibox:pick'] as const satisfies readonly EventChannel[]
+export const EVENT_CHANNELS = [
+  'tabs:changed',
+  'ui:focus-omnibox',
+  'omnibox:pick',
+  'bookmarks:changed',
+  'settings:changed',
+  'ui:open-find',
+  'find:result',
+  'downloads:progress'
+] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -75,8 +118,59 @@ export interface Bridge<Commands extends { [K in keyof Commands]: (...args: neve
   platform: 'linux' | 'win32' | 'darwin'
 }
 
+/** Commands available to `sc://` pages, checked against the calling frame in the main process. */
+export interface InternalCommands {
+  'settings:get': () => Settings
+  'settings:set': (patch: Partial<Settings>) => void
+  'settings:pick-download-dir': () => string | null
+  'history:list': (query: string, limit: number, offset: number) => HistoryEntry[]
+  'history:delete': (url: string) => void
+  'history:clear': () => void
+  'bookmarks:list': () => Bookmark[]
+  'bookmarks:rename': (id: number, title: string) => void
+  'bookmarks:remove': (id: number) => void
+  'downloads:list': () => DownloadInfo[]
+  'downloads:action': (id: string, action: DownloadAction) => void
+  'downloads:clear': () => void
+  'permissions:list': () => PermissionDecision[]
+  'permissions:revoke': (origin: string, permission: string) => void
+  'browser:is-default': () => boolean
+  'browser:set-default': () => void
+  'browser:open': (url: string) => void
+  'browser:version': () => { app: string; chromium: string; electron: string }
+}
+
+export const INTERNAL_COMMAND_CHANNELS = [
+  'settings:get',
+  'settings:set',
+  'settings:pick-download-dir',
+  'history:list',
+  'history:delete',
+  'history:clear',
+  'bookmarks:list',
+  'bookmarks:rename',
+  'bookmarks:remove',
+  'downloads:list',
+  'downloads:action',
+  'downloads:clear',
+  'permissions:list',
+  'permissions:revoke',
+  'browser:is-default',
+  'browser:set-default',
+  'browser:open',
+  'browser:version'
+] as const satisfies readonly (keyof InternalCommands)[]
+
 /** Shape of `window.scb`, exposed by the chrome UI preload. */
 export type ChromeBridge = Bridge<ChromeCommands, ChromeEvents>
 
 /** Shape of `window.scbOverlay`, exposed by the overlay preload. */
 export type OverlayBridge = Bridge<OverlayCommands, OverlayEvents>
+
+/** Shape of `window.scbInternal`, exposed only to `sc://` pages. */
+export interface InternalBridge {
+  invoke<C extends keyof InternalCommands & string>(
+    channel: C,
+    ...args: Parameters<InternalCommands[C]>
+  ): Promise<Awaited<ReturnType<InternalCommands[C]>>>
+}

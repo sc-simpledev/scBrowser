@@ -1,0 +1,205 @@
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, Select, Switch } from '@scbrowser/ui'
+import {
+  PERMISSION_LABELS,
+  SEARCH_ENGINES,
+  type InternalCommands,
+  type PermissionDecision,
+  type Settings,
+  type SitePermission
+} from '@scbrowser/shared'
+import { api } from '../api'
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className="flex flex-col gap-1">
+      <h2 className="text-xs font-medium text-text-muted">{title}</h2>
+      <div className="flex flex-col rounded-lg shadow-1">{children}</div>
+    </section>
+  )
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-12 items-center justify-between gap-6 border-b border-border px-3 py-2 last:border-b-0">
+      <div className="min-w-0">
+        <div>{label}</div>
+        {hint && <div className="truncate text-xs text-text-faint">{hint}</div>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+export function SettingsPage() {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [permissions, setPermissions] = useState<PermissionDecision[]>([])
+  const [isDefault, setIsDefault] = useState(false)
+  const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
+
+  useEffect(() => {
+    void api().invoke('settings:get').then(setSettings)
+    void api().invoke('permissions:list').then(setPermissions)
+    void api().invoke('browser:is-default').then(setIsDefault)
+    void api().invoke('browser:version').then(setVersion)
+  }, [])
+
+  if (!settings) return null
+
+  const update = (patch: Partial<Settings>) => {
+    setSettings({ ...settings, ...patch })
+    void api().invoke('settings:set', patch)
+  }
+  const engine = SEARCH_ENGINES.find((e) => e.id === settings.searchEngine)
+
+  return (
+    <>
+      <Section title="Appearance">
+        <Row label="Theme">
+          <Select
+            aria-label="Theme"
+            value={settings.theme}
+            onChange={(e) => update({ theme: e.target.value as Settings['theme'] })}
+          >
+            <option value="system">Match system</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </Select>
+        </Row>
+        <Row label="Tab layout">
+          <Select
+            aria-label="Tab layout"
+            value={settings.tabLayout}
+            onChange={(e) => update({ tabLayout: e.target.value as Settings['tabLayout'] })}
+          >
+            <option value="horizontal">Across the top</option>
+            <option value="vertical">Down the side</option>
+          </Select>
+        </Row>
+        <Row label="Bookmarks bar">
+          <Switch
+            label="Bookmarks bar"
+            checked={settings.showBookmarksBar}
+            onChange={(showBookmarksBar) => update({ showBookmarksBar })}
+          />
+        </Row>
+      </Section>
+
+      <Section title="Search">
+        <Row label="Search engine">
+          <Select
+            aria-label="Search engine"
+            value={settings.searchEngine}
+            onChange={(e) => update({ searchEngine: e.target.value })}
+          >
+            {SEARCH_ENGINES.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          label="Search suggestions"
+          hint={
+            engine?.suggestTemplate
+              ? `Sends what you type in the address bar to ${engine.name}`
+              : `${engine?.name ?? 'This engine'} doesn't offer suggestions`
+          }
+        >
+          <Switch
+            label="Search suggestions"
+            checked={settings.searchSuggestions}
+            onChange={(searchSuggestions) => update({ searchSuggestions })}
+          />
+        </Row>
+      </Section>
+
+      <Section title="Startup and performance">
+        <Row label="When scBrowser starts">
+          <Select
+            aria-label="When scBrowser starts"
+            value={settings.startup}
+            onChange={(e) => update({ startup: e.target.value as Settings['startup'] })}
+          >
+            <option value="restore">Reopen previous tabs</option>
+            <option value="new-tab">Open a new tab</option>
+          </Select>
+        </Row>
+        <Row label="Sleep background tabs" hint="Frees memory. Tabs reload when you open them.">
+          <Select
+            aria-label="Sleep background tabs"
+            value={settings.sleepAfterMinutes}
+            onChange={(e) => update({ sleepAfterMinutes: Number(e.target.value) })}
+          >
+            <option value={0}>Never</option>
+            <option value={15}>After 15 minutes</option>
+            <option value={30}>After 30 minutes</option>
+            <option value={60}>After 1 hour</option>
+            <option value={120}>After 2 hours</option>
+          </Select>
+        </Row>
+      </Section>
+
+      <Section title="Downloads">
+        <Row label="Save files to" hint={settings.downloadDir || 'Downloads folder'}>
+          <Button
+            onClick={() =>
+              void api()
+                .invoke('settings:pick-download-dir')
+                .then((downloadDir) => downloadDir && update({ downloadDir }))
+            }
+          >
+            Change
+          </Button>
+        </Row>
+        <Row label="Ask where to save each file">
+          <Switch
+            label="Ask where to save each file"
+            checked={settings.askWhereToSave}
+            onChange={(askWhereToSave) => update({ askWhereToSave })}
+          />
+        </Row>
+      </Section>
+
+      <Section title="Site permissions">
+        {permissions.length === 0 && <Row label="No sites have asked for permissions yet">{null}</Row>}
+        {permissions.map(({ origin, permission, allowed }) => (
+          <Row
+            key={`${origin}:${permission}`}
+            label={origin}
+            hint={`${allowed ? 'Allowed' : 'Blocked'} to ${PERMISSION_LABELS[permission as SitePermission]}`}
+          >
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('permissions:revoke', origin, permission)
+                setPermissions(permissions.filter((p) => !(p.origin === origin && p.permission === permission)))
+              }}
+            >
+              Reset
+            </Button>
+          </Row>
+        ))}
+      </Section>
+
+      <Section title="About">
+        <Row label="Default browser" hint={isDefault ? 'scBrowser is your default browser' : undefined}>
+          {!isDefault && (
+            <Button
+              onClick={() =>
+                void api()
+                  .invoke('browser:set-default')
+                  .then(() => api().invoke('browser:is-default'))
+                  .then(setIsDefault)
+              }
+            >
+              Make default
+            </Button>
+          )}
+        </Row>
+        {version && <Row label={`scBrowser ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
+      </Section>
+    </>
+  )
+}

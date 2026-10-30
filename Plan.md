@@ -10,19 +10,20 @@ Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: 
 
 **Phase 0 — mostly done.** Monorepo, tokens, base components, typed IPC, CI, Playwright E2E. Still to do: Storybook with visual regression, token lint rule, Style Dictionary.
 
-**Phase 1 — in progress.**
-- [x] Tabs (horizontal), new/close/switch/reopen, tab shortcuts
-- [x] Omnibox with history, open-tab and search-engine suggestions
+**Phase 1 — done.** Everything below is covered by E2E tests unless marked.
+- [x] Tabs across the top or down the side (collapsible), drag to reorder, tab menu
+- [x] Omnibox with bookmark, history, open-tab and search-engine suggestions
 - [x] Overlay layer for popups and tooltips
-- [x] History storage (SQLite)
-- [ ] Session restore
-- [ ] Bookmarks and bookmarks bar
-- [ ] Downloads manager
-- [ ] Find in page, zoom, print
-- [ ] Permission prompts
-- [ ] Vertical tabs, drag to reorder
-- [ ] `sc://settings`, `sc://history`, search engine choice
-- [ ] Set as default browser, crash recovery, background tab sleeping
+- [x] History, bookmarks and bookmarks bar, downloads manager
+- [x] Session restore (tabs load when opened, back/forward kept), window size restored
+- [x] Find in page, zoom
+- [x] Permission prompts with remembered per-site decisions
+- [x] `sc://settings`, `sc://history`, `sc://bookmarks`, `sc://downloads`, search engine choice
+- [x] Error pages, crashed-page recovery, background tab sleeping
+
+Built but needs a manual check, as automated tests can't drive them: print dialog, camera and microphone prompts, fullscreen video, Ctrl+scroll zoom, save-as dialogs, set as default browser (packaged builds only; Windows opens system settings).
+
+Known limits to pick up later: geolocation needs a Google API key in Electron; bookmarks have no folders yet; zoom isn't kept across restarts; HTTP auth dialogs aren't handled; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.

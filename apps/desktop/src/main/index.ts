@@ -1,20 +1,39 @@
-import { join } from 'node:path'
-import { app } from 'electron'
+import { existsSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { app, Menu } from 'electron'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
+import { SettingsStore } from './settings'
+import { BookmarksRepo } from './storage/bookmarks'
 import { openDatabase } from './storage/database'
+import { DownloadsRepo } from './storage/downloads'
 import { HistoryRepo } from './storage/history'
+import { KeyValueRepo } from './storage/kv'
+import { PermissionsRepo } from './storage/permissions'
 import { createBrowserWindow, type BrowserWindowHandle } from './window'
+
+// One failed callback shouldn't put a blocking error dialog in front of the whole browser.
+process.on('uncaughtException', (error) => console.error('Uncaught exception:', error))
 
 app.setName('scBrowser')
 // Lets tests (and power users) run with a throwaway profile.
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
+if (process.platform === 'linux') app.setDesktopName('scbrowser.desktop')
 registerInternalScheme()
 
 // Present a plain Chrome user agent: some sites (notably Google sign-in) refuse
 // browsers that advertise Electron.
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
 
-const urlsFromArgv = (argv: string[]) => argv.slice(1).filter((arg) => /^(https?|file|sc):/i.test(arg))
+/** URLs and local HTML files passed on the command line, e.g. by the OS when we're the default browser. */
+function urlsFromArgv(argv: string[]): string[] {
+  const args = argv.slice(app.isPackaged ? 1 : 2).filter((arg) => !arg.startsWith('-'))
+  return args.flatMap((arg) => {
+    if (/^(https?|file):/i.test(arg)) return [arg]
+    const path = isAbsolute(arg) ? arg : resolve(arg)
+    return /\.(html?|xhtml|svg|pdf)$/i.test(arg) && existsSync(path) ? [pathToFileURL(path).toString()] : []
+  })
+}
 
 let main: BrowserWindowHandle | null = null
 
@@ -29,11 +48,24 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    Menu.setApplicationMenu(null)
     handleInternalPages()
     const db = openDatabase(join(app.getPath('userData'), 'browser.db'))
     app.on('will-quit', () => db.close())
-    main = createBrowserWindow(new HistoryRepo(db), urlsFromArgv(process.argv))
+    const kv = new KeyValueRepo(db)
+    main = createBrowserWindow(
+      {
+        kv,
+        settings: new SettingsStore(kv),
+        history: new HistoryRepo(db),
+        bookmarks: new BookmarksRepo(db),
+        downloads: new DownloadsRepo(db),
+        permissions: new PermissionsRepo(db)
+      },
+      urlsFromArgv(process.argv)
+    )
     main.window.on('closed', () => (main = null))
+    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs })
   })
 
   app.on('window-all-closed', () => app.quit())

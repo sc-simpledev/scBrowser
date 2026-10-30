@@ -1,7 +1,15 @@
-import { Lock, Search, TriangleAlert } from 'lucide-react'
+import { Lock, Search, Star, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { cx } from '@scbrowser/ui'
-import { buildSuggestions, displayUrl, type HistoryEntry, type Suggestion } from '@scbrowser/shared'
+import { cx, IconButton } from '@scbrowser/ui'
+import {
+  buildSuggestions,
+  displayUrl,
+  effectiveUrl,
+  engineById,
+  type HistoryEntry,
+  type Suggestion
+} from '@scbrowser/shared'
+import { useApp } from '../state/app'
 import { useOverlay } from '../state/overlay'
 import { useActiveTab, useTabs } from '../state/tabs'
 
@@ -58,6 +66,8 @@ export function Omnibox() {
   const tabs = useTabs((s) => s.tabs)
   const focusRequest = useTabs((s) => s.omniboxFocusRequest)
   const setPopup = useOverlay((s) => s.setOmnibox)
+  const bookmarks = useApp((s) => s.bookmarks)
+  const searchEngine = useApp((s) => s.settings.searchEngine)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
@@ -66,6 +76,7 @@ export function Omnibox() {
   const [dismissed, setDismissed] = useState(false)
 
   const url = tab ? displayUrl(tab.url) : ''
+  const bookmarked = bookmarks.some((b) => b.url === url)
   const value = draft ?? url
   const formatted = !focused && draft === null ? formatUrl(url) : null
 
@@ -74,8 +85,15 @@ export function Omnibox() {
     () =>
       draft === null
         ? []
-        : buildSuggestions(draft, { history, tabs, activeTabId: tab?.id ?? null, searchSuggestions: phrases }),
-    [draft, history, phrases, tabs, tab?.id]
+        : buildSuggestions(draft, {
+            history,
+            bookmarks,
+            tabs,
+            activeTabId: tab?.id ?? null,
+            searchSuggestions: phrases,
+            engine: engineById(searchEngine)
+          }),
+    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine]
   )
   const open = focused && !dismissed && suggestions.length > 0
   const selected = Math.min(selectedIndex, Math.max(0, suggestions.length - 1))
@@ -202,6 +220,31 @@ export function Omnibox() {
           </div>
         )}
       </div>
+      {tab && tab.zoomPercent !== 100 && (
+        <button
+          type="button"
+          aria-label={`Zoom ${tab.zoomPercent}%, reset`}
+          onClick={() => void window.scb.invoke('zoom:reset')}
+          className="shrink-0 rounded-sm px-1.5 text-2xs font-medium text-text-muted hover:bg-surface-active hover:text-text"
+        >
+          {tab.zoomPercent}%
+        </button>
+      )}
+      {tab && /^(https?|file):/.test(url) && (
+        <IconButton
+          size="sm"
+          label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}
+          shortcut="Ctrl D"
+          aria-pressed={bookmarked}
+          onClick={() => void window.scb.invoke('bookmarks:toggle', effectiveUrl(tab.url), tab.title)}
+        >
+          <Star
+            size={14}
+            strokeWidth={1.75}
+            className={bookmarked ? 'fill-accent text-accent' : undefined}
+          />
+        </IconButton>
+      )}
     </div>
   )
 }

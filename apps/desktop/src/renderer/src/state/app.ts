@@ -1,0 +1,31 @@
+import { create } from 'zustand'
+import { DEFAULT_SETTINGS, type Bookmark, type ChromeEvents, type Settings } from '@scbrowser/shared'
+
+interface AppStore {
+  settings: Settings
+  bookmarks: Bookmark[]
+  downloads: ChromeEvents['downloads:progress']
+  /** Whether anything has been downloaded since launch, which reveals the toolbar button. */
+  hasDownloaded: boolean
+}
+
+export const useApp = create<AppStore>(() => ({
+  settings: DEFAULT_SETTINGS,
+  bookmarks: [],
+  downloads: { active: 0, fraction: null },
+  hasDownloaded: false
+}))
+
+/** Subscribes the store to main-process events. Call once at startup. */
+export function connectApp(): () => void {
+  const setSettings = (settings: Settings) => useApp.setState({ settings })
+  const setBookmarks = (bookmarks: Bookmark[]) => useApp.setState({ bookmarks })
+  void window.scb.invoke('settings:get').then(setSettings)
+  void window.scb.invoke('bookmarks:list').then(setBookmarks)
+  const unsubscribers = [
+    window.scb.on('settings:changed', setSettings),
+    window.scb.on('bookmarks:changed', setBookmarks),
+    window.scb.on('downloads:progress', (downloads) => useApp.setState({ downloads, hasDownloaded: true }))
+  ]
+  return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+}

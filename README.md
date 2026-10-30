@@ -22,7 +22,7 @@ pnpm dist         # build installers into apps/desktop/release
 |---|---|
 | `apps/desktop/src/main` | Main process: window, `TabManager`, keyboard shortcuts, IPC, `sc://` internal pages |
 | `apps/desktop/src/preload` | The only bridge between the chrome UI and the main process (`window.scb`) |
-| `apps/desktop/src/renderer` | Browser chrome UI (React): tab strip, toolbar, omnibox |
+| `apps/desktop/src/renderer` | Browser UI (React): chrome, the overlay above pages, and the `sc://` pages |
 | `packages/shared` | Typed IPC contract, tab types, omnibox URL/search resolution |
 | `packages/ui` | Design system: tokens, Tailwind theme, base components |
 
@@ -31,7 +31,7 @@ pnpm dist         # build installers into apps/desktop/release
 - Colours, type, spacing, radii, shadows and motion come from `packages/ui/src/tokens.css`.
   The Tailwind theme (`theme.css`) removes all Tailwind defaults, so only token-based utilities exist.
 - One icon set (Lucide, 1.5–1.75 stroke), one accent colour, three elevation levels.
-- Web pages run sandboxed with no preload; the chrome UI only talks to the main process
+- Web pages run sandboxed. A preload exists in every tab but exposes nothing except on `sc://` pages, which websites can't open or frame, and the main process re-checks the calling frame. The chrome UI only talks to the main process
   through the channels declared in `packages/shared/src/ipc.ts`, and every argument is validated.
 
 ## Keyboard shortcuts
@@ -45,3 +45,10 @@ pnpm dist         # build installers into apps/desktop/release
 | Alt ← / Alt → | Back / forward |
 | Ctrl Tab, Ctrl PgUp/PgDn, Ctrl 1–9 | Switch tabs |
 | F12, Ctrl Shift I | Developer tools for the page |
+| Ctrl F | Find in page |
+| Ctrl D / Ctrl Shift B | Bookmark page / show bookmarks bar |
+| Ctrl H, Ctrl J, Ctrl Shift O | History, downloads, bookmarks |
+| Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
+| Ctrl P | Print |
+| F11 | Full screen |
+| Ctrl Q | Quit |

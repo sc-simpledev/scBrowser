@@ -1,5 +1,7 @@
 export * from './ipc'
+export * from './library'
 export * from './omnibox'
 export * from './overlay'
+export * from './settings'
 export * from './tabs'
 export * from './url'

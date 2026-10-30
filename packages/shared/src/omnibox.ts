@@ -1,3 +1,4 @@
+import type { Bookmark } from './library'
 import type { TabId, TabState } from './tabs'
 import { DEFAULT_SEARCH_ENGINE, isNewTabUrl, resolveOmniboxInput, type SearchEngine } from './url'
 
@@ -8,7 +9,7 @@ export interface HistoryEntry {
   lastVisit: number
 }
 
-export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'history' | 'search-suggestion'
+export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion'
 
 export type SuggestionAction = { type: 'navigate'; url: string } | { type: 'switch-tab'; tabId: TabId }
 
@@ -32,6 +33,7 @@ const matches = (needle: string, ...haystacks: string[]) => haystacks.some((h) =
 
 interface BuildOptions {
   history: HistoryEntry[]
+  bookmarks?: Bookmark[]
   tabs: TabState[]
   activeTabId: TabId | null
   searchSuggestions?: string[]
@@ -69,6 +71,19 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
       title: tab.title || tab.url,
       detail: tab.url,
       action: { type: 'switch-tab', tabId: tab.id }
+    })
+  }
+
+  for (const bookmark of options.bookmarks ?? []) {
+    if (results.length >= MAX_SUGGESTIONS - 1) break
+    if (seenUrls.has(bookmark.url) || !matches(needle, bookmark.url, bookmark.title)) continue
+    seenUrls.add(bookmark.url)
+    results.push({
+      id: `bookmark:${bookmark.id}`,
+      kind: 'bookmark',
+      title: bookmark.title || bookmark.url,
+      detail: bookmark.url,
+      action: { type: 'navigate', url: bookmark.url }
     })
   }
 

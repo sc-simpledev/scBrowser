@@ -8,6 +8,9 @@ export interface TabState {
   isLoading: boolean
   canGoBack: boolean
   canGoForward: boolean
+  /** Unloaded to save memory; wakes when activated. */
+  isSleeping: boolean
+  zoomPercent: number
 }
 
 export interface TabsSnapshot {

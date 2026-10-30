@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { displayUrl, isNewTabUrl, NEW_TAB_URL, resolveOmniboxInput } from './url'
+import { displayUrl, errorPageUrl, isNewTabUrl, NEW_TAB_URL, resolveOmniboxInput } from './url'
 
 describe('resolveOmniboxInput', () => {
   it.each([
@@ -32,6 +32,7 @@ describe('displayUrl', () => {
     expect(displayUrl(NEW_TAB_URL)).toBe('')
     expect(displayUrl('sc://newtab/')).toBe('')
     expect(isNewTabUrl('sc://newtab/')).toBe(true)
+    expect(displayUrl(errorPageUrl('https://down.example/a?b=1', 'Timed out'))).toBe('https://down.example/a?b=1')
     expect(displayUrl('https://example.com/')).toBe('https://example.com/')
   })
 })
