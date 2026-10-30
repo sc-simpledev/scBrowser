@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+@import '@scbrowser/ui/tokens.css';
+@import '@scbrowser/ui/theme.css';
+
+@source '../../../../../packages/ui/src';
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overflow: hidden;
+    background: var(--sc-bg);
+    color: var(--sc-text);
+    font-family: var(--sc-font-sans);
+    font-size: var(--sc-text-sm);
+    font-weight: var(--sc-weight-regular);
+    font-feature-settings: 'tnum';
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+  }
+}
+
+@utility sc-drag {
+  -webkit-app-region: drag;
+}
+
+@utility sc-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Reserve space for the native window controls (Windows Controls Overlay). */
+@utility sc-wco-inset {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+
+.sc-tooltip {
+  animation: sc-fade-in var(--sc-duration-fast) var(--sc-ease-out);
+}
+
+@keyframes sc-fade-in {
+  from {
+    opacity: 0;
+    translate: 0 2px;
+  }
+}
+
+@keyframes sc-progress {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 250% 0;
+  }
+}

@@ -1,0 +1,112 @@
+/*
+ * scBrowser design tokens — the single source of truth for colour, type, space, radius,
+ * motion and elevation. Components reference these (directly or through theme.css);
+ * they never hard-code colours or pixel values.
+ *
+ * Neutrals are warm and very low chroma; the accent is used only for focus, the active
+ * tab indicator and primary actions.
+ */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+:root {
+  color-scheme: light dark;
+
+  /* Colour — light */
+  --sc-bg: oklch(0.955 0.004 80);
+  --sc-surface: oklch(0.993 0.002 80);
+  --sc-surface-hover: oklch(0.925 0.005 80);
+  --sc-surface-active: oklch(0.9 0.006 80);
+  --sc-field: oklch(0.925 0.005 80);
+  --sc-border: oklch(0.885 0.006 80);
+  --sc-border-strong: oklch(0.8 0.008 80);
+  --sc-text: oklch(0.22 0.01 70);
+  --sc-text-muted: oklch(0.47 0.01 70);
+  --sc-text-faint: oklch(0.6 0.008 70);
+  --sc-accent: oklch(0.62 0.18 38);
+  --sc-accent-hover: oklch(0.57 0.18 38);
+  --sc-accent-soft: oklch(0.62 0.18 38 / 0.12);
+  --sc-on-accent: oklch(0.99 0 0);
+  --sc-focus-ring: oklch(0.62 0.18 38 / 0.55);
+  --sc-danger: oklch(0.58 0.2 25);
+
+  /* Typography */
+  --sc-font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --sc-font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --sc-text-2xs: 11px;
+  --sc-text-xs: 12px;
+  --sc-text-sm: 13px;
+  --sc-text-md: 15px;
+  --sc-text-lg: 20px;
+  --sc-text-xl: 28px;
+  --sc-leading-tight: 1.2;
+  --sc-leading-normal: 1.45;
+  --sc-weight-regular: 420;
+  --sc-weight-medium: 520;
+  --sc-weight-semibold: 600;
+
+  /* Space — 4px grid */
+  --sc-space: 4px;
+
+  /* Radius — small controls / fields & tabs / page & popovers */
+  --sc-radius-sm: 4px;
+  --sc-radius-md: 6px;
+  --sc-radius-lg: 10px;
+
+  /* Elevation — three levels, never more */
+  --sc-shadow-1: 0 0 0 1px var(--sc-border), 0 1px 2px oklch(0 0 0 / 0.05);
+  --sc-shadow-2: 0 0 0 1px var(--sc-border), 0 4px 12px oklch(0 0 0 / 0.08);
+  --sc-shadow-3: 0 0 0 1px var(--sc-border), 0 12px 32px oklch(0 0 0 / 0.14);
+
+  /* Motion */
+  --sc-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sc-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --sc-duration-fast: 120ms;
+  --sc-duration-base: 160ms;
+  --sc-duration-slow: 200ms;
+
+  /* Chrome layout */
+  --sc-tabstrip-height: 40px;
+  --sc-toolbar-height: 44px;
+  --sc-page-inset: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sc-bg: oklch(0.185 0.006 70);
+    --sc-surface: oklch(0.225 0.006 70);
+    --sc-surface-hover: oklch(0.255 0.007 70);
+    --sc-surface-active: oklch(0.29 0.008 70);
+    --sc-field: oklch(0.24 0.007 70);
+    --sc-border: oklch(0.285 0.007 70);
+    --sc-border-strong: oklch(0.36 0.008 70);
+    --sc-text: oklch(0.94 0.006 80);
+    --sc-text-muted: oklch(0.72 0.008 80);
+    --sc-text-faint: oklch(0.56 0.008 80);
+    --sc-accent: oklch(0.7 0.16 42);
+    --sc-accent-hover: oklch(0.75 0.15 42);
+    --sc-accent-soft: oklch(0.7 0.16 42 / 0.16);
+    --sc-on-accent: oklch(0.18 0.01 60);
+    --sc-focus-ring: oklch(0.7 0.16 42 / 0.6);
+    --sc-shadow-1: 0 0 0 1px var(--sc-border), 0 1px 2px oklch(0 0 0 / 0.3);
+    --sc-shadow-2: 0 0 0 1px var(--sc-border), 0 4px 12px oklch(0 0 0 / 0.35);
+    --sc-shadow-3: 0 0 0 1px var(--sc-border), 0 12px 32px oklch(0 0 0 / 0.5);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --sc-border: var(--sc-border-strong);
+    --sc-text-muted: var(--sc-text);
+    --sc-text-faint: var(--sc-text-muted);
+    --sc-focus-ring: var(--sc-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sc-duration-fast: 0ms;
+    --sc-duration-base: 0ms;
+    --sc-duration-slow: 0ms;
+  }
+}

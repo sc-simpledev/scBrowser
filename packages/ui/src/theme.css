@@ -1,0 +1,67 @@
+/*
+ * Tailwind theme built only from scBrowser tokens. `--*: initial` removes Tailwind's
+ * default palette, radii, shadows and type scale, so utilities like `bg-blue-500` or
+ * `rounded-2xl` simply don't exist — only our tokens do.
+ */
+@theme inline {
+  --*: initial;
+
+  --color-bg: var(--sc-bg);
+  --color-surface: var(--sc-surface);
+  --color-surface-hover: var(--sc-surface-hover);
+  --color-surface-active: var(--sc-surface-active);
+  --color-field: var(--sc-field);
+  --color-border: var(--sc-border);
+  --color-border-strong: var(--sc-border-strong);
+  --color-text: var(--sc-text);
+  --color-text-muted: var(--sc-text-muted);
+  --color-text-faint: var(--sc-text-faint);
+  --color-accent: var(--sc-accent);
+  --color-accent-hover: var(--sc-accent-hover);
+  --color-accent-soft: var(--sc-accent-soft);
+  --color-on-accent: var(--sc-on-accent);
+  --color-focus-ring: var(--sc-focus-ring);
+  --color-danger: var(--sc-danger);
+  --color-transparent: transparent;
+
+  --font-sans: var(--sc-font-sans);
+  --font-mono: var(--sc-font-mono);
+
+  --text-2xs: var(--sc-text-2xs);
+  --text-xs: var(--sc-text-xs);
+  --text-sm: var(--sc-text-sm);
+  --text-md: var(--sc-text-md);
+  --text-lg: var(--sc-text-lg);
+  --text-xl: var(--sc-text-xl);
+
+  --font-weight-regular: var(--sc-weight-regular);
+  --font-weight-medium: var(--sc-weight-medium);
+  --font-weight-semibold: var(--sc-weight-semibold);
+
+  --leading-tight: var(--sc-leading-tight);
+  --leading-normal: var(--sc-leading-normal);
+
+  --spacing: var(--sc-space);
+
+  --radius-sm: var(--sc-radius-sm);
+  --radius-md: var(--sc-radius-md);
+  --radius-lg: var(--sc-radius-lg);
+  --radius-full: 9999px;
+
+  --shadow-1: var(--sc-shadow-1);
+  --shadow-2: var(--sc-shadow-2);
+  --shadow-3: var(--sc-shadow-3);
+
+  --ease-out: var(--sc-ease-out);
+  --ease-in-out: var(--sc-ease-in-out);
+  --default-transition-duration: var(--sc-duration-fast);
+  --default-transition-timing-function: var(--sc-ease-out);
+
+  --animate-spin: sc-spin 0.8s linear infinite;
+
+  @keyframes sc-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}

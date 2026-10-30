@@ -1,0 +1,25 @@
+appId: app.scbrowser.desktop
+productName: scBrowser
+directories:
+  output: release/${version}
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asar: true
+linux:
+  target: [AppImage, deb, rpm]
+  category: Network;WebBrowser
+  executableName: scbrowser
+  mimeTypes: [text/html, x-scheme-handler/http, x-scheme-handler/https]
+  desktop:
+    entry:
+      StartupWMClass: scBrowser
+win:
+  target: [nsis]
+  executableName: scBrowser
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+publish: null

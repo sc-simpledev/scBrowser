@@ -1,0 +1,20 @@
+{
+  "name": "scbrowser",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @scbrowser/desktop dev",
+    "build": "pnpm --filter @scbrowser/desktop build",
+    "dist": "pnpm --filter @scbrowser/desktop dist",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "postinstall": "node node_modules/electron/install.js"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
+  }
+}
