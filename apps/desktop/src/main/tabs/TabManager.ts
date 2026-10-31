@@ -38,6 +38,8 @@ interface TabManagerOptions {
   onTabCreated: (contents: WebContents) => void
   onTabClosed: (id: TabId) => void
   onActivate: (tab: TabState) => void
+  /** The new tab page finished loading, which pulls keyboard focus into it. */
+  onNewTabLoaded: () => void
   /** A tab committed a navigation (including same-document ones). */
   onVisit: (url: string) => void
   onTitle: (url: string, title: string) => void
@@ -49,6 +51,7 @@ interface TabManagerOptions {
 }
 
 const PAGE_RADIUS = 10
+const SPLIT_GAP = 6
 const CLOSED_TABS_LIMIT = 25
 const ABORTED = -3
 const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
@@ -65,6 +68,8 @@ export class TabManager {
   private closed: SavedTab[] = []
   private changeQueued = false
   private fullscreen = false
+  /** Left and right tabs while split view is on. */
+  private split: [TabId, TabId] | null = null
 
   constructor(
     private readonly window: BaseWindow,
@@ -90,6 +95,7 @@ export class TabManager {
     const tab = this.tabs.get(id)
     if (!tab) return
 
+    if (this.split?.includes(id)) this.endSplit()
     const index = this.order.indexOf(id)
     this.order.splice(index, 1)
     this.tabs.delete(id)
@@ -137,6 +143,13 @@ export class TabManager {
   activate(id: TabId): void {
     const next = this.tabs.get(id)
     if (!next) return
+    if (this.split?.includes(id)) {
+      this.activeId = id
+      this.options.onActivate(next.state)
+      this.emitChange()
+      return
+    }
+    if (this.split) this.endSplit()
     if (this.activeId !== null && this.activeId !== id) {
       const previous = this.tabs.get(this.activeId)
       if (previous) {
@@ -151,6 +164,38 @@ export class TabManager {
     this.applyBounds()
     next.view?.setVisible(true)
     this.options.onActivate(next.state)
+    this.emitChange()
+  }
+
+  /** Shows `id` beside the active tab. */
+  startSplit(id: TabId): void {
+    const other = this.tabs.get(id)
+    if (this.activeId === null || id === this.activeId || !other) return
+    if (this.split) this.endSplit()
+    this.split = [this.activeId, id]
+    this.wake(other)
+    other.lastActiveAt = Date.now()
+    other.view?.setVisible(true)
+    this.applyBounds()
+    this.emitChange()
+  }
+
+  /** Splits with the tab after the active one, or ends split view if it's on. */
+  toggleSplit(): void {
+    if (this.split) {
+      this.endSplit()
+      return
+    }
+    if (this.activeId === null || this.order.length < 2) return
+    const next = this.order[(this.order.indexOf(this.activeId) + 1) % this.order.length]
+    if (next !== undefined) this.startSplit(next)
+  }
+
+  endSplit(): void {
+    if (!this.split) return
+    for (const id of this.split) if (id !== this.activeId) this.tabs.get(id)?.view?.setVisible(false)
+    this.split = null
+    this.applyBounds()
     this.emitChange()
   }
 
@@ -262,6 +307,23 @@ export class TabManager {
     const view = this.tabs.get(this.activeId)?.view
     if (!view) return
     const { width, height } = this.window.getContentBounds()
+    const [left, right] = this.split ?? []
+    if (this.split && !this.fullscreen) {
+      const leftWidth = Math.floor((this.pageRect.width - SPLIT_GAP) / 2)
+      const rightX = this.pageRect.x + leftWidth + SPLIT_GAP
+      for (const [id, x, w] of [
+        [left!, this.pageRect.x, leftWidth],
+        [right!, rightX, this.pageRect.width - leftWidth - SPLIT_GAP]
+      ] as const) {
+        const side = this.tabs.get(id)?.view
+        side?.setVisible(true)
+        side?.setBounds({ ...this.pageRect, x, width: w })
+        side?.setBorderRadius(PAGE_RADIUS)
+      }
+      return
+    }
+    // Fullscreen video covers the window, so the other half of a split steps aside.
+    if (this.split) this.tabs.get(left === this.activeId ? right! : left!)?.view?.setVisible(false)
     view.setBounds(this.fullscreen ? { x: 0, y: 0, width, height } : this.pageRect)
     view.setBorderRadius(this.fullscreen ? 0 : PAGE_RADIUS)
   }
@@ -299,7 +361,8 @@ export class TabManager {
   snapshot(): TabsSnapshot {
     return {
       tabs: this.order.map((id) => ({ ...this.tabs.get(id)!.state })),
-      activeId: this.activeId
+      activeId: this.activeId,
+      splitIds: this.split ? [...this.split] : []
     }
   }
 
@@ -312,7 +375,7 @@ export class TabManager {
   /** Unloads background tabs idle for longer than `maxIdleMs`. */
   sleepIdle(maxIdleMs: number, now = Date.now()): void {
     for (const tab of this.tabs.values()) {
-      if (tab.state.id === this.activeId || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
+      if (tab.state.id === this.activeId || this.split?.includes(tab.state.id) || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
       const contents = tab.view.webContents
       if (contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) continue
       tab.saved = this.toSaved(tab)
@@ -424,7 +487,17 @@ export class TabManager {
     }
 
     contents.on('did-start-loading', () => sync({ isLoading: true }))
-    contents.on('did-stop-loading', () => sync({ isLoading: false }))
+    contents.on('did-stop-loading', () => {
+      sync({ isLoading: false })
+      if (state.id === this.activeId && isNewTabUrl(state.url)) this.options.onNewTabLoaded()
+    })
+    // In split view the active tab is whichever side the person is using.
+    contents.on('focus', () => {
+      if (this.split?.includes(state.id) && this.activeId !== state.id) {
+        this.activeId = state.id
+        this.emitChange()
+      }
+    })
     contents.on('did-navigate', (_e, url) => {
       sync({ url, faviconUrl: null, blockedCount: 0, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
       this.options.onVisit(url)

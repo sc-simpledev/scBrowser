@@ -7,6 +7,7 @@ import { Tab } from './Tab'
 export function TabStrip() {
   const tabs = useTabs((s) => s.tabs)
   const activeId = useTabs((s) => s.activeId)
+  const splitIds = useTabs((s) => s.splitIds)
   const [draggingId, setDraggingId] = useState<number | null>(null)
 
   return (
@@ -18,6 +19,7 @@ export function TabStrip() {
             tab={tab}
             index={index}
             active={tab.id === activeId}
+            split={splitIds.includes(tab.id)}
             layout="horizontal"
             draggingId={draggingId}
             onDragState={setDraggingId}

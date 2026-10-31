@@ -82,10 +82,14 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
 
 export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWindow): void {
   const { tabs } = actions
+  const { splitIds, activeId } = tabs.snapshot()
   Menu.buildFromTemplate([
     { label: 'New tab', click: () => tabs.create() },
     { label: 'Reload', click: () => tabs.reload(id) },
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
+    splitIds.length > 0
+      ? { label: 'End split view', click: () => tabs.endSplit() }
+      : { label: 'Open in split view', enabled: id !== activeId, click: () => tabs.startSplit(id) },
     { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },

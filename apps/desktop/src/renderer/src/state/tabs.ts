@@ -11,6 +11,7 @@ interface TabsStore extends TabsSnapshot {
 export const useTabs = create<TabsStore>((set) => ({
   tabs: [],
   activeId: null,
+  splitIds: [],
   omniboxFocusRequest: 0,
   setSnapshot: (snapshot) => set(snapshot),
   requestOmniboxFocus: () => set((s) => ({ omniboxFocusRequest: s.omniboxFocusRequest + 1 }))

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { IconButton, Input } from '@scbrowser/ui'
 import { useActiveTab } from '../state/tabs'
 
@@ -8,6 +8,7 @@ export function FindBar() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
+  const [focusRequest, setFocusRequest] = useState(0)
   const [result, setResult] = useState<{ active: number; total: number } | null>(null)
 
   const close = () => {
@@ -20,14 +21,15 @@ export function FindBar() {
     () =>
       window.scb.on('ui:open-find', () => {
         setOpen(true)
-        // The bar may not be mounted yet on first open.
-        requestAnimationFrame(() => {
-          inputRef.current?.focus()
-          inputRef.current?.select()
-        })
+        setFocusRequest((n) => n + 1)
       }),
     []
   )
+  useLayoutEffect(() => {
+    if (focusRequest === 0) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [focusRequest])
   useEffect(() => window.scb.on('find:result', setResult), [])
   useEffect(() => {
     setOpen(false)

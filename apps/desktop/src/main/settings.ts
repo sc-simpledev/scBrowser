@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, sanitizeSettings, type Settings } from '@scbrowser/sh
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'settings'
+const VERTICAL_DEFAULT_APPLIED = 'settings:vertical-default-applied'
 
 export class SettingsStore {
   private settings: Settings
@@ -10,6 +11,12 @@ export class SettingsStore {
 
   constructor(private readonly kv: KeyValueRepo) {
     this.settings = { ...DEFAULT_SETTINGS, ...sanitizeSettings(kv.get(KEY)) }
+    // Settings are saved whole, so profiles from before vertical tabs became the default
+    // hold the old default. Move them over once; a later choice of horizontal is kept.
+    if (!kv.get(VERTICAL_DEFAULT_APPLIED)) {
+      kv.set(VERTICAL_DEFAULT_APPLIED, true)
+      this.settings.tabLayout = 'vertical'
+    }
     nativeTheme.themeSource = this.settings.theme
   }
 

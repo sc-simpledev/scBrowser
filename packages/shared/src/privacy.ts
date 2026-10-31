@@ -44,6 +44,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'assistant', label: 'Open assistant', shortcut: 'Ctrl Shift A' },
   { id: 'summarise', label: 'Summarise this page' },
   { id: 'vertical-tabs', label: 'Switch tab layout' },
+  { id: 'split', label: 'Split view with the next tab' },
   { id: 'history', label: 'History', shortcut: 'Ctrl H' },
   { id: 'bookmarks', label: 'Bookmarks', shortcut: 'Ctrl Shift O' },
   { id: 'downloads', label: 'Downloads', shortcut: 'Ctrl J' },

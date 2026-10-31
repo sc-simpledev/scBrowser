@@ -42,6 +42,16 @@
   animation: sc-fade-in var(--sc-duration-fast) var(--sc-ease-out);
 }
 
+/* Scrollbars only appear on the tab list when the pointer is over it. */
+.sc-scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.sc-scroll-quiet:hover {
+  scrollbar-color: var(--sc-border-strong) transparent;
+}
+
 /* The one AI motif: a soft accent edge that moves while a reply is being written. */
 .sc-generating {
   background: linear-gradient(90deg, transparent, var(--sc-accent), transparent);

@@ -45,7 +45,8 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Command palette (Ctrl K) and accent colours
 - [ ] Cosmetic filtering (hiding ad placeholders; only network requests are blocked so far)
 - [ ] Profiles and containers
-- [ ] Split view
+- [x] Split view (from the tab menu or Ctrl K, 50/50 and not restored after a restart yet)
+- [x] Vertical tabs as the default, with close on the favicon
 - [ ] Customisable toolbar
 - [ ] `sc://flags`, screenshot tool, import from Chrome/Firefox
 

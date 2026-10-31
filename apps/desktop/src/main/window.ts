@@ -108,13 +108,22 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       overlay.raise()
     },
     onTabClosed: () => permissionService.refresh(),
+    // Only focus, not a new selection: the person may already be typing.
+    onNewTabLoaded: () => {
+      if (!chromeUi.isDestroyed()) chromeUi.focus()
+    },
     onActivate: (tab) => {
       if (isNewTabUrl(tab.url)) focusOmnibox()
       else tabs.focusActive()
       permissionService.refresh()
     },
-    onVisit: (url) => history.recordVisit(url),
-    onTitle: (url, title) => history.updateTitle(url, title),
+    // Pages can still report in during shutdown, after the database has closed.
+    onVisit: (url) => {
+      if (!window.isDestroyed()) history.recordVisit(url)
+    },
+    onTitle: (url, title) => {
+      if (!window.isDestroyed()) history.updateTitle(url, title)
+    },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
     engine: () => engineById(settings.get().searchEngine),
@@ -188,6 +197,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     reader: actions.toggleReader,
     assistant: actions.toggleAssistant,
     summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
+    split: () => tabs.toggleSplit(),
     'vertical-tabs': () =>
       settings.set({ tabLayout: settings.get().tabLayout === 'vertical' ? 'horizontal' : 'vertical' }),
     history: () => actions.openPage('history'),

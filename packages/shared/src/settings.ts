@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchEngine: 'duckduckgo',
   searchSuggestions: true,
   theme: 'system',
-  tabLayout: 'horizontal',
+  tabLayout: 'vertical',
   verticalTabsCollapsed: false,
   showBookmarksBar: false,
   startup: 'restore',

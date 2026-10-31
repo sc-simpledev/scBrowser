@@ -1,13 +1,24 @@
-import { Globe } from 'lucide-react'
+import { Bookmark, Bot, Download, Globe, History, Plus, Settings, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { cx } from '@scbrowser/ui'
 
+const INTERNAL_ICONS: Record<string, LucideIcon> = {
+  newtab: Plus,
+  settings: Settings,
+  ai: Bot,
+  history: History,
+  bookmarks: Bookmark,
+  downloads: Download
+}
+
 interface FaviconProps {
   url: string | null
+  /** The tab's address, which picks an icon for scBrowser's own pages. */
+  pageUrl: string
   isLoading: boolean
 }
 
-export function Favicon({ url, isLoading }: FaviconProps) {
+export function Favicon({ url, pageUrl, isLoading }: FaviconProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
 
   if (isLoading) {
@@ -18,6 +29,9 @@ export function Favicon({ url, isLoading }: FaviconProps) {
       />
     )
   }
+  const Internal = /^sc:\/\/(\w+)/.exec(pageUrl)?.[1]
+  const Icon = Internal ? INTERNAL_ICONS[Internal] : undefined
+  if (Icon) return <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
   if (!url || failedUrl === url) {
     return <Globe aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
   }

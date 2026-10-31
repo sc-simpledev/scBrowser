@@ -18,6 +18,8 @@ export interface TabState {
 export interface TabsSnapshot {
   tabs: TabState[]
   activeId: TabId | null
+  /** The two tabs shown side by side, if split view is on. */
+  splitIds: TabId[]
 }
 
 /** Rectangle (in CSS pixels of the chrome UI) where the active page should be drawn. */

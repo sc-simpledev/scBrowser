@@ -62,3 +62,12 @@ test('Escape closes the dropdown, then restores the URL', async () => {
   await omnibox().press('Escape')
   await expect(omnibox()).toHaveValue(site.url('/alpha'))
 })
+
+test('a new tab leaves the keyboard in the address bar', async () => {
+  await h.chrome.getByRole('button', { name: 'New tab' }).click()
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+  await h.chrome.waitForTimeout(700)
+  const focused = await h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? 'none')
+  expect(focused).toContain('renderer/index.html')
+  await expect(omnibox()).toBeFocused()
+})

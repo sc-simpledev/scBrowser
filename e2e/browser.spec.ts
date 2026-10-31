@@ -112,16 +112,63 @@ test('reorders tabs by dragging and supports vertical tabs', async () => {
   await go(h, site.url('/beta'))
   await expect(activeTab(h)).toHaveText('Beta page')
 
+  // Vertical is the default.
+  await expect(h.chrome.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical')
   await h.chrome.getByRole('tab', { name: 'Beta page' }).dragTo(h.chrome.getByRole('tab', { name: 'Alpha page' }), {
-    targetPosition: { x: 5, y: 10 }
+    targetPosition: { x: 20, y: 5 }
   })
   await expect(h.chrome.getByRole('tab').first()).toHaveText('Beta page')
 
+  await setSetting(h, { tabLayout: 'horizontal' })
+  await expect(h.chrome.getByRole('tablist')).not.toHaveAttribute('aria-orientation', 'vertical')
+  await h.chrome.getByRole('tab', { name: 'Alpha page' }).dragTo(h.chrome.getByRole('tab', { name: 'Beta page' }), {
+    targetPosition: { x: 5, y: 10 }
+  })
+  await expect(h.chrome.getByRole('tab').first()).toHaveText('Alpha page')
+
   await setSetting(h, { tabLayout: 'vertical' })
-  await expect(h.chrome.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical')
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
   await h.chrome.getByRole('button', { name: 'Collapse tabs' }).click()
   await expect(h.chrome.getByRole('button', { name: 'Expand tabs' })).toBeVisible()
+})
+
+test('closes a side tab from its favicon, expanded or collapsed', async () => {
+  await newTab()
+  await newTab()
+  const closeFirst = h.chrome.getByRole('tab').first().getByRole('button', { name: 'Close tab' })
+  await closeFirst.click()
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+
+  await h.chrome.getByRole('button', { name: 'Collapse tabs' }).click()
+  await closeFirst.click()
+  await expect(h.chrome.getByRole('tab')).toHaveCount(1)
+})
+
+test('shows two tabs side by side and ends the split', async () => {
+  await go(h, site.url('/alpha'))
+  await expect(activeTab(h)).toHaveText('Alpha page')
+  await newTab()
+  await go(h, site.url('/beta'))
+  await expect(activeTab(h)).toHaveText('Beta page')
+
+  const bounds = () =>
+    h.app.evaluate(() => {
+      const tabs = (globalThis as unknown as { scbTabs: { snapshot(): { splitIds: number[] } } }).scbTabs
+      return tabs.snapshot().splitIds.length
+    })
+  await h.app.evaluate(() => (globalThis as unknown as { scbTabs: { toggleSplit(): void } }).scbTabs.toggleSplit())
+  await expect.poll(bounds).toBe(2)
+
+  // Using the other page moves the address bar to it.
+  await h.app.evaluate(({ webContents }) => {
+    webContents.getAllWebContents().find((c) => c.getURL().includes('/alpha'))?.focus()
+  })
+  await expect(omnibox(h)).toHaveValue(site.url('/alpha'))
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+
+  // Opening anything else ends the split.
+  await newTab()
+  await expect.poll(bounds).toBe(0)
 })
 
 test('settings page changes the search engine', async () => {
