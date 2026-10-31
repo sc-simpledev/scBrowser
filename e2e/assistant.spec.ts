@@ -13,7 +13,8 @@ let mock: AiMock
 test.beforeEach(async () => {
   mock = await startAiMock()
   site = await serveSite({
-    '/article': titled('Long read', `<article>${'<p>The secret ingredient is cardamom, and this paragraph repeats so the page reads as an article.</p>'.repeat(6)}</article>`)
+    '/article': titled('Long read', `<article>${'<p>The secret ingredient is cardamom, and this paragraph repeats so the page reads as an article.</p>'.repeat(6)}</article>`),
+    '/other': titled('Second tab', '<p>The second tab talks about rhubarb.</p>')
   })
   h = await launch()
 })
@@ -29,7 +30,7 @@ async function addProvider(format: 'openai' | 'anthropic') {
   await go(h, 'sc://ai')
   const page = await h.page('sc://ai')
   await page.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('custom')
-  await page.getByRole('textbox', { name: 'Name' }).fill('Mock AI')
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Mock AI')
   await page.getByRole('textbox', { name: 'Base URL' }).fill(format === 'openai' ? `${mock.url}/v1` : mock.url)
   await page.getByRole('combobox', { name: 'API format' }).selectOption(format)
   await page.getByRole('textbox', { name: 'API key' }).fill(API_KEY)
@@ -237,4 +238,76 @@ test('stores keys encrypted, keeps them after restart, and hides them from pages
   await ask('After restart')
   await expect(panel().getByText('Hello there')).toBeVisible()
   expect(mock.requests.at(-1)?.headers.authorization).toBe(`Bearer ${API_KEY}`)
+})
+
+test('@ brings another tab into the message', async () => {
+  await addProvider('openai')
+  await go(h, site.url('/other'))
+  await expect(activeTab(h)).toHaveText('Second tab')
+  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+  await go(h, site.url('/article'))
+  await expect(activeTab(h)).toHaveText('Long read')
+  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+
+  await composer().pressSequentially('Compare @sec')
+  await expect(panel().getByRole('option', { name: 'Second tab' })).toBeVisible()
+  await composer().press('Enter')
+  await expect(panel().getByRole('button', { name: 'Remove Second tab' })).toBeVisible()
+  await composer().pressSequentially('these')
+  await composer().press('Enter')
+
+  await expect(panel().getByText('Hello there')).toBeVisible()
+  expect(lastUserMessage()).toContain('cardamom')
+  expect(lastUserMessage()).toContain('rhubarb')
+  expect(lastUserMessage()).not.toContain('@sec')
+})
+
+test('/ runs a saved skill, and skills can be added', async () => {
+  const page = await addProvider('openai')
+  await page.getByRole('textbox', { name: 'Skill name' }).fill('Haiku it')
+  await page.getByRole('textbox', { name: 'Skill prompt' }).fill('Turn this page into a haiku.')
+  await page.getByRole('button', { name: 'Add skill' }).click()
+  await expect(page.getByText('Turn this page into a haiku.')).toBeVisible()
+
+  await openOnArticle()
+  await composer().pressSequentially('/hai')
+  await expect(panel().getByRole('option', { name: 'Haiku it' })).toBeVisible()
+  await composer().press('Enter')
+  await expect(panel().getByText('Hello there')).toBeVisible()
+  expect(lastUserMessage()).toContain('Turn this page into a haiku.')
+})
+
+test.describe('hosted scDelta AI', () => {
+  test.beforeEach(async () => {
+    await h.close()
+    process.env.SCDELTA_AI_URL = `${mock.url}/v1`
+    h = await launch()
+  })
+
+  test.afterEach(() => {
+    delete process.env.SCDELTA_AI_URL
+  })
+
+  test('works with no key, only after choosing it, and explains its limit', async () => {
+    await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+    await panel().getByRole('button', { name: 'Use scDelta AI' }).click()
+    await expect(composer()).toBeVisible()
+    await expect(panel().getByText('scDelta AI')).toBeVisible()
+    expect(mock.requests).toHaveLength(0)
+
+    await ask('Hello')
+    await expect(panel().getByText('Hello there')).toBeVisible()
+    expect(mock.requests.at(-1)?.headers.authorization).toBeUndefined()
+
+    mock.status = 429
+    await ask('Again')
+    await expect(panel().getByRole('alert')).toContainText('free scDelta AI limit')
+  })
+})
+
+test('hides scDelta AI when this build has no server', async () => {
+  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  await expect(panel().getByRole('button', { name: 'Set up AI' })).toBeVisible()
+  await expect(panel().getByRole('button', { name: 'Use scDelta AI' })).toHaveCount(0)
 })

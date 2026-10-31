@@ -1,6 +1,6 @@
 {
   "name": "@scbrowser/desktop",
-  "productName": "scBrowser",
+  "productName": "scDelta",
   "version": "0.1.0",
   "private": true,
   "description": "A modern, AI-native browser for Linux and Windows.",

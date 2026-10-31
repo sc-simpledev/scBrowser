@@ -1,5 +1,5 @@
 /*
- * scBrowser design tokens — the single source of truth for colour, type, space, radius,
+ * scDelta design tokens — the single source of truth for colour, type, space, radius,
  * motion and elevation. Components reference these (directly or through theme.css);
  * they never hard-code colours or pixel values.
  *

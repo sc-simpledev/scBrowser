@@ -1,4 +1,4 @@
-import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn } from './ai'
+import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ImportResult, ImportSource } from './containers'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
@@ -42,6 +42,7 @@ export interface ChromeCommands {
   'ai:cancel': (streamId: string) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'ai:open-settings': () => void
+  'ai:enable-hosted': () => void
   'chats:list': () => ChatSummary[]
   'chats:get': (id: string) => SavedChat | null
   'chats:save': (id: string, turns: SavedTurn[]) => void
@@ -117,6 +118,7 @@ export const COMMAND_CHANNELS = [
   'ai:cancel',
   'ai:set-site',
   'ai:open-settings',
+  'ai:enable-hosted',
   'chats:list',
   'chats:get',
   'chats:save',
@@ -189,6 +191,10 @@ export interface InternalCommands {
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'chats:clear': () => void
+  'ai:enable-hosted': () => void
+  'ai:save-skills': (skills: Skill[]) => void
+  'profiles:list': () => { current: string; names: string[] }
+  'profiles:open': (name: string) => void
   'import:sources': () => ImportSource[]
   'import:run': (id: string) => ImportResult
   'flags:get': () => string[]
@@ -225,6 +231,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:set-role',
   'ai:set-site',
   'chats:clear',
+  'ai:enable-hosted',
+  'ai:save-skills',
+  'profiles:list',
+  'profiles:open',
   'import:sources',
   'import:run',
   'flags:get',

@@ -45,7 +45,9 @@ export class AiError extends Error {
   }
 }
 
-export function errorForStatus(status: number, name: string): AiError {
+export function errorForStatus(status: number, name: string, hosted = false): AiError {
+  if (hosted && status === 429) return new AiError('rate-limit', `You've reached the free ${name} limit for now. Add your own API key in AI settings to keep going.`)
+  if (hosted && status === 503) return new AiError('server', `${name} has reached its limit for today. Add your own API key in AI settings to keep going.`)
   if (status === 401 || status === 403) return new AiError('auth', `${name} rejected the API key. Check it in AI settings.`)
   if (status === 404) return new AiError('not-found', `${name} couldn't find that model or address. Check AI settings.`)
   if (status === 429) return new AiError('rate-limit', `${name} is rate limiting requests, or the account is out of credit.`)

@@ -19,7 +19,7 @@ export interface TooltipAnchor {
 }
 
 /**
- * Lets an app draw tooltips somewhere other than an in-document portal — scBrowser
+ * Lets an app draw tooltips somewhere other than an in-document portal — scDelta
  * draws them in a view stacked above web pages. Without a host, Radix is used.
  */
 export interface TooltipHost {

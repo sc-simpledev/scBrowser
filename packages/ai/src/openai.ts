@@ -23,7 +23,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
       if (init.signal?.aborted) throw error
       throw new AiError('network', `Couldn't reach ${config.name}. Check the address and your connection.`)
     }
-    if (!response.ok) throw errorForStatus(response.status, config.name)
+    if (!response.ok) throw errorForStatus(response.status, config.name, config.hosted)
     return response
   }
 

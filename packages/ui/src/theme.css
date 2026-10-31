@@ -1,5 +1,5 @@
 /*
- * Tailwind theme built only from scBrowser tokens. `--*: initial` removes Tailwind's
+ * Tailwind theme built only from scDelta tokens. `--*: initial` removes Tailwind's
  * default palette, radii, shadows and type scale, so utilities like `bg-blue-500` or
  * `rounded-2xl` simply don't exist — only our tokens do.
  */

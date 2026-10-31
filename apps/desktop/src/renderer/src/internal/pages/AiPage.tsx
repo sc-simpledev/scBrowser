@@ -1,7 +1,7 @@
-import { TriangleAlert, X } from 'lucide-react'
+import { Plus, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol } from '@scbrowser/shared'
+import { HOSTED_PROVIDER_ID, isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol, type Skill } from '@scbrowser/shared'
 import { api } from '../api'
 
 const CUSTOM = 'custom'
@@ -195,6 +195,64 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
   )
 }
 
+function HostedCard({ onChange }: { onChange: () => void }) {
+  return (
+    <section aria-label="scDelta AI" className="flex items-center justify-between gap-4 rounded-lg p-3 shadow-1">
+      <div className="min-w-0">
+        <div className="font-medium">scDelta AI</div>
+        <div className="text-xs text-text-faint">
+          No key needed, with daily limits. Messages and pages you share go to our server and its AI provider, and we
+          don't store them.
+        </div>
+      </div>
+      <Button variant="primary" className="shrink-0" onClick={() => void api().invoke('ai:enable-hosted').then(onChange)}>
+        Use scDelta AI
+      </Button>
+    </section>
+  )
+}
+
+function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => void }) {
+  const [name, setName] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const save = (next: Skill[]) => void api().invoke('ai:save-skills', next).then(onChange)
+
+  return (
+    <section aria-label="Skills" className="flex flex-col gap-2 rounded-lg p-3 shadow-1">
+      <h2 className="font-medium">Skills</h2>
+      <p className="text-xs text-text-faint">Saved prompts. Type / in the assistant to run one.</p>
+      <ul>
+        {skills.map((skill) => (
+          <li key={skill.id} className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-surface-hover">
+            <div className="min-w-0 flex-1">
+              <div className="truncate">{skill.name}</div>
+              <div className="truncate text-xs text-text-faint">{skill.prompt}</div>
+            </div>
+            <IconButton label={`Delete ${skill.name}`} onClick={() => save(skills.filter((s) => s.id !== skill.id))}>
+              <X size={14} strokeWidth={1.75} />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+      <Input aria-label="Skill name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+      <Input aria-label="Skill prompt" placeholder="Prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      <div>
+        <Button
+          disabled={!name.trim() || !prompt.trim()}
+          onClick={() => {
+            save([...skills, { id: crypto.randomUUID(), name: name.trim(), prompt: prompt.trim() }])
+            setName('')
+            setPrompt('')
+          }}
+        >
+          <Plus aria-hidden size={14} strokeWidth={1.75} />
+          Add skill
+        </Button>
+      </div>
+    </section>
+  )
+}
+
 export function AiPage() {
   const [state, setState] = useState<AiState | null>(null)
   const load = useCallback(() => void api().invoke('ai:state').then(setState), [])
@@ -204,8 +262,8 @@ export function AiPage() {
   return (
     <>
       <p className="text-text-muted">
-        scBrowser has no AI account of its own. Use your own key, or a model running on this computer. Page text is
-        only sent when you ask the assistant something with the page attached.
+        Use your own key, a model running on this computer, or scDelta AI where it's offered. Page text is only sent
+        when you ask the assistant something with the page attached.
       </p>
       {!state.keysProtected && (
         <p role="alert" className="flex items-center gap-1.5 text-xs text-danger">
@@ -213,6 +271,7 @@ export function AiPage() {
           No system keyring was found, so saved keys are only lightly protected on this device.
         </p>
       )}
+      {state.hostedAvailable && !state.providers.some((p) => p.id === HOSTED_PROVIDER_ID) && <HostedCard onChange={load} />}
       {state.providers.length > 0 && (
         <ul aria-label="Providers" className="flex flex-col rounded-lg shadow-1">
           {state.providers.map((provider) => (
@@ -221,6 +280,7 @@ export function AiPage() {
         </ul>
       )}
       <AddProvider onSaved={load} />
+      <SkillsEditor skills={state.skills} onChange={load} />
       {state.disabledHosts.length > 0 && (
         <section aria-label="Sites with AI off" className="flex flex-col gap-1">
           <h2 className="text-xs font-medium text-text-muted">AI is off for these sites</h2>

@@ -1,4 +1,4 @@
-# scBrowser
+# scDelta
 
 A modern, AI-native browser for Linux and Windows, inspired by Firefox and Dia.
 Built on Electron. See [Plan.md](Plan.md) for the product and technical roadmap.
@@ -23,6 +23,7 @@ pnpm dist         # build installers into apps/desktop/release
 | `apps/desktop/src/main` | Main process: window, `TabManager`, keyboard shortcuts, IPC, `sc://` internal pages |
 | `apps/desktop/src/preload` | The only bridge between the chrome UI and the main process (`window.scb`) |
 | `apps/desktop/src/renderer` | Browser UI (React): chrome, the overlay above pages, and the `sc://` pages |
+| `server` | Deno service behind scDelta AI, with rate limits; see [server/README.md](server/README.md) |
 | `packages/ai` | AI providers, streaming and prompt context; pure TypeScript with no Electron |
 | `packages/shared` | Typed IPC contract, tab types, omnibox URL/search resolution |
 | `packages/ui` | Design system: tokens, Tailwind theme, base components |

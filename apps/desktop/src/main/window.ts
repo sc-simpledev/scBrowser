@@ -28,6 +28,7 @@ import { extractArticle } from './ai/pageText'
 import { storeArticle } from './internal/reader'
 import { PrivacyService } from './privacy/service'
 import { PermissionService } from './permissions'
+import { currentProfile, DEFAULT_PROFILE } from './profiles'
 import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
@@ -42,6 +43,7 @@ import { TabManager } from './tabs/TabManager'
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = 60_000
 const WINDOW_KEY = 'window'
+const APP_TITLE = currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
 
@@ -75,7 +77,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     minWidth: 520,
     minHeight: 360,
     show: false,
-    title: 'scBrowser',
+    title: 'scDelta',
     backgroundColor: colors.background,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: colors.background, symbolColor: colors.foreground, height: TABSTRIP_HEIGHT },
@@ -104,7 +106,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       send('tabs:changed', snapshot)
       saver.schedule()
       const active = snapshot.tabs.find((t) => t.id === snapshot.activeId)
-      window.setTitle(active?.title ? `${active.title} — scBrowser` : 'scBrowser')
+      window.setTitle(`${active?.title ? `${active.title} — ` : ''}${APP_TITLE}`)
     },
     onTabCreated: (contents) => {
       attachShortcuts(contents, actions)

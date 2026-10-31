@@ -10,6 +10,8 @@ export interface ProviderConfig {
   models: string[]
   /** Set on Anthropic's own API, where its first-party-only request options are safe. */
   firstParty: boolean
+  /** Our own service, which needs no key and has shared free limits. */
+  hosted?: boolean
 }
 
 export interface ProviderPreset {
@@ -28,6 +30,25 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'openrouter', name: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', needsKey: true },
   { id: 'ollama', name: 'Ollama (local)', protocol: 'openai', baseUrl: 'http://localhost:11434/v1', needsKey: false },
   { id: 'lmstudio', name: 'LM Studio (local)', protocol: 'openai', baseUrl: 'http://localhost:1234/v1', needsKey: false }
+]
+
+/** Address of the hosted AI service. Empty until it's deployed; SCDELTA_AI_URL overrides it. */
+export const HOSTED_AI_URL = ''
+export const HOSTED_PROVIDER_ID = 'scdelta'
+export const HOSTED_MODEL = 'scdelta-chat'
+export const HOSTED_NAME = 'scDelta AI'
+
+/** A saved prompt, run from the assistant by typing `/`. */
+export interface Skill {
+  id: string
+  name: string
+  prompt: string
+}
+
+export const DEFAULT_SKILLS: Skill[] = [
+  { id: 'simple', name: 'Explain simply', prompt: 'Explain this page in plain language, as if to someone new to the topic.' },
+  { id: 'points', name: 'Key points', prompt: 'List the key points of this page as short bullets.' },
+  { id: 'questions', name: 'What should I ask?', prompt: 'What are the most useful questions to ask about this page?' }
 ]
 
 /** Which model does which job. */
@@ -80,6 +101,9 @@ export interface AiState {
   disabledHosts: string[]
   /** False when the OS has no keyring, so keys are only obfuscated on disk. */
   keysProtected: boolean
+  /** Whether this build has a hosted service to offer. */
+  hostedAvailable: boolean
+  skills: Skill[]
 }
 
 export interface AiStatus {
@@ -88,6 +112,8 @@ export interface AiStatus {
   providerName: string | null
   /** Sites whose pages are never sent to AI. */
   disabledHosts: string[]
+  hostedAvailable: boolean
+  skills: Skill[]
 }
 
 export interface AssistantMessage {
@@ -100,9 +126,13 @@ export interface AssistantRequest {
   tabId: number | null
   /** Send the tab's readable text with this message. */
   includePage: boolean
+  /** Other tabs @-mentioned in this message. */
+  extraTabIds: number[]
   /** Text the person highlighted, quoted with their message. */
   selection: string | null
 }
+
+export const MAX_MENTIONED_TABS = 5
 
 /** Where the text sent with a message came from. */
 export type ContextSource = 'page' | 'transcript' | 'pdf'

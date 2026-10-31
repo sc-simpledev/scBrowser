@@ -1,9 +1,10 @@
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent } from 'electron'
-import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type PermissionDecision } from '@scbrowser/shared'
+import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import { readFlags, setFlag } from './flags'
+import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
 import type { PrivacyService } from './privacy/service'
 import type { SettingsStore } from './settings'
@@ -38,6 +39,14 @@ const text = (value: unknown, max = 8192): string => {
 const int = (value: unknown): number => {
   if (!Number.isInteger(value)) throw new Error('Expected an integer')
   return value as number
+}
+
+function skillList(value: unknown): Skill[] {
+  if (!Array.isArray(value) || value.length > 100) throw new Error('Too many skills')
+  return value.map((skill) => {
+    const { id, name, prompt } = (skill ?? {}) as Record<string, unknown>
+    return { id: text(id, 64), name: text(name, 80), prompt: text(prompt, 4000) }
+  })
 }
 
 function providerInput(value: unknown): ProviderInput {
@@ -121,6 +130,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
     'chats:clear': () => chats.clear(),
+    'ai:enable-hosted': () => aiStore.enableHosted(),
+    'ai:save-skills': (skills) => aiStore.saveSkills(skillList(skills)),
+    'profiles:list': () => listProfiles(),
+    'profiles:open': (name) => openProfile(text(name, 40)),
     'import:sources': () => availableSources(),
     'import:run': (id) => {
       const { bookmarks: imported, history: visits } = readSource(text(id, 32))

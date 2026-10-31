@@ -1,6 +1,7 @@
 import { ipcMain, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import {
   engineById,
+  MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
   type AssistantRequest,
   type ChromeCommands,
@@ -62,6 +63,9 @@ const isAssistantRequest = (value: unknown): value is AssistantRequest => {
   return (
     messagesOk &&
     (value.tabId === null || isId(value.tabId)) &&
+    Array.isArray(value.extraTabIds) &&
+    value.extraTabIds.length <= MAX_MENTIONED_TABS &&
+    value.extraTabIds.every(isId) &&
     typeof value.includePage === 'boolean' &&
     (value.selection === null || isShortString(value.selection, MAX_CONVERSATION_CHARS))
   )
@@ -145,6 +149,7 @@ const validators: Validators = {
   'ai:set-site': (args): args is [string, boolean] =>
     args.length === 2 && isShortString(args[0], 512) && typeof args[1] === 'boolean',
   'ai:open-settings': noArgs,
+  'ai:enable-hosted': noArgs,
   'chats:list': noArgs,
   'chats:get': chatIdArg,
   'chats:save': (args): args is [string, SavedTurn[]] =>
@@ -231,6 +236,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'ai:cancel': (streamId) => ai.cancel(streamId),
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
     'ai:open-settings': () => actions.openPage('ai'),
+    'ai:enable-hosted': () => aiStore.enableHosted(),
     'chats:list': () => chats.list(),
     'chats:get': (id) => chats.get(id),
     'chats:save': (id, turns) => {

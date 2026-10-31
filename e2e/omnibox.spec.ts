@@ -24,7 +24,7 @@ test('navigates, remembers history and offers it as suggestions', async () => {
   await expect(h.chrome.getByRole('tab', { selected: true })).toHaveText('Beta page')
 
   // In a second tab, "alpha" is only in history; "beta" is the other open tab.
-  await h.chrome.getByRole('button', { name: 'New tab' }).click()
+  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
   await expect(omnibox()).toBeFocused()
 
@@ -64,7 +64,7 @@ test('Escape closes the dropdown, then restores the URL', async () => {
 })
 
 test('a new tab leaves the keyboard in the address bar', async () => {
-  await h.chrome.getByRole('button', { name: 'New tab' }).click()
+  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
   await h.chrome.waitForTimeout(700)
   const focused = await h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? 'none')

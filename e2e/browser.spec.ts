@@ -25,7 +25,7 @@ test.afterEach(async () => {
 
 const newTab = async () => {
   const before = await h.chrome.getByRole('tab').count()
-  await h.chrome.getByRole('button', { name: 'New tab' }).click()
+  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(before + 1)
 }
 

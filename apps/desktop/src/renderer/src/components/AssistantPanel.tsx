@@ -1,9 +1,9 @@
-import { ArrowUp, FileText, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowUp, AtSign, FileText, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, SUMMARISE_PROMPT } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
-import { useActiveTab } from '../state/tabs'
+import { useActiveTab, useTabs } from '../state/tabs'
 import { AssistantMarkdown } from './AssistantMarkdown'
 
 function contextLabel({ truncated, source }: Turn) {
@@ -30,6 +30,35 @@ function ChatList() {
           >
             <Trash2 size={12} strokeWidth={1.75} />
           </IconButton>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const MENTION = /(^|\s)@([^\s]*)$/
+
+interface PickerItem {
+  id: string
+  label: string
+  run: () => void
+}
+
+function ComposerPicker({ items, selected }: { items: PickerItem[]; selected: number }) {
+  return (
+    <ul role="listbox" aria-label="Suggestions" className="flex max-h-48 flex-col overflow-y-auto rounded-md bg-surface p-1 shadow-2">
+      {items.map((item, index) => (
+        <li key={item.id} role="option" aria-selected={index === selected}>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              item.run()
+            }}
+            className={cx('h-8 w-full truncate rounded-sm px-2 text-left', index === selected ? 'bg-accent-soft' : 'hover:bg-surface-hover')}
+          >
+            {item.label}
+          </button>
         </li>
       ))}
     </ul>
@@ -64,8 +93,10 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
 }
 
 export function AssistantPanel() {
-  const { open, status, turns, streamId, includePage, selection, focusRequest, chats } = useAssistant()
-  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats } = useAssistant.getState()
+  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions } = useAssistant()
+  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention } = useAssistant.getState()
+  const allTabs = useTabs((s) => s.tabs)
+  const [pickerIndex, setPickerIndex] = useState(0)
   const tab = useActiveTab()
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -75,6 +106,38 @@ export function AssistantPanel() {
   const canRead = !!tab && /^(https?|file):/.test(tab.url)
   const siteOff = !!host && status.disabledHosts.includes(host)
   const sharing = includePage && canRead && !siteOff
+
+  // Typing / lists skills; @ lists other open tabs to bring into the message.
+  const pickerItems = useMemo((): PickerItem[] => {
+    if (draft.startsWith('/')) {
+      const query = draft.slice(1).toLowerCase()
+      return status.skills
+        .filter((skill) => skill.name.toLowerCase().includes(query))
+        .map((skill) => ({
+          id: skill.id,
+          label: skill.name,
+          run: () => {
+            setDraft('')
+            send(skill.prompt)
+          }
+        }))
+    }
+    const match = MENTION.exec(draft)
+    if (!match) return []
+    const query = (match[2] ?? '').toLowerCase()
+    return allTabs
+      .filter((t) => t.id !== tab?.id && !t.isSleeping && !mentions.includes(t.id) && /^(https?|file):/.test(t.url))
+      .filter((t) => t.title.toLowerCase().includes(query) || t.url.toLowerCase().includes(query))
+      .map((t) => ({
+        id: String(t.id),
+        label: t.title || t.url,
+        run: () => {
+          mention(t.id)
+          setDraft(draft.replace(MENTION, '$1'))
+        }
+      }))
+  }, [draft, status.skills, allTabs, tab?.id, mentions, send, mention])
+  const pickerSelected = Math.min(pickerIndex, Math.max(0, pickerItems.length - 1))
 
   useEffect(() => {
     if (open) inputRef.current?.focus()
@@ -113,9 +176,24 @@ export function AssistantPanel() {
 
         {!status.ready ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="text-text-muted">Connect an AI provider with your own API key, or a local model.</p>
-            <Button variant="primary" onClick={() => void window.scb.invoke('ai:open-settings')}>
-              Set up AI
+            <p className="text-text-muted">
+              {status.hostedAvailable
+                ? 'Use scDelta AI for free, with daily limits, or connect your own API key or local model.'
+                : 'Connect an AI provider with your own API key, or a local model.'}
+            </p>
+            {status.hostedAvailable && (
+              <>
+                <Button variant="primary" onClick={() => void window.scb.invoke('ai:enable-hosted')}>
+                  Use scDelta AI
+                </Button>
+                <p className="text-xs text-text-faint">Your messages, and pages you share, go to our server and its AI provider.</p>
+              </>
+            )}
+            <Button
+              variant={status.hostedAvailable ? 'secondary' : 'primary'}
+              onClick={() => void window.scb.invoke('ai:open-settings')}
+            >
+              {status.hostedAvailable ? 'Use my own key' : 'Set up AI'}
             </Button>
           </div>
         ) : chats ? (
@@ -141,6 +219,20 @@ export function AssistantPanel() {
             </div>
 
             <div className="flex shrink-0 flex-col gap-2 p-2">
+              {pickerItems.length > 0 && <ComposerPicker items={pickerItems} selected={pickerSelected} />}
+              {mentions.map((id) => {
+                const mentioned = allTabs.find((t) => t.id === id)
+                if (!mentioned) return null
+                return (
+                  <div key={id} className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-xs text-text-muted">
+                    <AtSign aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{mentioned.title || mentioned.url}</span>
+                    <IconButton size="sm" label={`Remove ${mentioned.title}`} onClick={() => unmention(id)}>
+                      <X size={12} strokeWidth={2} />
+                    </IconButton>
+                  </div>
+                )
+              })}
               {selection && (
                 <div className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-xs text-text-muted">
                   <Quote aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
@@ -182,10 +274,20 @@ export function AssistantPanel() {
                   rows={2}
                   value={draft}
                   aria-label="Message the assistant"
-                  placeholder="Ask anything"
-                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="Ask anything, / for skills, @ for tabs"
+                  onChange={(e) => {
+                    setDraft(e.target.value)
+                    setPickerIndex(0)
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (pickerItems.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                      e.preventDefault()
+                      const step = e.key === 'ArrowDown' ? 1 : -1
+                      setPickerIndex((pickerSelected + step + pickerItems.length) % pickerItems.length)
+                    } else if (pickerItems.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
+                      e.preventDefault()
+                      pickerItems[pickerSelected]?.run()
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       submit()
                     }

@@ -86,3 +86,16 @@ test('hides ad placeholders with cosmetic filters', async () => {
   await expect(page.locator('#keep')).toBeVisible()
   await expect(omnibox(h)).toHaveValue(site.url('/alpha'))
 })
+
+test('a named profile keeps its own data folder', async () => {
+  await h.close()
+  h = await launch(undefined, ['--profile=Work'])
+  const folder = await h.app.evaluate(({ app }) => app.getPath('userData'))
+  expect(folder).toContain(join('profiles', 'Work'))
+  expect(await h.chrome.title()).toBeTruthy()
+  await go(h, 'sc://settings')
+  const page = await h.page('sc://settings')
+  await expect(page.getByText('This window')).toBeVisible()
+  await expect(page.getByLabel('Profile name')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Profiles' }).getByText('Work')).toBeVisible()
+})

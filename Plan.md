@@ -1,7 +1,9 @@
-# scBrowser — Product & Technical Plan
+# scDelta — Product & Technical Plan
+
+Formerly scBrowser. The repository and internal `@scbrowser/*` package names are unchanged.
 
 ## Context
-Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: a modern, commercial-quality desktop browser for **Linux and Windows** with deep **AI integration**, inspired by **Firefox** (privacy, customisation, reader view, containers) and **Dia** (AI sidebar that understands your tabs, AI-first omnibox, writing help). Built by a small team. Decisions made:
+Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: scDelta, a modern, commercial-quality desktop browser for **Linux and Windows** with deep **AI integration**, inspired by **Firefox** (privacy, customisation, reader view, containers) and **Dia** (AI sidebar that understands your tabs, AI-first omnibox, writing help). Built by a small team. Decisions made:
 - **Engine:** Electron (Chromium) + TypeScript.
 - **AI:** Bring-your-own API key, plus user-defined **custom providers** (any OpenAI- or Anthropic-compatible endpoint, local Ollama, etc.).
 - **Business model:** decide later — architecture keeps room for a hosted "Pro" tier, sync, or a paid licence without rewrites.
@@ -45,12 +47,23 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Command palette (Ctrl K) and accent colours
 - [x] Cosmetic filtering (hides ad placeholders with CSS once a page has loaded; ads added later aren't caught yet)
 - [x] Containers, from the tab menu
-- [ ] Separate profiles
+- [x] Separate profiles, opened from Settings as their own window
 - [x] Split view (from the tab menu or Ctrl K, 50/50 and not restored after a restart yet)
 - [x] Vertical tabs as the default, with close on the favicon
 - [x] Toolbar items can be shown or hidden (no drag-to-arrange yet)
 - [x] `sc://flags`, screenshot tool (Ctrl Shift S)
 - [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox
+
+**Phase 4 — started.**
+- [x] Multi-tab context: `@` in the assistant adds other open tabs
+- [x] Skills: saved prompts, run with `/`
+- [ ] Smart tab grouping and auto-naming
+- [ ] Writing assistant in text fields
+- [ ] Semantic history search
+- [ ] Page translation
+- [ ] Agent mode
+
+**Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Set its deployed address as `HOSTED_AI_URL` in `packages/shared/src/ai.ts`; until then the option stays hidden.
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.

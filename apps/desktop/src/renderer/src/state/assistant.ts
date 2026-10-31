@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AiStatus, AssistantEvent, AssistantPrompt, ChatSummary, SavedTurn } from '@scbrowser/shared'
+import { MAX_MENTIONED_TABS, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 
 export interface Turn extends SavedTurn {
@@ -18,12 +18,16 @@ interface AssistantStore {
   streamId: string | null
   includePage: boolean
   selection: string | null
+  /** Other tabs @-mentioned for the next message. */
+  mentions: number[]
   /** Bumped to pull focus into the composer. */
   focusRequest: number
   toggle: () => void
   close: () => void
   setIncludePage: (includePage: boolean) => void
   clearSelection: () => void
+  mention: (id: number) => void
+  unmention: (id: number) => void
   reset: () => void
   toggleChats: () => void
   openChat: (id: string) => void
@@ -42,19 +46,22 @@ const STOP_NOTES: Record<string, string> = {
 
 export const useAssistant = create<AssistantStore>((set, get) => ({
   open: false,
-  status: { ready: false, model: null, providerName: null, disabledHosts: [] },
+  status: { ready: false, model: null, providerName: null, disabledHosts: [], hostedAvailable: false, skills: [] },
   turns: [],
   chatId: null,
   chats: null,
   streamId: null,
   includePage: true,
   selection: null,
+  mentions: [],
   focusRequest: 0,
 
   toggle: () => set((s) => ({ open: !s.open, focusRequest: s.focusRequest + 1 })),
   close: () => set({ open: false }),
   setIncludePage: (includePage) => set({ includePage }),
   clearSelection: () => set({ selection: null }),
+  mention: (id) => set((s) => (s.mentions.length < MAX_MENTIONED_TABS && !s.mentions.includes(id) ? { mentions: [...s.mentions, id] } : s)),
+  unmention: (id) => set((s) => ({ mentions: s.mentions.filter((m) => m !== id) })),
   reset: () => {
     get().stop()
     set({ turns: [], chatId: null, chats: null, selection: null, includePage: true, streamId: null })
@@ -81,15 +88,16 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns, chatId } = get()
+    const { streamId, status, includePage, selection, turns, chatId, mentions } = get()
     if (streamId || !status.ready || !text.trim()) return
     const id = crypto.randomUUID()
     const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
-    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, chatId: chatId ?? crypto.randomUUID(), chats: null })
+    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, chatId: chatId ?? crypto.randomUUID(), chats: null, mentions: [] })
     void window.scb.invoke('ai:send', id, {
       messages: sent.map(({ role, content }) => ({ role, content })),
       tabId: useTabs.getState().activeId,
       includePage,
+      extraTabIds: mentions,
       selection
     })
   },

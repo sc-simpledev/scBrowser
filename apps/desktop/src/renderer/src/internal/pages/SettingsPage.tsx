@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Select, Switch } from '@scbrowser/ui'
+import { Button, Input, Select, Switch } from '@scbrowser/ui'
 import {
   ACCENTS,
   PERMISSION_LABELS,
@@ -42,6 +42,8 @@ export function SettingsPage() {
   const [isDefault, setIsDefault] = useState(false)
   const [offHosts, setOffHosts] = useState<string[]>([])
   const [sources, setSources] = useState<ImportSource[]>([])
+  const [profiles, setProfiles] = useState<{ current: string; names: string[] }>({ current: '', names: [] })
+  const [newProfile, setNewProfile] = useState('')
   const [imported, setImported] = useState<Record<string, ImportResult>>({})
   const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
 
@@ -51,6 +53,7 @@ export function SettingsPage() {
     void api().invoke('browser:is-default').then(setIsDefault)
     void api().invoke('privacy:off-hosts').then(setOffHosts)
     void api().invoke('import:sources').then(setSources)
+    void api().invoke('profiles:list').then(setProfiles)
     void api().invoke('browser:version').then(setVersion)
   }, [])
 
@@ -189,9 +192,9 @@ export function SettingsPage() {
       </Section>
 
       <Section title="Startup and performance">
-        <Row label="When scBrowser starts">
+        <Row label="When scDelta starts">
           <Select
-            aria-label="When scBrowser starts"
+            aria-label="When scDelta starts"
             value={settings.startup}
             onChange={(e) => update({ startup: e.target.value as Settings['startup'] })}
           >
@@ -267,6 +270,32 @@ export function SettingsPage() {
         ))}
       </Section>
 
+      <Section title="Profiles">
+        {profiles.names.map((name) => (
+          <Row key={name} label={name} hint={name === profiles.current ? 'This window' : 'Separate tabs, history, bookmarks and logins'}>
+            {name !== profiles.current && (
+              <Button variant="ghost" onClick={() => void api().invoke('profiles:open', name)}>
+                Open
+              </Button>
+            )}
+          </Row>
+        ))}
+        <Row label="New profile">
+          <div className="flex gap-2">
+            <Input aria-label="Profile name" placeholder="Name" value={newProfile} onChange={(e) => setNewProfile(e.target.value)} />
+            <Button
+              disabled={!/^[\w -]{1,40}$/.test(newProfile.trim())}
+              onClick={() => {
+                void api().invoke('profiles:open', newProfile.trim())
+                setNewProfile('')
+              }}
+            >
+              Create and open
+            </Button>
+          </div>
+        </Row>
+      </Section>
+
       <Section title="Import">
         {sources.length === 0 && <Row label="No other browsers found on this computer">{null}</Row>}
         {sources.map((source) => (
@@ -293,7 +322,7 @@ export function SettingsPage() {
       </Section>
 
       <Section title="About">
-        <Row label="Default browser" hint={isDefault ? 'scBrowser is your default browser' : undefined}>
+        <Row label="Default browser" hint={isDefault ? 'scDelta is your default browser' : undefined}>
           {!isDefault && (
             <Button
               onClick={() =>
@@ -307,7 +336,7 @@ export function SettingsPage() {
             </Button>
           )}
         </Row>
-        {version && <Row label={`scBrowser ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
+        {version && <Row label={`scDelta ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
       </Section>
     </>
   )

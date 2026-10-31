@@ -1,13 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import type { ProviderSecret } from '@scbrowser/ai'
-import { estimateCost, type AiState, type AiStatus, type ModelRef, type ModelRole, type ProviderConfig, type ProviderProtocol, type ProviderUsage } from '@scbrowser/shared'
+import {
+  DEFAULT_SKILLS,
+  estimateCost,
+  HOSTED_AI_URL,
+  HOSTED_MODEL,
+  HOSTED_NAME,
+  HOSTED_PROVIDER_ID,
+  type AiState, type AiStatus, type ModelRef, type ModelRole, type ProviderConfig, type ProviderProtocol,
+  type ProviderUsage,
+  type Skill
+} from '@scbrowser/shared'
 import type { KeyValueRepo } from '../storage/kv'
 
 const PROVIDERS = 'ai:providers'
 const ROLES = 'ai:roles'
 const USAGE = 'ai:usage'
 const DISABLED = 'ai:disabled-hosts'
+const SKILLS = 'ai:skills'
 const secretKey = (id: string) => `ai:secret:${id}`
 
 const ANTHROPIC_DEFAULT_CHAT = 'claude-opus-5-5'
@@ -81,7 +92,9 @@ export class AiStore {
       roles: this.roles(),
       usage: this.usage(),
       disabledHosts: this.disabledHosts(),
-      keysProtected: this.keysProtected()
+      keysProtected: this.keysProtected(),
+      hostedAvailable: this.hostedUrl() !== null,
+      skills: this.skills()
     }
   }
 
@@ -90,10 +103,42 @@ export class AiStore {
     const provider = chat && this.provider(chat.providerId)
     return {
       ready: !!provider,
-      model: provider ? chat.model : null,
+      model: provider?.hosted ? provider.name : provider ? chat.model : null,
       providerName: provider?.name ?? null,
-      disabledHosts: this.disabledHosts()
+      disabledHosts: this.disabledHosts(),
+      hostedAvailable: this.hostedUrl() !== null,
+      skills: this.skills()
     }
+  }
+
+  private hostedUrl(): string | null {
+    return process.env.SCDELTA_AI_URL || HOSTED_AI_URL || null
+  }
+
+  /** Switches chat to the hosted service. Only ever done at the person's request. */
+  enableHosted(): void {
+    const baseUrl = this.hostedUrl()
+    if (!baseUrl) throw new Error('scDelta AI is not available in this build.')
+    const hosted: ProviderConfig = {
+      id: HOSTED_PROVIDER_ID,
+      name: HOSTED_NAME,
+      protocol: 'openai',
+      baseUrl,
+      models: [HOSTED_MODEL],
+      firstParty: false,
+      hosted: true
+    }
+    this.kv.set(PROVIDERS, [...this.providers().filter((p) => p.id !== HOSTED_PROVIDER_ID), hosted])
+    this.setRole('chat', { providerId: HOSTED_PROVIDER_ID, model: HOSTED_MODEL })
+  }
+
+  skills(): Skill[] {
+    return (this.kv.get(SKILLS) as Skill[] | undefined) ?? DEFAULT_SKILLS
+  }
+
+  saveSkills(skills: Skill[]): void {
+    this.kv.set(SKILLS, skills)
+    this.notify()
   }
 
   save(input: ProviderInput): string {

@@ -1,5 +1,5 @@
-appId: app.scbrowser.desktop
-productName: scBrowser
+appId: app.scdelta.desktop
+productName: scDelta
 directories:
   output: release/${version}
   buildResources: build
@@ -14,17 +14,17 @@ linux:
   target: [AppImage, deb]
   maintainer: sc-simpledev <sc-simpledev@users.noreply.github.com>
   category: Network;WebBrowser
-  executableName: scbrowser
+  executableName: scdelta
   mimeTypes: [text/html, x-scheme-handler/http, x-scheme-handler/https]
   desktop:
     entry:
-      StartupWMClass: scBrowser
+      StartupWMClass: scDelta
 deb:
-  packageName: scbrowser
-  artifactName: scbrowser_${version}_${arch}.${ext}
+  packageName: scdelta
+  artifactName: scdelta_${version}_${arch}.${ext}
 win:
   target: [nsis]
-  executableName: scBrowser
+  executableName: scDelta
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

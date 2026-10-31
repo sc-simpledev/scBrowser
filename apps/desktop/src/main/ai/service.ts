@@ -1,6 +1,6 @@
 import { session, type WebContents } from 'electron'
-import { AiError, createProvider, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type Provider } from '@scbrowser/ai'
-import type { AssistantEvent, AssistantRequest } from '@scbrowser/shared'
+import { AiError, createProvider, MAX_PAGE_CHARS, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type PageContext, type Provider } from '@scbrowser/ai'
+import { MAX_MENTIONED_TABS, type AssistantEvent, type AssistantRequest } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import type { AiStore } from './store'
 
@@ -44,7 +44,7 @@ export class AiService {
       const chat = this.store.roles().chat
       if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')
       const provider = this.provider(chat.providerId)
-      const page = await this.readPage(request, streamId, emit).catch((error: unknown) => {
+      const pages = await this.readPages(request, streamId, emit).catch((error: unknown) => {
         if (error instanceof UnreadablePdfError) throw new AiError('bad-request', error.message)
         throw error
       })
@@ -54,7 +54,7 @@ export class AiService {
       const stream = provider.chat({
         model: chat.model,
         system: SYSTEM_PROMPT,
-        messages: withContext(request.messages, page, request.selection),
+        messages: withContext(request.messages, pages, request.selection),
         maxTokens: MAX_OUTPUT_TOKENS,
         signal: controller.signal
       })
@@ -72,16 +72,25 @@ export class AiService {
     }
   }
 
-  private async readPage(request: AssistantRequest, streamId: string, emit: (event: AssistantEvent) => void) {
-    if (!request.includePage || request.tabId === null) return null
-    const contents = this.contentsFor(request.tabId)
-    if (!contents) return null
-    const url = URL.canParse(contents.getURL()) ? new URL(contents.getURL()) : null
-    if (url && this.store.disabledHosts().includes(url.host)) return null
-    const page = await extractContext(contents)
-    if (!page) return null
-    const { text, truncated } = trimPage(page.text)
-    emit({ streamId, type: 'context', title: page.title, truncated, source: page.source })
-    return { ...page, text }
+  private async readPages(request: AssistantRequest, streamId: string, emit: (event: AssistantEvent) => void): Promise<PageContext[]> {
+    const ids = [...new Set([...(request.includePage && request.tabId !== null ? [request.tabId] : []), ...request.extraTabIds])]
+    const allowed = ids.slice(0, MAX_MENTIONED_TABS + 1).flatMap((id) => {
+      const contents = this.contentsFor(id)
+      if (!contents || !URL.canParse(contents.getURL())) return []
+      return this.store.disabledHosts().includes(new URL(contents.getURL()).host) ? [] : [contents]
+    })
+    const found = (await Promise.all(allowed.map(extractContext))).filter((page) => page !== null)
+    if (found.length === 0) return []
+
+    const limit = Math.floor(MAX_PAGE_CHARS / found.length)
+    const trimmed = found.map((page) => ({ ...page, ...trimPage(page.text, limit) }))
+    emit({
+      streamId,
+      type: 'context',
+      title: trimmed.map((page) => page.title).join(', '),
+      truncated: trimmed.some((page) => page.truncated),
+      source: trimmed.length === 1 ? trimmed[0]!.source : 'page'
+    })
+    return trimmed
   }
 }

@@ -1,9 +1,10 @@
-import { existsSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { cpSync, existsSync, rmSync } from 'node:fs'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, Menu } from 'electron'
 import { AiStore } from './ai/store'
 import { applyFlags } from './flags'
+import { applyProfile } from './profiles'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
 import { SettingsStore } from './settings'
 import { BookmarksRepo } from './storage/bookmarks'
@@ -15,19 +16,36 @@ import { KeyValueRepo } from './storage/kv'
 import { PermissionsRepo } from './storage/permissions'
 import { createBrowserWindow, type BrowserWindowHandle } from './window'
 
+/** The app used to be called scBrowser; bring that profile along on first launch. */
+function moveLegacyProfile(): void {
+  const legacy = join(app.getPath('appData'), 'scBrowser')
+  const current = app.getPath('userData')
+  // Electron creates the new folder before this runs, so look for real data, not the folder.
+  if (!existsSync(join(legacy, 'browser.db')) || existsSync(join(current, 'browser.db'))) return
+  try {
+    cpSync(legacy, current, { recursive: true, force: false, filter: (path) => !basename(path).startsWith('Singleton') })
+    rmSync(legacy, { recursive: true, force: true })
+  } catch (error) {
+    // Starting with a fresh profile beats not starting; the old folder is left as it was.
+    console.error('Could not move the old profile:', error)
+  }
+}
+
 // One failed callback shouldn't put a blocking error dialog in front of the whole browser.
 process.on('uncaughtException', (error) => console.error('Uncaught exception:', error))
 
-app.setName('scBrowser')
+app.setName('scDelta')
 // Lets tests (and power users) run with a throwaway profile.
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
-if (process.platform === 'linux') app.setDesktopName('scbrowser.desktop')
+else moveLegacyProfile()
+applyProfile()
+if (process.platform === 'linux') app.setDesktopName('scdelta.desktop')
 applyFlags()
 registerInternalScheme()
 
 // Present a plain Chrome user agent: some sites (notably Google sign-in) refuse
 // browsers that advertise Electron.
-app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
+app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scDelta|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
 
 /** URLs and local HTML files passed on the command line, e.g. by the OS when we're the default browser. */
 function urlsFromArgv(argv: string[]): string[] {

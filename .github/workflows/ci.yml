@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check main.ts
+      - run: deno test --allow-env
   check:
     strategy:
       fail-fast: false
@@ -34,7 +46,7 @@ jobs:
       - run: pnpm dist
       - uses: actions/upload-artifact@v4
         with:
-          name: scbrowser-${{ matrix.os }}
+          name: scdelta-${{ matrix.os }}
           path: |
             apps/desktop/release/**/*.AppImage
             apps/desktop/release/**/*.deb

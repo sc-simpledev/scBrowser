@@ -1,11 +1,9 @@
-import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
 import { Tab } from './Tab'
-
-const newTab = () => void window.scb.invoke('tabs:create')
 
 export function VerticalTabs() {
   const tabs = useTabs((s) => s.tabs)
@@ -22,28 +20,14 @@ export function VerticalTabs() {
         collapsed ? 'w-12' : 'w-60'
       )}
     >
-      {collapsed ? (
-        <IconButton label="New tab" shortcut="Ctrl T" className="size-9 self-center" onClick={newTab}>
-          <Plus size={16} strokeWidth={1.75} />
-        </IconButton>
-      ) : (
-        <button
-          type="button"
-          aria-label="New tab"
-          onClick={newTab}
-          className="group flex h-9 shrink-0 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <span className="grid size-5 place-items-center">
-            <Plus aria-hidden size={15} strokeWidth={1.75} />
-          </span>
-          <span className="flex-1 text-left">New tab</span>
-          <kbd className="font-sans text-2xs text-text-faint opacity-0 transition-opacity group-hover:opacity-100">Ctrl T</kbd>
-        </button>
-      )}
       <div
         role="tablist"
         aria-label="Tabs"
         aria-orientation="vertical"
+        // Like Firefox, double-clicking the empty space opens a new tab.
+        onDoubleClick={(e) => {
+          if (e.target === e.currentTarget) void window.scb.invoke('tabs:create')
+        }}
         className="sc-scroll-quiet flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto"
       >
         {tabs.map((tab, index) => (
@@ -59,11 +43,23 @@ export function VerticalTabs() {
           />
         ))}
       </div>
-      <div className={cx('flex', collapsed ? 'justify-center' : 'justify-end')}>
-        <IconButton label={collapsed ? 'Expand tabs' : 'Collapse tabs'} onClick={toggle}>
-          {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.75} /> : <PanelLeftClose size={16} strokeWidth={1.75} />}
+      {collapsed ? (
+        <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
+          <PanelLeftOpen size={16} strokeWidth={1.75} />
         </IconButton>
-      </div>
+      ) : (
+        <button
+          type="button"
+          aria-label="Collapse tabs"
+          onClick={toggle}
+          className="flex h-9 shrink-0 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        >
+          <span className="grid size-5 place-items-center">
+            <PanelLeftClose aria-hidden size={15} strokeWidth={1.75} />
+          </span>
+          Collapse sidebar
+        </button>
+      )}
     </aside>
   )
 }
