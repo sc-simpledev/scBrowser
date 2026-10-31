@@ -7,12 +7,25 @@ treats it like any other provider. Message contents are never logged or stored.
 
 ## Deploying on Deno Deploy
 
-In [console.deno.com](https://console.deno.com), create an app from this repository, with
-`server` as the app directory and `main.ts` as the entry point, then add the variables below.
-To share limits across instances, attach a Deno KV database and set `USE_KV=true`. Without
-it, limits are kept per instance and reset when an instance restarts.
+Deno Deploy builds from the root of the repository, so set this up in
+[console.deno.com](https://console.deno.com) under **Edit build config**:
 
-Once it's deployed, the browser needs the app's URL as its hosted AI address.
+| Setting | Value |
+|---|---|
+| Framework preset | No Preset |
+| Install command | Empty |
+| Build command | Empty |
+| Runtime configuration | Dynamic |
+| Dynamic Entrypoint | `server/main.ts` |
+
+Add the variables below as secrets or plain text before pressing **Create App**.
+
+To share limits across instances, go to **Databases**, press **Provision Database**, choose
+Deno KV, press **Assign** next to it and pick the app, then set `USE_KV=true`. Without it,
+limits are kept per instance and reset when an instance restarts.
+
+Once it's deployed, the browser reads the app's address from `HOSTED_AI_URL` in
+`packages/shared/src/ai.ts`.
 
 ## AI routes
 
