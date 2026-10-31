@@ -1,5 +1,5 @@
 import { clipboard, Menu, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
-import { SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
+import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
 
@@ -12,7 +12,7 @@ export function attachPageMenu(contents: WebContents, actions: BrowserActions, w
 
 function pageMenu(contents: WebContents, params: ContextMenuParams, actions: BrowserActions): MenuItemConstructorOptions[] {
   const { tabs } = actions
-  const openInTab = (url: string) => tabs.create(url, { activate: false, afterId: tabs.active?.id })
+  const openInTab = (url: string) => tabs.create(url, { activate: false, afterId: tabs.active?.id, container: tabs.active?.container })
   const groups: MenuItemConstructorOptions[][] = []
 
   if (params.linkURL && /^https?:/i.test(params.linkURL)) {
@@ -90,6 +90,14 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     splitIds.length > 0
       ? { label: 'End split view', click: () => tabs.endSplit() }
       : { label: 'Open in split view', enabled: id !== activeId, click: () => tabs.startSplit(id) },
+    {
+      label: 'Open in container',
+      submenu: [
+        ...CONTAINERS.map((container) => ({ label: container.name, click: () => tabs.reopenInContainer(id, container.id) })),
+        { type: 'separator' as const },
+        { label: 'No container', click: () => tabs.reopenInContainer(id, null) }
+      ]
+    },
     { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
@@ -129,6 +137,7 @@ export function popupAppMenu(actions: BrowserActions, showBookmarksBar: boolean,
     { label: 'Find in page…', accelerator: 'Ctrl+F', click: actions.openFind },
     { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
     { label: 'Command palette', accelerator: 'Ctrl+K', click: actions.togglePalette },
+    { label: 'Screenshot', accelerator: 'Ctrl+Shift+S', click: actions.screenshot },
     { label: 'Print…', accelerator: 'Ctrl+P', click: onActive((id) => tabs.print(id)) },
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,

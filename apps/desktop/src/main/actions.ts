@@ -12,6 +12,7 @@ export interface BrowserActions {
   openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'downloads') => void
   toggleAssistant: () => void
   toggleReader: () => void
+  screenshot: () => void
   togglePalette: () => void
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void

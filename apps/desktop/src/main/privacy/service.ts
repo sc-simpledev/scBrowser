@@ -1,13 +1,25 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { FiltersEngine, Request } from '@ghostery/adblocker'
-import { app, type OnBeforeRequestListenerDetails, type Session } from 'electron'
+import { app, type OnBeforeRequestListenerDetails, type Session, type WebContents } from 'electron'
 import { httpsUpgrade, type Settings } from '@scbrowser/shared'
 import type { SettingsStore } from '../settings'
 import type { KeyValueRepo } from '../storage/kv'
 
 const OFF_HOSTS = 'privacy:off-hosts'
 const MAX_REMEMBERED_UPGRADES = 200
+const ISOLATED_WORLD = 1002
+
+/** The classes and ids on a page, which pick out the rules it needs. */
+const READ_DOM = `(() => {
+  const classes = new Set()
+  const ids = new Set()
+  for (const element of document.querySelectorAll('[class],[id]')) {
+    for (const name of element.classList) classes.add(name)
+    if (element.id) ids.add(element.id)
+  }
+  return { classes: [...classes], ids: [...ids] }
+})()`
 
 type Level = Settings['trackingProtection']
 
@@ -42,15 +54,39 @@ export class PrivacyService {
   private readonly off: Set<string>
 
   constructor(
-    session: Session,
     private readonly settings: SettingsStore,
     private readonly kv: KeyValueRepo,
     private readonly options: PrivacyOptions
   ) {
     this.off = new Set((kv.get(OFF_HOSTS) as string[] | undefined) ?? [])
-    session.webRequest.onBeforeRequest((details, respond) => respond(this.decide(details)))
     void this.syncEngine()
     settings.subscribe(() => void this.syncEngine())
+  }
+
+  attach(session: Session): void {
+    session.webRequest.onBeforeRequest((details, respond) => respond(this.decide(details)))
+  }
+
+  /** Hides ad placeholders on a page whose requests were blocked. No page scripts are added. */
+  async applyCosmetics(contents: WebContents): Promise<void> {
+    const url = contents.getURL()
+    if (!this.engine || !/^https?:/i.test(url) || this.off.has(new URL(url).host)) return
+    const { hostname, domain } = Request.fromRawDetails({ url, sourceUrl: url, type: 'mainFrame' })
+    const dom = await contents
+      .executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: READ_DOM }])
+      .catch(() => null) as { classes: string[]; ids: string[] } | null
+    if (!dom || contents.isDestroyed()) return
+    const { styles } = this.engine.getCosmeticsFilters({
+      url,
+      hostname,
+      domain,
+      ...dom,
+      getBaseRules: true,
+      getInjectionRules: false,
+      getExtendedRules: false,
+      getRulesFromDOM: true
+    })
+    if (styles) await contents.insertCSS(styles, { cssOrigin: 'user' }).catch(() => undefined)
   }
 
   offHosts(): string[] {

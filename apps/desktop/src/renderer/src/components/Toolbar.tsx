@@ -29,6 +29,7 @@ function DownloadsButton() {
 export function Toolbar({ titleBar }: { titleBar: boolean }) {
   const tab = useActiveTab()
   const assistantOpen = useAssistant((s) => s.open)
+  const hideAssistant = useApp((s) => s.settings.hiddenToolbarItems.includes('assistant'))
   const invoke = (channel: 'tabs:back' | 'tabs:forward' | 'tabs:reload' | 'tabs:stop') => {
     if (tab) void window.scb.invoke(channel, tab.id)
   }
@@ -55,6 +56,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       </div>
       <Omnibox />
       <DownloadsButton />
+      {!hideAssistant && (
       <IconButton
         label="Assistant"
         shortcut="Ctrl Shift A"
@@ -64,6 +66,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       >
         <Bot size={16} strokeWidth={1.75} />
       </IconButton>
+      )}
       <IconButton
         label="Menu"
         onClick={(e) => {

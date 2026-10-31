@@ -50,6 +50,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'downloads', label: 'Downloads', shortcut: 'Ctrl J' },
   { id: 'settings', label: 'Settings' },
   { id: 'ai-settings', label: 'AI settings' },
+  { id: 'screenshot', label: 'Take a screenshot of this page', shortcut: 'Ctrl Shift S' },
   { id: 'print', label: 'Print', shortcut: 'Ctrl P' },
   { id: 'fullscreen', label: 'Full screen', shortcut: 'F11' },
   { id: 'devtools', label: 'Developer tools', shortcut: 'F12' }

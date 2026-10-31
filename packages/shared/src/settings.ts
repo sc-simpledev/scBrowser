@@ -1,3 +1,4 @@
+import { TOOLBAR_ITEMS, type ToolbarItemId } from './containers'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
 
@@ -59,6 +60,7 @@ export interface Settings {
   trackingProtection: 'off' | 'standard' | 'strict'
   httpsOnly: boolean
   accent: AccentId
+  hiddenToolbarItems: ToolbarItemId[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -75,7 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   saveChats: true,
   trackingProtection: 'standard',
   httpsOnly: true,
-  accent: 'ember'
+  accent: 'ember',
+  hiddenToolbarItems: []
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -94,7 +97,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   saveChats: (v) => typeof v === 'boolean',
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
-  accent: (v) => ACCENTS.some((accent) => accent.id === v)
+  accent: (v) => ACCENTS.some((accent) => accent.id === v),
+  hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id))
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

@@ -11,6 +11,8 @@ import {
   PALETTE_POPUP
 } from '@scbrowser/shared'
 
+const TOAST_MS = 3000
+
 /**
  * A transparent view kept above every tab so chrome UI popups can draw over web pages.
  * It's resized to just the area its popups cover, so the rest of the page stays clickable.
@@ -20,6 +22,8 @@ export class Overlay {
   private state: OverlayState = EMPTY_OVERLAY
   private permission: PermissionPopupState | null = null
   private palette: { x: number; y: number } | null = null
+  private toast: OverlayView['toast'] = null
+  private toastTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
 
   constructor(
@@ -85,6 +89,16 @@ export class Overlay {
     this.render()
   }
 
+  showToast(text: string, x: number, y: number): void {
+    this.toast = { text, x, y }
+    this.render()
+    clearTimeout(this.toastTimer)
+    this.toastTimer = setTimeout(() => {
+      this.toast = null
+      this.render()
+    }, TOAST_MS)
+  }
+
   togglePalette(): void {
     if (this.palette) {
       this.closePalette()
@@ -104,7 +118,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent() }
+    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast }
   }
 
   private render(): void {
@@ -130,6 +144,7 @@ export class Overlay {
 
   destroy(): void {
     this.destroyed = true
+    clearTimeout(this.toastTimer)
     ipcMain.removeHandler('overlay:pick')
     ipcMain.removeHandler('overlay:permission')
     ipcMain.removeHandler('overlay:palette-run')

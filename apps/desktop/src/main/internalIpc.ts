@@ -3,6 +3,8 @@ import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type Perm
 import type { AiService } from './ai/service'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
+import { readFlags, setFlag } from './flags'
+import { availableSources, readSource } from './import/browsers'
 import type { PrivacyService } from './privacy/service'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -119,6 +121,19 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
     'chats:clear': () => chats.clear(),
+    'import:sources': () => availableSources(),
+    'import:run': (id) => {
+      const { bookmarks: imported, history: visits } = readSource(text(id, 32))
+      const result = { bookmarks: bookmarks.importMany(imported), history: history.importMany(visits) }
+      onBookmarksChanged()
+      return result
+    },
+    'flags:get': () => readFlags(),
+    'flags:set': (id, enabled) => setFlag(text(id, 32), enabled === true),
+    'browser:restart': () => {
+      app.relaunch()
+      app.quit()
+    },
     'privacy:off-hosts': () => privacy.offHosts(),
     'privacy:toggle-site': (host) => privacy.toggleSite(text(host, 512)),
     'privacy:allow-http': (url) => privacy.allowHttp(text(url))

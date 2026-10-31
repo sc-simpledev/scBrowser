@@ -28,11 +28,12 @@ export class DownloadManager {
   private readonly live = new Map<string, Live>()
 
   constructor(
-    session: Session,
     private readonly repo: DownloadsRepo,
     private readonly settings: SettingsStore,
     private readonly onProgress: (progress: { active: number; fraction: number | null }) => void
-  ) {
+  ) {}
+
+  attach(session: Session): void {
     session.on('will-download', (_event, item) => this.track(item))
   }
 

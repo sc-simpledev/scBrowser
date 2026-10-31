@@ -44,8 +44,8 @@ async function serveAppPage(url: URL): Promise<Response> {
 }
 
 /** Serves `sc://<page>` internal pages to tabs in the default session. */
-export function handleInternalPages(): void {
-  session.defaultSession.protocol.handle(INTERNAL_SCHEME, (request) => {
+export function handleInternalPages(target = session.defaultSession): void {
+  target.protocol.handle(INTERNAL_SCHEME, (request) => {
     const url = new URL(request.url)
     if (isAppPage(url.host)) return serveAppPage(url)
     if (url.host === 'reader') {

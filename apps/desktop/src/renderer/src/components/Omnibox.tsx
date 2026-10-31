@@ -72,6 +72,7 @@ export function Omnibox() {
   const searchEngine = useApp((s) => s.settings.searchEngine)
   const assistantModel = useAssistant((s) => s.status.model)
   const protection = useApp((s) => s.settings.trackingProtection)
+  const hidden = useApp((s) => s.settings.hiddenToolbarItems)
   const privacyOffHosts = useApp((s) => s.privacyOffHosts)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -229,7 +230,7 @@ export function Omnibox() {
           </div>
         )}
       </div>
-      {tab && /^https?:/.test(tab.url) && protection !== 'off' && (
+      {tab && /^https?:/.test(tab.url) && protection !== 'off' && !hidden.includes('protection') && (
         <IconButton
           size="sm"
           label={protectionOff ? 'Tracking protection is off here' : `${tab.blockedCount} blocked. Turn off for this site`}
@@ -240,7 +241,7 @@ export function Omnibox() {
           {!protectionOff && tab.blockedCount > 0 && <span className="text-2xs font-medium">{tab.blockedCount}</span>}
         </IconButton>
       )}
-      {tab && (/^https?:/.test(tab.url) || isReaderUrl(tab.url)) && (
+      {tab && (/^https?:/.test(tab.url) || isReaderUrl(tab.url)) && !hidden.includes('reader') && (
         <IconButton
           size="sm"
           label={isReaderUrl(tab.url) ? 'Leave reader view' : 'Reader view'}
@@ -262,7 +263,7 @@ export function Omnibox() {
           {tab.zoomPercent}%
         </button>
       )}
-      {tab && /^(https?|file):/.test(url) && (
+      {tab && /^(https?|file):/.test(url) && !hidden.includes('bookmark') && (
         <IconButton
           size="sm"
           label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}

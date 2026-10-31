@@ -4,10 +4,14 @@ import {
   ACCENTS,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
+  TOOLBAR_ITEMS,
+  type ImportResult,
+  type ImportSource,
   type InternalCommands,
   type PermissionDecision,
   type Settings,
-  type SitePermission
+  type SitePermission,
+  type ToolbarItemId
 } from '@scbrowser/shared'
 import { api } from '../api'
 
@@ -37,6 +41,8 @@ export function SettingsPage() {
   const [permissions, setPermissions] = useState<PermissionDecision[]>([])
   const [isDefault, setIsDefault] = useState(false)
   const [offHosts, setOffHosts] = useState<string[]>([])
+  const [sources, setSources] = useState<ImportSource[]>([])
+  const [imported, setImported] = useState<Record<string, ImportResult>>({})
   const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
 
   useEffect(() => {
@@ -44,6 +50,7 @@ export function SettingsPage() {
     void api().invoke('permissions:list').then(setPermissions)
     void api().invoke('browser:is-default').then(setIsDefault)
     void api().invoke('privacy:off-hosts').then(setOffHosts)
+    void api().invoke('import:sources').then(setSources)
     void api().invoke('browser:version').then(setVersion)
   }, [])
 
@@ -52,6 +59,10 @@ export function SettingsPage() {
   const update = (patch: Partial<Settings>) => {
     setSettings({ ...settings, ...patch })
     void api().invoke('settings:set', patch)
+  }
+  const toggleToolbarItem = (id: ToolbarItemId, show: boolean) => {
+    const others = settings.hiddenToolbarItems.filter((item) => item !== id)
+    update({ hiddenToolbarItems: show ? others : [...others, id] })
   }
   const engine = SEARCH_ENGINES.find((e) => e.id === settings.searchEngine)
 
@@ -103,6 +114,18 @@ export function SettingsPage() {
             onChange={(showBookmarksBar) => update({ showBookmarksBar })}
           />
         </Row>
+      </Section>
+
+      <Section title="Toolbar">
+        {TOOLBAR_ITEMS.map((item) => (
+          <Row key={item.id} label={item.name}>
+            <Switch
+              label={`Show ${item.name}`}
+              checked={!settings.hiddenToolbarItems.includes(item.id)}
+              onChange={(show) => toggleToolbarItem(item.id, show)}
+            />
+          </Row>
+        ))}
       </Section>
 
       <Section title="Privacy">
@@ -239,6 +262,31 @@ export function SettingsPage() {
               }}
             >
               Reset
+            </Button>
+          </Row>
+        ))}
+      </Section>
+
+      <Section title="Import">
+        {sources.length === 0 && <Row label="No other browsers found on this computer">{null}</Row>}
+        {sources.map((source) => (
+          <Row
+            key={source.id}
+            label={source.name}
+            hint={
+              imported[source.id]
+                ? `Added ${imported[source.id]!.bookmarks} bookmarks and ${imported[source.id]!.history} history entries`
+                : 'Bookmarks and history. Passwords are not imported.'
+            }
+          >
+            <Button
+              onClick={() =>
+                void api()
+                  .invoke('import:run', source.id)
+                  .then((result) => setImported((all) => ({ ...all, [source.id]: result })))
+              }
+            >
+              Import
             </Button>
           </Row>
         ))}

@@ -1,4 +1,5 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn } from './ai'
+import type { ImportResult, ImportSource } from './containers'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
 import type { OverlayState, OverlayView } from './overlay'
@@ -188,6 +189,11 @@ export interface InternalCommands {
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'chats:clear': () => void
+  'import:sources': () => ImportSource[]
+  'import:run': (id: string) => ImportResult
+  'flags:get': () => string[]
+  'flags:set': (id: string, enabled: boolean) => void
+  'browser:restart': () => void
   'privacy:off-hosts': () => string[]
   'privacy:toggle-site': (host: string) => void
   'privacy:allow-http': (url: string) => void
@@ -219,6 +225,11 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:set-role',
   'ai:set-site',
   'chats:clear',
+  'import:sources',
+  'import:run',
+  'flags:get',
+  'flags:set',
+  'browser:restart',
   'privacy:off-hosts',
   'privacy:toggle-site',
   'privacy:allow-http'

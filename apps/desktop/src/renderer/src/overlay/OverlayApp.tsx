@@ -6,6 +6,7 @@ import {
   PERMISSION_LABELS,
   PERMISSION_POPUP,
   POPUP_GAP,
+  TOAST_POPUP,
   TOOLTIP_GAP,
   type OverlayEvents,
   type PermissionPopupState
@@ -16,11 +17,11 @@ import { SuggestionList } from './SuggestionList'
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'ember' }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'ember', toast: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
-  const { omnibox, tooltip, permission, palette, accent } = state
+  const { omnibox, tooltip, permission, palette, accent, toast } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -44,6 +45,15 @@ export function OverlayApp() {
         </div>
       )}
       {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} />}
+      {toast && (
+        <div
+          role="status"
+          className="sc-tooltip absolute flex items-center rounded-lg bg-surface px-3 shadow-2"
+          style={{ left: toast.x - origin.x, top: toast.y - origin.y, width: TOAST_POPUP.width, height: TOAST_POPUP.height }}
+        >
+          {toast.text}
+        </div>
+      )}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
       {tooltip && (
         <PlacedTooltip

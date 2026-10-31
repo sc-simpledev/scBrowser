@@ -37,18 +37,20 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Saved conversations, stored on this device with an off switch; page text isn't kept
 - [ ] Inline answers in the omnibox dropdown
 
-**Phase 3 — in progress.**
+**Phase 3 — nearly done.**
 - [x] Tracking protection (off, standard, strict) at the network level, with per-site exceptions and a blocked count
 - [x] HTTPS-only mode with a fallback prompt
 - [x] Reader view
 - [x] Picture-in-picture (from the right-click menu; needs a manual check)
 - [x] Command palette (Ctrl K) and accent colours
-- [ ] Cosmetic filtering (hiding ad placeholders; only network requests are blocked so far)
-- [ ] Profiles and containers
+- [x] Cosmetic filtering (hides ad placeholders with CSS once a page has loaded; ads added later aren't caught yet)
+- [x] Containers, from the tab menu
+- [ ] Separate profiles
 - [x] Split view (from the tab menu or Ctrl K, 50/50 and not restored after a restart yet)
 - [x] Vertical tabs as the default, with close on the favicon
-- [ ] Customisable toolbar
-- [ ] `sc://flags`, screenshot tool, import from Chrome/Firefox
+- [x] Toolbar items can be shown or hidden (no drag-to-arrange yet)
+- [x] `sc://flags`, screenshot tool (Ctrl Shift S)
+- [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.

@@ -52,6 +52,7 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
 | Ctrl Shift A | Assistant |
 | Ctrl K | Command palette |
+| Ctrl Shift S | Screenshot |
 | F9 | Reader view |
 | Ctrl P | Print |
 | F11 | Full screen |

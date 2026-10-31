@@ -39,6 +39,19 @@ export class BookmarksRepo {
     else this.insert.run(url, title, now)
   }
 
+  /** Adds bookmarks that aren't already saved and returns how many were new. */
+  importMany(items: { url: string; title: string }[], now = Date.now()): number {
+    const existing = new Set(this.list().map((b) => b.url))
+    let added = 0
+    for (const { url, title } of items) {
+      if (existing.has(url)) continue
+      existing.add(url)
+      this.insert.run(url, title, now)
+      added++
+    }
+    return added
+  }
+
   rename(id: number, title: string): void {
     this.rename_.run(title, id)
   }

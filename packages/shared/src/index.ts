@@ -1,4 +1,5 @@
 export * from './ai'
+export * from './containers'
 export * from './ipc'
 export * from './library'
 export * from './omnibox'

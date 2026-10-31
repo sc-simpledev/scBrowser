@@ -1,6 +1,7 @@
 import { join } from 'node:path'
-import { WebContentsView, type BaseWindow, type WebContents } from 'electron'
+import { session, WebContentsView, type BaseWindow, type Session, type WebContents } from 'electron'
 import {
+  containerPartition,
   effectiveUrl,
   ERROR_PAGE_URL,
   isNewTabUrl,
@@ -21,6 +22,7 @@ export interface SavedTab {
   faviconUrl: string | null
   entries: { url: string; title: string }[]
   entryIndex: number
+  container?: string | null
 }
 
 interface Tab {
@@ -43,11 +45,14 @@ interface TabManagerOptions {
   /** A tab committed a navigation (including same-document ones). */
   onVisit: (url: string) => void
   onTitle: (url: string, title: string) => void
+  onPageLoaded: (contents: WebContents) => void
   onFound: (result: { active: number; total: number }) => void
   onFullscreen: (fullscreen: boolean) => void
   engine: () => SearchEngine
   /** Builds the error page address for a failed load. */
   errorUrl: (url: string, reason: string) => string
+  /** Called before a session is first used, so it gets the same protections as the default one. */
+  prepareSession: (session: Session) => void
 }
 
 const PAGE_RADIUS = 10
@@ -76,8 +81,12 @@ export class TabManager {
     private readonly options: TabManagerOptions
   ) {}
 
-  create(url: string = NEW_TAB_URL, { activate = true, afterId }: { activate?: boolean; afterId?: TabId } = {}): TabId {
+  create(
+    url: string = NEW_TAB_URL,
+    { activate = true, afterId, container = null }: { activate?: boolean; afterId?: TabId; container?: string | null } = {}
+  ): TabId {
     const tab = this.addTab(url, null, afterId)
+    tab.state.container = container
     this.wake(tab)
     if (activate || this.activeId === null) this.activate(tab.state.id)
     else this.emitChange()
@@ -112,6 +121,14 @@ export class TabManager {
     }
     if (this.order.length === 0) this.create()
     this.emitChange()
+  }
+
+  /** Reopens a tab's page in a container (or none), replacing the tab. */
+  reopenInContainer(id: TabId, container: string | null): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    this.create(effectiveUrl(tab.state.url), { afterId: id, container })
+    this.close(id)
   }
 
   closeOthers(id: TabId): void {
@@ -407,7 +424,8 @@ export class TabManager {
         canGoForward: false,
         isSleeping: saved !== null,
         zoomPercent: 100,
-        blockedCount: 0
+        blockedCount: 0,
+        container: saved?.container ?? null
       },
       view: null,
       saved,
@@ -422,8 +440,11 @@ export class TabManager {
 
   private wake(tab: Tab): void {
     if (tab.view) return
+    const partition = tab.state.container ? containerPartition(tab.state.container) : undefined
+    if (partition) this.options.prepareSession(session.fromPartition(partition))
     const view = new WebContentsView({
       webPreferences: {
+        partition,
         // Only exposes anything on sc:// pages; see preload/internal.ts.
         preload: join(__dirname, '../preload/internal.js'),
         sandbox: true,
@@ -470,7 +491,14 @@ export class TabManager {
     const all = history?.getAllEntries() ?? []
     const entries = all.filter((e) => isSavable(e.url)).map((e) => ({ url: effectiveUrl(e.url), title: e.title }))
     const entryIndex = Math.max(0, Math.min(entries.length - 1, history?.getActiveIndex() ?? 0))
-    return { url: effectiveUrl(url), title, faviconUrl, entries: entries.length === all.length ? entries : [], entryIndex }
+    return {
+      url: effectiveUrl(url),
+      title,
+      faviconUrl,
+      entries: entries.length === all.length ? entries : [],
+      entryIndex,
+      container: tab.state.container
+    }
   }
 
   private wire(tab: Tab, view: WebContentsView): void {
@@ -517,6 +545,7 @@ export class TabManager {
     )
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 
+    contents.on('did-finish-load', () => this.options.onPageLoaded(contents))
     contents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
       if (isMainFrame && code !== ABORTED && !isInternal(url)) void contents.loadURL(this.options.errorUrl(url, description))
     })
@@ -542,7 +571,7 @@ export class TabManager {
     // Links with target=_blank and window.open land in a new tab next to their opener.
     contents.setWindowOpenHandler(({ url, disposition }) => {
       const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(contents.getURL()))
-      if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id })
+      if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id, container: state.container })
       return { action: 'deny' }
     })
   }

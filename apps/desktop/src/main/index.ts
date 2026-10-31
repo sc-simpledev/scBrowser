@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, Menu } from 'electron'
 import { AiStore } from './ai/store'
+import { applyFlags } from './flags'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
 import { SettingsStore } from './settings'
 import { BookmarksRepo } from './storage/bookmarks'
@@ -21,6 +22,7 @@ app.setName('scBrowser')
 // Lets tests (and power users) run with a throwaway profile.
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 if (process.platform === 'linux') app.setDesktopName('scbrowser.desktop')
+applyFlags()
 registerInternalScheme()
 
 // Present a plain Chrome user agent: some sites (notably Google sign-in) refuse

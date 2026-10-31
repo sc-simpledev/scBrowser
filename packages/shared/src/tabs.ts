@@ -13,6 +13,8 @@ export interface TabState {
   zoomPercent: number
   /** Ads and trackers stopped on the current page. */
   blockedCount: number
+  /** Keeps this tab's cookies and site data apart; null is the default store. */
+  container: string | null
 }
 
 export interface TabsSnapshot {

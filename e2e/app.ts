@@ -23,7 +23,7 @@ export async function launch(profile = newProfile(), switches: string[] = []): P
   const executablePath = process.env.SCB_E2E_EXECUTABLE
   const app = await electron.launch({
     ...(executablePath ? { executablePath, args: switches } : { args: [...switches, resolve(__dirname, '../apps/desktop')] }),
-    env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js' }
+    env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js\n##.ad-slot' }
   })
   app.process().stderr?.on('data', (data: Buffer) => {
     if (String(data).includes('Uncaught exception')) console.error(String(data))

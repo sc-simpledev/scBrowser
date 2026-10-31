@@ -1,10 +1,11 @@
-import { Bookmark, Bot, Download, History, Settings, type LucideIcon } from 'lucide-react'
+import { Bookmark, Bot, Download, FlaskConical, History, Settings, type LucideIcon } from 'lucide-react'
 import { useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { AiPage } from './pages/AiPage'
 import { BookmarksPage } from './pages/BookmarksPage'
 import { DownloadsPage } from './pages/DownloadsPage'
+import { FlagsPage } from './pages/FlagsPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -13,7 +14,8 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   ai: { title: 'AI', icon: Bot, component: AiPage },
   history: { title: 'History', icon: History, component: HistoryPage },
   bookmarks: { title: 'Bookmarks', icon: Bookmark, component: BookmarksPage },
-  downloads: { title: 'Downloads', icon: Download, component: DownloadsPage }
+  downloads: { title: 'Downloads', icon: Download, component: DownloadsPage },
+  flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
 export function InternalApp() {

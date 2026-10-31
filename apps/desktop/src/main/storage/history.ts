@@ -29,8 +29,14 @@ export class HistoryRepo {
   private readonly listQuery: StatementSync
   private readonly deleteUrl: StatementSync
   private readonly deleteAll: StatementSync
+  private readonly importOne: StatementSync
+  private readonly db: DatabaseSync
 
   constructor(db: DatabaseSync) {
+    this.db = db
+    this.importOne = db.prepare(
+      `INSERT INTO history (url, title, visit_count, last_visit) VALUES (?, ?, ?, ?) ON CONFLICT (url) DO NOTHING`
+    )
     this.upsertVisit = db.prepare(
       `INSERT INTO history (url, title, visit_count, last_visit) VALUES (?, ?, 1, ?)
        ON CONFLICT (url) DO UPDATE SET
@@ -67,6 +73,22 @@ export class HistoryRepo {
 
   updateTitle(url: string, title: string): void {
     if (isRecordable(url) && title) this.setTitle.run(title, url)
+  }
+
+  /** Adds visits from another browser, keeping anything already here. Returns how many were new. */
+  importMany(entries: HistoryEntry[]): number {
+    let added = 0
+    this.db.exec('BEGIN')
+    try {
+      for (const { url, title, visitCount, lastVisit } of entries) {
+        added += Number(this.importOne.run(url, title, visitCount, lastVisit).changes)
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+    return added
   }
 
   /** Newest first, for the history page. */

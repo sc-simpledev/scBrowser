@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { cx } from '@scbrowser/ui'
-import { isNewTabUrl, type TabState } from '@scbrowser/shared'
+import { CONTAINERS, isNewTabUrl, type TabState } from '@scbrowser/shared'
 import { Favicon } from './Favicon'
 
 const tabTitle = (tab: TabState) => tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
@@ -39,6 +39,7 @@ function FaviconCloseButton({ tab, onClose }: { tab: TabState; onClose: () => vo
 export function Tab({ tab, active, split, layout, index, draggingId, onDragState }: TabProps) {
   const close = () => void window.scb.invoke('tabs:close', tab.id)
   const side = layout !== 'horizontal'
+  const container = CONTAINERS.find((c) => c.id === tab.container)
 
   return (
     <div
@@ -96,6 +97,15 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
         <span className={cx('min-w-0 flex-1 truncate @max-[64px]:hidden', tab.isSleeping && 'text-text-faint')}>
           {tabTitle(tab)}
         </span>
+      )}
+      {container && (
+        <span
+          role="img"
+          aria-label={`${container.name} container`}
+          title={`${container.name} container`}
+          className={cx('size-2 shrink-0 rounded-full', layout === 'rail' && 'absolute right-1 bottom-1')}
+          style={{ backgroundColor: `oklch(0.65 0.15 ${container.hue})` }}
+        />
       )}
       {layout === 'horizontal' && (
         <button

@@ -94,6 +94,23 @@ describe('PermissionsRepo', () => {
   })
 })
 
+describe('importing', () => {
+  it('keeps existing data and reports only what was new', () => {
+    const history = new HistoryRepo(db)
+    history.recordVisit('https://a.dev/', 'Mine', 5)
+    const entries = [
+      { url: 'https://a.dev/', title: 'Theirs', visitCount: 9, lastVisit: 1 },
+      { url: 'https://b.dev/', title: 'B', visitCount: 2, lastVisit: 1 }
+    ]
+    expect(history.importMany(entries)).toBe(1)
+    expect(history.list('a.dev', 10, 0)[0]?.title).toBe('Mine')
+
+    const bookmarks = new BookmarksRepo(db)
+    bookmarks.toggle('https://a.dev/', 'Mine')
+    expect(bookmarks.importMany([{ url: 'https://a.dev/', title: 'X' }, { url: 'https://c.dev/', title: 'C' }, { url: 'https://c.dev/', title: 'C' }])).toBe(1)
+  })
+})
+
 describe('HistoryRepo management', () => {
   it('lists newest first, deletes and clears', () => {
     const repo = new HistoryRepo(db)

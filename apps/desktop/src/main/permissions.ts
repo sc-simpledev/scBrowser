@@ -53,10 +53,13 @@ export class PermissionService {
   private nextRequestId = 1
 
   constructor(
-    session: Session,
     private readonly repo: PermissionsRepo,
     private readonly options: PermissionServiceOptions
-  ) {
+  ) {}
+
+  /** Applies these rules to a session; containers each have their own. */
+  attach(session: Session): void {
+    const { repo, options } = this
     session.setPermissionRequestHandler((contents, permission, respond, details) => {
       if (ALWAYS_ALLOWED.has(permission)) return respond(true)
       const mediaTypes = (details as PermissionRequest & { mediaTypes?: string[] }).mediaTypes

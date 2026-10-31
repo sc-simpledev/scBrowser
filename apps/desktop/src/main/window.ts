@@ -1,9 +1,12 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, session, shell, type Rectangle } from 'electron'
+import { writeFile } from 'node:fs/promises'
+import { app, BrowserWindow, clipboard, ClipboardItem, nativeTheme, session, shell, type Rectangle, type Session } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import {
   effectiveUrl,
   engineById,
+  TOAST_POPUP,
   errorPageUrl,
   isReaderUrl,
   SUMMARISE_PROMPT,
@@ -15,7 +18,8 @@ import {
 import type { BrowserActions } from './actions'
 import { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
-import { DownloadManager } from './downloads'
+import { DownloadManager, uniquePath } from './downloads'
+import { handleInternalPages } from './internal/protocol'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
 import { attachPageMenu } from './menus'
@@ -121,13 +125,15 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onVisit: (url) => {
       if (!window.isDestroyed()) history.recordVisit(url)
     },
+    onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
     onTitle: (url, title) => {
       if (!window.isDestroyed()) history.updateTitle(url, title)
     },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
     engine: () => engineById(settings.get().searchEngine),
-    errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url))
+    errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
+    prepareSession: (target) => prepareSession(target)
   })
   const saver = new SessionSaver(kv, tabs)
 
@@ -162,6 +168,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       })
     },
     togglePalette: () => overlay.togglePalette(),
+    screenshot: () => {
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      if (contents) void takeScreenshot(contents)
+    },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit()
   }
@@ -170,7 +180,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
-  const permissionService = new PermissionService(session.defaultSession, services.permissions, {
+  const permissionService = new PermissionService(services.permissions, {
     tabIdFor: (contents) => tabs.tabIdFor(contents),
     activeTabId: () => tabs.active?.id ?? null,
     onPromptChanged: showPermission
@@ -198,6 +208,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     assistant: actions.toggleAssistant,
     summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
     split: () => tabs.toggleSplit(),
+    screenshot: actions.screenshot,
     'vertical-tabs': () =>
       settings.set({ tabLayout: settings.get().tabLayout === 'vertical' ? 'horizontal' : 'vertical' }),
     history: () => actions.openPage('history'),
@@ -209,13 +220,38 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
   }
-  const privacy = new PrivacyService(session.defaultSession, settings, kv, {
+  const privacy = new PrivacyService(settings, kv, {
     onBlocked: (id) => tabs.noteBlocked(id),
     onChanged: () => send('privacy:changed', privacy.offHosts())
   })
-  const downloads = new DownloadManager(session.defaultSession, services.downloads, settings, (progress) =>
+  const downloads = new DownloadManager(services.downloads, settings, (progress) =>
     send('downloads:progress', progress)
   )
+
+  const prepared = new Set<Session>()
+  const prepareSession = (target: Session) => {
+    if (prepared.has(target)) return
+    prepared.add(target)
+    privacy.attach(target)
+    permissionService.attach(target)
+    downloads.attach(target)
+    if (target !== session.defaultSession) handleInternalPages(target)
+  }
+  prepareSession(session.defaultSession)
+
+  const takeScreenshot = async (contents: Electron.WebContents) => {
+    const image = await contents.capturePage()
+    const png = image.toPNG()
+    const copied = await clipboard
+      .write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })])
+      .then(() => true)
+      .catch(() => false)
+    const dir = settings.get().downloadDir || app.getPath('downloads')
+    const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', ' ')
+    await writeFile(uniquePath(dir, `Screenshot ${stamp}.png`, existsSync), png)
+    const { x, y, width } = tabs.page
+    overlay.showToast(copied ? 'Screenshot saved and copied' : 'Screenshot saved', x + width - TOAST_POPUP.width - TOAST_POPUP.inset, y + TOAST_POPUP.inset)
+  }
 
   attachShortcuts(chromeUi, actions)
   const disposeIpc = registerIpc(chromeUi, {
