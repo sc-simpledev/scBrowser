@@ -94,10 +94,12 @@ interface ReplyContentProps {
   onOpenLink: (href: string) => void
   /** When set, shows a card that opens the report rather than the report itself. */
   onOpenReport?: () => void
+  /** The reply is still arriving, so an unfinished report is shown as in progress. */
+  streaming?: boolean
 }
 
-export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport }: ReplyContentProps) {
-  const { before, after, report, writing } = splitReply(text)
+export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport, streaming = false }: ReplyContentProps) {
+  const { before, after, report, writing } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
       {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} />}
@@ -114,7 +116,7 @@ export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpe
         ) : (
           <ReportView report={report} />
         ))}
-      {after && <ReplyMarkdown text={after} onOpenLink={onOpenLink} />}
+      {after && <ReplyContent text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} streaming={streaming} />}
     </div>
   )
 })

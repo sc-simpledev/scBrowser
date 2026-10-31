@@ -27,6 +27,13 @@ limits are kept per instance and reset when an instance restarts.
 Once it's deployed, the browser reads the app's address from `HOSTED_AI_URL` in
 `packages/shared/src/ai.ts`.
 
+## Reports
+
+`POST /v1/reports` takes crash reports and usage stats from people who turned them on in
+scDelta's settings. Only known fields are kept, and each one is written as a line of JSON to the
+server log, without the sender's address. Find them in the Deno Deploy logs. Each address can
+send 30 an hour.
+
 ## AI routes
 
 Each numbered set of variables is one route. Numbers can have gaps.

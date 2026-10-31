@@ -8,6 +8,7 @@ import { BookmarksPage } from './pages/BookmarksPage'
 import { DownloadsPage } from './pages/DownloadsPage'
 import { FlagsPage } from './pages/FlagsPage'
 import { HistoryPage } from './pages/HistoryPage'
+import { NewTabPage } from './pages/NewTabPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
@@ -21,6 +22,16 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
 }
 
 export function InternalApp() {
+  return location.host === 'newtab' ? (
+    <TooltipProvider>
+      <NewTabPage />
+    </TooltipProvider>
+  ) : (
+    <PageFrame />
+  )
+}
+
+function PageFrame() {
   const current = (location.host in pages ? location.host : 'settings') as InternalPage
   const { title, component: Page } = pages[current]
 

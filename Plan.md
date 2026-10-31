@@ -63,12 +63,13 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Page translation, in place, and run again to restore (long pages get the first 20,000 characters or so)
 - [x] Agent mode ("Act on page"): looks and scrolls freely, asks before each click, entry and navigation, never touches private fields, stops after 20 steps. Top-level page only, no iframes
 
-**Phase 5 — started.** The rest of shipping (signing, stores, update channels) waits until the product is ready.
-- [x] Extensions: unpacked Chrome extensions from Settings, in every container (no toolbar buttons or popups yet, and no Chrome Web Store installs)
-- [ ] Toolbar buttons and popups for extensions
-- [ ] Encrypted sync
-- [ ] Password manager integration
-- [ ] Crash reporting and opt-in telemetry
+**Phase 5 — built.** The rest of shipping (signing, stores, update channels) waits until the product is ready.
+- [x] Extensions: Chrome Web Store installs and unpacked folders, in every container, with toolbar buttons, popups, right-click items and `chrome.tabs`, using `electron-chrome-extensions` and `electron-chrome-web-store`. Firefox extensions can't run on Chromium
+- [x] Password managers, through extensions. Bitwarden from the Web Store installs and opens its popup; signing in and autofill need a manual check. A native vault is a later job
+- [x] Encrypted sync of bookmarks, history and settings, through a folder the person already syncs (Syncthing, Dropbox and so on). Passphrase-derived key with scrypt, AES-256-GCM. The format can move to a hosted service later
+- [x] Crash reports and usage stats, both off by default. Crashes are always logged locally for Settings. Reports contain no page data and go to `POST /v1/reports` on the hosted server. Native minidumps aren't collected
+
+**New tab.** `sc://newtab` is a React page with widgets (clock, greeting, search, Quick AI, shortcuts, bookmarks, notes, calendar), which can be added, removed, ordered and set to full or half width, plus a colour or picture background kept in the profile folder.
 
 **Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 

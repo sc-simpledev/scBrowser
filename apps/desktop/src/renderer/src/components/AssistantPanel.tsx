@@ -96,6 +96,7 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
           text={turn.content}
           onOpenLink={(href) => void window.scb.invoke('tabs:open-in-background', href)}
           onOpenReport={openReport}
+          streaming={streaming}
         />
       )}
       {streaming && !turn.content && <span className="text-text-faint">Thinking…</span>}

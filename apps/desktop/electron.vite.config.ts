@@ -1,3 +1,5 @@
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -11,10 +13,23 @@ const stripCspInDev = (): Plugin => ({
   transformIndexHtml: (html) => html.replace(/<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/, '')
 })
 
+/** The extension libraries look for their page scripts next to the bundled main process. */
+const copyExtensionPreloads = (): Plugin => ({
+  name: 'scb-copy-extension-preloads',
+  closeBundle() {
+    const out = resolve(__dirname, 'out/main')
+    mkdirSync(out, { recursive: true })
+    const { resolve: find } = createRequire(__filename)
+    copyFileSync(find('electron-chrome-extensions/preload'), resolve(out, 'chrome-extension-api.preload.js'))
+    copyFileSync(find('electron-chrome-web-store/preload'), resolve(out, 'chrome-web-store.preload.js'))
+  }
+})
+
 // Everything (including workspace packages) is listed under devDependencies, so
 // electron-vite bundles it rather than leaving it as a runtime `require`.
 export default defineConfig({
   main: {
+    plugins: [copyExtensionPreloads()],
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/index.ts') }

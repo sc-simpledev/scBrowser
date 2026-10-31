@@ -1,4 +1,6 @@
-import { resolve } from 'node:path'
+import { existsSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { startAiMock, type AiMock } from './aiMock'
 import { activeTab, go, launch, omnibox, serveSite, setSetting, shortcut, titled, type Harness, type Site } from './app'
@@ -163,6 +165,69 @@ test('extensions load, run on pages, stay after a restart and can be removed', a
   await expect(section.getByText('Test extension')).toBeVisible()
   await section.getByRole('button', { name: 'Remove' }).click()
   await expect(section.getByText('Test extension')).toHaveCount(0)
+})
+
+test('reports that were cut off still appear', async () => {
+  await addProvider()
+  mock.queue = ['Here.\n```scdelta-report\n{"title":"Cut off","blocks":[{"type":"paragraph","text":"Kept"},{"type":"paragraph","text":"Half wri']
+  await go(h, 'sc://assistant')
+  const page = await h.page('sc://assistant')
+  await page.getByRole('textbox', { name: 'Message the assistant' }).fill('Go')
+  await page.getByRole('textbox', { name: 'Message the assistant' }).press('Enter')
+  await expect(page.locator('article.sc-report')).toContainText('Half wri')
+  await expect(page.getByText('Writing a report…')).toHaveCount(0)
+})
+
+test('extensions get a toolbar button with a working popup, and their APIs reach our tabs', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  const fixture = resolve(__dirname, 'fixtures/action-extension')
+  const id = await h.app.evaluate(
+    (_, path) => (globalThis as unknown as { scbExtensions: { add(p: string): Promise<string> } }).scbExtensions.add(path),
+    fixture
+  )
+  await go(h, site.url('/alpha'))
+  await expect(activeTab(h)).toContainText('Alpha page')
+  const button = h.chrome.locator('browser-action-list').locator('button, .action')
+  await expect(button.first()).toBeVisible()
+  await button.first().click()
+  const popup = await h.page(`chrome-extension://${id}/popup.html`)
+  await expect(popup.getByRole('heading', { name: 'From the popup' })).toBeVisible()
+  await expect(popup).toHaveTitle(/^Tabs: [1-9]/)
+  // The new tab takes focus, which closes the popup, so don't wait for an answer.
+  await popup.evaluate(() => void (globalThis as unknown as { chrome: { runtime: { sendMessage(m: string): void } } }).chrome.runtime.sendMessage('open-tab'))
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+})
+
+test('opted-out crash logging stays local and shows in Settings', async () => {
+  await h.app.evaluate((_) => {
+    const { scbReporter } = globalThis as unknown as { scbReporter: { record(kind: string, reason: string): void } }
+    scbReporter.record('page', 'crashed')
+  })
+  await go(h, 'sc://settings')
+  const page = await h.page('sc://settings')
+  const section = page.getByRole('region', { name: 'Crash reports and usage' })
+  await expect(section.getByText('page: crashed')).toBeVisible()
+  await expect(section.getByRole('switch', { name: 'Send crash reports' })).toHaveAttribute('aria-checked', 'false')
+  await section.getByRole('button', { name: 'Clear' }).click()
+  await expect(section.getByText('No crashes recorded')).toBeVisible()
+})
+
+test('sync can be turned on from Settings', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'scb-sync-'))
+  await h.app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
+  }, folder)
+  await go(h, 'sc://settings')
+  const page = await h.page('sc://settings')
+  const section = page.getByRole('region', { name: 'Sync' })
+  await section.getByRole('button', { name: 'Choose' }).click()
+  await section.getByRole('textbox', { name: 'Sync passphrase' }).fill('a long enough passphrase')
+  await section.getByRole('button', { name: 'Turn on' }).click()
+  await expect(section.getByText(/Last synced/)).toBeVisible()
+  expect(existsSync(join(folder, 'scdelta-sync.bin'))).toBe(true)
+  await section.getByRole('button', { name: 'Turn off' }).click()
+  await expect(section.getByRole('button', { name: 'Choose' })).toBeVisible()
 })
 
 test('the command palette stays put when the pointer moves over it', async () => {

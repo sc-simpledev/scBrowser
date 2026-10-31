@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, RotateCw, X } from 'lucide-react'
 import { cx, IconButton } from '@scbrowser/ui'
+import { containerPartition } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
@@ -56,6 +57,8 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       </div>
       <Omnibox />
       <DownloadsButton />
+      {/* Drawn by the extensions library in its own shadow root. */}
+      <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
       {!hideAssistant && (
       <IconButton
         label="Assistant"

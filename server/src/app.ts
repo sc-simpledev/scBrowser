@@ -109,6 +109,28 @@ function streamReply(chat: ChatBody, upstream: Upstream, finish: (tokens: number
   return new Response(body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } })
 }
 
+const MAX_REPORT_BYTES = 4096
+const REPORTS_PER_HOUR = 30
+const HOUR_MS = 3_600_000
+
+const shortText = (value: unknown, max: number) => typeof value === 'string' && value.length <= max
+
+/** Reports from people who opted in. Only these fields are kept, and never the sender's address. */
+function parseReport(text: string): Record<string, unknown> | null {
+  let body: Record<string, unknown>
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return null
+  }
+  const { type, version, electron, platform, arch, kind, reason, stack } = body ?? {}
+  if (type !== 'crash' && type !== 'usage') return null
+  if (![version, electron, platform, arch].every((field) => shortText(field, 32))) return null
+  if (type === 'usage') return { type, version, electron, platform, arch }
+  if (!shortText(kind, 16) || !shortText(reason, 64) || !(stack === undefined || shortText(stack, 2000))) return null
+  return { type, version, electron, platform, arch, kind, reason, stack }
+}
+
 export interface Dependencies {
   config: Config
   limiter: Limiter
@@ -116,9 +138,29 @@ export interface Dependencies {
 }
 
 /** Request contents are never logged or stored; only per-address counters are kept. */
-export function createHandler({ config, limiter, upstream }: Dependencies) {
+export function createHandler({ config, limiter, upstream }: Dependencies, record: (report: unknown) => void = (report) => console.log(JSON.stringify(report)), now = Date.now) {
+  const reportCounts = new Map<string, { count: number; start: number }>()
+  const reportAllowed = (ip: string) => {
+    const entry = reportCounts.get(ip)
+    if (!entry || now() - entry.start > HOUR_MS) {
+      if (reportCounts.size > 10_000) reportCounts.clear()
+      reportCounts.set(ip, { count: 1, start: now() })
+      return true
+    }
+    return ++entry.count <= REPORTS_PER_HOUR
+  }
+
   return async (request: Request, remoteAddress: string): Promise<Response> => {
     const { pathname } = new URL(request.url)
+    if (request.method === 'POST' && pathname === '/v1/reports') {
+      const text = await readBody(request, MAX_REPORT_BYTES)
+      if (text === null) return failure(413, 'too_large', 'This request is too large.')
+      const report = parseReport(text)
+      if (!report) return failure(400, 'bad_request', 'Not a valid report.')
+      if (!reportAllowed(clientAddress(request, remoteAddress, config.trustedProxyHops))) return failure(429, 'rate_limited', 'Too many reports.')
+      record(report)
+      return json({ ok: true })
+    }
     if (request.method === 'GET' && pathname === '/health') return json({ ok: true })
     if (request.method === 'GET' && pathname === '/v1/models') return json({ object: 'list', data: [{ id: PUBLIC_MODEL, object: 'model' }] })
     if (pathname !== '/v1/chat/completions') return failure(404, 'not_found', 'Not found.')

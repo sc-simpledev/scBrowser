@@ -1,5 +1,6 @@
 import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
 import { TOOLBAR_ITEMS, type ToolbarItemId } from './containers'
+import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
 
@@ -75,6 +76,12 @@ export interface Settings {
   accent: AccentId
   hiddenToolbarItems: ToolbarItemId[]
   translateTo: TranslateLanguage
+  newTab: NewTabConfig
+  /** Include browsing history in sync, as well as bookmarks and settings. */
+  syncHistory: boolean
+  /** Off until the person turns them on. */
+  crashReports: boolean
+  usageStats: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -94,7 +101,11 @@ export const DEFAULT_SETTINGS: Settings = {
   httpsOnly: true,
   accent: 'ember',
   hiddenToolbarItems: [],
-  translateTo: 'English'
+  translateTo: 'English',
+  newTab: DEFAULT_NEW_TAB,
+  syncHistory: true,
+  crashReports: false,
+  usageStats: false
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -116,7 +127,11 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   httpsOnly: (v) => typeof v === 'boolean',
   accent: (v) => ACCENTS.some((accent) => accent.id === v),
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
-  hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id))
+  hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
+  newTab: isNewTabConfig,
+  syncHistory: (v) => typeof v === 'boolean',
+  crashReports: (v) => typeof v === 'boolean',
+  usageStats: (v) => typeof v === 'boolean'
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

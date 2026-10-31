@@ -1,19 +1,22 @@
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { DEFAULT_SETTINGS, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import type { ExtensionManager } from './extensions'
+import { readBackground, removeBackground, saveBackground } from './internal/background'
 import { isAssistantRequest, isTurns } from './ipc'
 import { readFlags, setFlag } from './flags'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
 import type { PrivacyService } from './privacy/service'
+import type { Reporter } from './reporter'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { PermissionsRepo } from './storage/permissions'
+import type { SyncService } from './sync'
 import type { TabManager } from './tabs/TabManager'
 
 const CHANNEL = 'internal:call'
@@ -33,6 +36,8 @@ interface InternalServices {
   chats: ChatsRepo
   privacy: PrivacyService
   extensions: ExtensionManager
+  sync: SyncService
+  reporter: Reporter
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -76,14 +81,19 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter } = services
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
-    'settings:set': (patch) => settings.set(patch),
+    'settings:set': (patch) => {
+      const previous = settings.get().newTab
+      settings.set(patch)
+      // The picture stays on disk only while it's in use.
+      if (previous.imageVersion > 0 && settings.get().newTab.imageVersion === 0) void removeBackground()
+    },
     'settings:pick-download-dir': async () => {
       const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openDirectory', 'createDirectory'] })
       return result.canceled ? null : (result.filePaths[0] ?? null)
@@ -183,7 +193,34 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'privacy:off-hosts': () => privacy.offHosts(),
     'privacy:toggle-site': (host) => privacy.toggleSite(text(host, 512)),
-    'privacy:allow-http': (url) => privacy.allowHttp(text(url))
+    'privacy:allow-http': (url) => privacy.allowHttp(text(url)),
+    'newtab:pick-background': async () => {
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'] }]
+      })
+      const path = result.canceled ? undefined : result.filePaths[0]
+      if (!path) return null
+      await saveBackground(path)
+      return Date.now()
+    },
+    'newtab:background': () => readBackground(),
+    'newtab:top-sites': (limit) => history.top(Math.min(int(limit), 24)).filter((entry) => isHttpUrl(entry.url)),
+    'newtab:go': (input) => {
+      const id = caller && tabs.tabIdFor(caller)
+      if (id) tabs.navigate(id, text(input))
+    },
+    'extensions:open-store': () => void tabs.create('https://chromewebstore.google.com/', { afterId: tabs.active?.id }),
+    'sync:status': () => sync.status(),
+    'sync:pick-folder': async () => {
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openDirectory', 'createDirectory'] })
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    },
+    'sync:enable': (folder, passphrase) => sync.enable(text(folder, 4096), text(passphrase, 1024)),
+    'sync:disable': () => sync.disable(),
+    'sync:run': () => sync.run(),
+    'reports:list': () => reporter.list(),
+    'reports:clear': () => reporter.clear()
   }
 
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {

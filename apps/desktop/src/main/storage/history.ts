@@ -30,12 +30,24 @@ export class HistoryRepo {
   private readonly deleteUrl: StatementSync
   private readonly deleteAll: StatementSync
   private readonly importOne: StatementSync
+  private readonly findOne: StatementSync
+  private readonly topQuery: StatementSync
+  private readonly syncOne: StatementSync
   private readonly db: DatabaseSync
 
   constructor(db: DatabaseSync) {
     this.db = db
     this.importOne = db.prepare(
       `INSERT INTO history (url, title, visit_count, last_visit) VALUES (?, ?, ?, ?) ON CONFLICT (url) DO NOTHING`
+    )
+    this.findOne = db.prepare(`SELECT url, title, visit_count, last_visit FROM history WHERE url = ?`)
+    this.topQuery = db.prepare(`SELECT url, title, visit_count, last_visit FROM history ORDER BY visit_count DESC, last_visit DESC LIMIT ?`)
+    this.syncOne = db.prepare(
+      `INSERT INTO history (url, title, visit_count, last_visit) VALUES (?, ?, ?, ?)
+       ON CONFLICT (url) DO UPDATE SET
+         visit_count = max(visit_count, excluded.visit_count),
+         last_visit = max(last_visit, excluded.last_visit),
+         title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE title END`
     )
     this.upsertVisit = db.prepare(
       `INSERT INTO history (url, title, visit_count, last_visit) VALUES (?, ?, 1, ?)
@@ -109,6 +121,28 @@ export class HistoryRepo {
   }
 
   /** Newest first, for the history page. */
+  find(url: string): HistoryEntry | null {
+    const row = this.findOne.get(url) as Row | undefined
+    return row ? toEntry(row) : null
+  }
+
+  /** The most visited sites, for shortcuts. */
+  top(limit: number): HistoryEntry[] {
+    return (this.topQuery.all(limit) as unknown as Row[]).map(toEntry)
+  }
+
+  /** Brings in visits merged from other devices. */
+  applySynced(entries: HistoryEntry[]): void {
+    this.db.exec('BEGIN')
+    try {
+      for (const { url, title, visitCount, lastVisit } of entries) this.syncOne.run(url, title, visitCount, lastVisit)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
   list(query: string, limit: number, offset: number): HistoryEntry[] {
     const pattern = `%${escapeLike(query.trim().toLowerCase())}%`
     return (this.listQuery.all({ pattern, limit, offset }) as unknown as Row[]).map(toEntry)

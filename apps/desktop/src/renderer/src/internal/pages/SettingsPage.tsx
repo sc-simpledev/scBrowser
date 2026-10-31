@@ -7,6 +7,7 @@ import {
   SUGGESTION_SOURCES,
   TOOLBAR_ITEMS,
   TRANSLATE_LANGUAGES,
+  type CrashEntry,
   type ExtensionInfo,
   type ImportResult,
   type ImportSource,
@@ -14,6 +15,7 @@ import {
   type PermissionDecision,
   type Settings,
   type SitePermission,
+  type SyncStatus,
   type ToolbarItemId
 } from '@scbrowser/shared'
 import { api } from '../api'
@@ -50,6 +52,11 @@ export function SettingsPage() {
   const [profiles, setProfiles] = useState<{ current: string; names: string[] }>({ current: '', names: [] })
   const [newProfile, setNewProfile] = useState('')
   const [imported, setImported] = useState<Record<string, ImportResult>>({})
+  const [sync, setSync] = useState<SyncStatus | null>(null)
+  const [syncFolder, setSyncFolder] = useState('')
+  const [passphrase, setPassphrase] = useState('')
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [crashes, setCrashes] = useState<CrashEntry[]>([])
   const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
 
   useEffect(() => {
@@ -61,6 +68,8 @@ export function SettingsPage() {
     void api().invoke('extensions:list').then(setExtensions)
     void api().invoke('profiles:list').then(setProfiles)
     void api().invoke('browser:version').then(setVersion)
+    void api().invoke('sync:status').then(setSync)
+    void api().invoke('reports:list').then(setCrashes)
   }, [])
 
   if (!settings) return null
@@ -115,6 +124,9 @@ export function SettingsPage() {
             <option value="horizontal">Across the top</option>
             <option value="vertical">Down the side</option>
           </Select>
+        </Row>
+        <Row label="New tab page" hint="Widgets, background and layout">
+          <Button onClick={() => void api().invoke('browser:open', 'sc://newtab/?customise=1')}>Customise</Button>
         </Row>
         <Row label="Show bookmarks bar">
           <Select
@@ -336,7 +348,10 @@ export function SettingsPage() {
       </Section>
 
       <Section title="Extensions">
-        <Row label="Add an extension" hint="Choose an unpacked Chrome extension folder. Toolbar buttons and popups don't work yet.">
+        <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">
+          <Button onClick={() => void api().invoke('extensions:open-store')}>Open</Button>
+        </Row>
+        <Row label="Add an unpacked extension" hint="Choose a folder holding a Chrome extension.">
           <Button
             onClick={() => {
               setExtensionError(null)
@@ -366,6 +381,66 @@ export function SettingsPage() {
         ))}
       </Section>
 
+      <Section title="Sync">
+        {sync?.folder ? (
+          <>
+            <Row
+              label={sync.folder}
+              hint={sync.error ?? (sync.lastSync ? `Last synced ${new Date(sync.lastSync).toLocaleString()}` : 'Waiting for the first sync')}
+            >
+              <div className="flex gap-2">
+                <Button onClick={() => void api().invoke('sync:run').then(setSync)}>Sync now</Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void api().invoke('sync:disable').then(() => api().invoke('sync:status')).then(setSync)}
+                >
+                  Turn off
+                </Button>
+              </div>
+            </Row>
+            <Row label="Include history">
+              <Switch label="Include history" checked={settings.syncHistory} onChange={(syncHistory) => update({ syncHistory })} />
+            </Row>
+          </>
+        ) : (
+          <>
+            <Row
+              label="Sync folder"
+              hint={syncFolder || 'Bookmarks, history and settings are encrypted into a folder you already sync, such as Syncthing or Dropbox.'}
+            >
+              <Button onClick={() => void api().invoke('sync:pick-folder').then((folder) => folder && setSyncFolder(folder))}>Choose</Button>
+            </Row>
+            <Row label="Passphrase" hint="Use the same one on each device. It can't be recovered if it's lost.">
+              <div className="flex gap-2">
+                <Input
+                  aria-label="Sync passphrase"
+                  type="password"
+                  placeholder="10 characters or more"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                />
+                <Button
+                  disabled={!syncFolder || passphrase.length < 10}
+                  onClick={() => {
+                    setSyncError(null)
+                    void api()
+                      .invoke('sync:enable', syncFolder, passphrase)
+                      .then((status) => {
+                        setSync(status)
+                        setPassphrase('')
+                      })
+                      .catch((error: Error) => setSyncError(error.message.replace(/^.*Error: /, '')))
+                  }}
+                >
+                  Turn on
+                </Button>
+              </div>
+            </Row>
+            {syncError && <Row label={syncError}>{null}</Row>}
+          </>
+        )}
+      </Section>
+
       <Section title="Import">
         {sources.length === 0 && <Row label="No other browsers found on this computer">{null}</Row>}
         {sources.map((source) => (
@@ -387,6 +462,33 @@ export function SettingsPage() {
             >
               Import
             </Button>
+          </Row>
+        ))}
+      </Section>
+
+      <Section title="Crash reports and usage">
+        <Row label="Send crash reports" hint="The type of crash, the version and your operating system. Never pages, addresses or messages.">
+          <Switch label="Send crash reports" checked={settings.crashReports} onChange={(crashReports) => update({ crashReports })} />
+        </Row>
+        <Row label="Send usage stats" hint="Once a day: only the version and your operating system.">
+          <Switch label="Send usage stats" checked={settings.usageStats} onChange={(usageStats) => update({ usageStats })} />
+        </Row>
+        <Row label={crashes.length === 0 ? 'No crashes recorded' : `${crashes.length} ${crashes.length === 1 ? 'crash' : 'crashes'} recorded on this device`}>
+          {crashes.length > 0 && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('reports:clear')
+                setCrashes([])
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </Row>
+        {crashes.slice(0, 5).map((crash) => (
+          <Row key={crash.at} label={`${crash.kind}: ${crash.reason}`} hint={new Date(crash.at).toLocaleString()}>
+            {null}
           </Row>
         ))}
       </Section>

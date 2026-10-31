@@ -1,9 +1,8 @@
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { net, protocol, session } from 'electron'
-import { INTERNAL_PAGES, type InternalPage } from '@scbrowser/shared'
+import { INTERNAL_PAGES } from '@scbrowser/shared'
 import { errorPage } from './error'
-import { newTabPage } from './newtab'
 import { READER_CSP, readerPage } from './reader'
 
 export const INTERNAL_SCHEME = 'sc'
@@ -16,14 +15,13 @@ export function registerInternalScheme(): void {
 }
 
 const staticPages: Record<string, () => string> = {
-  newtab: newTabPage,
   error: errorPage
 }
 
 /** Internal pages can never be framed by a website. */
 const FRAME_POLICY = "frame-ancestors 'none'"
 
-const isAppPage = (host: string): host is InternalPage => (INTERNAL_PAGES as readonly string[]).includes(host)
+const isAppPage = (host: string): boolean => host === 'newtab' || (INTERNAL_PAGES as readonly string[]).includes(host)
 
 /** The React pages share one bundle, served from the build output (or dev server). */
 async function serveAppPage(url: URL): Promise<Response> {

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ClipboardItem, nativeTheme, session, shell, type Rectangle, type Session } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, nativeTheme, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import {
   effectiveUrl,
@@ -35,6 +35,8 @@ import { currentProfile, DEFAULT_PROFILE } from './profiles'
 import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
+import type { Reporter } from './reporter'
+import { SyncService } from './sync'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { DownloadsRepo } from './storage/downloads'
@@ -45,6 +47,8 @@ import { TabManager } from './tabs/TabManager'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = 60_000
+const SYNC_FIRST_MS = 20_000
+const SYNC_EVERY_MS = 10 * 60_000
 const WINDOW_KEY = 'window'
 const APP_TITLE = currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
 
@@ -59,6 +63,7 @@ export interface Services {
   permissions: PermissionsRepo
   aiStore: AiStore
   chats: ChatsRepo
+  reporter: Reporter
 }
 
 export interface BrowserWindowHandle {
@@ -66,6 +71,7 @@ export interface BrowserWindowHandle {
   tabs: TabManager
   actions: BrowserActions
   extensions: ExtensionManager
+  sync: SyncService
 }
 
 interface SavedWindow {
@@ -115,7 +121,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     onTabCreated: (contents) => {
       attachShortcuts(contents, actions)
-      attachPageMenu(contents, actions, window)
+      attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
+      extensions.addTab(contents)
       overlay.raise()
     },
     onTabClosed: () => permissionService.refresh(),
@@ -124,6 +131,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (!chromeUi.isDestroyed()) chromeUi.focus()
     },
     onActivate: (tab) => {
+      const contents = tabs.contentsFor(tab.id)
+      if (contents) extensions.selectTab(contents)
       if (isNewTabUrl(tab.url)) focusOmnibox()
       else tabs.focusActive()
       permissionService.refresh()
@@ -257,7 +266,21 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
   }
-  const extensions = new ExtensionManager(kv)
+  const extensions = new ExtensionManager(kv, {
+    window,
+    createTab: (url, active) => {
+      const id = tabs.create(url, { activate: active, afterId: tabs.active?.id })
+      return tabs.contentsFor(id)
+    },
+    selectTab: (contents) => {
+      const id = tabs.tabIdFor(contents)
+      if (id !== null) tabs.activate(id)
+    },
+    closeTab: (contents) => {
+      const id = tabs.tabIdFor(contents)
+      if (id !== null) tabs.close(id)
+    }
+  })
   const privacy = new PrivacyService(settings, kv, {
     onBlocked: (id) => tabs.noteBlocked(id),
     onChanged: () => send('privacy:changed', privacy.offHosts())
@@ -277,6 +300,24 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     if (target !== session.defaultSession) handleInternalPages(target)
   }
   prepareSession(session.defaultSession)
+
+  const sync = new SyncService({
+    kv,
+    settings,
+    history,
+    bookmarks,
+    vault: {
+      encrypt: (value) => {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error("This system can't store the sync key securely yet.")
+        return safeStorage.encryptString(value).toString('base64')
+      },
+      decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64'))
+    },
+    basePath: join(app.getPath('userData'), 'sync-base.json'),
+    onBookmarksChanged: publishBookmarks
+  })
+  const syncFirst = setTimeout(() => void sync.run(), SYNC_FIRST_MS)
+  const syncTimer = setInterval(() => void sync.run(), SYNC_EVERY_MS)
 
   const notify = (text: string) => {
     const { x, y, width } = tabs.page
@@ -332,7 +373,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     ai,
     chats: services.chats,
     privacy,
-    extensions
+    extensions,
+    sync,
+    reporter: services.reporter
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
   chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
@@ -378,6 +421,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   })
   window.on('closed', () => {
     clearInterval(sleepTimer)
+    clearTimeout(syncFirst)
+    clearInterval(syncTimer)
+    sync.stop()
     saver.stop()
     unsubscribeSettings()
     unsubscribeAi()
@@ -398,5 +444,5 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     if (!saved && initialUrls.length === 0) tabs.create()
   })
 
-  return { window, tabs, actions, extensions }
+  return { window, tabs, actions, extensions, sync }
 }

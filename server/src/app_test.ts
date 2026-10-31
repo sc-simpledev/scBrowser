@@ -140,3 +140,29 @@ Deno.test('groups IPv6 addresses by /64', () => {
   const request = new Request('http://server/')
   assertEquals(clientAddress(request, '2001:db8:1:2:aaaa::1', 0), clientAddress(request, '2001:db8:1:2:bbbb::9', 0))
 })
+
+const report = (body: unknown) => new Request('http://server/v1/reports', { method: 'POST', body: JSON.stringify(body) })
+const environment = { version: '0.1.0', electron: '45.1.0', platform: 'linux', arch: 'x64' }
+
+function reporting() {
+  const config = loadConfig(() => undefined)
+  const limiter = new Limiter(new MemoryStore(() => 1_000_000), config, () => 1_000_000)
+  const log: unknown[] = []
+  return { log, handle: createHandler({ config, limiter, upstream: replying() }, (entry) => log.push(entry), () => 1_000_000) }
+}
+
+Deno.test('keeps only the known fields of a report', async () => {
+  const { handle, log } = reporting()
+  const response = await handle(report({ type: 'crash', ...environment, kind: 'page', reason: 'crashed', url: 'https://secret', extra: 1 }), '1.1.1.1')
+  assertEquals(response.status, 200)
+  assertEquals(log, [{ type: 'crash', ...environment, kind: 'page', reason: 'crashed', stack: undefined }])
+})
+
+Deno.test('turns away invalid and excessive reports', async () => {
+  const { handle, log } = reporting()
+  assertEquals((await handle(report({ type: 'other' }), '1.1.1.1')).status, 400)
+  assertEquals((await handle(report({ type: 'usage', ...environment, version: 'x'.repeat(99) }), '1.1.1.1')).status, 400)
+  for (let i = 0; i < 30; i++) assertEquals((await handle(report({ type: 'usage', ...environment }), '1.1.1.1')).status, 200)
+  assertEquals((await handle(report({ type: 'usage', ...environment }), '1.1.1.1')).status, 429)
+  assertEquals(log.length, 30)
+})

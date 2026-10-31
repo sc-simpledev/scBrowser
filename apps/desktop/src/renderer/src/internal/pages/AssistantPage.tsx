@@ -118,7 +118,7 @@ export function AssistantPage() {
               </div>
             ) : (
               <div key={index}>
-                {turn.content && <ReplyContent text={turn.content} onOpenLink={openLink} />}
+                {turn.content && <ReplyContent text={turn.content} onOpenLink={openLink} streaming={streamId !== null && index === turns.length - 1} />}
                 {!turn.content && !turn.error && <span className="text-text-faint">Thinking…</span>}
                 {turn.error && (
                   <p role="alert" className="text-danger">

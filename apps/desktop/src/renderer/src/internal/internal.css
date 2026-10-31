@@ -21,3 +21,24 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+.sc-newtab input[type='range'],
+.sc-newtab input[type='color'] {
+  accent-color: var(--sc-accent);
+}
+
+/* Text set directly on the new tab background, rather than on a card. */
+.sc-newtab[data-tone='light'] {
+  --sc-newtab-text: var(--sc-on-image);
+  --sc-newtab-shadow: 0 1px 8px oklch(0 0 0 / 0.45);
+}
+
+.sc-newtab[data-tone='dark'] {
+  --sc-newtab-text: var(--sc-on-image-dark);
+  --sc-newtab-shadow: none;
+}
+
+.sc-newtab-text {
+  color: var(--sc-newtab-text, var(--sc-text));
+  text-shadow: var(--sc-newtab-shadow, none);
+}

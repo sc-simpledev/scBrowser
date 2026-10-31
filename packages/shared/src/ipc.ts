@@ -2,6 +2,8 @@ import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantReque
 import type { ExtensionInfo, ImportResult, ImportSource } from './containers'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
+import type { CrashEntry } from './reports'
+import type { SyncStatus } from './sync'
 import type { OverlayState, OverlayView } from './overlay'
 import type { Settings } from './settings'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
@@ -226,6 +228,20 @@ export interface InternalCommands {
   'privacy:off-hosts': () => string[]
   'privacy:toggle-site': (host: string) => void
   'privacy:allow-http': (url: string) => void
+  /** Returns the new picture's version, or null if nothing was chosen. */
+  'newtab:pick-background': () => number | null
+  'newtab:background': () => { bytes: Uint8Array; type: string } | null
+  'newtab:top-sites': (limit: number) => HistoryEntry[]
+  /** Opens an address or search in the new tab itself. */
+  'newtab:go': (input: string) => void
+  'extensions:open-store': () => void
+  'sync:status': () => SyncStatus
+  'sync:pick-folder': () => string | null
+  'sync:enable': (folder: string, passphrase: string) => SyncStatus
+  'sync:disable': () => void
+  'sync:run': () => SyncStatus
+  'reports:list': () => CrashEntry[]
+  'reports:clear': () => void
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -277,7 +293,19 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'browser:restart',
   'privacy:off-hosts',
   'privacy:toggle-site',
-  'privacy:allow-http'
+  'privacy:allow-http',
+  'newtab:pick-background',
+  'newtab:background',
+  'newtab:top-sites',
+  'newtab:go',
+  'extensions:open-store',
+  'sync:status',
+  'sync:pick-folder',
+  'sync:enable',
+  'sync:disable',
+  'sync:run',
+  'reports:list',
+  'reports:clear'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

@@ -1,13 +1,23 @@
-import { clipboard, Menu, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { clipboard, Menu, MenuItem, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
 import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
 
-export function attachPageMenu(contents: WebContents, actions: BrowserActions, window: BaseWindow): void {
+export function attachPageMenu(
+  contents: WebContents,
+  actions: BrowserActions,
+  window: BaseWindow,
+  extensionItems: (contents: WebContents, params: ContextMenuParams) => Electron.MenuItem[]
+): void {
   contents.on('context-menu', (_event, params) => {
     const template = pageMenu(contents, params, actions)
-    if (template.length > 0) Menu.buildFromTemplate(template).popup({ window })
+    const added = extensionItems(contents, params)
+    if (template.length === 0 && added.length === 0) return
+    const menu = Menu.buildFromTemplate(template)
+    if (template.length > 0 && added.length > 0) menu.append(new MenuItem({ type: 'separator' }))
+    added.forEach((item) => menu.append(item))
+    menu.popup({ window })
   })
 }
 
