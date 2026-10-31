@@ -21,6 +21,7 @@ import { rewriteSelection, togglePageTranslation } from './ai/pageTools'
 import { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { DownloadManager, uniquePath } from './downloads'
+import { ExtensionManager } from './extensions'
 import { handleInternalPages } from './internal/protocol'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
@@ -64,6 +65,7 @@ export interface BrowserWindowHandle {
   window: BrowserWindow
   tabs: TabManager
   actions: BrowserActions
+  extensions: ExtensionManager
 }
 
 interface SavedWindow {
@@ -155,7 +157,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       bookmarks.toggle(effectiveUrl(active.url), active.title)
       publishBookmarks()
     },
-    toggleBookmarksBar: () => settings.set({ showBookmarksBar: !settings.get().showBookmarksBar }),
+    toggleBookmarksBar: () => settings.set({ bookmarksBar: settings.get().bookmarksBar === 'always' ? 'bookmarks-page' : 'always' }),
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page) => tabs.openInternal(`sc://${page}`),
     toggleAssistant: () => send('ui:assistant-toggle'),
@@ -255,6 +257,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
   }
+  const extensions = new ExtensionManager(kv)
   const privacy = new PrivacyService(settings, kv, {
     onBlocked: (id) => tabs.noteBlocked(id),
     onChanged: () => send('privacy:changed', privacy.offHosts())
@@ -270,6 +273,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     privacy.attach(target)
     permissionService.attach(target)
     downloads.attach(target)
+    void extensions.attach(target)
     if (target !== session.defaultSession) handleInternalPages(target)
   }
   prepareSession(session.defaultSession)
@@ -327,7 +331,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     aiStore,
     ai,
     chats: services.chats,
-    privacy
+    privacy,
+    extensions
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
   chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
@@ -393,5 +398,5 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     if (!saved && initialUrls.length === 0) tabs.create()
   })
 
-  return { window, tabs, actions }
+  return { window, tabs, actions, extensions }
 }

@@ -147,7 +147,7 @@ test('asks from the address bar without sending the page', async () => {
   await omnibox(h).click()
   await omnibox(h).fill('why is the sky blue')
   const overlay = await h.overlay()
-  await expect(overlay.getByRole('option', { name: /Ask mock-model/ })).toBeVisible()
+  await expect(overlay.getByRole('option', { name: /Ask scDelta/ })).toBeVisible()
   expect(mock.requests).toHaveLength(0)
   await omnibox(h).press('ArrowDown')
   await omnibox(h).press('Enter')
@@ -293,7 +293,7 @@ test.describe('hosted scDelta AI', () => {
     await h.chrome.getByRole('button', { name: 'Assistant' }).click()
     await panel().getByRole('button', { name: 'Use scDelta AI' }).click()
     await expect(composer()).toBeVisible()
-    await expect(panel().getByText('scDelta AI')).toBeVisible()
+    await expect(panel().getByText('scDelta AI', { exact: true })).toBeVisible()
     expect(mock.requests).toHaveLength(0)
 
     await ask('Hello')

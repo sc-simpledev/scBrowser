@@ -63,6 +63,15 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Page translation, in place, and run again to restore (long pages get the first 20,000 characters or so)
 - [x] Agent mode ("Act on page"): looks and scrolls freely, asks before each click, entry and navigation, never touches private fields, stops after 20 steps. Top-level page only, no iframes
 
+**Phase 5 — started.** The rest of shipping (signing, stores, update channels) waits until the product is ready.
+- [x] Extensions: unpacked Chrome extensions from Settings, in every container (no toolbar buttons or popups yet, and no Chrome Web Store installs)
+- [ ] Toolbar buttons and popups for extensions
+- [ ] Encrypted sync
+- [ ] Password manager integration
+- [ ] Crash reporting and opt-in telemetry
+
+**Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
+
 **Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 
 ## Design direction — modern, deliberate, not "vibe coded"

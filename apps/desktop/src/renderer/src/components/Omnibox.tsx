@@ -70,7 +70,8 @@ export function Omnibox() {
   const setPopup = useOverlay((s) => s.setOmnibox)
   const bookmarks = useApp((s) => s.bookmarks)
   const searchEngine = useApp((s) => s.settings.searchEngine)
-  const assistantModel = useAssistant((s) => s.status.model)
+  const assistantReady = useAssistant((s) => s.status.ready)
+  const sources = useApp((s) => s.settings.suggestionSources)
   const protection = useApp((s) => s.settings.trackingProtection)
   const hidden = useApp((s) => s.settings.hiddenToolbarItems)
   const privacyOffHosts = useApp((s) => s.privacyOffHosts)
@@ -99,9 +100,10 @@ export function Omnibox() {
             activeTabId: tab?.id ?? null,
             searchSuggestions: phrases,
             engine: engineById(searchEngine),
-            assistantModel
+            assistantReady,
+            sources
           }),
-    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantModel]
+    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources]
   )
   const open = focused && !dismissed && suggestions.length > 0
   const selected = Math.min(selectedIndex, Math.max(0, suggestions.length - 1))
@@ -122,6 +124,7 @@ export function Omnibox() {
       const { action } = suggestion
       if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
       else if (action.type === 'ask') useAssistant.getState().applyPrompt({ text: action.text, selection: null, includePage: false })
+      else if (action.type === 'ask-page') void window.scb.invoke('ai:open-assistant', action.text)
       else void window.scb.invoke('tabs:navigate', tab.id, action.url)
       reset()
       inputRef.current?.blur()

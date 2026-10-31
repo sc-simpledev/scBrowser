@@ -47,14 +47,14 @@ const isSuggestion = (value: unknown): value is Suggestion => {
   const { action } = value
   const validAction =
     (action.type === 'navigate' && isShortString(action.url)) || (action.type === 'switch-tab' && isId(action.tabId)) ||
-    (action.type === 'ask' && isShortString(action.text))
+    ((action.type === 'ask' || action.type === 'ask-page') && isShortString(action.text))
   return validAction && isShortString(value.id) && isShortString(value.kind, 32) && isShortString(value.title) &&
     (value.detail === undefined || isShortString(value.detail))
 }
 
 const MAX_CONVERSATION_CHARS = 2_000_000
 
-const isAssistantRequest = (value: unknown): value is AssistantRequest => {
+export const isAssistantRequest = (value: unknown): value is AssistantRequest => {
   if (!record(value) || !Array.isArray(value.messages) || value.messages.length === 0 || value.messages.length > 500) return false
   const messagesOk = value.messages.every(
     (m: unknown) =>
@@ -71,7 +71,7 @@ const isAssistantRequest = (value: unknown): value is AssistantRequest => {
   )
 }
 
-const isTurns = (value: unknown): value is SavedTurn[] =>
+export const isTurns = (value: unknown): value is SavedTurn[] =>
   Array.isArray(value) &&
   value.length <= 500 &&
   value.every(
@@ -150,6 +150,8 @@ const validators: Validators = {
     args.length === 2 && isShortString(args[0], 512) && typeof args[1] === 'boolean',
   'ai:open-settings': noArgs,
   'ai:enable-hosted': noArgs,
+  'ai:open-assistant': (args): args is [string] => args.length === 1 && isShortString(args[0]),
+  'ai:open-chat': chatIdArg,
   'ai:agent-start': (args): args is [string, string, number] =>
     args.length === 3 && isShortString(args[0], 64) && isShortString(args[1], 4000) && isId(args[2]),
   'ai:agent-answer': (args): args is [string, boolean] => args.length === 2 && isShortString(args[0], 64) && typeof args[1] === 'boolean',
@@ -229,7 +231,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'zoom:reset': () => {
       if (tabs.active) tabs.setZoom(tabs.active.id, 1)
     },
-    'menu:open': (x, y) => popupAppMenu(actions, settings.get().showBookmarksBar, window, x, y),
+    'menu:open': (x, y) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', window, x, y),
     'downloads:open-page': () => actions.openPage('downloads'),
     'ai:status': () => aiStore.status(),
     'ai:send': (streamId, request) => {
@@ -241,6 +243,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
     'ai:open-settings': () => actions.openPage('ai'),
     'ai:enable-hosted': () => aiStore.enableHosted(),
+    'ai:open-assistant': (text) => {
+      ai.setPendingPrompt(text)
+      if (tabs.active) tabs.navigate(tabs.active.id, 'sc://assistant')
+    },
+    'ai:open-chat': (id) => {
+      tabs.create(`sc://assistant/?chat=${encodeURIComponent(id)}`, { afterId: tabs.active?.id })
+    },
     'ai:agent-start': (streamId, goal, tabId) => {
       void ai.runAgent(streamId, goal, tabId, (event) => {
         if (!chromeUi.isDestroyed()) chromeUi.send('ai:event', event)

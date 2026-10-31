@@ -1,4 +1,5 @@
 import type { Bookmark } from './library'
+import type { SuggestionSourceId } from './settings'
 import type { TabId, TabState } from './tabs'
 import { DEFAULT_SEARCH_ENGINE, isNewTabUrl, resolveOmniboxInput, type SearchEngine } from './url'
 
@@ -9,12 +10,13 @@ export interface HistoryEntry {
   lastVisit: number
 }
 
-export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion' | 'ask'
+export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion' | 'ask' | 'ask-page'
 
 export type SuggestionAction =
   | { type: 'navigate'; url: string }
   | { type: 'switch-tab'; tabId: TabId }
   | { type: 'ask'; text: string }
+  | { type: 'ask-page'; text: string }
 
 export interface Suggestion {
   /** Stable within one result list, used as a React key. */
@@ -40,8 +42,10 @@ interface BuildOptions {
   tabs: TabState[]
   activeTabId: TabId | null
   searchSuggestions?: string[]
-  /** Name of the AI model; when set, typed questions can go to the assistant. */
-  assistantModel?: string | null
+  /** Offers to send searches to the assistant. Nothing is sent unless a row is chosen. */
+  assistantReady?: boolean
+  /** Which kinds of row to show; all of them when left out. */
+  sources?: readonly SuggestionSourceId[]
   engine?: SearchEngine
 }
 
@@ -64,18 +68,16 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
       : { id: 'default', kind: 'navigate', title: resolved, action: { type: 'navigate', url: resolved } }
   ]
   // Nothing typed goes to the AI unless this row is chosen.
-  if (isSearch && options.assistantModel && /\s/.test(input)) {
-    results.push({
-      id: 'ask',
-      kind: 'ask',
-      title: input,
-      detail: `Ask ${options.assistantModel}`,
-      action: { type: 'ask', text: input }
-    })
+  const sources = options.sources ?? ['tabs', 'bookmarks', 'history', 'assistant']
+  if (isSearch && options.assistantReady && sources.includes('assistant')) {
+    results.push(
+      { id: 'ask', kind: 'ask', title: input, detail: 'Ask scDelta', action: { type: 'ask', text: input } },
+      { id: 'ask-page', kind: 'ask-page', title: input, detail: 'Ask Assistant', action: { type: 'ask-page', text: input } }
+    )
   }
   const seenUrls = new Set([resolved])
 
-  const tabs = options.tabs
+  const tabs = (sources.includes('tabs') ? options.tabs : [])
     .filter((tab) => tab.id !== options.activeTabId && !isNewTabUrl(tab.url) && matches(needle, tab.url, tab.title))
     .slice(0, MAX_TABS)
   for (const tab of tabs) {
@@ -89,7 +91,7 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
     })
   }
 
-  for (const bookmark of options.bookmarks ?? []) {
+  for (const bookmark of sources.includes('bookmarks') ? (options.bookmarks ?? []) : []) {
     if (results.length >= MAX_SUGGESTIONS - 1) break
     if (seenUrls.has(bookmark.url) || !matches(needle, bookmark.url, bookmark.title)) continue
     seenUrls.add(bookmark.url)
@@ -102,7 +104,7 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
     })
   }
 
-  for (const entry of options.history) {
+  for (const entry of sources.includes('history') ? options.history : []) {
     if (results.length >= MAX_SUGGESTIONS - 1) break
     if (seenUrls.has(entry.url)) continue
     seenUrls.add(entry.url)

@@ -113,8 +113,12 @@ export const activeTab = (h: Harness) => h.chrome.getByRole('tab', { selected: t
 /** Sends a real key press to the active tab, as the OS would; Playwright's bypass main-process hooks. */
 export const shortcut = (h: Harness, key: string, modifiers: ('control' | 'shift')[] = ['control']) =>
   h.app.evaluate(
-    ({ webContents }, { keyCode, modifiers }) => {
-      const target = webContents.getAllWebContents().find((c) => c.isFocused()) ?? webContents.getFocusedWebContents()
+    ({ BrowserWindow, webContents }, { keyCode, modifiers }) => {
+      // A window behind others has nothing focused; the browser UI still takes shortcuts.
+      const target =
+        webContents.getAllWebContents().find((c) => c.isFocused()) ??
+        webContents.getFocusedWebContents() ??
+        BrowserWindow.getAllWindows()[0]?.webContents
       target?.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
       target?.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
     },

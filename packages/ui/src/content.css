@@ -1,0 +1,197 @@
+/* How assistant replies and reports look, wherever they appear. */
+.sc-link {
+  color: var(--sc-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+}
+
+.sc-prose {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sc-space) * 2);
+  line-height: var(--sc-leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.sc-prose ul,
+.sc-prose ol {
+  padding-left: calc(var(--sc-space) * 5);
+}
+
+.sc-prose ul {
+  list-style: disc;
+}
+
+.sc-prose ol {
+  list-style: decimal;
+}
+
+.sc-prose h1,
+.sc-prose h2,
+.sc-prose h3 {
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-prose strong {
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-prose code {
+  font-family: var(--sc-font-mono);
+  font-size: var(--sc-text-xs);
+}
+
+.sc-prose pre {
+  overflow-x: auto;
+  padding: calc(var(--sc-space) * 2);
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-field);
+}
+
+.sc-prose blockquote {
+  padding-left: calc(var(--sc-space) * 3);
+  border-left: 2px solid var(--sc-border-strong);
+  color: var(--sc-text-muted);
+}
+
+.sc-prose table {
+  border-collapse: collapse;
+}
+
+.sc-prose th,
+.sc-prose td {
+  padding: var(--sc-space) calc(var(--sc-space) * 2);
+  border: 1px solid var(--sc-border);
+  text-align: left;
+}
+
+/*
+ * Reports are written by the assistant as blocks of plain text. All of their look comes
+ * from these prebuilt themes, so a report can never bring its own styles.
+ */
+.sc-report {
+  --report-gap: calc(var(--sc-space) * 4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--report-gap);
+  color: var(--sc-text);
+  line-height: var(--sc-leading-normal);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.sc-report h1 {
+  font-size: var(--sc-text-xl);
+  font-weight: var(--sc-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-report h2 {
+  margin-top: calc(var(--sc-space) * 4);
+  font-size: var(--sc-text-lg);
+  font-weight: var(--sc-weight-semibold);
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-report h3 {
+  font-size: var(--sc-text-md);
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-report .summary {
+  color: var(--sc-text-muted);
+  font-size: var(--sc-text-md);
+}
+
+.sc-report ul,
+.sc-report ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sc-space);
+  padding-left: calc(var(--sc-space) * 5);
+}
+
+.sc-report ul {
+  list-style: disc;
+}
+
+.sc-report ol {
+  list-style: decimal;
+}
+
+.sc-report blockquote {
+  padding-left: calc(var(--sc-space) * 4);
+  border-left: 2px solid var(--sc-border-strong);
+  color: var(--sc-text-muted);
+}
+
+.sc-report .callout {
+  padding: calc(var(--sc-space) * 3);
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-accent-soft);
+}
+
+.sc-report .spacer {
+  height: calc(var(--sc-space) * 6);
+}
+
+.sc-report hr {
+  border: 0;
+  border-top: 1px solid var(--sc-border);
+}
+
+.sc-report .table {
+  overflow-x: auto;
+}
+
+.sc-report table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sc-report th,
+.sc-report td {
+  padding: calc(var(--sc-space) * 2);
+  border-bottom: 1px solid var(--sc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sc-report th {
+  font-weight: var(--sc-weight-semibold);
+}
+
+/* Editorial: long reading, with a serif voice and generous spacing. */
+.sc-report[data-theme='editorial'] {
+  --report-gap: calc(var(--sc-space) * 5);
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: var(--sc-text-md);
+  line-height: 1.7;
+}
+
+.sc-report[data-theme='editorial'] h1 {
+  font-size: calc(var(--sc-text-xl) * 1.25);
+  font-weight: var(--sc-weight-medium);
+}
+
+.sc-report[data-theme='editorial'] h2 {
+  font-weight: var(--sc-weight-medium);
+}
+
+/* Brief: tight, for decisions, with an accent rule under the title. */
+.sc-report[data-theme='brief'] {
+  --report-gap: calc(var(--sc-space) * 2.5);
+}
+
+.sc-report[data-theme='brief'] h1 {
+  padding-bottom: calc(var(--sc-space) * 2);
+  border-bottom: 2px solid var(--sc-accent);
+  font-size: var(--sc-text-lg);
+}
+
+.sc-report[data-theme='brief'] h2 {
+  margin-top: calc(var(--sc-space) * 2);
+  font-size: var(--sc-text-md);
+}

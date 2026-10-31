@@ -41,14 +41,26 @@ export const SEARCH_ENGINES: EngineOption[] = [
 export const engineById = (id: string): EngineOption =>
   SEARCH_ENGINES.find((engine) => engine.id === id) ?? SEARCH_ENGINES[0]!
 
+export const SUGGESTION_SOURCES = [
+  { id: 'tabs', name: 'Open tabs' },
+  { id: 'bookmarks', name: 'Bookmarks' },
+  { id: 'history', name: 'History' },
+  { id: 'assistant', name: 'Ask the assistant' }
+] as const
+
+export type SuggestionSourceId = (typeof SUGGESTION_SOURCES)[number]['id']
+
 export interface Settings {
   searchEngine: string
   /** Send typed text to the search engine for completions. */
   searchSuggestions: boolean
+  /** What else the address bar suggests. */
+  suggestionSources: SuggestionSourceId[]
   theme: 'system' | 'light' | 'dark'
   tabLayout: 'horizontal' | 'vertical'
   verticalTabsCollapsed: boolean
-  showBookmarksBar: boolean
+  /** Where the bookmarks bar appears. */
+  bookmarksBar: 'always' | 'new-tab' | 'bookmarks-page'
   startup: 'restore' | 'new-tab'
   /** Background tabs are unloaded after this many minutes; 0 disables it. */
   sleepAfterMinutes: number
@@ -68,10 +80,11 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   searchEngine: 'duckduckgo',
   searchSuggestions: true,
+  suggestionSources: SUGGESTION_SOURCES.map((source) => source.id),
   theme: 'system',
   tabLayout: 'vertical',
   verticalTabsCollapsed: false,
-  showBookmarksBar: false,
+  bookmarksBar: 'always',
   startup: 'restore',
   sleepAfterMinutes: 30,
   downloadDir: '',
@@ -92,7 +105,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   theme: (v) => oneOf(v, ['system', 'light', 'dark']),
   tabLayout: (v) => oneOf(v, ['horizontal', 'vertical']),
   verticalTabsCollapsed: (v) => typeof v === 'boolean',
-  showBookmarksBar: (v) => typeof v === 'boolean',
+  bookmarksBar: (v) => oneOf(v, ['always', 'new-tab', 'bookmarks-page']),
+  suggestionSources: (v) => Array.isArray(v) && v.every((id) => SUGGESTION_SOURCES.some((source) => source.id === id)),
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,

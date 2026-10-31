@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { INTERNAL_COMMAND_CHANNELS, type InternalBridge } from '@scbrowser/shared'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { INTERNAL_COMMAND_CHANNELS, type AssistantEvent, type InternalBridge } from '@scbrowser/shared'
 
 declare const location: { protocol: string }
 
@@ -11,6 +11,11 @@ if (location.protocol === 'sc:') {
     invoke: (channel, ...args) => {
       if (!channels.has(channel)) return Promise.reject(new Error(`Unknown channel ${channel}`))
       return ipcRenderer.invoke('internal:call', channel, ...args)
+    },
+    onAssistantEvent: (listener) => {
+      const wrapped = (_event: IpcRendererEvent, payload: AssistantEvent) => listener(payload)
+      ipcRenderer.on('ai:event', wrapped)
+      return () => ipcRenderer.removeListener('ai:event', wrapped)
     }
   }
   contextBridge.exposeInMainWorld('scbInternal', bridge)

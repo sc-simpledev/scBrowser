@@ -1,8 +1,9 @@
-import { Bookmark, Bot, Download, FlaskConical, History, Settings, type LucideIcon } from 'lucide-react'
+import { Bookmark, Bot, Download, FlaskConical, History, MessageCircle, Settings, type LucideIcon } from 'lucide-react'
 import { useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { AiPage } from './pages/AiPage'
+import { AssistantPage } from './pages/AssistantPage'
 import { BookmarksPage } from './pages/BookmarksPage'
 import { DownloadsPage } from './pages/DownloadsPage'
 import { FlagsPage } from './pages/FlagsPage'
@@ -12,6 +13,7 @@ import { SettingsPage } from './pages/SettingsPage'
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
   ai: { title: 'AI', icon: Bot, component: AiPage },
+  assistant: { title: 'Assistant', icon: MessageCircle, component: AssistantPage },
   history: { title: 'History', icon: History, component: HistoryPage },
   bookmarks: { title: 'Bookmarks', icon: Bookmark, component: BookmarksPage },
   downloads: { title: 'Downloads', icon: Download, component: DownloadsPage },
@@ -51,12 +53,18 @@ export function InternalApp() {
             </a>
           ))}
         </nav>
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-180 flex-col gap-6 px-8 py-8">
-            <h1 className="text-lg font-semibold">{title}</h1>
+        {current === 'assistant' ? (
+          <main className="min-w-0 flex-1">
             <Page />
-          </div>
-        </main>
+          </main>
+        ) : (
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex max-w-180 flex-col gap-6 px-8 py-8">
+              <h1 className="text-lg font-semibold">{title}</h1>
+              <Page />
+            </div>
+          </main>
+        )}
       </div>
     </TooltipProvider>
   )

@@ -172,6 +172,9 @@ export interface AssistantPrompt {
   includePage: boolean
 }
 
+/** What the assistant calls itself. */
+export const ASSISTANT_NAME = 'scAI'
+
 export const SUMMARISE_PROMPT = 'Summarise this page.'
 
 export const isHttpUrl = (url: string) => /^https?:\/\//i.test(url)

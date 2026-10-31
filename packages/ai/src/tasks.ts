@@ -1,4 +1,4 @@
-import { neutralise } from './context'
+import { IDENTITY, neutralise } from './context'
 
 /** Pulls the first JSON value out of a reply, which models may wrap in prose or code fences. */
 export function extractJson(text: string): unknown {
@@ -98,7 +98,9 @@ export type AgentAction =
   | { action: 'navigate'; url: string; reason: string }
   | { action: 'done'; summary: string }
 
-export const AGENT_PROMPT = `You operate a web browser tab for a person, one step at a time. After each step you see the page again.
+export const AGENT_PROMPT = `You are scAI, operating a web browser tab for a person, one step at a time. After each step you see the page again.
+
+${IDENTITY}
 
 Reply with only one JSON object, one of:
 {"action":"click","ref":3,"reason":"why"}

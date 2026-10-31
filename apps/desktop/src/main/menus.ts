@@ -134,7 +134,7 @@ export function popupBookmarkMenu(bookmark: Bookmark, repo: BookmarksRepo, onCha
   ]).popup({ window })
 }
 
-export function popupAppMenu(actions: BrowserActions, showBookmarksBar: boolean, window: BaseWindow, x: number, y: number): void {
+export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, window: BaseWindow, x: number, y: number): void {
   const { tabs } = actions
   const active = tabs.active
   const onActive = (action: (id: TabId) => void) => () => active && action(active.id)
@@ -146,7 +146,7 @@ export function popupAppMenu(actions: BrowserActions, showBookmarksBar: boolean,
     { label: 'Assistant', accelerator: 'Ctrl+Shift+A', click: actions.toggleAssistant },
     { label: 'Bookmarks', accelerator: 'Ctrl+Shift+O', click: () => actions.openPage('bookmarks') },
     { label: 'Downloads', accelerator: 'Ctrl+J', click: () => actions.openPage('downloads') },
-    { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: showBookmarksBar, click: actions.toggleBookmarksBar },
+    { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
     { type: 'separator' },
     { label: 'Find in page…', accelerator: 'Ctrl+F', click: actions.openFind },
     { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },

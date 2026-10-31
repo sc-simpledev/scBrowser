@@ -9,6 +9,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const byKeyboard = useRef(false)
   const commands = useMemo(() => matchCommands(query), [query])
 
   const close = () => void window.scbOverlay.invoke('overlay:palette-close')
@@ -22,8 +23,9 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
     return () => window.removeEventListener('blur', close)
   }, [])
 
+  // Only the keyboard scrolls the list: following the pointer would move rows out from under it.
   useEffect(() => {
-    listRef.current?.scrollTo({ top: Math.max(0, (selected - 6) * ROW_HEIGHT) })
+    if (byKeyboard.current) listRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' })
   }, [selected])
 
   return (
@@ -50,6 +52,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
           if (e.key === 'Enter') run(commands[selected]?.id)
           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
+            byKeyboard.current = true
             if (commands.length > 0) {
               setSelected((selected + (e.key === 'ArrowDown' ? 1 : -1) + commands.length) % commands.length)
             }
@@ -65,7 +68,12 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
             role="option"
             aria-selected={index === selected}
             style={{ height: ROW_HEIGHT }}
-            onMouseMove={() => setSelected(index)}
+            // Rows sliding under a still pointer fire mouse events too; only real movement counts.
+            onMouseMove={(e) => {
+              if (e.movementX === 0 && e.movementY === 0) return
+              byKeyboard.current = false
+              setSelected(index)
+            }}
             onClick={() => run(command.id)}
             className={cx('flex items-center justify-between rounded-md px-2.5', index === selected && 'bg-accent-soft')}
           >

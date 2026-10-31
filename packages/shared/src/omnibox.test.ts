@@ -58,15 +58,30 @@ describe('buildSuggestions', () => {
     expect(result.map((s) => s.kind)).toEqual(['search', 'bookmark'])
   })
 
-  it('offers the assistant only for multi-word searches when a model is set', () => {
-    const base = { history: [], tabs: [], activeTabId: null, assistantModel: 'claude' }
-    expect(buildSuggestions('why is the sky blue', base)[1]).toMatchObject({
-      kind: 'ask',
-      action: { type: 'ask', text: 'why is the sky blue' }
-    })
-    expect(buildSuggestions('rust', base).some((s) => s.kind === 'ask')).toBe(false)
+  it('offers both assistant rows for searches, once one is set up', () => {
+    const base = { history: [], tabs: [], activeTabId: null, assistantReady: true }
+    expect(buildSuggestions('rust', base).slice(1, 3)).toMatchObject([
+      { detail: 'Ask scDelta', action: { type: 'ask', text: 'rust' } },
+      { detail: 'Ask Assistant', action: { type: 'ask-page', text: 'rust' } }
+    ])
     expect(buildSuggestions('example.com', base).some((s) => s.kind === 'ask')).toBe(false)
-    expect(buildSuggestions('why is it', { ...base, assistantModel: null }).some((s) => s.kind === 'ask')).toBe(false)
+    expect(buildSuggestions('rust', { ...base, assistantReady: false }).some((s) => s.kind === 'ask')).toBe(false)
+  })
+
+  it('leaves out sources that are switched off', () => {
+    const options = {
+      history: [visit('https://a.dev/history', 'match')],
+      bookmarks: [{ id: 1, url: 'https://a.dev/bookmark', title: 'match', createdAt: 0 }],
+      tabs: [tab(2, 'https://a.dev/tab', 'match')],
+      activeTabId: 1,
+      assistantReady: true
+    }
+    const kinds = (sources: ('tabs' | 'bookmarks' | 'history' | 'assistant')[]) =>
+      buildSuggestions('match', { ...options, sources }).map((s) => s.kind)
+    expect(kinds([])).toEqual(['search'])
+    expect(kinds(['history'])).toEqual(['search', 'history'])
+    expect(kinds(['tabs', 'bookmarks'])).toEqual(['search', 'tab', 'bookmark'])
+    expect(kinds(['assistant'])).toEqual(['search', 'ask', 'ask-page'])
   })
 
   it('caps the list and drops search suggestions equal to the input', () => {

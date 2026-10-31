@@ -4,8 +4,10 @@ import {
   ACCENTS,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
+  SUGGESTION_SOURCES,
   TOOLBAR_ITEMS,
   TRANSLATE_LANGUAGES,
+  type ExtensionInfo,
   type ImportResult,
   type ImportSource,
   type InternalCommands,
@@ -43,6 +45,8 @@ export function SettingsPage() {
   const [isDefault, setIsDefault] = useState(false)
   const [offHosts, setOffHosts] = useState<string[]>([])
   const [sources, setSources] = useState<ImportSource[]>([])
+  const [extensions, setExtensions] = useState<ExtensionInfo[]>([])
+  const [extensionError, setExtensionError] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<{ current: string; names: string[] }>({ current: '', names: [] })
   const [newProfile, setNewProfile] = useState('')
   const [imported, setImported] = useState<Record<string, ImportResult>>({})
@@ -54,6 +58,7 @@ export function SettingsPage() {
     void api().invoke('browser:is-default').then(setIsDefault)
     void api().invoke('privacy:off-hosts').then(setOffHosts)
     void api().invoke('import:sources').then(setSources)
+    void api().invoke('extensions:list').then(setExtensions)
     void api().invoke('profiles:list').then(setProfiles)
     void api().invoke('browser:version').then(setVersion)
   }, [])
@@ -111,12 +116,16 @@ export function SettingsPage() {
             <option value="vertical">Down the side</option>
           </Select>
         </Row>
-        <Row label="Bookmarks bar">
-          <Switch
-            label="Bookmarks bar"
-            checked={settings.showBookmarksBar}
-            onChange={(showBookmarksBar) => update({ showBookmarksBar })}
-          />
+        <Row label="Show bookmarks bar">
+          <Select
+            aria-label="Show bookmarks bar"
+            value={settings.bookmarksBar}
+            onChange={(e) => update({ bookmarksBar: e.target.value as Settings['bookmarksBar'] })}
+          >
+            <option value="always">Always</option>
+            <option value="new-tab">On new tabs</option>
+            <option value="bookmarks-page">Only on the bookmarks page</option>
+          </Select>
         </Row>
       </Section>
 
@@ -190,6 +199,24 @@ export function SettingsPage() {
             onChange={(searchSuggestions) => update({ searchSuggestions })}
           />
         </Row>
+      </Section>
+
+      <Section title="Address bar suggestions">
+        {SUGGESTION_SOURCES.map((source) => (
+          <Row key={source.id} label={source.name}>
+            <Switch
+              label={`Suggest ${source.name}`}
+              checked={settings.suggestionSources.includes(source.id)}
+              onChange={(on) =>
+                update({
+                  suggestionSources: on
+                    ? [...settings.suggestionSources, source.id]
+                    : settings.suggestionSources.filter((id) => id !== source.id)
+                })
+              }
+            />
+          </Row>
+        ))}
       </Section>
 
       <Section title="Startup and performance">
@@ -306,6 +333,37 @@ export function SettingsPage() {
             </Button>
           </div>
         </Row>
+      </Section>
+
+      <Section title="Extensions">
+        <Row label="Add an extension" hint="Choose an unpacked Chrome extension folder. Toolbar buttons and popups don't work yet.">
+          <Button
+            onClick={() => {
+              setExtensionError(null)
+              void api()
+                .invoke('extensions:add')
+                .then(() => api().invoke('extensions:list'))
+                .then(setExtensions)
+                .catch(() => setExtensionError("That folder isn't a working extension."))
+            }}
+          >
+            Add
+          </Button>
+        </Row>
+        {extensionError && <Row label={extensionError}>{null}</Row>}
+        {extensions.map((extension) => (
+          <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}`}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('extensions:remove', extension.id)
+                setExtensions(extensions.filter((e) => e.id !== extension.id))
+              }}
+            >
+              Remove
+            </Button>
+          </Row>
+        ))}
       </Section>
 
       <Section title="Import">

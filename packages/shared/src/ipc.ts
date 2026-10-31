@@ -1,5 +1,5 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
-import type { ImportResult, ImportSource } from './containers'
+import type { ExtensionInfo, ImportResult, ImportSource } from './containers'
 import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
 import type { OverlayState, OverlayView } from './overlay'
@@ -43,6 +43,8 @@ export interface ChromeCommands {
   'ai:set-site': (host: string, disabled: boolean) => void
   'ai:open-settings': () => void
   'ai:enable-hosted': () => void
+  'ai:open-assistant': (text: string) => void
+  'ai:open-chat': (id: string) => void
   'ai:agent-start': (streamId: string, goal: string, tabId: number) => void
   'ai:agent-answer': (approvalId: string, allow: boolean) => void
   'tabs:organise': () => void
@@ -122,6 +124,8 @@ export const COMMAND_CHANNELS = [
   'ai:set-site',
   'ai:open-settings',
   'ai:enable-hosted',
+  'ai:open-assistant',
+  'ai:open-chat',
   'ai:agent-start',
   'ai:agent-answer',
   'tabs:organise',
@@ -197,6 +201,18 @@ export interface InternalCommands {
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'chats:clear': () => void
+  'chats:list': () => ChatSummary[]
+  'chats:get': (id: string) => SavedChat | null
+  'chats:save': (id: string, turns: SavedTurn[]) => void
+  'chats:delete': (id: string) => void
+  'ai:status': () => AiStatus
+  'ai:send': (streamId: string, request: AssistantRequest) => void
+  'ai:cancel': (streamId: string) => void
+  /** Collects a question sent over from the address bar. */
+  'ai:take-prompt': () => string | null
+  'extensions:list': () => ExtensionInfo[]
+  'extensions:add': () => string | null
+  'extensions:remove': (id: string) => void
   'history:ask': (query: string) => HistoryEntry[] | null
   'ai:enable-hosted': () => void
   'ai:save-skills': (skills: Skill[]) => void
@@ -238,6 +254,17 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:set-role',
   'ai:set-site',
   'chats:clear',
+  'chats:list',
+  'chats:get',
+  'chats:save',
+  'chats:delete',
+  'ai:status',
+  'ai:send',
+  'ai:cancel',
+  'ai:take-prompt',
+  'extensions:list',
+  'extensions:add',
+  'extensions:remove',
   'history:ask',
   'ai:enable-hosted',
   'ai:save-skills',
@@ -265,4 +292,6 @@ export interface InternalBridge {
     channel: C,
     ...args: Parameters<InternalCommands[C]>
   ): Promise<Awaited<ReturnType<InternalCommands[C]>>>
+  /** Assistant replies, for the sc://assistant page. */
+  onAssistantEvent(listener: (event: AssistantEvent) => void): () => void
 }

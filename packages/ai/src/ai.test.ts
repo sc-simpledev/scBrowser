@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAnthropicProvider } from './anthropic'
-import { formatTranscript, MAX_PAGE_CHARS, trimPage, withContext } from './context'
+import { formatTranscript, MAX_PAGE_CHARS, SYSTEM_PROMPT, trimPage, withContext } from './context'
+import { AGENT_PROMPT } from './tasks'
 import { createOpenAiProvider } from './openai'
 import { readServerEvents } from './sse'
 import { AiError, type ChatEvent } from './types'
@@ -113,6 +114,21 @@ describe('withContext', () => {
     expect(message?.content.match(/<\/page>/g)).toHaveLength(1)
     expect(message?.content).not.toContain('<selection>')
     expect(message?.content).not.toContain('title=""')
+  })
+})
+
+describe('system prompts', () => {
+  it('give the assistant its name and keep the model private', () => {
+    for (const prompt of [SYSTEM_PROMPT, AGENT_PROMPT]) {
+      expect(prompt).toContain('scAI')
+      expect(prompt).toContain("can't share which underlying model")
+      expect(prompt).toContain('Never claim to be human')
+    }
+  })
+
+  it('tell the assistant reports never contain styling', () => {
+    expect(SYSTEM_PROMPT).toContain('scdelta-report')
+    expect(SYSTEM_PROMPT).toContain('never write HTML, CSS')
   })
 })
 

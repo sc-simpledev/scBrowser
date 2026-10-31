@@ -1,12 +1,15 @@
 import { Globe } from 'lucide-react'
+import { isNewTabUrl } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useActiveTab } from '../state/tabs'
 
 export function BookmarksBar() {
-  const visible = useApp((s) => s.settings.showBookmarksBar)
+  const mode = useApp((s) => s.settings.bookmarksBar)
   const bookmarks = useApp((s) => s.bookmarks)
   const tab = useActiveTab()
 
+  const visible =
+    mode === 'always' || (mode === 'new-tab' ? !!tab && isNewTabUrl(tab.url) : !!tab?.url.startsWith('sc://bookmarks'))
   if (!visible) return null
   return (
     <div role="toolbar" aria-label="Bookmarks" className="flex h-8 shrink-0 items-center gap-0.5 overflow-hidden px-1.5 pb-1">

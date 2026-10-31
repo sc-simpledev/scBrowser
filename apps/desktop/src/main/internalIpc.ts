@@ -1,8 +1,10 @@
-import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { DEFAULT_SETTINGS, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
+import type { ExtensionManager } from './extensions'
+import { isAssistantRequest, isTurns } from './ipc'
 import { readFlags, setFlag } from './flags'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
@@ -30,6 +32,7 @@ interface InternalServices {
   ai: AiService
   chats: ChatsRepo
   privacy: PrivacyService
+  extensions: ExtensionManager
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -73,7 +76,10 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions } = services
+
+  // Set for each call, so replies go back to the page that asked.
+  let caller: WebContents | null = null
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
@@ -130,6 +136,30 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
     'chats:clear': () => chats.clear(),
+    'chats:list': () => chats.list(),
+    'chats:get': (id) => chats.get(text(id, 64)),
+    'chats:save': (id, turns) => {
+      if (!isTurns(turns)) throw new Error('Invalid chat')
+      if (settings.get().saveChats) chats.save(text(id, 64), turns)
+    },
+    'chats:delete': (id) => chats.delete(text(id, 64)),
+    'ai:status': () => aiStore.status(),
+    'ai:send': (streamId, request) => {
+      if (!isAssistantRequest(request)) throw new Error('Invalid request')
+      const sender = caller
+      void ai.send(text(streamId, 64), request, (event) => {
+        if (sender && !sender.isDestroyed()) sender.send('ai:event', event)
+      })
+    },
+    'ai:cancel': (streamId) => ai.cancel(text(streamId, 64)),
+    'ai:take-prompt': () => ai.takePendingPrompt(),
+    'extensions:list': () => extensions.list(),
+    'extensions:add': async () => {
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openDirectory'] })
+      const path = result.canceled ? undefined : result.filePaths[0]
+      return path ? extensions.add(path) : null
+    },
+    'extensions:remove': (id) => extensions.remove(text(id, 64)),
     'history:ask': async (query) => {
       const search = await ai.parseHistorySearch(text(query, 500)).catch(() => null)
       return search && history.searchTerms(search.terms, search.after, search.before)
@@ -159,6 +189,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {
     if (!isTrusted(event, tabs)) throw new Error('Rejected internal call from untrusted page')
     if (typeof channel !== 'string' || !Object.hasOwn(handlers, channel)) throw new Error('Unknown internal channel')
+    caller = event.sender
     return handlers[channel as keyof InternalCommands](...args)
   })
   return () => ipcMain.removeHandler(CHANNEL)

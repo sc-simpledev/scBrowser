@@ -39,6 +39,19 @@ export class AiService {
     }
   }
 
+  /** A question from the address bar, waiting for the assistant page to load. */
+  private pendingPrompt: string | null = null
+
+  setPendingPrompt(text: string): void {
+    this.pendingPrompt = text
+  }
+
+  takePendingPrompt(): string | null {
+    const text = this.pendingPrompt
+    this.pendingPrompt = null
+    return text
+  }
+
   private chatRef(): ModelRef {
     const chat = this.store.roles().chat
     if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')

@@ -4,7 +4,7 @@ import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, SUMMARISE_PROMPT } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
-import { AssistantMarkdown } from './AssistantMarkdown'
+import { ReplyContent } from '../shared/ReplyContent'
 
 function contextLabel({ truncated, source }: Turn) {
   const what = source === 'transcript' ? 'the transcript of ' : source === 'pdf' ? 'the PDF ' : ''
@@ -65,6 +65,11 @@ function ComposerPicker({ items, selected }: { items: PickerItem[]; selected: nu
   )
 }
 
+function openReport() {
+  const { chatId } = useAssistant.getState()
+  if (chatId) void window.scb.invoke('ai:open-chat', chatId)
+}
+
 function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
   if (turn.role === 'user') {
     return <div className="ml-6 self-end rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap select-text">{turn.content}</div>
@@ -86,7 +91,13 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
           <span className="truncate">{step}</span>
         </div>
       ))}
-      {turn.content && <AssistantMarkdown text={turn.content} />}
+      {turn.content && (
+        <ReplyContent
+          text={turn.content}
+          onOpenLink={(href) => void window.scb.invoke('tabs:open-in-background', href)}
+          onOpenReport={openReport}
+        />
+      )}
       {streaming && !turn.content && <span className="text-text-faint">Thinking…</span>}
       {turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
       {turn.error && (

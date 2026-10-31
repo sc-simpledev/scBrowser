@@ -37,6 +37,12 @@ export const BROWSER_FLAGS: BrowserFlag[] = [
   { id: 'force-dark-pages', name: 'Force dark pages', description: 'Darkens websites that have no dark theme of their own.' }
 ]
 
+export interface ExtensionInfo {
+  id: string
+  name: string
+  version: string
+}
+
 export interface ImportSource {
   id: string
   name: string
