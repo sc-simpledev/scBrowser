@@ -1,3 +1,5 @@
+import type { WebContents } from 'electron'
+import type { RewriteStyle } from '@scbrowser/ai'
 import type { AssistantPrompt } from '@scbrowser/shared'
 import type { TabManager } from './tabs/TabManager'
 
@@ -13,6 +15,9 @@ export interface BrowserActions {
   toggleAssistant: () => void
   toggleReader: () => void
   screenshot: () => void
+  organiseTabs: () => void
+  translatePage: () => void
+  rewrite: (contents: WebContents, text: string, style: RewriteStyle) => void
   togglePalette: () => void
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void

@@ -13,6 +13,8 @@ export interface AiMock {
   /** Hits on any path that isn't part of the API, e.g. an image a reply tried to load. */
   strayHits: string[]
   reply: string[]
+  /** Replies to use first, one per request. */
+  queue: string[]
   status: number
   /** Stop after the first chunk and hold the connection open. */
   hang: boolean
@@ -25,7 +27,7 @@ const anthropicEvent = (type: string, data: object) => `event: ${type}\ndata: ${
 
 /** Speaks both the OpenAI and Anthropic streaming formats. */
 export async function startAiMock(): Promise<AiMock> {
-  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], status: 200, hang: false, server: null! }
+  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], status: 200, hang: false, server: null! }
 
   mock.server = createServer((req, res) => {
     const chunks: Buffer[] = []
@@ -50,7 +52,8 @@ export async function startAiMock(): Promise<AiMock> {
       }
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       if (path === '/v1/chat/completions') {
-        const parts = mock.hang ? mock.reply.slice(0, 1) : mock.reply
+        const queued = mock.queue.shift()
+        const parts = queued !== undefined ? [queued] : mock.hang ? mock.reply.slice(0, 1) : mock.reply
         res.write(sse(...parts.map((content) => ({ choices: [{ delta: { content } }] }))))
         if (mock.hang) return
         res.end(`${sse({ choices: [{ delta: {}, finish_reason: 'stop' }] }, { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}data: [DONE]\n\n`)

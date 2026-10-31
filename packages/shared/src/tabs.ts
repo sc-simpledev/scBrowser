@@ -15,6 +15,8 @@ export interface TabState {
   blockedCount: number
   /** Keeps this tab's cookies and site data apart; null is the default store. */
   container: string | null
+  /** Name of the group this tab is in. */
+  group: string | null
 }
 
 export interface TabsSnapshot {

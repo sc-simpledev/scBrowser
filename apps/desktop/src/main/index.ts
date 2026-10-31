@@ -90,7 +90,7 @@ if (!app.requestSingleInstanceLock()) {
       urlsFromArgv(process.argv)
     )
     main.window.on('closed', () => (main = null))
-    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs })
+    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs, scbActions: main.actions })
   })
 
   app.on('window-all-closed', () => app.quit())

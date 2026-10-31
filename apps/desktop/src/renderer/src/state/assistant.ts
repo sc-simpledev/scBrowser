@@ -4,6 +4,8 @@ import { useTabs } from './tabs'
 
 export interface Turn extends SavedTurn {
   error?: string
+  /** Agent mode: what it has done so far. */
+  steps?: string[]
   /** Why the reply ended early, in words. */
   note?: string
 }
@@ -20,12 +22,17 @@ interface AssistantStore {
   selection: string | null
   /** Other tabs @-mentioned for the next message. */
   mentions: number[]
+  /** Messages become goals for the agent to carry out in this tab. */
+  agentMode: boolean
+  approval: { id: string; text: string; reason: string } | null
   /** Bumped to pull focus into the composer. */
   focusRequest: number
   toggle: () => void
   close: () => void
   setIncludePage: (includePage: boolean) => void
   clearSelection: () => void
+  setAgentMode: (agentMode: boolean) => void
+  answerApproval: (allow: boolean) => void
   mention: (id: number) => void
   unmention: (id: number) => void
   reset: () => void
@@ -54,12 +61,21 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   includePage: true,
   selection: null,
   mentions: [],
+  agentMode: false,
+  approval: null,
   focusRequest: 0,
 
   toggle: () => set((s) => ({ open: !s.open, focusRequest: s.focusRequest + 1 })),
   close: () => set({ open: false }),
   setIncludePage: (includePage) => set({ includePage }),
   clearSelection: () => set({ selection: null }),
+  setAgentMode: (agentMode) => set({ agentMode }),
+  answerApproval: (allow) => {
+    const { approval } = get()
+    if (!approval) return
+    set({ approval: null })
+    void window.scb.invoke('ai:agent-answer', approval.id, allow)
+  },
   mention: (id) => set((s) => (s.mentions.length < MAX_MENTIONED_TABS && !s.mentions.includes(id) ? { mentions: [...s.mentions, id] } : s)),
   unmention: (id) => set((s) => ({ mentions: s.mentions.filter((m) => m !== id) })),
   reset: () => {
@@ -88,14 +104,19 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns, chatId, mentions } = get()
+    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode } = get()
     if (streamId || !status.ready || !text.trim()) return
     const id = crypto.randomUUID()
     const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
     set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, chatId: chatId ?? crypto.randomUUID(), chats: null, mentions: [] })
+    const tabId = useTabs.getState().activeId
+    if (agentMode && tabId !== null) {
+      void window.scb.invoke('ai:agent-start', id, text.trim(), tabId)
+      return
+    }
     void window.scb.invoke('ai:send', id, {
       messages: sent.map(({ role, content }) => ({ role, content })),
-      tabId: useTabs.getState().activeId,
+      tabId,
       includePage,
       extraTabIds: mentions,
       selection
@@ -139,10 +160,14 @@ function onEvent(event: AssistantEvent) {
   } else if (event.type === 'context') {
     useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated, source: event.source }) })
   } else if (event.type === 'error') {
-    useAssistant.setState({ turns: update({ error: event.message }), streamId: null })
+    useAssistant.setState({ turns: update({ error: event.message }), streamId: null, approval: null })
+  } else if (event.type === 'step') {
+    useAssistant.setState({ turns: update({ steps: [...(last.steps ?? []), event.text] }) })
+  } else if (event.type === 'approval') {
+    useAssistant.setState({ approval: { id: event.approvalId, text: event.text, reason: event.reason } })
   } else {
     const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
-    useAssistant.setState({ turns: update(note ? { note } : {}), streamId: null })
+    useAssistant.setState({ turns: update(note ? { note } : {}), streamId: null, approval: null })
     saveChat()
   }
 }

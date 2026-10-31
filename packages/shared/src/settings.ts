@@ -1,3 +1,4 @@
+import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
 import { TOOLBAR_ITEMS, type ToolbarItemId } from './containers'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
@@ -61,6 +62,7 @@ export interface Settings {
   httpsOnly: boolean
   accent: AccentId
   hiddenToolbarItems: ToolbarItemId[]
+  translateTo: TranslateLanguage
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -78,7 +80,8 @@ export const DEFAULT_SETTINGS: Settings = {
   trackingProtection: 'standard',
   httpsOnly: true,
   accent: 'ember',
-  hiddenToolbarItems: []
+  hiddenToolbarItems: [],
+  translateTo: 'English'
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -98,6 +101,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
   accent: (v) => ACCENTS.some((accent) => accent.id === v),
+  translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id))
 }
 

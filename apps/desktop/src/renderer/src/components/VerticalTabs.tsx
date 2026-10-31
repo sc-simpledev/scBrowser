@@ -1,5 +1,5 @@
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { useState } from 'react'
+import { Layers, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Fragment, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
@@ -31,16 +31,25 @@ export function VerticalTabs() {
         className="sc-scroll-quiet flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto"
       >
         {tabs.map((tab, index) => (
-          <Tab
-            key={tab.id}
-            tab={tab}
-            index={index}
-            active={tab.id === activeId}
-            split={splitIds.includes(tab.id)}
-            layout={collapsed ? 'rail' : 'vertical'}
-            draggingId={draggingId}
-            onDragState={setDraggingId}
-          />
+          <Fragment key={tab.id}>
+            {tab.group !== (tabs[index - 1]?.group ?? null) &&
+              (collapsed ? (
+                <div aria-hidden className="mx-3 my-1 shrink-0 border-t border-border-strong" />
+              ) : (
+                <div role="presentation" className="mt-2 shrink-0 truncate px-2 pb-0.5 text-2xs font-medium text-text-faint">
+                  {tab.group ?? 'Other'}
+                </div>
+              ))}
+            <Tab
+              tab={tab}
+              index={index}
+              active={tab.id === activeId}
+              split={splitIds.includes(tab.id)}
+              layout={collapsed ? 'rail' : 'vertical'}
+              draggingId={draggingId}
+              onDragState={setDraggingId}
+            />
+          </Fragment>
         ))}
       </div>
       {collapsed ? (
@@ -48,17 +57,22 @@ export function VerticalTabs() {
           <PanelLeftOpen size={16} strokeWidth={1.75} />
         </IconButton>
       ) : (
-        <button
-          type="button"
-          aria-label="Collapse tabs"
-          onClick={toggle}
-          className="flex h-9 shrink-0 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <span className="grid size-5 place-items-center">
-            <PanelLeftClose aria-hidden size={15} strokeWidth={1.75} />
-          </span>
-          Collapse sidebar
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            aria-label="Collapse tabs"
+            onClick={toggle}
+            className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <span className="grid size-5 place-items-center">
+              <PanelLeftClose aria-hidden size={15} strokeWidth={1.75} />
+            </span>
+            Collapse sidebar
+          </button>
+          <IconButton label="Organise tabs" onClick={() => void window.scb.invoke('tabs:organise')}>
+            <Layers size={15} strokeWidth={1.75} />
+          </IconButton>
+        </div>
       )}
     </aside>
   )

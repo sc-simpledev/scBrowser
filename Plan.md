@@ -54,16 +54,16 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] `sc://flags`, screenshot tool (Ctrl Shift S)
 - [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox
 
-**Phase 4 — started.**
+**Phase 4 — built.**
 - [x] Multi-tab context: `@` in the assistant adds other open tabs
 - [x] Skills: saved prompts, run with `/`
-- [ ] Smart tab grouping and auto-naming
-- [ ] Writing assistant in text fields
-- [ ] Semantic history search
-- [ ] Page translation
-- [ ] Agent mode
+- [x] Smart tab grouping, from the sidebar, tab menu or Ctrl K
+- [x] Writing assistant: select text in a field, right-click, Rewrite
+- [x] Natural-language history search: the AI turns a description into search terms and dates. Only titles and addresses are searched. This replaces the planned local embeddings, so it works with every provider and never sends history to the AI
+- [x] Page translation, in place, and run again to restore (long pages get the first 20,000 characters or so)
+- [x] Agent mode ("Act on page"): looks and scrolls freely, asks before each click, entry and navigation, never touches private fields, stops after 20 steps. Top-level page only, no iframes
 
-**Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Set its deployed address as `HOSTED_AI_URL` in `packages/shared/src/ai.ts`; until then the option stays hidden.
+**Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.

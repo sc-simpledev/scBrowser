@@ -16,6 +16,8 @@ import {
   type PermissionPrompt
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
+import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabGroups } from '@scbrowser/ai'
+import { rewriteSelection, togglePageTranslation } from './ai/pageTools'
 import { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { DownloadManager, uniquePath } from './downloads'
@@ -61,6 +63,7 @@ export interface Services {
 export interface BrowserWindowHandle {
   window: BrowserWindow
   tabs: TabManager
+  actions: BrowserActions
 }
 
 interface SavedWindow {
@@ -170,6 +173,33 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       })
     },
     togglePalette: () => overlay.togglePalette(),
+    organiseTabs: () => void runTask('Organising tabs…', async () => {
+      const candidates = tabs
+        .snapshot()
+        .tabs.filter((tab) => /^https?:/.test(tab.url) && !aiStore.disabledHosts().includes(new URL(tab.url).host))
+      if (candidates.length < 2) return 'Open a few more tabs first'
+      const groups = parseTabGroups(await ai.complete(GROUP_TABS_PROMPT, groupTabsMessage(candidates)), candidates)
+      if (groups.length === 0) return "Couldn't sort these tabs"
+      tabs.applyGroups(groups)
+      return `Sorted into ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`
+    }),
+    translatePage: () => {
+      const active = tabs.active
+      const contents = active && tabs.contentsFor(active.id)
+      if (!contents || !/^https?:/.test(active.url)) return
+      if (aiStore.disabledHosts().includes(new URL(active.url).host)) return notify('AI is off for this site')
+      void runTask('Translating…', async () => {
+        const outcome = await togglePageTranslation(contents, ai, settings.get().translateTo)
+        return { restored: 'Showing the original', translated: 'Translated', partly: 'Translated the start of this page', failed: "Couldn't translate this page" }[outcome]
+      })
+    },
+    rewrite: (contents, text, style) => {
+      const url = contents.getURL()
+      if (URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)) return notify('AI is off for this site')
+      void runTask('Rewriting…', async () =>
+        (await rewriteSelection(contents, ai, text, style)) ? 'Rewritten. Undo with Ctrl Z' : 'The selection changed, so nothing was replaced'
+      )
+    },
     screenshot: () => {
       const contents = tabs.active && tabs.contentsFor(tabs.active.id)
       if (contents) void takeScreenshot(contents)
@@ -211,6 +241,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
     split: () => tabs.toggleSplit(),
     screenshot: actions.screenshot,
+    translate: actions.translatePage,
+    'organise-tabs': actions.organiseTabs,
+    'ungroup-tabs': () => tabs.clearGroups(),
     'vertical-tabs': () =>
       settings.set({ tabLayout: settings.get().tabLayout === 'vertical' ? 'horizontal' : 'vertical' }),
     history: () => actions.openPage('history'),
@@ -241,6 +274,19 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
   prepareSession(session.defaultSession)
 
+  const notify = (text: string) => {
+    const { x, y, width } = tabs.page
+    overlay.showToast(text, x + width - TOAST_POPUP.width - TOAST_POPUP.inset, y + TOAST_POPUP.inset)
+  }
+  const runTask = async (working: string, task: () => Promise<string>) => {
+    notify(working)
+    try {
+      notify(await task())
+    } catch (error) {
+      notify(error instanceof AiError ? error.message : 'That AI task failed')
+    }
+  }
+
   const takeScreenshot = async (contents: Electron.WebContents) => {
     const image = await contents.capturePage()
     const png = image.toPNG()
@@ -251,8 +297,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     const dir = settings.get().downloadDir || app.getPath('downloads')
     const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', ' ')
     await writeFile(uniquePath(dir, `Screenshot ${stamp}.png`, existsSync), png)
-    const { x, y, width } = tabs.page
-    overlay.showToast(copied ? 'Screenshot saved and copied' : 'Screenshot saved', x + width - TOAST_POPUP.width - TOAST_POPUP.inset, y + TOAST_POPUP.inset)
+    notify(copied ? 'Screenshot saved and copied' : 'Screenshot saved')
   }
 
   attachShortcuts(chromeUi, actions)
@@ -348,5 +393,5 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     if (!saved && initialUrls.length === 0) tabs.create()
   })
 
-  return { window, tabs }
+  return { window, tabs, actions }
 }

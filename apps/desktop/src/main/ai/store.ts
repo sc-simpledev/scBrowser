@@ -112,7 +112,9 @@ export class AiStore {
   }
 
   private hostedUrl(): string | null {
-    return process.env.SCDELTA_AI_URL || HOSTED_AI_URL || null
+    const override = process.env.SCDELTA_AI_URL
+    if (override === 'off') return null
+    return override || HOSTED_AI_URL || null
   }
 
   /** Switches chat to the hosted service. Only ever done at the person's request. */

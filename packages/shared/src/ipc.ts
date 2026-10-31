@@ -43,6 +43,9 @@ export interface ChromeCommands {
   'ai:set-site': (host: string, disabled: boolean) => void
   'ai:open-settings': () => void
   'ai:enable-hosted': () => void
+  'ai:agent-start': (streamId: string, goal: string, tabId: number) => void
+  'ai:agent-answer': (approvalId: string, allow: boolean) => void
+  'tabs:organise': () => void
   'chats:list': () => ChatSummary[]
   'chats:get': (id: string) => SavedChat | null
   'chats:save': (id: string, turns: SavedTurn[]) => void
@@ -119,6 +122,9 @@ export const COMMAND_CHANNELS = [
   'ai:set-site',
   'ai:open-settings',
   'ai:enable-hosted',
+  'ai:agent-start',
+  'ai:agent-answer',
+  'tabs:organise',
   'chats:list',
   'chats:get',
   'chats:save',
@@ -191,6 +197,7 @@ export interface InternalCommands {
   'ai:set-role': (role: ModelRole, ref: ModelRef) => void
   'ai:set-site': (host: string, disabled: boolean) => void
   'chats:clear': () => void
+  'history:ask': (query: string) => HistoryEntry[] | null
   'ai:enable-hosted': () => void
   'ai:save-skills': (skills: Skill[]) => void
   'profiles:list': () => { current: string; names: string[] }
@@ -231,6 +238,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:set-role',
   'ai:set-site',
   'chats:clear',
+  'history:ask',
   'ai:enable-hosted',
   'ai:save-skills',
   'profiles:list',

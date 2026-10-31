@@ -130,6 +130,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
     'chats:clear': () => chats.clear(),
+    'history:ask': async (query) => {
+      const search = await ai.parseHistorySearch(text(query, 500)).catch(() => null)
+      return search && history.searchTerms(search.terms, search.after, search.before)
+    },
     'ai:enable-hosted': () => aiStore.enableHosted(),
     'ai:save-skills': (skills) => aiStore.saveSkills(skillList(skills)),
     'profiles:list': () => listProfiles(),

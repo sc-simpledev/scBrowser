@@ -32,8 +32,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'lmstudio', name: 'LM Studio (local)', protocol: 'openai', baseUrl: 'http://localhost:1234/v1', needsKey: false }
 ]
 
-/** Address of the hosted AI service. Empty until it's deployed; SCDELTA_AI_URL overrides it. */
-export const HOSTED_AI_URL = ''
+/** Address of the hosted AI service. SCDELTA_AI_URL overrides it, and `off` hides it. */
+export const HOSTED_AI_URL = 'https://sc-delta-ai.scspacedev.deno.net/v1'
 export const HOSTED_PROVIDER_ID = 'scdelta'
 export const HOSTED_MODEL = 'scdelta-chat'
 export const HOSTED_NAME = 'scDelta AI'
@@ -141,7 +141,13 @@ export type AssistantEvent =
   | { streamId: string; type: 'context'; title: string; truncated: boolean; source: ContextSource }
   | { streamId: string; type: 'text'; text: string }
   | { streamId: string; type: 'done'; stopReason: string | null }
+  /** Agent mode: something it did, or wants permission to do. */
+  | { streamId: string; type: 'step'; text: string }
+  | { streamId: string; type: 'approval'; approvalId: string; text: string; reason: string }
   | { streamId: string; type: 'error'; message: string }
+
+export const TRANSLATE_LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Arabic', 'Hindi', 'Russian'] as const
+export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]
 
 export interface SavedTurn extends AssistantMessage {
   pageTitle?: string

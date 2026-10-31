@@ -13,6 +13,8 @@ const timeLabel = (time: number) => new Date(time).toLocaleTimeString(undefined,
 export function HistoryPage() {
   const [query, setQuery] = useState('')
   const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const [asking, setAsking] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
 
   const load = useCallback(() => {
     void api().invoke('history:list', query, PAGE_SIZE, 0).then(setEntries)
@@ -26,11 +28,27 @@ export function HistoryPage() {
       <div className="flex gap-2">
         <Input
           aria-label="Search history"
-          placeholder="Search history"
+          placeholder="Search, or describe what you remember"
           className="flex-1"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <Button
+          disabled={query.trim().split(/\s+/).length < 2 || asking}
+          onClick={() => {
+            setAsking(true)
+            setNote(null)
+            void api()
+              .invoke('history:ask', query)
+              .then((found) => {
+                setAsking(false)
+                if (found) setEntries(found)
+                else setNote("Couldn't search with AI. Check AI settings.")
+              })
+          }}
+        >
+          {asking ? 'Searching…' : 'Ask AI'}
+        </Button>
         <Button
           disabled={entries.length === 0}
           onClick={() => void api().invoke('history:clear').then(load)}
@@ -38,6 +56,11 @@ export function HistoryPage() {
           Clear all
         </Button>
       </div>
+      {note && (
+        <p role="alert" className="text-danger">
+          {note}
+        </p>
+      )}
       {entries.length === 0 && <p className="text-text-muted">{query ? 'Nothing matches that search.' : 'No history yet.'}</p>}
       {[...days].map(([day, visits]) => (
         <section key={day} aria-label={day} className="flex flex-col gap-1">

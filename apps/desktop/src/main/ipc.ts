@@ -150,6 +150,10 @@ const validators: Validators = {
     args.length === 2 && isShortString(args[0], 512) && typeof args[1] === 'boolean',
   'ai:open-settings': noArgs,
   'ai:enable-hosted': noArgs,
+  'ai:agent-start': (args): args is [string, string, number] =>
+    args.length === 3 && isShortString(args[0], 64) && isShortString(args[1], 4000) && isId(args[2]),
+  'ai:agent-answer': (args): args is [string, boolean] => args.length === 2 && isShortString(args[0], 64) && typeof args[1] === 'boolean',
+  'tabs:organise': noArgs,
   'chats:list': noArgs,
   'chats:get': chatIdArg,
   'chats:save': (args): args is [string, SavedTurn[]] =>
@@ -237,6 +241,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
     'ai:open-settings': () => actions.openPage('ai'),
     'ai:enable-hosted': () => aiStore.enableHosted(),
+    'ai:agent-start': (streamId, goal, tabId) => {
+      void ai.runAgent(streamId, goal, tabId, (event) => {
+        if (!chromeUi.isDestroyed()) chromeUi.send('ai:event', event)
+      })
+    },
+    'ai:agent-answer': (approvalId, allow) => ai.answerApproval(approvalId, allow),
+    'tabs:organise': () => actions.organiseTabs(),
     'chats:list': () => chats.list(),
     'chats:get': (id) => chats.get(id),
     'chats:save': (id, turns) => {

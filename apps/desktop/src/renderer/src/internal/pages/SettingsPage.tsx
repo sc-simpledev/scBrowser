@@ -5,6 +5,7 @@ import {
   PERMISSION_LABELS,
   SEARCH_ENGINES,
   TOOLBAR_ITEMS,
+  TRANSLATE_LANGUAGES,
   type ImportResult,
   type ImportSource,
   type InternalCommands,
@@ -241,6 +242,17 @@ export function SettingsPage() {
       <Section title="Assistant">
         <Row label="Keep chats on this device" hint="Page text sent with a message isn't kept.">
           <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
+        </Row>
+        <Row label="Translate pages into">
+          <Select
+            aria-label="Translate pages into"
+            value={settings.translateTo}
+            onChange={(e) => update({ translateTo: e.target.value as Settings['translateTo'] })}
+          >
+            {TRANSLATE_LANGUAGES.map((language) => (
+              <option key={language}>{language}</option>
+            ))}
+          </Select>
         </Row>
         <Row label="Saved chats">
           <Button variant="ghost" onClick={() => void api().invoke('chats:clear')}>

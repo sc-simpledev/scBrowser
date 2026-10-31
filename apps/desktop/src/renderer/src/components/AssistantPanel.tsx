@@ -1,4 +1,4 @@
-import { ArrowUp, AtSign, FileText, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, AtSign, Check, FileText, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, SUMMARISE_PROMPT } from '@scbrowser/shared'
@@ -80,6 +80,12 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
           </span>
         </div>
       )}
+      {turn.steps?.map((step, index) => (
+        <div key={index} className="flex items-center gap-1 text-xs text-text-muted">
+          <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-accent" />
+          <span className="truncate">{step}</span>
+        </div>
+      ))}
       {turn.content && <AssistantMarkdown text={turn.content} />}
       {streaming && !turn.content && <span className="text-text-faint">Thinking…</span>}
       {turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
@@ -93,8 +99,8 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
 }
 
 export function AssistantPanel() {
-  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions } = useAssistant()
-  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention } = useAssistant.getState()
+  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval } = useAssistant()
+  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention, setAgentMode, answerApproval } = useAssistant.getState()
   const allTabs = useTabs((s) => s.tabs)
   const [pickerIndex, setPickerIndex] = useState(0)
   const tab = useActiveTab()
@@ -233,6 +239,18 @@ export function AssistantPanel() {
                   </div>
                 )
               })}
+              {approval && (
+                <div role="alertdialog" aria-label="Approve this step" className="flex flex-col gap-2 rounded-md bg-surface-hover p-2.5">
+                  <div className="font-medium [overflow-wrap:anywhere]">{approval.text}</div>
+                  {approval.reason && <div className="text-xs text-text-muted">{approval.reason}</div>}
+                  <div className="flex justify-end gap-2">
+                    <Button onClick={() => answerApproval(false)}>Decline</Button>
+                    <Button variant="primary" onClick={() => answerApproval(true)}>
+                      Allow
+                    </Button>
+                  </div>
+                </div>
+              )}
               {selection && (
                 <div className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-xs text-text-muted">
                   <Quote aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
@@ -258,6 +276,21 @@ export function AssistantPanel() {
                     <span className="truncate">{tab?.title || 'This page'}</span>
                   </button>
                 )}
+                {canRead && !siteOff && /^https?:/.test(tab?.url ?? '') && (
+                  <button
+                    type="button"
+                    aria-pressed={agentMode}
+                    title="Lets the assistant act on this page. You approve every step."
+                    onClick={() => setAgentMode(!agentMode)}
+                    className={cx(
+                      'flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
+                      agentMode ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text'
+                    )}
+                  >
+                    <Hand aria-hidden size={12} strokeWidth={1.75} />
+                    Act on page
+                  </button>
+                )}
                 {host && (
                   <button
                     type="button"
@@ -274,7 +307,7 @@ export function AssistantPanel() {
                   rows={2}
                   value={draft}
                   aria-label="Message the assistant"
-                  placeholder="Ask anything, / for skills, @ for tabs"
+                  placeholder={agentMode ? 'What should it do on this page?' : 'Ask anything, / for skills, @ for tabs'}
                   onChange={(e) => {
                     setDraft(e.target.value)
                     setPickerIndex(0)

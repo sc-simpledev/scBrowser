@@ -1,16 +1,22 @@
 import { session, type WebContents } from 'electron'
-import { AiError, createProvider, MAX_PAGE_CHARS, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type PageContext, type Provider } from '@scbrowser/ai'
-import { MAX_MENTIONED_TABS, type AssistantEvent, type AssistantRequest } from '@scbrowser/shared'
+import { Agent } from './agent'
+import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
+import { MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import type { AiStore } from './store'
 
 const MAX_OUTPUT_TOKENS = 16_000
+const TASK_OUTPUT_TOKENS = 4_000
 
 /** AI traffic gets an in-memory session, so browsing cookies are never attached. */
 const aiFetch: FetchLike = (input, init) => session.fromPartition('scb-ai').fetch(input as string, init)
 
 export class AiService {
   private readonly running = new Map<string, AbortController>()
+  private readonly agent = new Agent({
+    chat: (messages, system, signal) => this.collect(this.chatRef(), system, messages, signal),
+    isSiteOff: (url) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
+  })
 
   constructor(
     private readonly store: AiStore,
@@ -30,6 +36,52 @@ export class AiService {
       return { models: [...new Set([...manual, ...listed])], error: null }
     } catch (error) {
       return { models: manual, error: error instanceof AiError ? error.message : "Couldn't list models." }
+    }
+  }
+
+  private chatRef(): ModelRef {
+    const chat = this.store.roles().chat
+    if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')
+    return chat
+  }
+
+  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal): Promise<string> {
+    let text = ''
+    const stream = this.provider(ref.providerId).chat({ model: ref.model, system, messages, maxTokens: TASK_OUTPUT_TOKENS, signal })
+    for await (const event of stream) {
+      if (event.type === 'text') text += event.text
+      if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+    }
+    return text
+  }
+
+  /** A single request for a background job, on the quick model if one is set. */
+  complete(system: string, user: string): Promise<string> {
+    return this.collect(this.store.roles().fast ?? this.chatRef(), system, [{ role: 'user', content: user }])
+  }
+
+  /** Only the search itself goes to the AI, never the person's history. */
+  async parseHistorySearch(query: string): Promise<HistoryQuery | null> {
+    return parseHistoryQuery(await this.complete(historyQueryPrompt(new Date().toISOString().slice(0, 10)), query))
+  }
+
+  answerApproval(approvalId: string, allow: boolean): void {
+    this.agent.answer(approvalId, allow)
+  }
+
+  async runAgent(streamId: string, goal: string, tabId: number, emit: (event: AssistantEvent) => void): Promise<void> {
+    const controller = new AbortController()
+    this.running.set(streamId, controller)
+    try {
+      const contents = this.contentsFor(tabId)
+      if (!contents) throw new AiError('not-found', 'That tab has closed.')
+      await this.agent.run(streamId, goal, contents, emit, controller.signal)
+      emit({ streamId, type: 'done', stopReason: controller.signal.aborted ? 'cancelled' : null })
+    } catch (error) {
+      if (controller.signal.aborted) emit({ streamId, type: 'done', stopReason: 'cancelled' })
+      else emit({ streamId, type: 'error', message: error instanceof AiError ? error.message : 'Something went wrong with that request.' })
+    } finally {
+      this.running.delete(streamId)
     }
   }
 

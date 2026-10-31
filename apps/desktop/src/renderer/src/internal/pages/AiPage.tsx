@@ -185,6 +185,24 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
           ))}
         </Select>
       </div>
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-xs text-text-muted">Model for quick tasks</span>
+        <Select
+          aria-label={`Quick model for ${provider.name}`}
+          className="max-w-80"
+          value={state.roles.fast?.providerId === provider.id ? state.roles.fast.model : ''}
+          onChange={(e) =>
+            void api().invoke('ai:set-role', 'fast', { providerId: provider.id, model: e.target.value }).then(onChange)
+          }
+        >
+          <option value="">Same as chat</option>
+          {options.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </Select>
+      </div>
       {usage && (
         <p className="text-xs text-text-faint">
           Used {numberFormat.format(usage.inputTokens)} input and {numberFormat.format(usage.outputTokens)} output tokens

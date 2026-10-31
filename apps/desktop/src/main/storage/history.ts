@@ -91,6 +91,23 @@ export class HistoryRepo {
     return added
   }
 
+  /** Entries matching any term in their title or address, optionally within dates. */
+  searchTerms(terms: string[], after: number | null, before: number | null, limit = 100): HistoryEntry[] {
+    const matches = terms.map(() => `(url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')`).join(' OR ')
+    const patterns = terms.flatMap((term) => {
+      const pattern = `%${escapeLike(term.toLowerCase())}%`
+      return [pattern, pattern]
+    })
+    const rows = this.db
+      .prepare(
+        `SELECT url, title, visit_count, last_visit FROM history
+         WHERE (${matches}) AND last_visit >= ? AND last_visit < ?
+         ORDER BY last_visit DESC LIMIT ?`
+      )
+      .all(...patterns, after ?? 0, before ?? Number.MAX_SAFE_INTEGER, limit) as unknown as Row[]
+    return rows.map(toEntry)
+  }
+
   /** Newest first, for the history page. */
   list(query: string, limit: number, offset: number): HistoryEntry[] {
     const pattern = `%${escapeLike(query.trim().toLowerCase())}%`

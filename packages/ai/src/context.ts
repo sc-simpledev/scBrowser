@@ -29,7 +29,7 @@ export interface PageContext {
 }
 
 /** Stops page text from closing its own tag and posing as the person's message. */
-const neutralise = (text: string) => text.replace(/<\/?(page|selection)\b/gi, (tag) => tag.replace('<', '&lt;'))
+export const neutralise = (text: string) => text.replace(/<\/?(page|selection)\b/gi, (tag) => tag.replace('<', '&lt;'))
 
 /** Several pages share the one budget, so a mention can't crowd out everything else. */
 export function trimPage(text: string, limit = MAX_PAGE_CHARS): { text: string; truncated: boolean } {

@@ -94,6 +94,18 @@ describe('PermissionsRepo', () => {
   })
 })
 
+describe('HistoryRepo.searchTerms', () => {
+  it('matches any term within the dates', () => {
+    const repo = new HistoryRepo(db)
+    repo.recordVisit('https://a.dev/gpu', 'Graphics cards', 100)
+    repo.recordVisit('https://b.dev/', 'GPU news', 200)
+    repo.recordVisit('https://c.dev/', 'Cooking', 300)
+    expect(repo.searchTerms(['gpu'], null, null).map((e) => e.title)).toEqual(['GPU news', 'Graphics cards'])
+    expect(repo.searchTerms(['gpu', 'cooking'], 150, 250).map((e) => e.title)).toEqual(['GPU news'])
+    expect(repo.searchTerms(['100%'], null, null)).toEqual([])
+  })
+})
+
 describe('importing', () => {
   it('keeps existing data and reports only what was new', () => {
     const history = new HistoryRepo(db)

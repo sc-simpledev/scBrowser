@@ -23,6 +23,7 @@ export interface SavedTab {
   entries: { url: string; title: string }[]
   entryIndex: number
   container?: string | null
+  group?: string | null
 }
 
 interface Tab {
@@ -129,6 +130,24 @@ export class TabManager {
     if (!tab) return
     this.create(effectiveUrl(tab.state.url), { afterId: id, container })
     this.close(id)
+  }
+
+  /** Names groups and brings each group's tabs together, ahead of the ungrouped ones. */
+  applyGroups(groups: { name: string; ids: TabId[] }[]): void {
+    const grouped = groups.flatMap(({ name, ids }) =>
+      ids.filter((id) => {
+        const tab = this.tabs.get(id)
+        if (tab) tab.state.group = name
+        return !!tab
+      })
+    )
+    this.order = [...grouped, ...this.order.filter((id) => !grouped.includes(id))]
+    this.emitChange()
+  }
+
+  clearGroups(): void {
+    for (const tab of this.tabs.values()) tab.state.group = null
+    this.emitChange()
   }
 
   closeOthers(id: TabId): void {
@@ -425,7 +444,8 @@ export class TabManager {
         isSleeping: saved !== null,
         zoomPercent: 100,
         blockedCount: 0,
-        container: saved?.container ?? null
+        container: saved?.container ?? null,
+        group: saved?.group ?? null
       },
       view: null,
       saved,
@@ -497,7 +517,8 @@ export class TabManager {
       faviconUrl,
       entries: entries.length === all.length ? entries : [],
       entryIndex,
-      container: tab.state.container
+      container: tab.state.container,
+      group: tab.state.group
     }
   }
 

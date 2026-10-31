@@ -1,4 +1,5 @@
 import { clipboard, Menu, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import type { RewriteStyle } from '@scbrowser/ai'
 import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -39,6 +40,15 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     ])
   }
   if (params.isEditable) {
+    if (params.selectionText && params.formControlType !== 'input-password') {
+      const rewrite = (label: string, style: RewriteStyle) => ({ label, click: () => actions.rewrite(contents, params.selectionText, style) })
+      groups.push([
+        {
+          label: 'Rewrite',
+          submenu: [rewrite('Proofread', 'proofread'), rewrite('Shorter', 'shorter'), rewrite('Friendlier', 'friendlier'), rewrite('More formal', 'formal')]
+        }
+      ])
+    }
     groups.push([
       { role: 'undo', label: 'Undo', enabled: params.editFlags.canUndo },
       { role: 'redo', label: 'Redo', enabled: params.editFlags.canRedo },
@@ -71,7 +81,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
         {
           label: 'Summarise page',
           click: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true })
-        }
+        },
+        { label: 'Translate page', click: actions.translatePage }
       ])
     }
   }
@@ -101,6 +112,9 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
+    { type: 'separator' },
+    { label: 'Organise tabs into groups', click: actions.organiseTabs },
+    { label: 'Remove tab groups', click: () => tabs.clearGroups() },
     { label: 'Reopen closed tab', click: () => tabs.reopenClosed() }
   ]).popup({ window })
 }
