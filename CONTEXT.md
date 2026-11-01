@@ -23,7 +23,11 @@ npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
 ```
 
-Build first, because E2E tests run the built app. To build and test the packaged app:
+Build first, because E2E tests run the built app. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+
+```bash
+node apps/desktop/scripts/fetch-xray.mjs
+```
 
 ```bash
 cd apps/desktop && npx electron-builder --linux AppImage deb
@@ -82,7 +86,6 @@ Open items:
 - `sc://assistant` has no saved-chat list. Chats open from the side panel.
 - Reports can't be saved as HTML files yet.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
-- The Xray core hasn't been fetched on the owner's machine yet: run `node apps/desktop/scripts/fetch-xray.mjs` before packaging, or VLESS, VMess, Trojan and Shadowsocks links report that the core is missing. Those link types have only had their parsing and generated config unit tested, never a live connection.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.
 - The server's `/v1/reports` route needs deploying before reports go anywhere. Native crash dumps aren't collected.
 - With the sandbox on, a page that segfaults didn't reach the crashed-page screen under Playwright, though one that's killed did. Check this by hand in a real build.
@@ -102,6 +105,7 @@ Open items:
 - Tests set `SCDELTA_AI_URL=off` and use `SCB_FILTERS` to avoid the network. `SCB_E2E` exposes `scbTabs`, `scbActions` and `scbExtensions` on the main process.
 - Playwright turns the sandbox off, and service worker extensions then lose the extra `chrome.*` APIs. Launch with `SCB_E2E_SANDBOX: '1'` for those tests.
 - VPN tests get `<-loopback>` in the bypass rules under `SCB_E2E`, so local servers go through the proxy.
+- `e2e/xray.spec.ts` makes real connections through a local Xray server, and is skipped if the core hasn't been fetched.
 - Don't take desktop screenshots with spectacle: it can capture the owner's own windows.
 - `pkill -f` patterns can match your own shell. Use `pgrep -f "dist/electro[n]" | xargs -r kill -9`.
 - Code running during shutdown must guard against the destroyed window and closed database.

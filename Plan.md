@@ -73,7 +73,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Site blocker.** `sc://blocker`: block sites always, at set times or in Focus Mode (the same mode as Study Mode), with custom messages and an allowlist. Site categories are checked by the AI once per host, sending only the host name, always or only in Focus Mode. The block page offers a new tab or continuing, which lasts 15 minutes.
 
-**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which `apps/desktop/scripts/fetch-xray.mjs` downloads at a pinned version and checksum. It covers browser tabs only, and fails closed if the core stops.
+**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. It covers browser tabs only, and fails closed if the core stops.
 
 **Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. They don't sync yet: sync still carries only addresses and names.
 
