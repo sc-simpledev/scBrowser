@@ -39,6 +39,8 @@ import { currentProfile, DEFAULT_PROFILE } from './profiles'
 import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
+import { fetchIcon, fetchSiteIcon } from './siteIcons'
+import { isPrivate, openPrivateWindow } from './private'
 import type { Reporter } from './reporter'
 import { SyncService, type KeyVault } from './sync'
 import { VpnService, xrayPath } from './vpn'
@@ -56,7 +58,7 @@ const SYNC_FIRST_MS = 20_000
 const SYNC_EVERY_MS = 10 * 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
-const APP_TITLE = currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
+const APP_TITLE = isPrivate ? 'scDelta (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
 
@@ -118,6 +120,22 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   const publishBookmarks = () => {
     send('bookmarks:changed', bookmarks.list())
     send('bookmark-groups:changed', bookmarks.groups())
+    void fillMissingIcons()
+  }
+  const triedIcons = new Set<string>()
+  const needsIcon = (url: string) => URL.canParse(url) && bookmarks.list().some((b) => URL.canParse(b.url) && new URL(b.url).host === new URL(url).host && !b.icon)
+  const storeIcon = (url: string, icon: string | null) => {
+    if (!icon || window.isDestroyed()) return
+    bookmarks.setIcon(new URL(url).host, icon)
+    send('bookmarks:changed', bookmarks.list())
+  }
+  /** Bookmarks added from elsewhere have never been visited, so ask each site for its icon once. */
+  const fillMissingIcons = async () => {
+    for (const { url, icon } of bookmarks.list()) {
+      if (icon || !/^https?:/.test(url) || !URL.canParse(url) || triedIcons.has(new URL(url).host)) continue
+      triedIcons.add(new URL(url).host)
+      storeIcon(url, await fetchSiteIcon(session.defaultSession, url))
+    }
   }
 
   const tabs = new TabManager(window, {
@@ -150,11 +168,15 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     // Pages can still report in during shutdown, after the database has closed.
     onVisit: (url) => {
-      if (!window.isDestroyed()) history.recordVisit(url)
+      if (!window.isDestroyed() && !isPrivate) history.recordVisit(url)
     },
     onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
     onTitle: (url, title) => {
-      if (!window.isDestroyed()) history.updateTitle(url, title)
+      if (!window.isDestroyed() && !isPrivate) history.updateTitle(url, title)
+    },
+    // Only sites already bookmarked, so this keeps no record of browsing.
+    onFavicon: (contents, pageUrl, iconUrl) => {
+      if (!isPrivate && needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => storeIcon(pageUrl, icon))
     },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
@@ -227,7 +249,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (contents) void takeScreenshot(contents)
     },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
-    quit: () => app.quit()
+    quit: () => app.quit(),
+    openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list())
   }
   const { aiStore } = services
   const ai = new AiService(aiStore, (id) => tabs.contentsFor(id))
@@ -270,6 +293,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
   const paletteActions: Record<string, () => void> = {
     'new-tab': () => tabs.create(),
+    'private-window': actions.openPrivateWindow,
     'reopen-tab': () => tabs.reopenClosed(),
     find: actions.openFind,
     bookmark: actions.toggleBookmark,
@@ -549,6 +573,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   else void window.loadFile(join(__dirname, '../renderer/index.html'))
 
   chromeUi.once('did-finish-load', () => {
+    if (!isPrivate) void fillMissingIcons()
     const saved = settings.get().startup === 'restore' ? loadSession(kv) : null
     if (saved) tabs.restore(saved.tabs, saved.activeIndex)
     initialUrls.forEach((url) => tabs.create(url))

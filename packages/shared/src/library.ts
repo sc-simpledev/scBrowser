@@ -7,6 +7,8 @@ export interface Bookmark {
   groupId: number | null
   /** Order on the bar, or within its group. Groups and bookmarks share the bar's order. */
   position: number
+  /** The site's icon as a data address, so showing it contacts nobody. */
+  icon?: string | null
 }
 
 export interface BookmarkGroup {

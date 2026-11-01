@@ -77,6 +77,8 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. They don't sync yet: sync still carries only addresses and names.
 
+**Private windows.** Ctrl Shift N starts a separate copy of the app from a throwaway folder in the system temp directory, like a profile. It brings bookmarks and settings, but no history, AI keys or extensions, and a small watcher process deletes the folder after it closes or crashes.
+
 **Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 
 **Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
@@ -94,7 +96,7 @@ The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Fi
 7. **AI is part of the design, not stuck on top.** No sparkle emoji everywhere. AI gets one recognisable motif (e.g. a subtle animated accent edge while generating), streaming text that reflows calmly, and clear source citations linking back to tabs.
 
 **Anti-patterns to avoid (the "vibe coded" tells)**
-- Purple-to-blue gradients, glassmorphism on every surface, glowing drop shadows.
+- Purple-to-blue gradients, glass on everything, glowing drop shadows. Glass is for floating things only: popups, cards on the new tab and side panels, using `sc-glass` and `sc-glass-strong`.
 - Untouched default shadcn/Tailwind look: identical `rounded-2xl` cards, `shadow-lg`, grey-500 text everywhere.
 - Emoji as icons; mixed icon sets. → Use **one** icon set (Lucide or Phosphor at 1.5px stroke, 16/20px grid) plus custom-drawn brand icons.
 - Placeholder copy, inconsistent capitalisation, "✨ AI-powered" labels. → Write the copy on purpose (sentence case, short verbs).

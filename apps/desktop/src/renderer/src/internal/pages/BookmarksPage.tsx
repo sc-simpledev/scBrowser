@@ -1,4 +1,4 @@
-import { Pencil, X } from 'lucide-react'
+import { Globe, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import type { Bookmark, BookmarkGroup } from '@scbrowser/shared'
@@ -36,6 +36,11 @@ function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups:
 
   return (
     <li className="group flex h-10 items-center gap-3 rounded-md px-2 hover:bg-surface-hover">
+      {bookmark.icon ? (
+        <img src={bookmark.icon} alt="" className="size-4 shrink-0 rounded-sm object-contain" />
+      ) : (
+        <Globe aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
+      )}
       <a href={bookmark.url} className="min-w-0 flex-1 truncate">
         {bookmark.title || bookmark.url}
       </a>

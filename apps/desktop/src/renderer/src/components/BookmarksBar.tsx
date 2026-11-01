@@ -79,7 +79,11 @@ export function BookmarksBar() {
         onContextMenu={() => void window.scb.invoke('bookmarks:context-menu', bookmark.id)}
         className={cx(itemClass, highlight(item))}
       >
-        <Globe aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        {bookmark.icon ? (
+          <img src={bookmark.icon} alt="" draggable={false} className="size-3.5 shrink-0 rounded-sm object-contain" />
+        ) : (
+          <Globe aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        )}
         <span className="truncate">{bookmark.title || bookmark.url}</span>
       </button>
     )

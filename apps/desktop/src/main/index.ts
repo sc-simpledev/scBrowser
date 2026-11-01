@@ -5,6 +5,7 @@ import { app, Menu, net } from 'electron'
 import { HOSTED_AI_URL } from '@scbrowser/shared'
 import { AiStore } from './ai/store'
 import { applyFlags } from './flags'
+import { applyPrivate, isPrivate, seedPrivate, sweepPrivate } from './private'
 import { applyProfile } from './profiles'
 import { handleInternalPages, registerInternalScheme } from './internal/protocol'
 import { Reporter, type Send } from './reporter'
@@ -49,6 +50,7 @@ app.setName('scDelta')
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 else moveLegacyProfile()
 applyProfile()
+applyPrivate()
 if (process.platform === 'linux') app.setDesktopName('scdelta.desktop')
 applyFlags()
 registerInternalScheme()
@@ -100,13 +102,16 @@ if (!app.requestSingleInstanceLock()) {
     })
     const kv = new KeyValueRepo(db)
     const settings = new SettingsStore(kv)
+    const bookmarks = new BookmarksRepo(db)
+    if (isPrivate) seedPrivate(settings, bookmarks)
+    else sweepPrivate()
     reporter = new Reporter(
       kv,
       settings,
       { version: app.getVersion(), electron: process.versions.electron ?? '', platform: process.platform, arch: process.arch },
       reportSender()
     )
-    reporter.start()
+    if (!isPrivate) reporter.start()
     app.on('render-process-gone', (_event, _contents, { reason }) => {
       if (isCrash(reason)) reporter?.record('page', reason)
     })
@@ -118,7 +123,7 @@ if (!app.requestSingleInstanceLock()) {
         kv,
         settings,
         history: new HistoryRepo(db),
-        bookmarks: new BookmarksRepo(db),
+        bookmarks,
         downloads: new DownloadsRepo(db),
         permissions: new PermissionsRepo(db),
         aiStore: new AiStore(kv),

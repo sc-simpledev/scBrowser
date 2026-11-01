@@ -37,6 +37,7 @@ export interface PaletteCommand {
 
 export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'new-tab', label: 'New tab', shortcut: 'Ctrl T' },
+  { id: 'private-window', label: 'New private window', shortcut: 'Ctrl Shift N' },
   { id: 'reopen-tab', label: 'Reopen closed tab', shortcut: 'Ctrl Shift T' },
   { id: 'find', label: 'Find in page', shortcut: 'Ctrl F' },
   { id: 'bookmark', label: 'Bookmark this page', shortcut: 'Ctrl D' },

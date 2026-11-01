@@ -67,7 +67,7 @@ function ConnectionList({ title, group, connections, state, pings, setPings, rel
   const fastest = shown[0] && pings[shown[0].id] ? shown[0] : null
 
   return (
-    <section aria-label={title} className="flex flex-col gap-2 rounded-lg p-3 shadow-1">
+    <section aria-label={title} className="flex flex-col gap-2 sc-glass-strong rounded-xl p-3 shadow-1">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 flex-1 truncate font-semibold">
           {title} <span className="font-normal text-text-faint">{connections.length}</span>
@@ -128,7 +128,7 @@ export function VpnPage() {
 
   return (
     <>
-      <section aria-label="Status" className="flex items-center justify-between gap-4 rounded-lg p-3 shadow-1">
+      <section aria-label="Status" className="flex items-center justify-between gap-4 sc-glass-strong rounded-xl p-3 shadow-1">
         <div className="min-w-0">
           <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? 'Connecting…' : 'Off'}</div>
           <div className="truncate text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. Only scDelta uses this, not other apps.</div>
@@ -137,7 +137,7 @@ export function VpnPage() {
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
       </section>
 
-      <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg p-3 shadow-1">
+      <section aria-label="Add connections" className="flex flex-col gap-2 sc-glass-strong rounded-xl p-3 shadow-1">
         <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Add connections</h2>
         <textarea
           aria-label="Connection links"

@@ -17,6 +17,7 @@ import {
 import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
+import { isPrivate } from './private'
 import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
@@ -134,6 +135,7 @@ const validators: Validators = {
   'bookmarks:context-menu': idArg,
   'bookmarks:groups': noArgs,
   'vpn:summary': noArgs,
+  'browser:is-private': noArgs,
   'vpn:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
   'bookmarks:arrange': (args): args is [BarItem[]] =>
     args.length === 1 &&
@@ -245,6 +247,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     },
     'bookmarks:groups': () => bookmarks.groups(),
     'vpn:summary': () => vpn.summary(),
+    'browser:is-private': () => isPrivate,
     'vpn:menu': (x, y) => openVpnMenu(x, y),
     'bookmarks:arrange': (items) => {
       bookmarks.arrange(items)

@@ -1,4 +1,4 @@
-import { clipboard, Menu, MenuItem, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
 import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type BookmarkGroup, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
@@ -168,13 +168,19 @@ export function popupBookmarkMenu(bookmark: Bookmark, { repo, onChange, actions,
   ]).popup({ window })
 }
 
+/** Native menus can't draw every format, such as SVG, so some rows go without. */
+function menuIcon(icon: string | null | undefined): NativeImage | undefined {
+  const image = icon ? nativeImage.createFromDataURL(icon) : null
+  return image && !image.isEmpty() ? image.resize({ width: 16, height: 16 }) : undefined
+}
+
 /** A group's bookmarks drop down from the bar. Native menus draw above pages. */
 export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
   const { repo, actions, window } = hooks
   const items = repo.list().filter((bookmark) => bookmark.groupId === group.id)
   Menu.buildFromTemplate([
     ...(items.length === 0 ? [{ label: 'No bookmarks yet', enabled: false }] : []),
-    ...items.map((bookmark) => ({ label: bookmark.title || bookmark.url, click: () => open(bookmark.url) })),
+    ...items.map((bookmark) => ({ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) })),
     ...(items.length > 1
       ? [{ type: 'separator' as const }, { label: `Open all ${items.length}`, click: () => items.forEach((bookmark) => actions.tabs.create(bookmark.url)) }]
       : []),
@@ -193,6 +199,8 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { type: 'separator' },
     { label: 'History', accelerator: 'Ctrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'Ctrl+Shift+A', click: actions.toggleAssistant },
+    { label: 'New private window', accelerator: 'Ctrl+Shift+N', click: actions.openPrivateWindow },
+    { type: 'separator' },
     { label: 'Bookmarks', accelerator: 'Ctrl+Shift+O', click: () => actions.openPage('bookmarks') },
     { label: 'Downloads', accelerator: 'Ctrl+J', click: () => actions.openPage('downloads') },
     { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },

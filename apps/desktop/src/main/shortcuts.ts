@@ -44,6 +44,7 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (mod && (key === '=' || key === '+')) return onActive((id) => tabs.zoomBy(id, 1))
   if (mod && key === '-') return onActive((id) => tabs.zoomBy(id, -1))
   if (mod && key === '0') return onActive((id) => tabs.setZoom(id, 1))
+  if (mod && input.shift && key === 'n') return run(actions.openPrivateWindow)
   if (mod && !input.shift && key === 'q') return run(actions.quit)
   return false
 }

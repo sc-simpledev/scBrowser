@@ -66,8 +66,6 @@ test('Escape closes the dropdown, then restores the URL', async () => {
 test('a new tab leaves the keyboard in the address bar', async () => {
   await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
-  await h.chrome.waitForTimeout(700)
-  const focused = await h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? 'none')
-  expect(focused).toContain('renderer/index.html')
+  await expect.poll(() => h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? 'none')).toContain('renderer/index.html')
   await expect(omnibox()).toBeFocused()
 })

@@ -49,7 +49,7 @@ export function OverlayApp() {
       {toast && (
         <div
           role="status"
-          className="sc-tooltip absolute flex items-center rounded-lg bg-surface px-3 shadow-2"
+          className="sc-glass-strong sc-tooltip absolute flex items-center rounded-xl px-3 shadow-3"
           style={{ left: toast.x - origin.x, top: toast.y - origin.y, width: TOAST_POPUP.width, height: TOAST_POPUP.height }}
         >
           {toast.text}
@@ -78,7 +78,7 @@ function PermissionPopup({ popup, origin }: { popup: PermissionPopupState; origi
     <div
       role="alertdialog"
       aria-label="Site permission"
-      className="absolute flex flex-col justify-between gap-3 rounded-lg bg-surface p-3 shadow-2"
+      className="sc-glass-strong sc-tooltip absolute flex flex-col justify-between gap-3 rounded-xl p-3 shadow-3"
       style={{
         left: x + PERMISSION_POPUP.inset - origin.x,
         top: y + PERMISSION_POPUP.inset - origin.y,

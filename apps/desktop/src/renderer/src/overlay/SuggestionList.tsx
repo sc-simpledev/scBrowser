@@ -21,7 +21,7 @@ interface SuggestionListProps {
 
 export function SuggestionList({ suggestions, selectedIndex, onPick }: SuggestionListProps) {
   return (
-    <ul role="listbox" aria-label="Suggestions" className="rounded-lg bg-surface shadow-2" style={{ padding: POPUP_PADDING }}>
+    <ul role="listbox" aria-label="Suggestions" className="sc-glass-strong sc-tooltip rounded-xl shadow-3" style={{ padding: POPUP_PADDING }}>
       {suggestions.map((suggestion, index) => {
         const Icon = icons[suggestion.kind]
         const selected = index === selectedIndex
@@ -36,7 +36,7 @@ export function SuggestionList({ suggestions, selectedIndex, onPick }: Suggestio
             }}
             style={{ height: SUGGESTION_ROW_HEIGHT }}
             className={cx(
-              'flex items-center gap-3 rounded-md px-2.5',
+              'flex items-center gap-3 rounded-lg px-2.5 transition-colors',
               selected ? 'bg-accent-soft' : 'hover:bg-surface-hover'
             )}
           >

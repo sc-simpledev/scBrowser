@@ -1,6 +1,8 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import type { BarItem, Bookmark, BookmarkGroup } from '@scbrowser/shared'
 
+const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host : '')
+
 interface Row {
   id: number
   url: string
@@ -25,6 +27,8 @@ export class BookmarksRepo {
   private readonly deleteGroup: StatementSync
   private readonly setGroupPosition: StatementSync
   private readonly nextPosition: StatementSync
+  private readonly iconsQuery: StatementSync
+  private readonly saveIcon: StatementSync
 
   constructor(db: DatabaseSync) {
     this.listQuery = db.prepare(`SELECT id, url, title, created_at, group_id, position FROM bookmarks ORDER BY position, id`)
@@ -40,20 +44,28 @@ export class BookmarksRepo {
     this.renameGroup_ = db.prepare(`UPDATE bookmark_groups SET name = ? WHERE id = ?`)
     this.deleteGroup = db.prepare(`DELETE FROM bookmark_groups WHERE id = ?`)
     this.setGroupPosition = db.prepare(`UPDATE bookmark_groups SET position = ? WHERE id = ?`)
+    this.iconsQuery = db.prepare(`SELECT host, icon FROM site_icons`)
+    this.saveIcon = db.prepare(`INSERT INTO site_icons (host, icon) VALUES (?, ?) ON CONFLICT (host) DO UPDATE SET icon = excluded.icon`)
     this.nextPosition = db.prepare(
       `SELECT max(coalesce((SELECT max(position) FROM bookmarks), 0), coalesce((SELECT max(position) FROM bookmark_groups), 0)) + 1 AS next`
     )
   }
 
   list(): Bookmark[] {
+    const icons = new Map((this.iconsQuery.all() as unknown as { host: string; icon: string }[]).map(({ host, icon }) => [host, icon]))
     return (this.listQuery.all() as unknown as Row[]).map((row) => ({
       id: row.id,
       url: row.url,
       title: row.title,
       createdAt: row.created_at,
       groupId: row.group_id,
-      position: row.position
+      position: row.position,
+      icon: icons.get(hostOf(row.url)) ?? null
     }))
+  }
+
+  setIcon(host: string, icon: string): void {
+    this.saveIcon.run(host, icon)
   }
 
   private next(): number {

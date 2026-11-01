@@ -46,6 +46,7 @@
   --radius-sm: var(--sc-radius-sm);
   --radius-md: var(--sc-radius-md);
   --radius-lg: var(--sc-radius-lg);
+  --radius-xl: var(--sc-radius-xl);
   --radius-full: 9999px;
 
   --shadow-1: var(--sc-shadow-1);
@@ -63,5 +64,33 @@
     to {
       transform: rotate(360deg);
     }
+  }
+}
+
+/* Frosted surfaces. The blur only reaches what's in the same page, such as a picture behind it. */
+@utility sc-glass {
+  background: var(--sc-glass);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+
+@utility sc-glass-strong {
+  background: var(--sc-glass-strong);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+
+@utility sc-rise {
+  animation: sc-rise var(--sc-duration-slow) var(--sc-ease-out) backwards;
+}
+
+@keyframes sc-rise {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
   }
 }

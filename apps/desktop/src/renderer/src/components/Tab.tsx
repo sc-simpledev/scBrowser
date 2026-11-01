@@ -73,14 +73,14 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       }}
       onContextMenu={() => void window.scb.invoke('tabs:context-menu', tab.id)}
       className={cx(
-        'sc-no-drag group @container relative flex items-center rounded-md',
+        'sc-no-drag group @container relative flex items-center rounded-lg',
         'transition-[background-color,color,box-shadow] duration-(--sc-duration-fast)',
         layout === 'horizontal' && 'h-8 min-w-10 flex-[0_1_220px] gap-2 pr-1 pl-2.5',
         layout === 'vertical' && 'h-9 w-full shrink-0 gap-2 px-2',
         layout === 'rail' && 'size-9 shrink-0 justify-center self-center',
         draggingId === tab.id && 'opacity-50',
         active
-          ? 'bg-surface font-medium text-text shadow-1'
+          ? 'sc-glass-strong font-medium text-text shadow-2'
           : split
             ? 'bg-surface-hover text-text'
             : 'text-text-muted hover:bg-surface-hover hover:text-text',

@@ -32,7 +32,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
     <div
       role="dialog"
       aria-label="Command palette"
-      className="absolute flex flex-col overflow-hidden rounded-lg bg-surface shadow-3"
+      className="sc-glass-strong sc-tooltip absolute flex flex-col overflow-hidden rounded-xl shadow-3"
       style={{ left: x, top: y, width: PALETTE_POPUP.width, height: PALETTE_POPUP.height }}
     >
       <input
@@ -75,7 +75,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
               setSelected(index)
             }}
             onClick={() => run(command.id)}
-            className={cx('flex items-center justify-between rounded-md px-2.5', index === selected && 'bg-accent-soft')}
+            className={cx('flex items-center justify-between rounded-lg px-2.5', index === selected && 'bg-accent-soft')}
           >
             {command.label}
             {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{command.shortcut}</kbd>}

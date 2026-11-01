@@ -64,6 +64,7 @@ export interface ChromeCommands {
   'privacy:toggle-site': (host: string) => void
   'reader:toggle': () => void
   'vpn:summary': () => VpnSummary
+  'browser:is-private': () => boolean
   'vpn:menu': (x: number, y: number) => void
 }
 
@@ -158,6 +159,7 @@ export const COMMAND_CHANNELS = [
   'privacy:toggle-site',
   'reader:toggle',
   'vpn:summary',
+  'browser:is-private',
   'vpn:menu'
 ] as const satisfies readonly CommandChannel[]
 
@@ -255,6 +257,7 @@ export interface InternalCommands {
   'flags:get': () => string[]
   'flags:set': (id: string, enabled: boolean) => void
   'browser:restart': () => void
+  'browser:is-private': () => boolean
   'privacy:off-hosts': () => string[]
   'privacy:toggle-site': (host: string) => void
   'privacy:allow-http': (url: string) => void
@@ -343,6 +346,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'flags:get',
   'flags:set',
   'browser:restart',
+  'browser:is-private',
   'privacy:off-hosts',
   'privacy:toggle-site',
   'privacy:allow-http',

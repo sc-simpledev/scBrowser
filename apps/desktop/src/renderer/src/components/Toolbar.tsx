@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, Globe, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, type VpnSummary } from '@scbrowser/shared'
@@ -25,6 +25,21 @@ function DownloadsButton() {
         </span>
       )}
     </IconButton>
+  )
+}
+
+/** Makes it plain that this window keeps nothing. */
+function PrivateBadge() {
+  const [isPrivate, setPrivate] = useState(false)
+  useEffect(() => {
+    void window.scb.invoke('browser:is-private').then(setPrivate)
+  }, [])
+  if (!isPrivate) return null
+  return (
+    <span className="sc-no-drag flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-2.5 text-xs font-medium text-accent">
+      <EyeOff aria-hidden size={13} strokeWidth={1.75} />
+      Private
+    </span>
   )
 }
 
@@ -83,7 +98,8 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       </div>
       <VpnButton />
       <Omnibox />
-            <DownloadsButton />
+            <PrivateBadge />
+      <DownloadsButton />
       {/* Drawn by the extensions library in its own shadow root. */}
       <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
       {!hideAssistant && (

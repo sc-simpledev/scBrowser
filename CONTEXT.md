@@ -67,6 +67,8 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Crash reports and usage stats are opt-in, and hold no addresses, titles or error messages. `scrubStack` removes folders and messages.
 - Page loads are screened in `PrivacyService.attach`, before anything is sent. Category checks hold the load for up to 6 seconds, then let it through.
 - VPN links hold passwords, so they stay encrypted in the main process and never reach a renderer. The toolbar and `sc://vpn` only see names, hosts and ports.
+- Site icons are saved as data addresses in `site_icons`, only for bookmarked hosts, so drawing the bar contacts nobody. Sites that were never visited are asked for `/favicon.ico` once per run.
+- Private windows skip history and icon saving, and take no AI keys. They're processes, because IPC handlers assume one window per process.
 - Agent mode needs approval for every click, entry and navigation. Private fields are refused in `ai/agent.ts`, not left to the model.
 - Nothing goes to an AI provider unless the person acts. Respect the per-site AI off list.
 - Claude calls use the official SDK (v1.3, which sends keys as `Authorization: Bearer`). Other providers use the OpenAI-compatible adapter.

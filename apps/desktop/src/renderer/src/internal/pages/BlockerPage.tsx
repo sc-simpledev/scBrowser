@@ -14,7 +14,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
         <h2 className="px-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">{title}</h2>
         {hint && <p className="px-1 pt-1 text-xs text-text-faint">{hint}</p>}
       </div>
-      <div className="flex flex-col gap-2 rounded-lg p-3 shadow-1">{children}</div>
+      <div className="sc-glass-strong flex flex-col gap-2 rounded-xl p-3 shadow-1">{children}</div>
     </section>
   )
 }

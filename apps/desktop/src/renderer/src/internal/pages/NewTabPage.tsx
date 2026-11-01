@@ -30,7 +30,7 @@ type Update = (patch: Partial<NewTabConfig>) => void
 
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="flex flex-col gap-2 rounded-lg bg-surface p-3 text-text shadow-1">
+    <section aria-label={title} className="sc-glass flex flex-col gap-2 rounded-xl p-4 text-text shadow-2">
       {title && <h2 className="text-xs font-medium text-text-muted">{title}</h2>}
       {children}
     </section>
@@ -56,10 +56,10 @@ function ClockWidget({ config }: { config: NewTabConfig }) {
   })
   return (
     <div role="timer" aria-label="Clock" className="sc-newtab-text flex flex-col items-center gap-1 text-center">
-      <div className="font-medium tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 2.5)', lineHeight: 1.1, letterSpacing: '-0.03em' }}>
+      <div className="font-semibold tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 3.25)', lineHeight: 1, letterSpacing: '-0.045em' }}>
         {time}
       </div>
-      <div>{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+      <div className="text-md opacity-75">{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
     </div>
   )
 }
@@ -67,7 +67,7 @@ function ClockWidget({ config }: { config: NewTabConfig }) {
 function GreetingWidget({ name }: { name: string }) {
   const hour = useNow(false).getHours()
   const greeting = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-  return <h1 className="sc-newtab-text text-center text-lg font-medium">{name ? `${greeting}, ${name}` : greeting}</h1>
+  return <h1 className="sc-newtab-text text-center text-lg font-medium tracking-[-0.02em]">{name ? `${greeting}, ${name}` : greeting}</h1>
 }
 
 function SearchWidget() {
@@ -75,13 +75,13 @@ function SearchWidget() {
   return (
     <form
       role="search"
-      className="flex h-10 items-center gap-2 rounded-lg bg-surface px-3 text-text shadow-1"
+      className="sc-glass-strong flex h-12 items-center gap-3 rounded-full px-5 text-md text-text shadow-2 transition-shadow focus-within:shadow-[var(--sc-shadow-2),0_0_0_4px_var(--sc-accent-soft)]"
       onSubmit={(e) => {
         e.preventDefault()
         if (query.trim()) openHere(query.trim())
       }}
     >
-      <Search aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+      <Search aria-hidden size={17} strokeWidth={1.75} className="shrink-0 text-text-faint" />
       <input
         aria-label="Search or enter an address"
         placeholder="Search or enter an address"
@@ -218,14 +218,14 @@ function SiteTile({ link }: { link: NewTabLink }) {
     <a
       href={link.url}
       title={link.url}
-      className="flex min-w-0 flex-col items-center gap-1 rounded-md p-2 transition-colors hover:bg-surface-hover"
+      className="group/site flex min-w-0 flex-col items-center gap-1.5 rounded-lg p-2 transition-colors hover:bg-surface-hover"
       onClick={(e) => {
         e.preventDefault()
         openHere(link.url)
       }}
     >
       {/* A letter rather than a favicon, so that opening a new tab contacts no website. */}
-      <span aria-hidden className="grid size-8 place-items-center rounded-md bg-accent-soft font-medium text-accent uppercase">
+      <span aria-hidden className="grid size-10 place-items-center rounded-xl bg-accent-soft font-semibold text-accent uppercase transition-[translate] group-hover/site:-translate-y-0.5">
         {hostOf(link.url).charAt(0)}
       </span>
       <span className="w-full truncate text-center text-xs text-text-muted">{label}</span>
@@ -297,7 +297,7 @@ function NotesWidget({ notes, update }: { notes: string; update: Update }) {
         placeholder="Write something down"
         rows={5}
         maxLength={MAX_NOTES_LENGTH}
-        className="w-full resize-none rounded-md bg-field p-2 outline-none placeholder:text-text-faint focus-visible:outline-2 focus-visible:outline-focus-ring"
+        className="w-full resize-none rounded-lg border border-border bg-transparent p-2 outline-none placeholder:text-text-faint focus-visible:outline-2 focus-visible:outline-focus-ring"
         value={text}
         onChange={(e) => {
           const next = e.target.value
@@ -525,7 +525,7 @@ function ShortcutOptions({ config, update }: { config: NewTabConfig; update: Upd
 
 function CustomisePanel({ config, update, onClose }: { config: NewTabConfig; update: Update; onClose: () => void }) {
   return (
-    <aside aria-label="Customise new tab" className="fixed inset-y-0 right-0 z-10 flex w-80 max-w-full flex-col bg-surface text-text shadow-3">
+    <aside aria-label="Customise new tab" className="sc-glass-strong sc-rise fixed inset-y-2 right-2 z-10 flex w-80 max-w-full flex-col overflow-hidden rounded-xl text-text shadow-3">
       <header className="flex items-center justify-between p-3">
         <h2 className="font-medium">Customise</h2>
         <IconButton label="Close" onClick={onClose}>
@@ -605,10 +605,12 @@ function Backdrop({ config, image }: { config: NewTabConfig; image: string | nul
 export function NewTabPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [customising, setCustomising] = useState(() => new URLSearchParams(location.search).has('customise'))
+  const [isPrivate, setPrivate] = useState(false)
   const latest = useRef<NewTabConfig | null>(null)
 
   useEffect(() => {
     document.title = 'New tab'
+    void api().invoke('browser:is-private').then(setPrivate)
     void api()
       .invoke('settings:get')
       .then((loaded) => {
@@ -640,9 +642,14 @@ export function NewTabPage() {
     <div className="sc-newtab relative isolate h-full overflow-y-auto" data-tone={tone}>
       <Backdrop config={shown} image={picture.url} />
       <main className={cx('flex min-h-full w-full flex-col p-8', config.align === 'center' ? 'justify-center' : 'justify-start', customising && 'pr-88')}>
-        <div className="mx-auto grid w-full grid-cols-2 gap-4" style={layout}>
-          {config.widgets.map(({ id, size }) => (
-            <div key={id} className={size === 'full' ? 'col-span-2 min-w-0' : 'min-w-0'}>
+        <div className="mx-auto grid w-full grid-cols-2 gap-5" style={layout}>
+          {isPrivate && (
+            <p className="sc-newtab-text col-span-2 text-center text-xs opacity-75">
+              This window is private. When it closes, its history, cookies and site data are deleted. Downloads stay, and websites and your network can still see what you do.
+            </p>
+          )}
+          {config.widgets.map(({ id, size }, index) => (
+            <div key={id} className={cx('sc-rise min-w-0', size === 'full' && 'col-span-2')} style={{ animationDelay: `${index * 40}ms` }}>
               <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
             </div>
           ))}
@@ -654,7 +661,7 @@ export function NewTabPage() {
         <div className="fixed right-3 bottom-3">
           <button
             type="button"
-            className="flex h-8 items-center gap-1.5 rounded-md bg-surface px-2.5 text-text-muted shadow-1 transition-colors hover:text-text"
+            className="sc-glass flex h-8 items-center gap-1.5 rounded-full px-3 text-text-muted shadow-2 transition-colors hover:text-text"
             onClick={() => setCustomising(true)}
           >
             <Settings2 aria-hidden size={14} strokeWidth={1.75} />

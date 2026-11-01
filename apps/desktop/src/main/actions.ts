@@ -21,4 +21,5 @@ export interface BrowserActions {
   togglePalette: () => void
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void
+  openPrivateWindow: () => void
 }

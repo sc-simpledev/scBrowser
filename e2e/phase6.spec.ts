@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { expect, test } from '@playwright/test'
@@ -174,4 +177,58 @@ test('with a connection added, the VPN carries pages through it and turns off cl
   expect(seen.length).toBe(count)
   proxy.closeAllConnections()
   proxy.close()
+})
+
+test('bookmarks show the site icon, saved so nothing is contacted to draw it', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+  const server = createServer((req, res) => {
+    if (req.url === '/favicon.ico') {
+      res.writeHead(200, { 'content-type': 'image/png' })
+      res.end(png)
+    } else {
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end('<!doctype html><title>Icon site</title>')
+    }
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  const { port } = server.address() as AddressInfo
+  await h.chrome.evaluate((url) => window.scb.invoke('bookmarks:toggle', url, 'Icon site'), `http://127.0.0.1:${port}/never-visited`)
+  const icon = h.chrome.getByRole('toolbar', { name: 'Bookmarks' }).locator('img')
+  await expect(icon).toHaveAttribute('src', /^data:image\/png;base64,/)
+  server.close()
+})
+
+test('a private window keeps no history, shows it is private, and clears up after itself', async () => {
+  await h.close()
+  const dir = mkdtempSync(join(tmpdir(), 'scdelta-private-'))
+  writeFileSync(join(dir, 'seed.json'), JSON.stringify({ settings: { accent: 'iris', newTab: { widgets: [{ id: 'ai', size: 'full' }, { id: 'search', size: 'full' }] } }, bookmarks: [{ url: 'https://kept.example/', title: 'Kept' }] }))
+  h = await launch(undefined, [`--private=${dir}`])
+  await expect(h.chrome.getByText('Private', { exact: true })).toBeVisible()
+  await expect(h.chrome.getByRole('toolbar', { name: 'Bookmarks' }).getByRole('button', { name: 'Kept' })).toBeVisible()
+  await expect(h.chrome.locator('html')).toHaveAttribute('data-accent', 'iris')
+  expect(await h.app.evaluate(({ app }) => app.getPath('userData'))).toBe(dir)
+  const page = await h.page('sc://newtab')
+  await expect(page.getByText('This window is private')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Quick AI' })).toHaveCount(0)
+
+  await go(h, site.url('/alpha'))
+  await expect(activeTab(h)).toContainText('Alpha page')
+  await go(h, 'sc://history')
+  const history = await h.page('sc://history')
+  await expect(history.getByText('Alpha page')).toHaveCount(0)
+  await h.close()
+  await expect.poll(() => existsSync(dir), { timeout: 15000 }).toBe(false)
+})
+
+test('the private window command starts a separate copy of the app', async () => {
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('scdelta-private-')))
+  await h.app.evaluate(() => (globalThis as unknown as { scbActions: { openPrivateWindow(): void } }).scbActions.openPrivateWindow())
+  const created = () => readdirSync(tmpdir()).find((name) => name.startsWith('scdelta-private-') && !before.has(name))
+  await expect.poll(created).toBeTruthy()
+  const pidFile = join(tmpdir(), created()!, 'owner.pid')
+  await expect.poll(() => existsSync(pidFile), { timeout: 10000 }).toBe(true)
+  const pid = Number(readFileSync(pidFile, 'utf8'))
+  expect(pid).not.toBe(await h.app.evaluate(() => process.pid))
+  process.kill(pid)
+  rmSync(join(tmpdir(), created()!), { recursive: true, force: true })
 })

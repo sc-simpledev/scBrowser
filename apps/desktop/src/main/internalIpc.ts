@@ -10,6 +10,7 @@ import { isAssistantRequest, isTurns } from './ipc'
 import { readFlags, setFlag } from './flags'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
+import { isPrivate } from './private'
 import type { PrivacyService } from './privacy/service'
 import type { Reporter } from './reporter'
 import type { SettingsStore } from './settings'
@@ -160,6 +161,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const target = text(url)
       if (/^(https?|sc):/i.test(target)) tabs.create(target, { afterId: tabs.active?.id })
     },
+    'browser:is-private': () => isPrivate,
     'browser:version': () => ({
       app: app.getVersion(),
       chromium: process.versions.chrome ?? '',

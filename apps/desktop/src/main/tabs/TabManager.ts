@@ -46,6 +46,7 @@ interface TabManagerOptions {
   /** A tab committed a navigation (including same-document ones). */
   onVisit: (url: string) => void
   onTitle: (url: string, title: string) => void
+  onFavicon: (contents: WebContents, pageUrl: string, iconUrl: string) => void
   onPageLoaded: (contents: WebContents) => void
   onFound: (result: { active: number; total: number }) => void
   onFullscreen: (fullscreen: boolean) => void
@@ -562,7 +563,10 @@ export class TabManager {
       sync({ title })
       this.options.onTitle(state.url, title)
     })
-    contents.on('page-favicon-updated', (_e, favicons) => sync({ faviconUrl: favicons[0] ?? null }))
+    contents.on('page-favicon-updated', (_e, favicons) => {
+      sync({ faviconUrl: favicons[0] ?? null })
+      if (favicons[0]) this.options.onFavicon(contents, state.url, favicons[0])
+    })
     contents.on('found-in-page', (_e, result) =>
       this.options.onFound({ active: result.activeMatchOrdinal, total: result.matches })
     )
