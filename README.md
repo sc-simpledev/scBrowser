@@ -63,3 +63,4 @@ pnpm dist         # build installers into apps/desktop/release
 ## Important
 Only work on your own branch; do not merge branches without both approval of Alex and Nathan.
 Alex will work on `main` and Nathan will work on `nathan`
+ 
