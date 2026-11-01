@@ -67,7 +67,7 @@ function ConnectionList({ title, group, connections, state, pings, setPings, rel
   const fastest = shown[0] && pings[shown[0].id] ? shown[0] : null
 
   return (
-    <section aria-label={title} className="flex flex-col gap-2 sc-glass-strong rounded-xl p-3 shadow-1">
+    <section aria-label={title} className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="min-w-0 flex-1 truncate font-semibold">
           {title} <span className="font-normal text-text-faint">{connections.length}</span>
@@ -120,7 +120,7 @@ export function VpnPage() {
   if (!state) return null
 
   const report = ({ added, skipped }: VpnAddResult) => {
-    setNote(`Added ${added}${skipped > 0 ? `, skipped ${skipped} that scDelta can't use` : ''}.`)
+    setNote(`Added ${added}${skipped > 0 ? `, skipped ${skipped} that scDelta can't use or that went over its 20,000 limit` : ''}.`)
     reload()
   }
   const fail = (error: Error) => setNote(cleanError(error))
@@ -128,7 +128,7 @@ export function VpnPage() {
 
   return (
     <>
-      <section aria-label="Status" className="flex items-center justify-between gap-4 sc-glass-strong rounded-xl p-3 shadow-1">
+      <section aria-label="Status" className="flex items-center justify-between gap-4 rounded-lg bg-surface p-3 shadow-1">
         <div className="min-w-0">
           <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? 'Connecting…' : 'Off'}</div>
           <div className="truncate text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. Only scDelta uses this, not other apps.</div>
@@ -137,7 +137,7 @@ export function VpnPage() {
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
       </section>
 
-      <section aria-label="Add connections" className="flex flex-col gap-2 sc-glass-strong rounded-xl p-3 shadow-1">
+      <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
         <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Add connections</h2>
         <textarea
           aria-label="Connection links"
@@ -211,7 +211,7 @@ export function VpnPage() {
           </Button>
         </form>
         {note && <p role="status" className="text-xs text-text-muted">{note}</p>}
-        <p className="text-xs text-text-faint">Whoever runs a server can see your unencrypted traffic and which sites you visit. Avoid signing in to anything on free public servers.</p>
+        <p className="text-xs text-text-faint">Ping shows a server answers, not that it carries traffic, so free lists may take a few tries. Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>
       </section>
 
       {state.groups.map((group) => (

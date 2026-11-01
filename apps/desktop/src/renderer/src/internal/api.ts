@@ -11,3 +11,6 @@ export const formatBytes = (bytes: number) => {
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
 }
+
+/** Shows or hides the accent wash behind the page. */
+export const applyTint = (on: boolean) => document.documentElement.toggleAttribute('data-tint', on)

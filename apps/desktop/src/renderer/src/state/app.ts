@@ -25,6 +25,7 @@ export const useApp = create<AppStore>(() => ({
 export function connectApp(): () => void {
   const setSettings = (settings: Settings) => {
     document.documentElement.dataset.accent = settings.accent
+    document.documentElement.toggleAttribute('data-tint', settings.accentTint)
     useApp.setState({ settings })
   }
   const setBookmarks = (bookmarks: Bookmark[]) => useApp.setState({ bookmarks })

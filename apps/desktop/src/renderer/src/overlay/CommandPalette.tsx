@@ -32,7 +32,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
     <div
       role="dialog"
       aria-label="Command palette"
-      className="sc-glass-strong sc-tooltip absolute flex flex-col overflow-hidden rounded-xl shadow-3"
+      className="sc-glass-strong sc-tooltip absolute flex flex-col overflow-hidden rounded-lg shadow-3"
       style={{ left: x, top: y, width: PALETTE_POPUP.width, height: PALETTE_POPUP.height }}
     >
       <input

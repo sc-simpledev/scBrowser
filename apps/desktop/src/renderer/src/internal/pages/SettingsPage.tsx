@@ -18,14 +18,25 @@ import {
   type SyncStatus,
   type ToolbarItemId
 } from '@scbrowser/shared'
-import { api } from '../api'
+import { api, applyTint } from '../api'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="flex flex-col gap-1">
-      <h2 className="px-1 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">{title}</h2>
-      <div className="sc-glass-strong flex flex-col rounded-xl shadow-1">{children}</div>
+      <h3 className="px-1 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">{title}</h3>
+      <div className="flex flex-col rounded-lg bg-surface shadow-1">{children}</div>
     </section>
+  )
+}
+
+const GROUPS = ['Look', 'Browsing', 'Privacy', 'Data', 'Add-ons', 'About']
+
+function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <div id={id} className="flex scroll-mt-12 flex-col gap-5">
+      <h2 className="text-md font-semibold tracking-[-0.01em]">{title}</h2>
+      {children}
+    </div>
   )
 }
 
@@ -86,6 +97,20 @@ export function SettingsPage() {
 
   return (
     <>
+      <nav aria-label="Settings sections" className="sticky top-0 z-10 -mx-1 flex gap-1 bg-surface px-1 py-2">
+        {GROUPS.map((group) => (
+          <button
+            key={group}
+            type="button"
+            className="h-7 rounded-md px-2.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            onClick={() => document.getElementById(group)?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            {group}
+          </button>
+        ))}
+      </nav>
+
+      <Group id="Look" title="Look and feel">
       <Section title="Appearance">
         <Row label="Theme">
           <Select
@@ -115,6 +140,16 @@ export function SettingsPage() {
             ))}
           </Select>
         </Row>
+        <Row label="Accent tint" hint="A faint wash of colour behind the toolbar and scDelta's pages.">
+          <Switch
+            label="Accent tint"
+            checked={settings.accentTint}
+            onChange={(accentTint) => {
+              applyTint(accentTint)
+              update({ accentTint })
+            }}
+          />
+        </Row>
         <Row label="Tab layout">
           <Select
             aria-label="Tab layout"
@@ -140,7 +175,6 @@ export function SettingsPage() {
           </Select>
         </Row>
       </Section>
-
       <Section title="Toolbar">
         {TOOLBAR_ITEMS.map((item) => (
           <Row key={item.id} label={item.name}>
@@ -152,37 +186,9 @@ export function SettingsPage() {
           </Row>
         ))}
       </Section>
+      </Group>
 
-      <Section title="Privacy">
-        <Row label="Tracking protection" hint="Blocks ads and trackers. Filter lists download once and refresh when needed.">
-          <Select
-            aria-label="Tracking protection"
-            value={settings.trackingProtection}
-            onChange={(e) => update({ trackingProtection: e.target.value as Settings['trackingProtection'] })}
-          >
-            <option value="off">Off</option>
-            <option value="standard">Standard</option>
-            <option value="strict">Strict, also hides annoyances</option>
-          </Select>
-        </Row>
-        <Row label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one.">
-          <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
-        </Row>
-        {offHosts.map((host) => (
-          <Row key={host} label={host} hint="Tracking protection is off">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void api().invoke('privacy:toggle-site', host)
-                setOffHosts(offHosts.filter((h) => h !== host))
-              }}
-            >
-              Turn on
-            </Button>
-          </Row>
-        ))}
-      </Section>
-
+      <Group id="Browsing" title="Browsing">
       <Section title="Search">
         <Row label="Search engine">
           <Select
@@ -212,7 +218,6 @@ export function SettingsPage() {
           />
         </Row>
       </Section>
-
       <Section title="Address bar suggestions">
         {SUGGESTION_SOURCES.map((source) => (
           <Row key={source.id} label={source.name}>
@@ -230,7 +235,6 @@ export function SettingsPage() {
           </Row>
         ))}
       </Section>
-
       <Section title="Startup and performance">
         <Row label="When scDelta starts">
           <Select
@@ -256,7 +260,6 @@ export function SettingsPage() {
           </Select>
         </Row>
       </Section>
-
       <Section title="Downloads">
         <Row label="Save files to" hint={settings.downloadDir || 'Downloads folder'}>
           <Button
@@ -277,29 +280,44 @@ export function SettingsPage() {
           />
         </Row>
       </Section>
+      </Group>
 
-      <Section title="Assistant">
-        <Row label="Keep chats on this device" hint="Page text sent with a message isn't kept.">
-          <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
-        </Row>
-        <Row label="Translate pages into">
+      <Group id="Privacy" title="Privacy">
+      <Section title="Privacy">
+        <Row label="Tracking protection" hint="Blocks ads and trackers. Filter lists download once and refresh when needed.">
           <Select
-            aria-label="Translate pages into"
-            value={settings.translateTo}
-            onChange={(e) => update({ translateTo: e.target.value as Settings['translateTo'] })}
+            aria-label="Tracking protection"
+            value={settings.trackingProtection}
+            onChange={(e) => update({ trackingProtection: e.target.value as Settings['trackingProtection'] })}
           >
-            {TRANSLATE_LANGUAGES.map((language) => (
-              <option key={language}>{language}</option>
-            ))}
+            <option value="off">Off</option>
+            <option value="standard">Standard</option>
+            <option value="strict">Strict, also hides annoyances</option>
           </Select>
         </Row>
-        <Row label="Saved chats">
-          <Button variant="ghost" onClick={() => void api().invoke('chats:clear')}>
-            Delete all
-          </Button>
+        <Row label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one.">
+          <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
+        </Row>
+        {offHosts.map((host) => (
+          <Row key={host} label={host} hint="Tracking protection is off">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('privacy:toggle-site', host)
+                setOffHosts(offHosts.filter((h) => h !== host))
+              }}
+            >
+              Turn on
+            </Button>
+          </Row>
+        ))}
+        <Row label="Site blocker" hint="Block sites by time, Focus Mode or category.">
+          <Button onClick={() => void api().invoke('browser:open', 'sc://blocker')}>Open</Button>
+        </Row>
+        <Row label="VPN" hint="Send scDelta's traffic through your own connection.">
+          <Button onClick={() => void api().invoke('browser:open', 'sc://vpn')}>Open</Button>
         </Row>
       </Section>
-
       <Section title="Site permissions">
         {permissions.length === 0 && <Row label="No sites have asked for permissions yet">{null}</Row>}
         {permissions.map(({ origin, permission, allowed }) => (
@@ -320,67 +338,35 @@ export function SettingsPage() {
           </Row>
         ))}
       </Section>
-
-      <Section title="Profiles">
-        {profiles.names.map((name) => (
-          <Row key={name} label={name} hint={name === profiles.current ? 'This window' : 'Separate tabs, history, bookmarks and logins'}>
-            {name !== profiles.current && (
-              <Button variant="ghost" onClick={() => void api().invoke('profiles:open', name)}>
-                Open
-              </Button>
-            )}
-          </Row>
-        ))}
-        <Row label="New profile">
-          <div className="flex gap-2">
-            <Input aria-label="Profile name" placeholder="Name" value={newProfile} onChange={(e) => setNewProfile(e.target.value)} />
-            <Button
-              disabled={!/^[\w -]{1,40}$/.test(newProfile.trim())}
-              onClick={() => {
-                void api().invoke('profiles:open', newProfile.trim())
-                setNewProfile('')
-              }}
-            >
-              Create and open
-            </Button>
-          </div>
+      <Section title="Crash reports and usage">
+        <Row label="Send crash reports" hint="The type of crash, the version and your operating system. Never pages, addresses or messages.">
+          <Switch label="Send crash reports" checked={settings.crashReports} onChange={(crashReports) => update({ crashReports })} />
         </Row>
-      </Section>
-
-      <Section title="Extensions">
-        <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">
-          <Button onClick={() => void api().invoke('extensions:open-store')}>Open</Button>
+        <Row label="Send usage stats" hint="Once a day: only the version and your operating system.">
+          <Switch label="Send usage stats" checked={settings.usageStats} onChange={(usageStats) => update({ usageStats })} />
         </Row>
-        <Row label="Add an unpacked extension" hint="Choose a folder holding a Chrome extension.">
-          <Button
-            onClick={() => {
-              setExtensionError(null)
-              void api()
-                .invoke('extensions:add')
-                .then(() => api().invoke('extensions:list'))
-                .then(setExtensions)
-                .catch(() => setExtensionError("That folder isn't a working extension."))
-            }}
-          >
-            Add
-          </Button>
-        </Row>
-        {extensionError && <Row label={extensionError}>{null}</Row>}
-        {extensions.map((extension) => (
-          <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}`}>
+        <Row label={crashes.length === 0 ? 'No crashes recorded' : `${crashes.length} ${crashes.length === 1 ? 'crash' : 'crashes'} recorded on this device`}>
+          {crashes.length > 0 && (
             <Button
               variant="ghost"
               onClick={() => {
-                void api().invoke('extensions:remove', extension.id)
-                setExtensions(extensions.filter((e) => e.id !== extension.id))
+                void api().invoke('reports:clear')
+                setCrashes([])
               }}
             >
-              Remove
+              Clear
             </Button>
+          )}
+        </Row>
+        {crashes.slice(0, 5).map((crash) => (
+          <Row key={crash.at} label={`${crash.kind}: ${crash.reason}`} hint={new Date(crash.at).toLocaleString()}>
+            {null}
           </Row>
         ))}
       </Section>
+      </Group>
 
+      <Group id="Data" title="Your data">
       <Section title="Sync">
         {sync?.folder ? (
           <>
@@ -440,7 +426,6 @@ export function SettingsPage() {
           </>
         )}
       </Section>
-
       <Section title="Import">
         {sources.length === 0 && <Row label="No other browsers found on this computer">{null}</Row>}
         {sources.map((source) => (
@@ -465,34 +450,91 @@ export function SettingsPage() {
           </Row>
         ))}
       </Section>
+      <Section title="Profiles">
+        {profiles.names.map((name) => (
+          <Row key={name} label={name} hint={name === profiles.current ? 'This window' : 'Separate tabs, history, bookmarks and logins'}>
+            {name !== profiles.current && (
+              <Button variant="ghost" onClick={() => void api().invoke('profiles:open', name)}>
+                Open
+              </Button>
+            )}
+          </Row>
+        ))}
+        <Row label="New profile">
+          <div className="flex gap-2">
+            <Input aria-label="Profile name" placeholder="Name" value={newProfile} onChange={(e) => setNewProfile(e.target.value)} />
+            <Button
+              disabled={!/^[\w -]{1,40}$/.test(newProfile.trim())}
+              onClick={() => {
+                void api().invoke('profiles:open', newProfile.trim())
+                setNewProfile('')
+              }}
+            >
+              Create and open
+            </Button>
+          </div>
+        </Row>
+      </Section>
+      </Group>
 
-      <Section title="Crash reports and usage">
-        <Row label="Send crash reports" hint="The type of crash, the version and your operating system. Never pages, addresses or messages.">
-          <Switch label="Send crash reports" checked={settings.crashReports} onChange={(crashReports) => update({ crashReports })} />
+      <Group id="Add-ons" title="AI and extensions">
+      <Section title="Assistant">
+        <Row label="Keep chats on this device" hint="Page text sent with a message isn't kept.">
+          <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
         </Row>
-        <Row label="Send usage stats" hint="Once a day: only the version and your operating system.">
-          <Switch label="Send usage stats" checked={settings.usageStats} onChange={(usageStats) => update({ usageStats })} />
+        <Row label="Translate pages into">
+          <Select
+            aria-label="Translate pages into"
+            value={settings.translateTo}
+            onChange={(e) => update({ translateTo: e.target.value as Settings['translateTo'] })}
+          >
+            {TRANSLATE_LANGUAGES.map((language) => (
+              <option key={language}>{language}</option>
+            ))}
+          </Select>
         </Row>
-        <Row label={crashes.length === 0 ? 'No crashes recorded' : `${crashes.length} ${crashes.length === 1 ? 'crash' : 'crashes'} recorded on this device`}>
-          {crashes.length > 0 && (
+        <Row label="Saved chats">
+          <Button variant="ghost" onClick={() => void api().invoke('chats:clear')}>
+            Delete all
+          </Button>
+        </Row>
+      </Section>
+      <Section title="Extensions">
+        <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">
+          <Button onClick={() => void api().invoke('extensions:open-store')}>Open</Button>
+        </Row>
+        <Row label="Add an unpacked extension" hint="Choose a folder holding a Chrome extension.">
+          <Button
+            onClick={() => {
+              setExtensionError(null)
+              void api()
+                .invoke('extensions:add')
+                .then(() => api().invoke('extensions:list'))
+                .then(setExtensions)
+                .catch(() => setExtensionError("That folder isn't a working extension."))
+            }}
+          >
+            Add
+          </Button>
+        </Row>
+        {extensionError && <Row label={extensionError}>{null}</Row>}
+        {extensions.map((extension) => (
+          <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}`}>
             <Button
               variant="ghost"
               onClick={() => {
-                void api().invoke('reports:clear')
-                setCrashes([])
+                void api().invoke('extensions:remove', extension.id)
+                setExtensions(extensions.filter((e) => e.id !== extension.id))
               }}
             >
-              Clear
+              Remove
             </Button>
-          )}
-        </Row>
-        {crashes.slice(0, 5).map((crash) => (
-          <Row key={crash.at} label={`${crash.kind}: ${crash.reason}`} hint={new Date(crash.at).toLocaleString()}>
-            {null}
           </Row>
         ))}
       </Section>
+      </Group>
 
+      <Group id="About" title="About">
       <Section title="About">
         <Row label="Default browser" hint={isDefault ? 'scDelta is your default browser' : undefined}>
           {!isDefault && (
@@ -510,6 +552,7 @@ export function SettingsPage() {
         </Row>
         {version && <Row label={`scDelta ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
       </Section>
+      </Group>
     </>
   )
 }

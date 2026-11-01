@@ -40,6 +40,15 @@ describe('parseVpnLink', () => {
     expect(isDirectProxy(parseVpnLink('socks5://me:pw@p.example:1080')!)).toBe(false)
   })
 
+  it('drops allowInsecure, which Xray refuses', () => {
+    const link = parseVpnLink('trojan://p@t.example:443?allowInsecure=1&sni=s.example')
+    expect(JSON.stringify(xrayConfig(link!, 1080))).not.toContain('allowInsecure')
+  })
+
+  it('survives a stray percent sign', () => {
+    expect(parseVpnLink('trojan://100%pass@t.example:443#50%off')).toMatchObject({ username: '100%pass', name: '50%off' })
+  })
+
   it('refuses what it cannot use', () => {
     expect(parseVpnLink('hysteria2://x@h.example:443')).toBeNull()
     expect(parseVpnLink('vless://nothing')).toBeNull()

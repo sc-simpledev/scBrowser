@@ -75,6 +75,8 @@ export interface Settings {
   trackingProtection: 'off' | 'standard' | 'strict'
   httpsOnly: boolean
   accent: AccentId
+  /** A faint wash of the accent behind the toolbar and browser pages. */
+  accentTint: boolean
   hiddenToolbarItems: ToolbarItemId[]
   translateTo: TranslateLanguage
   newTab: NewTabConfig
@@ -104,6 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trackingProtection: 'standard',
   httpsOnly: true,
   accent: 'teal',
+  accentTint: false,
   hiddenToolbarItems: [],
   translateTo: 'English',
   newTab: DEFAULT_NEW_TAB,
@@ -132,6 +135,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
   accent: (v) => ACCENTS.some((accent) => accent.id === v),
+  accentTint: (v) => typeof v === 'boolean',
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
   newTab: isNewTabConfig,

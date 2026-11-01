@@ -16,7 +16,7 @@ import {
   type Settings
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
-import { api } from '../api'
+import { api, applyTint } from '../api'
 
 const NOTES_SAVE_DELAY_MS = 500
 const MAX_SHORTCUTS = 8
@@ -30,7 +30,7 @@ type Update = (patch: Partial<NewTabConfig>) => void
 
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="sc-glass flex flex-col gap-2 rounded-xl p-4 text-text shadow-2">
+    <section aria-label={title} className="sc-glass flex flex-col gap-2 rounded-lg p-3.5 text-text shadow-1">
       {title && <h2 className="text-xs font-medium text-text-muted">{title}</h2>}
       {children}
     </section>
@@ -56,10 +56,10 @@ function ClockWidget({ config }: { config: NewTabConfig }) {
   })
   return (
     <div role="timer" aria-label="Clock" className="sc-newtab-text flex flex-col items-center gap-1 text-center">
-      <div className="font-semibold tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 3.25)', lineHeight: 1, letterSpacing: '-0.045em' }}>
+      <div className="font-medium tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 2.25)', lineHeight: 1.1, letterSpacing: '-0.035em' }}>
         {time}
       </div>
-      <div className="text-md opacity-75">{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+      <div className="opacity-75">{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
     </div>
   )
 }
@@ -75,13 +75,13 @@ function SearchWidget() {
   return (
     <form
       role="search"
-      className="sc-glass-strong flex h-12 items-center gap-3 rounded-full px-5 text-md text-text shadow-2 transition-shadow focus-within:shadow-[var(--sc-shadow-2),0_0_0_4px_var(--sc-accent-soft)]"
+      className="flex h-11 items-center gap-2.5 rounded-lg bg-surface px-3.5 text-text shadow-1 focus-within:shadow-[0_0_0_1px_var(--sc-accent)]"
       onSubmit={(e) => {
         e.preventDefault()
         if (query.trim()) openHere(query.trim())
       }}
     >
-      <Search aria-hidden size={17} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+      <Search aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
       <input
         aria-label="Search or enter an address"
         placeholder="Search or enter an address"
@@ -225,7 +225,7 @@ function SiteTile({ link }: { link: NewTabLink }) {
       }}
     >
       {/* A letter rather than a favicon, so that opening a new tab contacts no website. */}
-      <span aria-hidden className="grid size-10 place-items-center rounded-xl bg-accent-soft font-semibold text-accent uppercase transition-[translate] group-hover/site:-translate-y-0.5">
+      <span aria-hidden className="grid size-9 place-items-center rounded-md bg-surface-active font-medium text-text-muted uppercase">
         {hostOf(link.url).charAt(0)}
       </span>
       <span className="w-full truncate text-center text-xs text-text-muted">{label}</span>
@@ -525,7 +525,7 @@ function ShortcutOptions({ config, update }: { config: NewTabConfig; update: Upd
 
 function CustomisePanel({ config, update, onClose }: { config: NewTabConfig; update: Update; onClose: () => void }) {
   return (
-    <aside aria-label="Customise new tab" className="sc-glass-strong sc-rise fixed inset-y-2 right-2 z-10 flex w-80 max-w-full flex-col overflow-hidden rounded-xl text-text shadow-3">
+    <aside aria-label="Customise new tab" className="fixed inset-y-0 right-0 z-10 flex w-80 max-w-full flex-col overflow-hidden border-l border-border bg-surface text-text">
       <header className="flex items-center justify-between p-3">
         <h2 className="font-medium">Customise</h2>
         <IconButton label="Close" onClick={onClose}>
@@ -616,6 +616,7 @@ export function NewTabPage() {
       .then((loaded) => {
         latest.current = { ...DEFAULT_NEW_TAB, ...loaded.newTab }
         document.documentElement.dataset.accent = loaded.accent
+        applyTint(loaded.accentTint)
         setSettings(loaded)
       })
   }, [])
@@ -642,14 +643,14 @@ export function NewTabPage() {
     <div className="sc-newtab relative isolate h-full overflow-y-auto" data-tone={tone}>
       <Backdrop config={shown} image={picture.url} />
       <main className={cx('flex min-h-full w-full flex-col p-8', config.align === 'center' ? 'justify-center' : 'justify-start', customising && 'pr-88')}>
-        <div className="mx-auto grid w-full grid-cols-2 gap-5" style={layout}>
+        <div className="mx-auto grid w-full grid-cols-2 gap-4" style={layout}>
           {isPrivate && (
             <p className="sc-newtab-text col-span-2 text-center text-xs opacity-75">
               This window is private. When it closes, its history, cookies and site data are deleted. Downloads stay, and websites and your network can still see what you do.
             </p>
           )}
-          {config.widgets.map(({ id, size }, index) => (
-            <div key={id} className={cx('sc-rise min-w-0', size === 'full' && 'col-span-2')} style={{ animationDelay: `${index * 40}ms` }}>
+          {config.widgets.map(({ id, size }) => (
+            <div key={id} className={cx('min-w-0', size === 'full' && 'col-span-2')}>
               <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
             </div>
           ))}
@@ -661,7 +662,7 @@ export function NewTabPage() {
         <div className="fixed right-3 bottom-3">
           <button
             type="button"
-            className="sc-glass flex h-8 items-center gap-1.5 rounded-full px-3 text-text-muted shadow-2 transition-colors hover:text-text"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-surface px-2.5 text-text-muted shadow-1 transition-colors hover:text-text"
             onClick={() => setCustomising(true)}
           >
             <Settings2 aria-hidden size={14} strokeWidth={1.75} />

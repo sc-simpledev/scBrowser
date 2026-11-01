@@ -22,7 +22,7 @@ import type { KeyValueRepo } from './storage/kv'
 const KEY = 'vpn:store'
 const MAX_CONNECTIONS = 20_000
 const PING_TIMEOUT_MS = 3000
-const PING_AT_ONCE = 48
+const PING_AT_ONCE = 128
 const CORE_START_MS = 6000
 
 interface StoredConnection extends VpnConnection {
@@ -47,6 +47,12 @@ interface VpnDeps {
   applyProxy: (rules: string | null) => Promise<void>
   fetchText: (url: string) => Promise<string>
   onChange: () => void
+}
+
+/** The useful end of Xray's error, which is a chain of `outer > inner` messages. */
+const coreReason = (output: string) => {
+  const line = output.trim().split('\n').at(-1) ?? ''
+  return line.includes(' > ') ? `${line.split(' > ').at(-1)!.trim().replace(/^./, (c) => c.toUpperCase())}.` : ''
 }
 
 const freePort = () =>
@@ -271,10 +277,13 @@ export class VpnService {
     const path = this.deps.corePath()
     if (!existsSync(path)) throw new Error('The VPN core is missing from this build, so only plain proxies work.')
     const port = await freePort()
-    const core = spawn(path, ['run', '-c', 'stdin:'], { stdio: ['pipe', 'ignore', 'pipe'] })
+    const core = spawn(path, ['run', '-c', 'stdin:'], { stdio: ['pipe', 'pipe', 'pipe'] })
     this.core = core
     let output = ''
-    core.stderr?.on('data', (data: Buffer) => (output = (output + data.toString()).slice(-400)))
+    // Xray reports a refused config on stdout.
+    const collect = (data: Buffer) => (output = (output + data.toString()).slice(-400))
+    core.stdout?.on('data', collect)
+    core.stderr?.on('data', collect)
     core.on('error', () => undefined)
     core.on('exit', () => {
       if (this.core !== core) return
@@ -287,7 +296,7 @@ export class VpnService {
     core.stdin?.end(JSON.stringify(xrayConfig(link, port)))
     const deadline = Date.now() + CORE_START_MS
     while (Date.now() < deadline) {
-      if (this.core !== core) throw new Error(`That connection didn't start. ${output.trim()}`.trim())
+      if (this.core !== core) throw new Error(`That connection didn't start. ${coreReason(output)}`.trim())
       if ((await pingHost('127.0.0.1', port, 300)) !== null) return `socks5://127.0.0.1:${port}`
       await new Promise((resolve) => setTimeout(resolve, 80))
     }

@@ -11,6 +11,7 @@ export function VerticalTabs() {
   const splitIds = useTabs((s) => s.splitIds)
   const collapsed = useApp((s) => s.settings.verticalTabsCollapsed)
   const [draggingId, setDraggingId] = useState<number | null>(null)
+  const newTab = () => void window.scb.invoke('tabs:create')
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
 
   return (
@@ -51,9 +52,23 @@ export function VerticalTabs() {
             />
           </Fragment>
         ))}
-        <IconButton label="New tab" shortcut="Ctrl T" size="sm" className={cx('mt-0.5', collapsed ? 'self-center' : 'ml-2')} onClick={() => void window.scb.invoke('tabs:create')}>
-          <Plus size={14} strokeWidth={1.75} />
-        </IconButton>
+        {collapsed ? (
+          <IconButton label="New tab" shortcut="Ctrl T" className="size-9 self-center" onClick={newTab}>
+            <Plus size={15} strokeWidth={1.75} />
+          </IconButton>
+        ) : (
+          // Laid out like a tab, so the icon and text line up with the tabs above.
+          <button
+            type="button"
+            onClick={newTab}
+            className="flex h-9 w-full shrink-0 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <span className="grid size-5 shrink-0 place-items-center">
+              <Plus aria-hidden size={15} strokeWidth={1.75} />
+            </span>
+            New tab
+          </button>
+        )}
       </div>
       {collapsed ? (
         <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>

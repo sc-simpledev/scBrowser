@@ -88,8 +88,10 @@ Open items:
 - `sc://assistant` has no saved-chat list. Chats open from the side panel.
 - Reports can't be saved as HTML files yet.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
+- VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is TCP only.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.
 - The server's `/v1/reports` route needs deploying before reports go anywhere. Native crash dumps aren't collected.
+- The accent tint is off by default, using `data-tint` on the root. Glass is only for popups and new tab cards.
 - With the sandbox on, a page that segfaults didn't reach the crashed-page screen under Playwright, though one that's killed did. Check this by hand in a real build.
 - Phase 3 remaining: dragging to rearrange the toolbar.
 - Phase 0 remaining: Storybook, token lint rule, Style Dictionary.

@@ -36,7 +36,7 @@ function PrivateBadge() {
   }, [])
   if (!isPrivate) return null
   return (
-    <span className="sc-no-drag flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-2.5 text-xs font-medium text-accent">
+    <span className="sc-no-drag flex h-6 shrink-0 items-center gap-1.5 rounded-sm bg-accent-soft px-2 text-xs font-medium text-accent">
       <EyeOff aria-hidden size={13} strokeWidth={1.75} />
       Private
     </span>

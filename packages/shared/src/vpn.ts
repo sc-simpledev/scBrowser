@@ -61,13 +61,16 @@ const decodeBase64 = (text: string): string | null => {
   }
 }
 
-const decodeName = (hash: string) => {
+/** Public lists contain stray % signs, which shouldn't sink the whole list. */
+const decode = (text: string) => {
   try {
-    return decodeURIComponent(hash.replace(/^#/, ''))
+    return decodeURIComponent(text)
   } catch {
-    return hash.replace(/^#/, '')
+    return text
   }
 }
+
+const decodeName = (hash: string) => decode(hash.replace(/^#/, ''))
 
 const validPort = (port: number) => Number.isInteger(port) && port > 0 && port <= 65_535
 
@@ -102,7 +105,7 @@ function parseShadowsocks(link: string): ParsedLink | null {
   let userinfo: string
   if (body.includes('@')) {
     const at = body.lastIndexOf('@')
-    const user = decodeURIComponent(body.slice(0, at))
+    const user = decode(body.slice(0, at))
     userinfo = user.includes(':') ? user : (decodeBase64(user) ?? '')
     body = body.slice(at + 1)
   } else {
@@ -148,8 +151,8 @@ export function parseVpnLink(raw: string): ParsedLink | null {
     name: decodeName(url.hash) || host,
     host,
     port,
-    username: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
+    username: decode(url.username),
+    password: decode(url.password),
     params: Object.fromEntries(url.searchParams)
   }
 }
@@ -169,7 +172,7 @@ export const isDirectProxy = (link: ParsedLink) => ['http', 'https', 'socks4', '
 export const proxyRule = ({ protocol, host, port }: Pick<ParsedLink, 'protocol' | 'host' | 'port'>) => `${protocol}://${host.includes(':') ? `[${host}]` : host}:${port}`
 
 function streamSettings(link: ParsedLink): Record<string, unknown> {
-  const { type = 'tcp', security = '', sni, host, path, alpn, fp, pbk, sid, spx, serviceName, headerType, allowInsecure } = link.params
+  const { type = 'tcp', security = '', sni, host, path, alpn, fp, pbk, sid, spx, serviceName, headerType } = link.params
   const network = type === 'h2' ? 'xhttp' : type || 'tcp'
   const stream: Record<string, unknown> = { network }
   const serverName = sni || host || link.host
@@ -178,8 +181,8 @@ function streamSettings(link: ParsedLink): Record<string, unknown> {
     stream.tlsSettings = {
       serverName,
       ...(alpn ? { alpn: alpn.split(',') } : {}),
-      ...(fp ? { fingerprint: fp } : {}),
-      ...(allowInsecure === '1' ? { allowInsecure: true } : {})
+      // A link's allowInsecure is ignored: Xray no longer accepts it, and certificates should be checked.
+      ...(fp ? { fingerprint: fp } : {})
     }
   } else if (security === 'reality') {
     stream.security = 'reality'

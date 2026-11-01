@@ -176,7 +176,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     // Only sites already bookmarked, so this keeps no record of browsing.
     onFavicon: (contents, pageUrl, iconUrl) => {
-      if (!isPrivate && needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => storeIcon(pageUrl, icon))
+      if (!isPrivate && !window.isDestroyed() && needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => storeIcon(pageUrl, icon))
     },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),

@@ -187,8 +187,8 @@ export function Omnibox() {
     <div
       ref={boxRef}
       className={cx(
-        'sc-no-drag relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-3 transition-[background-color,box-shadow]',
-        focused ? 'bg-surface shadow-[0_0_0_1px_var(--sc-accent),0_0_0_4px_var(--sc-accent-soft)]' : 'sc-glass-strong shadow-1 hover:bg-surface'
+        'sc-no-drag relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 transition-[background-color,box-shadow]',
+        focused ? 'bg-surface shadow-[0_0_0_1px_var(--sc-accent)]' : 'bg-surface shadow-1 hover:shadow-[0_0_0_1px_var(--sc-border-strong)]'
       )}
       onMouseDown={(e) => {
         if (e.target !== inputRef.current) {

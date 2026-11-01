@@ -2,6 +2,7 @@ import { Bookmark, Bot, Download, FlaskConical, Globe, History, MessageCircle, S
 import { useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
+import { applyTint } from './api'
 import { AiPage } from './pages/AiPage'
 import { AssistantPage } from './pages/AssistantPage'
 import { BookmarksPage } from './pages/BookmarksPage'
@@ -46,15 +47,16 @@ function PageFrame() {
   }, [title])
 
   useEffect(() => {
-    void window.scbInternal.invoke('settings:get').then(({ accent }) => {
+    void window.scbInternal.invoke('settings:get').then(({ accent, accentTint }) => {
       document.documentElement.dataset.accent = accent
+      applyTint(accentTint)
     })
   }, [])
 
   return (
     <TooltipProvider>
       <div className="flex h-full">
-        <nav aria-label="Browser pages" className="sc-glass flex w-56 shrink-0 flex-col gap-0.5 border-r border-border p-3">
+        <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
           {(Object.entries(pages) as [InternalPage, (typeof pages)[InternalPage]][]).map(([page, { title, icon: Icon }]) => (
             <a
               key={page}
@@ -62,7 +64,7 @@ function PageFrame() {
               aria-current={page === current ? 'page' : undefined}
               className={cx(
                 'flex h-8 items-center gap-2.5 rounded-lg px-2.5 transition-colors',
-                page === current ? 'bg-surface font-medium text-text shadow-1' : 'text-text-muted hover:bg-surface-hover hover:text-text'
+                page === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text'
               )}
             >
               <Icon aria-hidden size={15} strokeWidth={1.75}  />

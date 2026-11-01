@@ -21,7 +21,7 @@ interface SuggestionListProps {
 
 export function SuggestionList({ suggestions, selectedIndex, onPick }: SuggestionListProps) {
   return (
-    <ul role="listbox" aria-label="Suggestions" className="sc-glass-strong sc-tooltip rounded-xl shadow-3" style={{ padding: POPUP_PADDING }}>
+    <ul role="listbox" aria-label="Suggestions" className="sc-glass-strong sc-tooltip rounded-lg shadow-3" style={{ padding: POPUP_PADDING }}>
       {suggestions.map((suggestion, index) => {
         const Icon = icons[suggestion.kind]
         const selected = index === selectedIndex

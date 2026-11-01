@@ -19,7 +19,7 @@ export function BookmarkEditor({ editor, x, y }: { editor: BookmarkEditorState; 
     <form
       role="dialog"
       aria-label="Edit bookmark"
-      className="sc-glass-strong sc-tooltip absolute flex flex-col gap-2 rounded-xl p-3 shadow-3"
+      className="sc-glass-strong sc-tooltip absolute flex flex-col gap-2 rounded-lg p-3 shadow-3"
       style={{ left: x, top: y, width: BOOKMARK_POPUP.width }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') close()
