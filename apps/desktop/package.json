@@ -11,7 +11,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "dist": "electron-vite build && electron-builder",
+    "fetch-xray": "node scripts/fetch-xray.mjs",
+    "dist": "node scripts/fetch-xray.mjs && electron-vite build && electron-builder",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json"
   },
   "devDependencies": {

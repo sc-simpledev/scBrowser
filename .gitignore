@@ -8,3 +8,4 @@ release/
 coverage/
 test-results/
 playwright-report/
+apps/desktop/resources/

@@ -19,6 +19,7 @@ export function httpsUpgrade(url: string): string | null {
 }
 
 export const ACCENTS = [
+  { id: 'teal', name: 'scSpace teal' },
   { id: 'ember', name: 'Ember' },
   { id: 'ocean', name: 'Ocean' },
   { id: 'forest', name: 'Forest' },
@@ -41,6 +42,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'bookmark', label: 'Bookmark this page', shortcut: 'Ctrl D' },
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', shortcut: 'Ctrl Shift B' },
   { id: 'reader', label: 'Reader view', shortcut: 'F9' },
+  { id: 'focus-mode', label: 'Turn Focus Mode on or off' },
+  { id: 'site-blocker', label: 'Site blocker' },
+  { id: 'vpn', label: 'VPN' },
   { id: 'assistant', label: 'Open assistant', shortcut: 'Ctrl Shift A' },
   { id: 'summarise', label: 'Summarise this page' },
   { id: 'translate', label: 'Translate this page' },

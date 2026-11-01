@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type TabId } from '@scbrowser/shared'
+import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type BookmarkGroup, type TabId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
 
@@ -129,10 +129,34 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
   ]).popup({ window })
 }
 
-export function popupBookmarkMenu(bookmark: Bookmark, repo: BookmarksRepo, onChange: () => void, actions: BrowserActions, window: BaseWindow): void {
+interface BookmarkMenuHooks {
+  repo: BookmarksRepo
+  onChange: () => void
+  actions: BrowserActions
+  window: BaseWindow
+  edit: (bookmark: Bookmark) => void
+}
+
+export function popupBookmarkMenu(bookmark: Bookmark, { repo, onChange, actions, window, edit }: BookmarkMenuHooks): void {
+  const move = (groupId: number | null) => {
+    repo.setGroup(bookmark.id, groupId)
+    onChange()
+  }
+  const groups = repo.groups()
   Menu.buildFromTemplate([
     { label: 'Open in new tab', click: () => actions.tabs.create(bookmark.url) },
+    { label: 'Edit…', click: () => edit(bookmark) },
     { label: 'Copy address', click: () => clipboard.writeText(bookmark.url) },
+    { type: 'separator' },
+    {
+      label: 'Move to group',
+      submenu: [
+        { label: 'None', type: 'radio', checked: bookmark.groupId === null, click: () => move(null) },
+        ...groups.map((group) => ({ label: group.name, type: 'radio' as const, checked: bookmark.groupId === group.id, click: () => move(group.id) })),
+        { type: 'separator' },
+        { label: 'Manage groups…', click: () => actions.openPage('bookmarks') }
+      ]
+    },
     { type: 'separator' },
     {
       label: 'Delete',
@@ -142,6 +166,21 @@ export function popupBookmarkMenu(bookmark: Bookmark, repo: BookmarksRepo, onCha
       }
     }
   ]).popup({ window })
+}
+
+/** A group's bookmarks drop down from the bar. Native menus draw above pages. */
+export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
+  const { repo, actions, window } = hooks
+  const items = repo.list().filter((bookmark) => bookmark.groupId === group.id)
+  Menu.buildFromTemplate([
+    ...(items.length === 0 ? [{ label: 'No bookmarks yet', enabled: false }] : []),
+    ...items.map((bookmark) => ({ label: bookmark.title || bookmark.url, click: () => open(bookmark.url) })),
+    ...(items.length > 1
+      ? [{ type: 'separator' as const }, { label: `Open all ${items.length}`, click: () => items.forEach((bookmark) => actions.tabs.create(bookmark.url)) }]
+      : []),
+    { type: 'separator' },
+    { label: 'Manage groups…', click: () => actions.openPage('bookmarks') }
+  ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
 
 export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, window: BaseWindow, x: number, y: number): void {

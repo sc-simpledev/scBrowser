@@ -24,7 +24,7 @@ export interface SyncData {
 export const EMPTY_SYNC: SyncData = { bookmarks: {}, history: {}, settings: {} }
 
 /** These describe this computer, not the person. */
-export const LOCAL_SETTINGS: (keyof Settings)[] = ['downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats']
+export const LOCAL_SETTINGS: (keyof Settings)[] = ['downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode']
 
 export const MAX_SYNCED_HISTORY = 5000
 

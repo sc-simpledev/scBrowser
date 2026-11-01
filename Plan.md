@@ -71,6 +71,12 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **New tab.** `sc://newtab` is a React page with widgets (clock, greeting, search, Quick AI, shortcuts, bookmarks, notes, calendar), which can be added, removed, ordered and set to full or half width, plus a colour or picture background kept in the profile folder.
 
+**Site blocker.** `sc://blocker`: block sites always, at set times or in Focus Mode (the same mode as Study Mode), with custom messages and an allowlist. Site categories are checked by the AI once per host, sending only the host name, always or only in Focus Mode. The block page offers a new tab or continuing, which lasts 15 minutes.
+
+**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which `apps/desktop/scripts/fetch-xray.mjs` downloads at a pinned version and checksum. It covers browser tabs only, and fails closed if the core stops.
+
+**Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. They don't sync yet: sync still carries only addresses and names.
+
 **Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 
 **Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
@@ -80,7 +86,7 @@ The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Fi
 
 **Principles**
 1. **Content first.** The browser chrome stays quiet. Max ~40px top bar, or vertical tabs with a collapsible rail. The web page is the hero.
-2. **One accent colour, used sparingly.** Neutral greys tuned slightly warm or cool, one brand accent for focus, active tab and the primary AI action. No rainbow gradients.
+2. **One accent colour, used sparingly.** Plain neutral greys (the scSpace look, with `theme.html`-style thin borders and near-black primary buttons), one teal brand accent for focus, active tab and the primary AI action. No rainbow gradients.
 3. **A tight scale for everything.** 4px spacing grid; type scale 11/12/13/15/20/28; radius scale 4/6/10 (pick one radius per component type and stick to it); 3 elevation levels at most.
 4. **Typography does the hierarchy.** Interface font: Inter Display / Geist (bundled, not system fallback), tabular numbers; mono: Geist Mono / JetBrains Mono for URLs and code. Hierarchy comes from weight and opacity, not boxes.
 5. **Motion with purpose.** 120–200ms, custom easing curves (e.g. `cubic-bezier(.2,.8,.2,1)`), spring physics only for tab drag, sidebar open and split view. Honour `prefers-reduced-motion`.

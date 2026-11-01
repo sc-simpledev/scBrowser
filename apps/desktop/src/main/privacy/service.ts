@@ -40,6 +40,10 @@ async function loadEngine(level: Level): Promise<FiltersEngine | null> {
 
 interface PrivacyOptions {
   onBlocked: (webContentsId: number) => void
+  /** Checks a page about to load in a tab. Returns why it's blocked, or null to carry on. */
+  screen: (url: string, contents: WebContents) => string | null | Promise<string | null>
+  /** The load was stopped, so the tab needs to show why. */
+  onScreenedOut: (url: string, reason: string, contents: WebContents) => void
   onChanged: () => void
 }
 
@@ -64,7 +68,18 @@ export class PrivacyService {
   }
 
   attach(session: Session): void {
-    session.webRequest.onBeforeRequest((details, respond) => respond(this.decide(details)))
+    session.webRequest.onBeforeRequest((details, respond) => {
+      const { webContents: contents } = details
+      if (details.resourceType !== 'mainFrame' || !contents) return respond(this.decide(details))
+      const finish = (reason: string | null) => {
+        if (!reason) return respond(this.decide(details))
+        respond({ cancel: true })
+        this.options.onScreenedOut(details.url, reason, contents)
+      }
+      const verdict = this.options.screen(details.url, contents)
+      if (verdict instanceof Promise) void verdict.then(finish)
+      else finish(verdict)
+    })
   }
 
   /** Hides ad placeholders on a page whose requests were blocked. No page scripts are added. */

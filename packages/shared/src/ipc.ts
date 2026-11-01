@@ -1,11 +1,12 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ImportResult, ImportSource } from './containers'
-import type { Bookmark, DownloadAction, DownloadInfo, PermissionDecision } from './library'
+import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
-import type { OverlayState, OverlayView } from './overlay'
+import type { BookmarkEdit, OverlayState, OverlayView } from './overlay'
 import type { Settings } from './settings'
+import type { VpnAddResult, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
 
 /**
@@ -32,6 +33,12 @@ export interface ChromeCommands {
   'bookmarks:list': () => Bookmark[]
   'bookmarks:toggle': (url: string, title: string) => void
   'bookmarks:context-menu': (id: number) => void
+  'bookmarks:groups': () => BookmarkGroup[]
+  'bookmarks:arrange': (items: BarItem[]) => void
+  'bookmarks:set-group': (id: number, groupId: number | null) => void
+  'bookmarks:group-menu': (id: number, x: number, y: number) => void
+  /** Adds the page if needed, then opens the name editor beside the star. */
+  'bookmarks:edit-page': (url: string, title: string) => void
   'settings:get': () => Settings
   'settings:set': (patch: Partial<Settings>) => void
   'find:query': (text: string, options: { forward: boolean; findNext: boolean }) => void
@@ -56,6 +63,8 @@ export interface ChromeCommands {
   'chats:delete': (id: string) => void
   'privacy:toggle-site': (host: string) => void
   'reader:toggle': () => void
+  'vpn:summary': () => VpnSummary
+  'vpn:menu': (x: number, y: number) => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -65,6 +74,7 @@ export interface ChromeEvents {
   /** The user clicked a row in the omnibox dropdown (index into the current list). */
   'omnibox:pick': number
   'bookmarks:changed': Bookmark[]
+  'bookmark-groups:changed': BookmarkGroup[]
   'settings:changed': Settings
   'ui:open-find': void
   'find:result': { active: number; total: number }
@@ -74,6 +84,7 @@ export interface ChromeEvents {
   'ui:assistant-toggle': void
   'ui:assistant-prompt': AssistantPrompt
   'privacy:changed': string[]
+  'vpn:changed': VpnSummary
 }
 
 /** Commands the overlay view sends to the main process. */
@@ -82,6 +93,10 @@ export interface OverlayCommands {
   'overlay:permission': (requestId: number, allow: boolean) => void
   'overlay:palette-run': (id: string) => void
   'overlay:palette-close': () => void
+  /** Returns what's wrong, or null once saved. */
+  'overlay:bookmark-save': (edit: BookmarkEdit) => string | null
+  'overlay:bookmark-remove': (id: number) => void
+  'overlay:bookmark-close': () => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -113,6 +128,11 @@ export const COMMAND_CHANNELS = [
   'bookmarks:list',
   'bookmarks:toggle',
   'bookmarks:context-menu',
+  'bookmarks:groups',
+  'bookmarks:arrange',
+  'bookmarks:set-group',
+  'bookmarks:group-menu',
+  'bookmarks:edit-page',
   'settings:get',
   'settings:set',
   'find:query',
@@ -136,7 +156,9 @@ export const COMMAND_CHANNELS = [
   'chats:save',
   'chats:delete',
   'privacy:toggle-site',
-  'reader:toggle'
+  'reader:toggle',
+  'vpn:summary',
+  'vpn:menu'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -144,6 +166,7 @@ export const EVENT_CHANNELS = [
   'ui:focus-omnibox',
   'omnibox:pick',
   'bookmarks:changed',
+  'bookmark-groups:changed',
   'settings:changed',
   'ui:open-find',
   'find:result',
@@ -152,10 +175,11 @@ export const EVENT_CHANNELS = [
   'ai:event',
   'ui:assistant-toggle',
   'ui:assistant-prompt',
-  'privacy:changed'
+  'privacy:changed',
+  'vpn:changed'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -179,6 +203,12 @@ export interface InternalCommands {
   'bookmarks:list': () => Bookmark[]
   'bookmarks:rename': (id: number, title: string) => void
   'bookmarks:remove': (id: number) => void
+  'bookmarks:edit': (id: number, title: string, url: string) => void
+  'bookmarks:set-group': (id: number, groupId: number | null) => void
+  'bookmarks:groups': () => BookmarkGroup[]
+  'bookmarks:add-group': (name: string) => number
+  'bookmarks:rename-group': (id: number, name: string) => void
+  'bookmarks:remove-group': (id: number) => void
   'downloads:list': () => DownloadInfo[]
   'downloads:action': (id: string, action: DownloadAction) => void
   'downloads:clear': () => void
@@ -242,6 +272,22 @@ export interface InternalCommands {
   'sync:run': () => SyncStatus
   'reports:list': () => CrashEntry[]
   'reports:clear': () => void
+  /** The message for the block page in this tab. */
+  'blocker:message': () => string
+  'blocker:proceed': (url: string) => void
+  'blocker:leave': () => void
+  'vpn:state': () => VpnState
+  'vpn:add': (text: string, groupId: string | null) => VpnAddResult
+  'vpn:subscribe': (url: string, name: string) => VpnAddResult
+  'vpn:refresh': (groupId: string) => VpnAddResult
+  'vpn:add-group': (name: string) => string
+  'vpn:rename-group': (id: string, name: string) => void
+  'vpn:remove-group': (id: string) => void
+  'vpn:move': (id: string, groupId: string | null) => void
+  'vpn:remove': (id: string) => void
+  'vpn:select': (id: string) => void
+  'vpn:set-enabled': (enabled: boolean) => void
+  'vpn:ping': (ids: string[]) => Record<string, number | null>
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -254,6 +300,12 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'bookmarks:list',
   'bookmarks:rename',
   'bookmarks:remove',
+  'bookmarks:edit',
+  'bookmarks:set-group',
+  'bookmarks:groups',
+  'bookmarks:add-group',
+  'bookmarks:rename-group',
+  'bookmarks:remove-group',
   'downloads:list',
   'downloads:action',
   'downloads:clear',
@@ -305,7 +357,22 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'sync:disable',
   'sync:run',
   'reports:list',
-  'reports:clear'
+  'reports:clear',
+  'blocker:message',
+  'blocker:proceed',
+  'blocker:leave',
+  'vpn:state',
+  'vpn:add',
+  'vpn:subscribe',
+  'vpn:refresh',
+  'vpn:add-group',
+  'vpn:rename-group',
+  'vpn:remove-group',
+  'vpn:move',
+  'vpn:remove',
+  'vpn:select',
+  'vpn:set-enabled',
+  'vpn:ping'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

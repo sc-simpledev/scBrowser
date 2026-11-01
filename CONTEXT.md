@@ -41,7 +41,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 
 | Path | Contents |
 |---|---|
-| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
+| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
 | `apps/desktop/src/preload` | Bridges: `index.ts` (browser UI), `overlay.ts`, `internal.ts` (sc:// pages only) |
 | `apps/desktop/src/renderer/src` | Browser UI in `components/`, overlay UI in `overlay/`, sc:// pages in `internal/`, reply and report rendering in `shared/` |
 | `packages/shared` | IPC contracts, settings, omnibox logic, reports, privacy helpers |
@@ -61,6 +61,8 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - The new tab picture reaches `sc://newtab` only through the internal bridge, so it has no address a website could load. It stays in the profile folder and isn't synced.
 - The sync folder only ever holds ciphertext. The passphrase isn't stored, and the derived key is kept with `safeStorage`.
 - Crash reports and usage stats are opt-in, and hold no addresses, titles or error messages. `scrubStack` removes folders and messages.
+- Page loads are screened in `PrivacyService.attach`, before anything is sent. Category checks hold the load for up to 6 seconds, then let it through.
+- VPN links hold passwords, so they stay encrypted in the main process and never reach a renderer. The toolbar and `sc://vpn` only see names, hosts and ports.
 - Agent mode needs approval for every click, entry and navigation. Private fields are refused in `ai/agent.ts`, not left to the model.
 - Nothing goes to an AI provider unless the person acts. Respect the per-site AI off list.
 - Claude calls use the official SDK (v1.3, which sends keys as `Authorization: Bearer`). Other providers use the OpenAI-compatible adapter.
@@ -80,6 +82,7 @@ Open items:
 - `sc://assistant` has no saved-chat list. Chats open from the side panel.
 - Reports can't be saved as HTML files yet.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
+- The Xray core hasn't been fetched on the owner's machine yet: run `node apps/desktop/scripts/fetch-xray.mjs` before packaging, or VLESS, VMess, Trojan and Shadowsocks links report that the core is missing. Those link types have only had their parsing and generated config unit tested, never a live connection.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.
 - The server's `/v1/reports` route needs deploying before reports go anywhere. Native crash dumps aren't collected.
 - With the sandbox on, a page that segfaults didn't reach the crashed-page screen under Playwright, though one that's killed did. Check this by hand in a real build.
@@ -98,6 +101,7 @@ Open items:
 - Screenshots of the browser UI don't include native page views, so the page area appears blank.
 - Tests set `SCDELTA_AI_URL=off` and use `SCB_FILTERS` to avoid the network. `SCB_E2E` exposes `scbTabs`, `scbActions` and `scbExtensions` on the main process.
 - Playwright turns the sandbox off, and service worker extensions then lose the extra `chrome.*` APIs. Launch with `SCB_E2E_SANDBOX: '1'` for those tests.
+- VPN tests get `<-loopback>` in the bypass rules under `SCB_E2E`, so local servers go through the proxy.
 - Don't take desktop screenshots with spectacle: it can capture the owner's own windows.
 - `pkill -f` patterns can match your own shell. Use `pgrep -f "dist/electro[n]" | xargs -r kill -9`.
 - Code running during shutdown must guard against the destroyed window and closed database.

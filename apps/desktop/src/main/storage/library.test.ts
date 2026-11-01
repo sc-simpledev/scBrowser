@@ -135,3 +135,36 @@ describe('HistoryRepo management', () => {
     expect(repo.list('', 10, 0)).toEqual([])
   })
 })
+
+describe('bookmark groups', () => {
+  it('moves bookmarks into groups, orders the bar, and frees them when a group goes', () => {
+    const repo = new BookmarksRepo(db)
+    repo.toggle('https://a.example/', 'A')
+    repo.toggle('https://b.example/', 'B')
+    const [a, b] = repo.list()
+    const group = repo.addGroup('Work')
+    repo.setGroup(a!.id, group)
+    expect(repo.list().find((x) => x.id === a!.id)?.groupId).toBe(group)
+
+    repo.arrange([
+      { kind: 'bookmark', id: b!.id },
+      { kind: 'group', id: group }
+    ])
+    expect(repo.groups()[0]?.position).toBe(1)
+    expect(repo.list().find((x) => x.id === b!.id)?.position).toBe(0)
+
+    repo.removeGroup(group)
+    expect(repo.groups()).toEqual([])
+    expect(repo.list().find((x) => x.id === a!.id)?.groupId).toBeNull()
+  })
+
+  it('edits a name and address, refusing a duplicate address', () => {
+    const repo = new BookmarksRepo(db)
+    repo.toggle('https://a.example/', 'A')
+    repo.toggle('https://b.example/', 'B')
+    const [a] = repo.list()
+    repo.edit(a!.id, 'New', 'https://c.example/')
+    expect(repo.list()[0]).toMatchObject({ title: 'New', url: 'https://c.example/' })
+    expect(() => repo.edit(a!.id, 'New', 'https://b.example/')).toThrow()
+  })
+})

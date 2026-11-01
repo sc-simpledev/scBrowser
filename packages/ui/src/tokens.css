@@ -3,33 +3,34 @@
  * motion and elevation. Components reference these (directly or through theme.css);
  * they never hard-code colours or pixel values.
  *
- * Neutrals are warm and very low chroma; the accent is used only for focus, the active
- * tab indicator and primary actions.
+ * This follows the scSpace look: plain greys, thin borders instead of shadows, near-black
+ * primary buttons, and one teal accent for focus, the active tab and progress.
  */
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
 
 :root {
   color-scheme: light dark;
-  --sc-hue: 38;
+  --sc-hue: 200;
+  --sc-chroma: 0.105;
 
   /* Colour — light */
-  --sc-bg: oklch(0.955 0.004 80);
-  --sc-surface: oklch(0.993 0.002 80);
-  --sc-surface-hover: oklch(0.925 0.005 80);
-  --sc-surface-active: oklch(0.9 0.006 80);
-  --sc-field: oklch(0.925 0.005 80);
-  --sc-border: oklch(0.885 0.006 80);
-  --sc-border-strong: oklch(0.8 0.008 80);
-  --sc-text: oklch(0.22 0.01 70);
-  --sc-text-muted: oklch(0.47 0.01 70);
-  --sc-text-faint: oklch(0.6 0.008 70);
-  --sc-accent: oklch(0.62 0.18 var(--sc-hue));
-  --sc-accent-hover: oklch(0.57 0.18 var(--sc-hue));
-  --sc-accent-soft: oklch(0.62 0.18 var(--sc-hue) / 0.12);
+  --sc-bg: #f9f9f9;
+  --sc-surface: #ffffff;
+  --sc-surface-hover: #f3f3f3;
+  --sc-surface-active: #ededed;
+  --sc-field: #ffffff;
+  --sc-border: #e4e4e4;
+  --sc-border-strong: #cfcfcf;
+  --sc-text: #111111;
+  --sc-text-muted: #555555;
+  --sc-text-faint: #8a8a8a;
+  --sc-accent: oklch(0.65 var(--sc-chroma) var(--sc-hue));
+  --sc-accent-hover: oklch(0.58 var(--sc-chroma) var(--sc-hue));
+  --sc-accent-soft: oklch(0.65 var(--sc-chroma) var(--sc-hue) / 0.12);
   --sc-on-accent: oklch(0.99 0 0);
-  --sc-focus-ring: oklch(0.62 0.18 var(--sc-hue) / 0.55);
-  --sc-danger: oklch(0.58 0.2 25);
+  --sc-focus-ring: oklch(0.65 var(--sc-chroma) var(--sc-hue) / 0.55);
+  --sc-danger: #c8473b;
   /* Text placed directly on a picture or colour the person chose. */
   --sc-on-image: oklch(0.98 0 0);
   --sc-on-image-dark: oklch(0.2 0 0);
@@ -45,8 +46,8 @@
   --sc-text-xl: 28px;
   --sc-leading-tight: 1.2;
   --sc-leading-normal: 1.45;
-  --sc-weight-regular: 420;
-  --sc-weight-medium: 520;
+  --sc-weight-regular: 400;
+  --sc-weight-medium: 500;
   --sc-weight-semibold: 600;
 
   /* Space — 4px grid */
@@ -58,7 +59,7 @@
   --sc-radius-lg: 10px;
 
   /* Elevation — three levels, never more */
-  --sc-shadow-1: 0 0 0 1px var(--sc-border), 0 1px 2px oklch(0 0 0 / 0.05);
+  --sc-shadow-1: 0 0 0 1px var(--sc-border);
   --sc-shadow-2: 0 0 0 1px var(--sc-border), 0 4px 12px oklch(0 0 0 / 0.08);
   --sc-shadow-3: 0 0 0 1px var(--sc-border), 0 12px 32px oklch(0 0 0 / 0.14);
 
@@ -76,40 +77,49 @@
 }
 
 /* The accent is one hue swapped across every shade above. */
+:root[data-accent='ember'] {
+  --sc-hue: 38;
+  --sc-chroma: 0.17;
+}
+
 :root[data-accent='ocean'] {
   --sc-hue: 240;
+  --sc-chroma: 0.17;
 }
 
 :root[data-accent='forest'] {
   --sc-hue: 155;
+  --sc-chroma: 0.17;
 }
 
 :root[data-accent='iris'] {
   --sc-hue: 285;
+  --sc-chroma: 0.17;
 }
 
 :root[data-accent='rose'] {
   --sc-hue: 0;
+  --sc-chroma: 0.17;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sc-bg: oklch(0.185 0.006 70);
-    --sc-surface: oklch(0.225 0.006 70);
-    --sc-surface-hover: oklch(0.255 0.007 70);
-    --sc-surface-active: oklch(0.29 0.008 70);
-    --sc-field: oklch(0.24 0.007 70);
-    --sc-border: oklch(0.285 0.007 70);
-    --sc-border-strong: oklch(0.36 0.008 70);
-    --sc-text: oklch(0.94 0.006 80);
-    --sc-text-muted: oklch(0.72 0.008 80);
-    --sc-text-faint: oklch(0.56 0.008 80);
-    --sc-accent: oklch(0.7 0.16 var(--sc-hue));
-    --sc-accent-hover: oklch(0.75 0.15 var(--sc-hue));
-    --sc-accent-soft: oklch(0.7 0.16 var(--sc-hue) / 0.16);
-    --sc-on-accent: oklch(0.18 0.01 60);
-    --sc-focus-ring: oklch(0.7 0.16 var(--sc-hue) / 0.6);
-    --sc-shadow-1: 0 0 0 1px var(--sc-border), 0 1px 2px oklch(0 0 0 / 0.3);
+    --sc-bg: #171717;
+    --sc-surface: #121212;
+    --sc-surface-hover: #232323;
+    --sc-surface-active: #2a2a2a;
+    --sc-field: #121212;
+    --sc-border: #2e2e2e;
+    --sc-border-strong: #404040;
+    --sc-text: #f2f2f2;
+    --sc-text-muted: #b5b5b5;
+    --sc-text-faint: #888888;
+    --sc-accent: oklch(0.72 var(--sc-chroma) var(--sc-hue));
+    --sc-accent-hover: oklch(0.78 var(--sc-chroma) var(--sc-hue));
+    --sc-accent-soft: oklch(0.72 var(--sc-chroma) var(--sc-hue) / 0.16);
+    --sc-on-accent: #111111;
+    --sc-focus-ring: oklch(0.72 var(--sc-chroma) var(--sc-hue) / 0.6);
+    --sc-shadow-1: 0 0 0 1px var(--sc-border);
     --sc-shadow-2: 0 0 0 1px var(--sc-border), 0 4px 12px oklch(0 0 0 / 0.35);
     --sc-shadow-3: 0 0 0 1px var(--sc-border), 0 12px 32px oklch(0 0 0 / 0.5);
   }

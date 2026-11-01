@@ -4,6 +4,7 @@ import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'settings'
 const VERTICAL_DEFAULT_APPLIED = 'settings:vertical-default-applied'
+const TEAL_DEFAULT_APPLIED = 'settings:teal-default-applied'
 
 export class SettingsStore {
   private settings: Settings
@@ -16,6 +17,11 @@ export class SettingsStore {
     if (!kv.get(VERTICAL_DEFAULT_APPLIED)) {
       kv.set(VERTICAL_DEFAULT_APPLIED, true)
       this.settings.tabLayout = 'vertical'
+    }
+    // The same for the scSpace theme: profiles on the old default accent move to teal.
+    if (!kv.get(TEAL_DEFAULT_APPLIED)) {
+      kv.set(TEAL_DEFAULT_APPLIED, true)
+      if (this.settings.accent === 'ember') this.settings.accent = 'teal'
     }
     nativeTheme.themeSource = this.settings.theme
   }

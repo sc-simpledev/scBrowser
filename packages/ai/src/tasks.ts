@@ -139,3 +139,16 @@ export function parseAgentAction(reply: string): AgentAction | null {
       return null
   }
 }
+
+export const siteCategoryPrompt = (categories: string[]) => `You sort websites into categories. You're given one website address. Decide whether the site as a whole mainly belongs to one of these categories:
+
+${categories.map((category) => `- ${category}`).join('\n')}
+
+Reply with only one JSON object: {"category":"exact name from the list"}, or {"category":null} if none clearly fits or you don't recognise the site.`
+
+/** The matched category, or null. Anything not on the list counts as no match. */
+export function parseSiteCategory(reply: string, categories: string[]): string | null {
+  const data = extractJson(reply) as Record<string, unknown> | null
+  const found = typeof data?.category === 'string' ? data.category.toLowerCase() : null
+  return categories.find((category) => category.toLowerCase() === found) ?? null
+}

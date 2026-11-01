@@ -11,17 +11,18 @@ import {
   type OverlayEvents,
   type PermissionPopupState
 } from '@scbrowser/shared'
+import { BookmarkEditor } from './BookmarkEditor'
 import { CommandPalette } from './CommandPalette'
 import { SuggestionList } from './SuggestionList'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'ember', toast: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
-  const { omnibox, tooltip, permission, palette, accent, toast } = state
+  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -54,6 +55,7 @@ export function OverlayApp() {
           {toast.text}
         </div>
       )}
+      {bookmarkEditor && <BookmarkEditor key={bookmarkEditor.id} editor={bookmarkEditor} x={bookmarkEditor.x - origin.x} y={bookmarkEditor.y - origin.y} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
       {tooltip && (
         <PlacedTooltip

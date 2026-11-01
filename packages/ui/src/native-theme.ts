@@ -4,6 +4,6 @@
  * Keep in sync with tokens.css.
  */
 export const NATIVE_THEME = {
-  light: { background: '#f1f0ed', foreground: '#1e1a16' },
-  dark: { background: '#141210', foreground: '#edebe7' }
+  light: { background: '#f9f9f9', foreground: '#111111' },
+  dark: { background: '#171717', foreground: '#f2f2f2' }
 } as const

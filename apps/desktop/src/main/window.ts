@@ -1,16 +1,19 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ClipboardItem, nativeTheme, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, Menu, nativeTheme, net, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import {
   effectiveUrl,
   engineById,
+  BOOKMARK_POPUP,
   TOAST_POPUP,
+  byPing,
   errorPageUrl,
   isReaderUrl,
   SUMMARISE_PROMPT,
   isNewTabUrl,
+  type Bookmark,
   type ChromeEvents,
   type EventChannel,
   type PermissionPrompt
@@ -26,6 +29,7 @@ import { handleInternalPages } from './internal/protocol'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
 import { attachPageMenu } from './menus'
+import { SiteBlocker } from './blocker'
 import { Overlay } from './overlay'
 import { extractArticle } from './ai/pageText'
 import { storeArticle } from './internal/reader'
@@ -36,7 +40,8 @@ import { loadSession, SessionSaver } from './session'
 import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
 import type { Reporter } from './reporter'
-import { SyncService } from './sync'
+import { SyncService, type KeyVault } from './sync'
+import { VpnService, xrayPath } from './vpn'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { DownloadsRepo } from './storage/downloads'
@@ -49,6 +54,7 @@ const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = 60_000
 const SYNC_FIRST_MS = 20_000
 const SYNC_EVERY_MS = 10 * 60_000
+const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
 const APP_TITLE = currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
 
@@ -72,6 +78,7 @@ export interface BrowserWindowHandle {
   actions: BrowserActions
   extensions: ExtensionManager
   sync: SyncService
+  vpn: VpnService
 }
 
 interface SavedWindow {
@@ -108,7 +115,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     chromeUi.focus()
     send('ui:focus-omnibox')
   }
-  const publishBookmarks = () => send('bookmarks:changed', bookmarks.list())
+  const publishBookmarks = () => {
+    send('bookmarks:changed', bookmarks.list())
+    send('bookmark-groups:changed', bookmarks.groups())
+  }
 
   const tabs = new TabManager(window, {
     onChange: (snapshot) => {
@@ -123,6 +133,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       attachShortcuts(contents, actions)
       attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
       extensions.addTab(contents)
+      if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       overlay.raise()
     },
     onTabClosed: () => permissionService.refresh(),
@@ -235,7 +246,23 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     {
       onPaletteRun: (id) => paletteActions[id]?.(),
       onPaletteClose: () => tabs.focusActive(),
-      accent: () => settings.get().accent
+      accent: () => settings.get().accent,
+      onBookmarkSave: ({ id, title, url, groupId }) => {
+        if (!URL.canParse(url) || !/^(https?|file):/i.test(url)) return 'Enter a full web address.'
+        try {
+          bookmarks.edit(id, title, url)
+        } catch {
+          return 'Another bookmark already has this address.'
+        }
+        if (bookmarks.list().find((b) => b.id === id)?.groupId !== groupId) bookmarks.setGroup(id, groupId)
+        publishBookmarks()
+        return null
+      },
+      onBookmarkRemove: (id) => {
+        bookmarks.remove(id)
+        publishBookmarks()
+      },
+      onBookmarkClose: () => tabs.focusActive()
     }
   )
   const onActive = (action: (id: number) => void) => () => {
@@ -262,6 +289,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     downloads: () => actions.openPage('downloads'),
     settings: () => actions.openPage('settings'),
     'ai-settings': () => actions.openPage('ai'),
+    'focus-mode': () => {
+      const focusMode = !settings.get().focusMode
+      settings.set({ focusMode })
+      notify(focusMode ? 'Focus Mode is on' : 'Focus Mode is off')
+    },
+    'site-blocker': () => actions.openPage('blocker'),
+    vpn: () => actions.openPage('vpn'),
     print: onActive((id) => tabs.print(id)),
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
@@ -281,8 +315,15 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (id !== null) tabs.close(id)
     }
   })
+  const blocker = new SiteBlocker(settings, kv, {
+    ready: () => aiStore.status().ready,
+    disabled: (host) => aiStore.disabledHosts().includes(host),
+    complete: (system, user) => ai.complete(system, user)
+  })
   const privacy = new PrivacyService(settings, kv, {
     onBlocked: (id) => tabs.noteBlocked(id),
+    screen: (url, contents): string | null | Promise<string | null> => (tabs.owns(contents) ? blocker.screen(url) : null),
+    onScreenedOut: (url, reason, contents) => void contents.loadURL(blocker.pageFor(url, reason)).catch(() => undefined),
     onChanged: () => send('privacy:changed', privacy.offHosts())
   })
   const downloads = new DownloadManager(services.downloads, settings, (progress) =>
@@ -301,21 +342,70 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
   prepareSession(session.defaultSession)
 
+  const vault: KeyVault = {
+    encrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error("This system can't store this securely yet.")
+      return safeStorage.encryptString(value).toString('base64')
+    },
+    decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64'))
+  }
   const sync = new SyncService({
     kv,
     settings,
     history,
     bookmarks,
-    vault: {
-      encrypt: (value) => {
-        if (!safeStorage.isEncryptionAvailable()) throw new Error("This system can't store the sync key securely yet.")
-        return safeStorage.encryptString(value).toString('base64')
-      },
-      decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64'))
-    },
+    vault,
     basePath: join(app.getPath('userData'), 'sync-base.json'),
     onBookmarksChanged: publishBookmarks
   })
+  const vpn = new VpnService({
+    kv,
+    vault,
+    corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
+    applyProxy: async (rules) => {
+      // Tests serve pages from this computer, which Chromium would otherwise send direct.
+      const bypass = process.env.SCB_E2E ? '<-loopback>' : ''
+      for (const target of prepared) {
+        await target.setProxy(rules ? { mode: 'fixed_servers', proxyRules: rules, proxyBypassRules: bypass } : { mode: 'direct' })
+        await target.closeAllConnections()
+      }
+      // WebRTC would otherwise reveal the real address by skipping the proxy.
+      const policy = rules ? 'disable_non_proxied_udp' : 'default'
+      for (const { id } of tabs.snapshot().tabs) tabs.contentsFor(id)?.setWebRTCIPHandlingPolicy(policy)
+    },
+    fetchText: async (url) => {
+      const response = await net.fetch(url)
+      if (!response.ok) throw new Error(`The subscription answered with error ${response.status}.`)
+      return response.text()
+    },
+    onChange: () => send('vpn:changed', vpn.summary())
+  })
+  const openVpnMenu = (x: number, y: number) => {
+    const { enabled, connections, activeId, groups } = vpn.state()
+    const pick = (id: string) => void vpn.select(id).then(() => (vpn.summary().enabled ? undefined : vpn.setEnabled(true)))
+    const row = (connection: (typeof connections)[number]) => ({
+      label: `${connection.name}${pings[connection.id] ? `  ${pings[connection.id]} ms` : ''}`,
+      type: 'radio' as const,
+      checked: connection.id === activeId,
+      click: () => pick(connection.id)
+    })
+    const list = (items: typeof connections) => byPing(items, pings).slice(0, VPN_MENU_ROWS).map(row)
+    const pingAll = async () => {
+      Object.assign(pings, await vpn.ping(connections.map(({ id }) => id)))
+      notify('Finished pinging')
+    }
+    Menu.buildFromTemplate([
+      { label: enabled ? 'Turn off' : 'Turn on', click: () => void vpn.setEnabled(!enabled) },
+      { type: 'separator' },
+      ...list(connections.filter((connection) => connection.groupId === null)),
+      ...groups.map((group) => ({ label: group.name, submenu: list(connections.filter((connection) => connection.groupId === group.id)) })),
+      { type: 'separator' },
+      { label: 'Ping all', click: () => void pingAll() },
+      { label: 'Manage connections…', click: () => actions.openPage('vpn') }
+    ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+  }
+  /** Latest ping times, shown in the toolbar menu. */
+  const pings: Record<string, number | null> = {}
   const syncFirst = setTimeout(() => void sync.run(), SYNC_FIRST_MS)
   const syncTimer = setInterval(() => void sync.run(), SYNC_EVERY_MS)
 
@@ -345,6 +435,21 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     notify(copied ? 'Screenshot saved and copied' : 'Screenshot saved')
   }
 
+  const editBookmark = (bookmark: Bookmark, fromBar: boolean) => {
+    const { x, y, width } = tabs.page
+    const { id, title, url, groupId } = bookmark
+    overlay.openBookmarkEditor({
+      id,
+      title,
+      url,
+      groupId,
+      groups: bookmarks.groups(),
+      editUrl: fromBar,
+      x: x + width - BOOKMARK_POPUP.width - BOOKMARK_POPUP.inset,
+      y: y + BOOKMARK_POPUP.inset
+    })
+  }
+
   attachShortcuts(chromeUi, actions)
   const disposeIpc = registerIpc(chromeUi, {
     window,
@@ -355,10 +460,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     overlay,
     actions,
     onBookmarksChanged: publishBookmarks,
+    editBookmark,
     aiStore,
     ai,
     chats: services.chats,
-    privacy
+    privacy,
+    vpn,
+    openVpnMenu
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -375,7 +483,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     privacy,
     extensions,
     sync,
-    reporter: services.reporter
+    reporter: services.reporter,
+    blocker,
+    vpn
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
   chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
@@ -424,6 +534,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     clearTimeout(syncFirst)
     clearInterval(syncTimer)
     sync.stop()
+    vpn.stop()
     saver.stop()
     unsubscribeSettings()
     unsubscribeAi()
@@ -444,5 +555,5 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     if (!saved && initialUrls.length === 0) tabs.create()
   })
 
-  return { window, tabs, actions, extensions, sync }
+  return { window, tabs, actions, extensions, sync, vpn }
 }

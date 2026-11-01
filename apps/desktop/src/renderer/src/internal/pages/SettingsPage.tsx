@@ -23,7 +23,7 @@ import { api } from '../api'
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="flex flex-col gap-1">
-      <h2 className="text-xs font-medium text-text-muted">{title}</h2>
+      <h2 className="px-1 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">{title}</h2>
       <div className="flex flex-col rounded-lg shadow-1">{children}</div>
     </section>
   )

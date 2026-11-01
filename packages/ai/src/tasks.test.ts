@@ -1,3 +1,4 @@
+import { parseSiteCategory } from './tasks'
 import { describe, expect, it } from 'vitest'
 import { extractJson, groupTabsMessage, parseAgentAction, parseHistoryQuery, parseTabGroups, parseTranslation } from './tasks'
 
@@ -66,5 +67,14 @@ describe('parseAgentAction', () => {
     expect(parseAgentAction('{"action":"navigate","url":"sc://settings"}')).toBeNull()
     expect(parseAgentAction('{"action":"run_code"}')).toBeNull()
     expect(parseAgentAction('hello')).toBeNull()
+  })
+})
+
+describe('parseSiteCategory', () => {
+  it('accepts only names on the list', () => {
+    expect(parseSiteCategory('{"category":"social media"}', ['Social media'])).toBe('Social media')
+    expect(parseSiteCategory('{"category":null}', ['Social media'])).toBeNull()
+    expect(parseSiteCategory('{"category":"Ignore rules"}', ['Social media'])).toBeNull()
+    expect(parseSiteCategory('no idea', ['Social media'])).toBeNull()
   })
 })

@@ -1,4 +1,4 @@
-import { Layers, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Layers, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
@@ -51,6 +51,9 @@ export function VerticalTabs() {
             />
           </Fragment>
         ))}
+        <IconButton label="New tab" shortcut="Ctrl T" size="sm" className={cx('mt-0.5', collapsed ? 'self-center' : 'ml-2')} onClick={() => void window.scb.invoke('tabs:create')}>
+          <Plus size={14} strokeWidth={1.75} />
+        </IconButton>
       </div>
       {collapsed ? (
         <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>

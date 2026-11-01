@@ -48,7 +48,7 @@ describe('buildSuggestions', () => {
   })
 
   it('lists matching bookmarks ahead of the same URL in history', () => {
-    const bookmarks = [{ id: 1, url: 'https://a.dev/', title: 'Alpha docs', createdAt: 0 }]
+    const bookmarks = [{ id: 1, url: 'https://a.dev/', title: 'Alpha docs', createdAt: 0, groupId: null, position: 0 }]
     const result = buildSuggestions('alpha', {
       history: [visit('https://a.dev/', 'Alpha docs')],
       bookmarks,
@@ -71,7 +71,7 @@ describe('buildSuggestions', () => {
   it('leaves out sources that are switched off', () => {
     const options = {
       history: [visit('https://a.dev/history', 'match')],
-      bookmarks: [{ id: 1, url: 'https://a.dev/bookmark', title: 'match', createdAt: 0 }],
+      bookmarks: [{ id: 1, url: 'https://a.dev/bookmark', title: 'match', createdAt: 0, groupId: null, position: 0 }],
       tabs: [tab(2, 'https://a.dev/tab', 'match')],
       activeTabId: 1,
       assistantReady: true

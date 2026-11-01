@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bot, Download, EllipsisVertical, Globe, RotateCw, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { containerPartition } from '@scbrowser/shared'
+import { containerPartition, type VpnSummary } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
@@ -23,6 +24,31 @@ function DownloadsButton() {
           <span className="block h-full rounded-full bg-accent" style={{ width: `${(fraction ?? 0.5) * 100}%` }} />
         </span>
       )}
+    </IconButton>
+  )
+}
+
+/** Appears once a connection has been added. */
+function VpnButton() {
+  const [vpn, setVpn] = useState<VpnSummary | null>(null)
+  useEffect(() => {
+    void window.scb.invoke('vpn:summary').then(setVpn)
+    return window.scb.on('vpn:changed', setVpn)
+  }, [])
+  if (!vpn?.available) return null
+  const state = vpn.error ? 'problem' : vpn.connecting ? 'connecting' : vpn.enabled ? `on, ${vpn.name}` : 'off'
+  return (
+    <IconButton
+      label={`VPN: ${state}`}
+      aria-pressed={vpn.enabled}
+      className={cx('relative', vpn.enabled && 'text-accent', vpn.error && 'text-danger')}
+      onClick={(e) => {
+        const { left, bottom } = e.currentTarget.getBoundingClientRect()
+        void window.scb.invoke('vpn:menu', left, bottom)
+      }}
+    >
+      <Globe size={15} strokeWidth={1.75} />
+      {vpn.enabled && <span aria-hidden className="absolute right-1.5 bottom-1.5 size-1.5 rounded-full bg-accent" />}
     </IconButton>
   )
 }
@@ -55,8 +81,9 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
           </IconButton>
         )}
       </div>
+      <VpnButton />
       <Omnibox />
-      <DownloadsButton />
+            <DownloadsButton />
       {/* Drawn by the extensions library in its own shadow root. */}
       <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
       {!hideAssistant && (

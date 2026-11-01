@@ -2,7 +2,7 @@ import { forwardRef, type InputHTMLAttributes, type SelectHTMLAttributes } from 
 import { cx } from '../cx'
 
 const control =
-  'h-8 rounded-md bg-field px-2.5 text-sm text-text outline-none placeholder:text-text-faint ' +
+  'h-8 rounded-md border border-border bg-field px-2.5 text-sm text-text outline-none placeholder:text-text-faint ' +
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(

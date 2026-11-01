@@ -41,7 +41,15 @@ const MIGRATIONS: string[] = [
      turns TEXT NOT NULL,
      updated_at INTEGER NOT NULL
    );
-   CREATE INDEX chats_updated_at ON chats (updated_at DESC);`
+   CREATE INDEX chats_updated_at ON chats (updated_at DESC);`,
+  `CREATE TABLE bookmark_groups (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT NOT NULL,
+     position INTEGER NOT NULL
+   );
+   ALTER TABLE bookmarks ADD COLUMN group_id INTEGER REFERENCES bookmark_groups (id) ON DELETE SET NULL;
+   ALTER TABLE bookmarks ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+   UPDATE bookmarks SET position = id;`
 ]
 
 export function openDatabase(path: string): DatabaseSync {

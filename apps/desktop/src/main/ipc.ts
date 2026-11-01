@@ -4,6 +4,8 @@ import {
   MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
   type AssistantRequest,
+  type BarItem,
+  type Bookmark,
   type ChromeCommands,
   type CommandChannel,
   type OverlayState,
@@ -15,7 +17,7 @@ import {
 import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
-import { popupAppMenu, popupBookmarkMenu, popupTabMenu } from './menus'
+import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { PrivacyService } from './privacy/service'
@@ -24,6 +26,7 @@ import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { TabManager } from './tabs/TabManager'
+import type { VpnService } from './vpn'
 
 type Handlers = { [C in CommandChannel]: (...args: Parameters<ChromeCommands[C]>) => ReturnType<ChromeCommands[C]> }
 type Validators = { [C in CommandChannel]: (args: unknown[]) => args is Parameters<ChromeCommands[C]> }
@@ -129,6 +132,17 @@ const validators: Validators = {
   'bookmarks:toggle': (args): args is [string, string] =>
     args.length === 2 && isShortString(args[0]) && isShortString(args[1], 1024),
   'bookmarks:context-menu': idArg,
+  'bookmarks:groups': noArgs,
+  'vpn:summary': noArgs,
+  'vpn:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
+  'bookmarks:arrange': (args): args is [BarItem[]] =>
+    args.length === 1 &&
+    Array.isArray(args[0]) &&
+    args[0].length <= 10_000 &&
+    args[0].every((item: BarItem) => record(item) && (item.kind === 'bookmark' || item.kind === 'group') && isId(item.id)),
+  'bookmarks:set-group': (args): args is [number, number | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isId(args[1])),
+  'bookmarks:group-menu': (args): args is [number, number, number] => args.length === 3 && isId(args[0]) && typeof args[1] === 'number' && typeof args[2] === 'number',
+  'bookmarks:edit-page': (args): args is [string, string] => args.length === 2 && isShortString(args[0]) && isShortString(args[1]),
   'settings:get': noArgs,
   'settings:set': (args): args is [Partial<Settings>] => args.length === 1 && record(args[0]),
   'find:query': (args): args is [string, { forward: boolean; findNext: boolean }] =>
@@ -174,6 +188,10 @@ interface IpcServices {
   overlay: Overlay
   actions: BrowserActions
   onBookmarksChanged: () => void
+  /** `fromBar` also offers the address. */
+  editBookmark: (bookmark: Bookmark, fromBar: boolean) => void
+  vpn: VpnService
+  openVpnMenu: (x: number, y: number) => void
   aiStore: AiStore
   ai: AiService
   chats: ChatsRepo
@@ -185,7 +203,8 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, aiStore, ai, chats, privacy } = services
+  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu } = services
+  const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
     'tabs:create': (url) => tabs.create(url),
@@ -222,7 +241,33 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     },
     'bookmarks:context-menu': (id) => {
       const bookmark = bookmarks.list().find((b) => b.id === id)
-      if (bookmark) popupBookmarkMenu(bookmark, bookmarks, onBookmarksChanged, actions, window)
+      if (bookmark) popupBookmarkMenu(bookmark, menuHooks)
+    },
+    'bookmarks:groups': () => bookmarks.groups(),
+    'vpn:summary': () => vpn.summary(),
+    'vpn:menu': (x, y) => openVpnMenu(x, y),
+    'bookmarks:arrange': (items) => {
+      bookmarks.arrange(items)
+      onBookmarksChanged()
+    },
+    'bookmarks:set-group': (id, groupId) => {
+      bookmarks.setGroup(id, groupId)
+      onBookmarksChanged()
+    },
+    'bookmarks:group-menu': (id, x, y) => {
+      const group = bookmarks.groups().find((g) => g.id === id)
+      const open = (url: string) => {
+        if (tabs.active) tabs.navigate(tabs.active.id, url)
+      }
+      if (group) popupBookmarkGroup(group, menuHooks, open, x, y)
+    },
+    'bookmarks:edit-page': (url, title) => {
+      if (!bookmarks.has(url)) {
+        bookmarks.toggle(url, title)
+        onBookmarksChanged()
+      }
+      const bookmark = bookmarks.list().find((b) => b.url === url)
+      if (bookmark) editBookmark(bookmark, false)
     },
     'settings:get': () => settings.get(),
     'settings:set': (patch) => settings.set(patch),

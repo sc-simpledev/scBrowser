@@ -3,6 +3,31 @@ export interface Bookmark {
   url: string
   title: string
   createdAt: number
+  /** Null when it sits directly on the bar rather than in a group. */
+  groupId: number | null
+  /** Order on the bar, or within its group. Groups and bookmarks share the bar's order. */
+  position: number
+}
+
+export interface BookmarkGroup {
+  id: number
+  name: string
+  position: number
+}
+
+/** One thing on the bookmarks bar, used when saving a new order. */
+export interface BarItem {
+  kind: 'bookmark' | 'group'
+  id: number
+}
+
+/** Bookmarks and groups in the order they sit on the bar. */
+export function barItems(bookmarks: Bookmark[], groups: BookmarkGroup[]): ({ kind: 'bookmark'; item: Bookmark } | { kind: 'group'; item: BookmarkGroup })[] {
+  const items = [
+    ...groups.map((item) => ({ kind: 'group' as const, item })),
+    ...bookmarks.filter((b) => b.groupId === null).map((item) => ({ kind: 'bookmark' as const, item }))
+  ]
+  return items.sort((a, b) => a.item.position - b.item.position)
 }
 
 export type DownloadState = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
@@ -43,5 +68,5 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'use MIDI devices'
 }
 
-export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'downloads', 'flags'] as const
+export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'downloads', 'blocker', 'vpn', 'flags'] as const
 export type InternalPage = (typeof INTERNAL_PAGES)[number]

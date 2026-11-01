@@ -269,10 +269,10 @@ export function Omnibox() {
       {tab && /^(https?|file):/.test(url) && !hidden.includes('bookmark') && (
         <IconButton
           size="sm"
-          label={bookmarked ? 'Remove bookmark' : 'Bookmark this page'}
+          label={bookmarked ? 'Edit bookmark' : 'Bookmark this page'}
           shortcut="Ctrl D"
           aria-pressed={bookmarked}
-          onClick={() => void window.scb.invoke('bookmarks:toggle', effectiveUrl(tab.url), tab.title)}
+          onClick={() => void window.scb.invoke('bookmarks:edit-page', effectiveUrl(tab.url), tab.title)}
         >
           <Star
             size={14}

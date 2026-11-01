@@ -1,5 +1,6 @@
 import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
 import { TOOLBAR_ITEMS, type ToolbarItemId } from './containers'
+import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
@@ -77,6 +78,9 @@ export interface Settings {
   hiddenToolbarItems: ToolbarItemId[]
   translateTo: TranslateLanguage
   newTab: NewTabConfig
+  blocker: BlockerConfig
+  /** Also called Study Mode: turns on Focus Mode rules and categories. */
+  focusMode: boolean
   /** Include browsing history in sync, as well as bookmarks and settings. */
   syncHistory: boolean
   /** Off until the person turns them on. */
@@ -99,10 +103,12 @@ export const DEFAULT_SETTINGS: Settings = {
   saveChats: true,
   trackingProtection: 'standard',
   httpsOnly: true,
-  accent: 'ember',
+  accent: 'teal',
   hiddenToolbarItems: [],
   translateTo: 'English',
   newTab: DEFAULT_NEW_TAB,
+  blocker: DEFAULT_BLOCKER,
+  focusMode: false,
   syncHistory: true,
   crashReports: false,
   usageStats: false
@@ -129,6 +135,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
   newTab: isNewTabConfig,
+  blocker: isBlockerConfig,
+  focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',
   crashReports: (v) => typeof v === 'boolean',
   usageStats: (v) => typeof v === 'boolean'

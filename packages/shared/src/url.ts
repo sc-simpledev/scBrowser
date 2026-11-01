@@ -46,6 +46,8 @@ export const ERROR_PAGE_URL = 'sc://error/'
 
 export const READER_PAGE_URL = 'sc://reader/'
 
+export const BLOCKED_PAGE_URL = 'sc://blocked/'
+
 /** `httpUrl` offers a way back to plain HTTP when an automatic HTTPS upgrade failed. */
 export function errorPageUrl(failedUrl: string, reason: string, httpUrl?: string | null): string {
   return `${ERROR_PAGE_URL}?${new URLSearchParams({ url: failedUrl, reason, ...(httpUrl ? { http: httpUrl } : {}) })}`
@@ -55,7 +57,7 @@ export const isReaderUrl = (url: string) => url.startsWith(READER_PAGE_URL)
 
 /** The address a tab should present: error and reader pages stand in for the real page. */
 export function effectiveUrl(url: string): string {
-  if (!url.startsWith(ERROR_PAGE_URL) && !isReaderUrl(url)) return url
+  if (!url.startsWith(ERROR_PAGE_URL) && !isReaderUrl(url) && !url.startsWith(BLOCKED_PAGE_URL)) return url
   return new URL(url).searchParams.get('url') ?? url
 }
 

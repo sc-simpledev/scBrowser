@@ -1,6 +1,7 @@
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { DEFAULT_SETTINGS, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
+import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import type { ExtensionManager } from './extensions'
@@ -18,6 +19,7 @@ import type { HistoryRepo } from './storage/history'
 import type { PermissionsRepo } from './storage/permissions'
 import type { SyncService } from './sync'
 import type { TabManager } from './tabs/TabManager'
+import type { VpnService } from './vpn'
 
 const CHANNEL = 'internal:call'
 const ACTIONS: DownloadAction[] = ['pause', 'resume', 'cancel', 'open', 'show', 'remove']
@@ -38,6 +40,8 @@ interface InternalServices {
   extensions: ExtensionManager
   sync: SyncService
   reporter: Reporter
+  blocker: SiteBlocker
+  vpn: VpnService
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -48,6 +52,8 @@ const int = (value: unknown): number => {
   if (!Number.isInteger(value)) throw new Error('Expected an integer')
   return value as number
 }
+
+const optionalId = (value: unknown): string | null => (value === null ? null : text(value, 64))
 
 function skillList(value: unknown): Skill[] {
   if (!Array.isArray(value) || value.length > 100) throw new Error('Too many skills')
@@ -81,7 +87,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn } = services
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
@@ -108,6 +114,30 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'bookmarks:remove': (id) => {
       bookmarks.remove(int(id))
+      onBookmarksChanged()
+    },
+    'bookmarks:edit': (id, title, url) => {
+      const address = text(url)
+      if (!/^(https?|file):/i.test(address)) throw new Error('Use a web address.')
+      bookmarks.edit(int(id), text(title, 1024), address)
+      onBookmarksChanged()
+    },
+    'bookmarks:set-group': (id, groupId) => {
+      bookmarks.setGroup(int(id), groupId === null ? null : int(groupId))
+      onBookmarksChanged()
+    },
+    'bookmarks:groups': () => bookmarks.groups(),
+    'bookmarks:add-group': (name) => {
+      const id = bookmarks.addGroup(text(name, 80))
+      onBookmarksChanged()
+      return id
+    },
+    'bookmarks:rename-group': (id, name) => {
+      bookmarks.renameGroup(int(id), text(name, 80))
+      onBookmarksChanged()
+    },
+    'bookmarks:remove-group': (id) => {
+      bookmarks.removeGroup(int(id))
       onBookmarksChanged()
     },
     'downloads:list': () => downloads.list(),
@@ -220,7 +250,34 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'sync:disable': () => sync.disable(),
     'sync:run': () => sync.run(),
     'reports:list': () => reporter.list(),
-    'reports:clear': () => reporter.clear()
+    'reports:clear': () => reporter.clear(),
+    'blocker:message': () => blocker.message(),
+    'blocker:proceed': (url) => {
+      const address = text(url)
+      const id = caller && tabs.tabIdFor(caller)
+      if (!id || !/^https?:\/\//i.test(address)) throw new Error('Invalid address')
+      blocker.pass(address)
+      tabs.navigate(id, address)
+    },
+    'blocker:leave': () => {
+      const id = caller && tabs.tabIdFor(caller)
+      if (id) tabs.navigate(id, '')
+    },
+    'vpn:state': () => vpn.state(),
+    'vpn:add': (links, groupId) => vpn.add(text(links, 4_000_000), optionalId(groupId)),
+    'vpn:subscribe': (url, name) => vpn.subscribe(text(url), text(name, 80)),
+    'vpn:refresh': (groupId) => vpn.refresh(text(groupId, 64)),
+    'vpn:add-group': (name) => vpn.addGroup(text(name, 80)),
+    'vpn:rename-group': (id, name) => vpn.renameGroup(text(id, 64), text(name, 80)),
+    'vpn:remove-group': (id) => vpn.removeGroup(text(id, 64)),
+    'vpn:move': (id, groupId) => vpn.moveToGroup(text(id, 64), optionalId(groupId)),
+    'vpn:remove': (id) => vpn.remove(text(id, 64)),
+    'vpn:select': (id) => vpn.select(text(id, 64)),
+    'vpn:set-enabled': (enabled) => vpn.setEnabled(enabled === true),
+    'vpn:ping': (ids) => {
+      if (!Array.isArray(ids) || ids.length > 20_000) throw new Error('Too many connections')
+      return vpn.ping(ids.map((id) => text(id, 64)))
+    }
   }
 
   ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {

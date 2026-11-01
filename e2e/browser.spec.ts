@@ -71,7 +71,7 @@ test('bookmarks a page, shows it in the bar and in suggestions', async () => {
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toHaveText('Alpha page')
   await h.chrome.getByRole('button', { name: 'Bookmark this page' }).click()
-  await expect(h.chrome.getByRole('button', { name: 'Remove bookmark' })).toBeVisible()
+  await expect(h.chrome.getByRole('button', { name: 'Edit bookmark' })).toBeVisible()
 
   const bar = h.chrome.getByRole('toolbar', { name: 'Bookmarks' })
   await go(h, site.url('/beta'))

@@ -5,6 +5,8 @@ import {
   overlayRegions,
   unionRect,
   type AccentId,
+  type BookmarkEdit,
+  type BookmarkEditorState,
   type OverlayState,
   type OverlayView,
   type PermissionPopupState,
@@ -23,6 +25,7 @@ export class Overlay {
   private permission: PermissionPopupState | null = null
   private palette: { x: number; y: number } | null = null
   private toast: OverlayView['toast'] = null
+  private bookmarkEditor: BookmarkEditorState | null = null
   private toastTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
 
@@ -30,7 +33,14 @@ export class Overlay {
     private readonly window: BaseWindow,
     onPick: (index: number) => void,
     onPermission: (requestId: number, allow: boolean) => void,
-    private readonly hooks: { onPaletteRun: (id: string) => void; onPaletteClose: () => void; accent: () => AccentId }
+    private readonly hooks: {
+      onPaletteRun: (id: string) => void
+      onPaletteClose: () => void
+      accent: () => AccentId
+      onBookmarkSave: (edit: BookmarkEdit) => string | null
+      onBookmarkRemove: (id: number) => void
+      onBookmarkClose: () => void
+    }
   ) {
     this.view = new WebContentsView({
       webPreferences: {
@@ -57,6 +67,28 @@ export class Overlay {
       if (!Number.isInteger(requestId) || typeof allow !== 'boolean') throw new Error('Invalid arguments')
       onPermission(requestId as number, allow)
     })
+    const fromOverlay = (event: Electron.IpcMainInvokeEvent) => {
+      if (event.sender !== contents) throw new Error('Rejected bookmark edit from untrusted sender')
+    }
+    ipcMain.handle('overlay:bookmark-save', (event, edit: unknown) => {
+      fromOverlay(event)
+      const { id, title, url, groupId } = (edit ?? {}) as BookmarkEdit
+      if (!Number.isInteger(id) || typeof title !== 'string' || title.length > 1024 || typeof url !== 'string' || url.length > 8192) throw new Error('Invalid bookmark')
+      if (groupId !== null && !Number.isInteger(groupId)) throw new Error('Invalid group')
+      const problem = this.hooks.onBookmarkSave({ id, title, url, groupId })
+      if (!problem) this.closeBookmarkEditor()
+      return problem
+    })
+    ipcMain.handle('overlay:bookmark-remove', (event, id: unknown) => {
+      fromOverlay(event)
+      if (!Number.isInteger(id)) throw new Error('Invalid bookmark')
+      this.hooks.onBookmarkRemove(id as number)
+      this.closeBookmarkEditor()
+    })
+    ipcMain.handle('overlay:bookmark-close', (event) => {
+      fromOverlay(event)
+      this.closeBookmarkEditor()
+    })
     ipcMain.handle('overlay:palette-run', (event, id: unknown) => {
       if (event.sender !== contents) throw new Error('Rejected overlay:palette-run from untrusted sender')
       if (typeof id !== 'string') throw new Error('Invalid arguments')
@@ -72,6 +104,18 @@ export class Overlay {
 
     if (process.env.ELECTRON_RENDERER_URL) void contents.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay.html`)
     else void contents.loadFile(join(__dirname, '../renderer/overlay.html'))
+  }
+
+  openBookmarkEditor(editor: BookmarkEditorState): void {
+    this.bookmarkEditor = editor
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  private closeBookmarkEditor(): void {
+    this.bookmarkEditor = null
+    this.render()
+    this.hooks.onBookmarkClose()
   }
 
   /** Re-stacks the overlay on top; call after adding tab views. */
@@ -118,7 +162,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast }
+    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor }
   }
 
   private render(): void {
@@ -149,6 +193,9 @@ export class Overlay {
     ipcMain.removeHandler('overlay:permission')
     ipcMain.removeHandler('overlay:palette-run')
     ipcMain.removeHandler('overlay:palette-close')
+    ipcMain.removeHandler('overlay:bookmark-save')
+    ipcMain.removeHandler('overlay:bookmark-remove')
+    ipcMain.removeHandler('overlay:bookmark-close')
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 
