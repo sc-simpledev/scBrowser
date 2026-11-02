@@ -1,0 +1,473 @@
+/* The intro is always dark: it's the one scene in the app, and it isn't a themed page. */
+.sc-welcome {
+  --sc-welcome-ink: oklch(0.97 0 0);
+  --sc-welcome-soft: oklch(0.97 0 0 / 0.66);
+  --sc-welcome-faint: oklch(0.97 0 0 / 0.42);
+  --sc-welcome-line: oklch(0.97 0 0 / 0.14);
+  --sc-welcome-fill: oklch(0.97 0 0 / 0.07);
+  --sc-welcome-panel: oklch(0.14 0.01 240 / 0.62);
+  --sc-welcome-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 120%, color-mix(in oklab, var(--sc-accent) 22%, black), black 62%);
+  color: var(--sc-welcome-ink);
+  color-scheme: dark;
+  font-family: var(--sc-font-sans);
+  font-size: var(--sc-text-sm);
+  user-select: none;
+  cursor: default;
+}
+
+.sc-welcome-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sc-welcome[data-fallback] .sc-welcome-scene {
+  display: none;
+}
+
+/* The window can still be moved by its top edge. */
+.sc-welcome-grab {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--sc-tabstrip-height);
+  -webkit-app-region: drag;
+}
+
+.sc-welcome-title {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 13vh;
+  text-align: center;
+  pointer-events: none;
+}
+
+.sc-welcome-title h1 {
+  margin: 0;
+  font-size: clamp(56px, 9vw, 112px);
+  font-weight: var(--sc-weight-medium);
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-shadow: 0 0 60px oklch(0 0 0 / 0.5);
+}
+
+.sc-welcome-title h1 span {
+  display: inline-block;
+  animation: sc-welcome-letter 1.8s var(--sc-welcome-ease) both;
+}
+
+.sc-welcome-title p {
+  display: flex;
+  gap: 0.34em;
+  margin: 20px 0 0;
+  color: var(--sc-welcome-soft);
+  font-size: clamp(17px, 2.2vw, 26px);
+  letter-spacing: -0.01em;
+}
+
+.sc-welcome-title p span {
+  animation: sc-welcome-word 1.4s var(--sc-welcome-ease) both;
+}
+
+.sc-welcome-begin {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin-top: 28px;
+  padding: 0 18px;
+  border: 1px solid var(--sc-welcome-line);
+  border-radius: var(--sc-radius-lg);
+  background: var(--sc-welcome-fill);
+  color: var(--sc-welcome-ink);
+  font: inherit;
+  font-weight: var(--sc-weight-medium);
+  opacity: 0;
+  translate: 0 8px;
+  transition: opacity 900ms var(--sc-welcome-ease), translate 900ms var(--sc-welcome-ease), background-color var(--sc-duration-fast);
+}
+
+.sc-welcome-begin[data-show] {
+  opacity: 1;
+  translate: 0 0;
+  pointer-events: auto;
+}
+
+.sc-welcome-begin:hover {
+  background: var(--sc-welcome-line);
+}
+
+.sc-welcome-corner {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: sc-welcome-word 1.2s 1s var(--sc-welcome-ease) both;
+}
+
+.sc-welcome-corner button {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--sc-radius-md);
+  color: var(--sc-welcome-faint);
+  font: inherit;
+  font-size: var(--sc-text-xs);
+  transition: color var(--sc-duration-fast), background-color var(--sc-duration-fast);
+}
+
+.sc-welcome-corner button:hover {
+  background: var(--sc-welcome-fill);
+  color: var(--sc-welcome-ink);
+}
+
+.sc-welcome :focus-visible {
+  outline: 2px solid var(--sc-accent);
+  outline-offset: 2px;
+}
+
+.sc-welcome-panel {
+  position: absolute;
+  top: 50%;
+  left: clamp(32px, 9vw, 140px);
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 64px));
+  height: 540px;
+  max-height: calc(100vh - 96px);
+  padding: 28px;
+  border: 1px solid var(--sc-welcome-line);
+  border-radius: var(--sc-radius-lg);
+  background: var(--sc-welcome-panel);
+  backdrop-filter: blur(28px) saturate(1.3);
+  translate: 0 -50%;
+  animation: sc-welcome-panel 900ms var(--sc-welcome-ease) both;
+}
+
+.sc-welcome-steps {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.sc-welcome-steps li {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--sc-welcome-line);
+  transition: background-color var(--sc-duration-slow);
+}
+
+.sc-welcome-steps li[data-on] {
+  background: var(--sc-accent);
+}
+
+.sc-welcome-panel h2 {
+  margin: 0;
+  font-size: var(--sc-text-xl);
+  font-weight: var(--sc-weight-medium);
+  letter-spacing: -0.03em;
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-welcome-panel > p {
+  margin: 8px 0 0;
+  color: var(--sc-welcome-soft);
+  line-height: var(--sc-leading-normal);
+}
+
+.sc-welcome-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  margin-top: 24px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.sc-welcome-note {
+  margin: 0;
+  color: var(--sc-welcome-faint);
+  line-height: var(--sc-leading-normal);
+}
+
+.sc-welcome-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--sc-welcome-line);
+  border-radius: var(--sc-radius-lg);
+  overflow: hidden;
+}
+
+.sc-welcome-row,
+.sc-welcome-choice,
+.sc-welcome-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--sc-welcome-line);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background-color var(--sc-duration-fast);
+}
+
+.sc-welcome-row:last-child,
+.sc-welcome-choice:last-child,
+.sc-welcome-toggle:last-child {
+  border-bottom: 0;
+}
+
+.sc-welcome-choice:hover,
+.sc-welcome-toggle:hover {
+  background: var(--sc-welcome-fill);
+}
+
+.sc-welcome-row > span,
+.sc-welcome-choice > span,
+.sc-welcome-toggle > span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sc-welcome strong {
+  font-weight: var(--sc-weight-medium);
+}
+
+.sc-welcome small {
+  color: var(--sc-welcome-faint);
+  font-size: var(--sc-text-xs);
+}
+
+.sc-welcome-row button,
+.sc-welcome-text {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-welcome-fill);
+  color: inherit;
+  font: inherit;
+  transition: background-color var(--sc-duration-fast);
+}
+
+.sc-welcome-row button:hover:enabled,
+.sc-welcome-text:hover {
+  background: var(--sc-welcome-line);
+}
+
+.sc-welcome-row button:disabled {
+  color: var(--sc-welcome-faint);
+}
+
+.sc-welcome-text {
+  align-self: flex-start;
+}
+
+.sc-welcome-choice i {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--sc-welcome-line);
+  border-radius: 50%;
+  transition: background-color var(--sc-duration-fast), border-color var(--sc-duration-fast);
+}
+
+.sc-welcome-choice[aria-checked='true'] i {
+  border-color: var(--sc-accent);
+  background: var(--sc-accent);
+  color: black;
+}
+
+.sc-welcome-segments {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--sc-welcome-line);
+  border-radius: var(--sc-radius-lg);
+}
+
+.sc-welcome-segments button {
+  height: 32px;
+  border-radius: var(--sc-radius-md);
+  color: var(--sc-welcome-soft);
+  font: inherit;
+  transition: background-color var(--sc-duration-fast), color var(--sc-duration-fast);
+}
+
+.sc-welcome-segments button[aria-checked='true'] {
+  background: var(--sc-welcome-line);
+  color: var(--sc-welcome-ink);
+}
+
+.sc-welcome-swatches {
+  display: flex;
+  gap: 12px;
+  padding: 4px;
+}
+
+.sc-welcome-swatches button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  outline: 1px solid var(--sc-welcome-line);
+  outline-offset: 2px;
+  transition: outline-color var(--sc-duration-fast);
+}
+
+.sc-welcome-swatches button[aria-checked='true'] {
+  outline: 2px solid var(--sc-welcome-ink);
+}
+
+[data-swatch='teal'] { background: oklch(0.72 0.105 200); }
+[data-swatch='ember'] { background: oklch(0.72 0.17 38); }
+[data-swatch='ocean'] { background: oklch(0.72 0.17 240); }
+[data-swatch='forest'] { background: oklch(0.72 0.17 155); }
+[data-swatch='iris'] { background: oklch(0.72 0.17 285); }
+[data-swatch='rose'] { background: oklch(0.72 0.17 0); }
+
+.sc-welcome-toggle input {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border-radius: 9px;
+  appearance: none;
+  background: var(--sc-welcome-line);
+  transition: background-color var(--sc-duration-base);
+}
+
+.sc-welcome-toggle input::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--sc-welcome-ink);
+  content: '';
+  transition: translate var(--sc-duration-base) var(--sc-ease-out);
+}
+
+.sc-welcome-toggle input:checked {
+  background: var(--sc-accent);
+}
+
+.sc-welcome-toggle input:checked::after {
+  translate: 12px 0;
+}
+
+.sc-welcome-panel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.sc-welcome-back {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--sc-radius-md);
+  color: var(--sc-welcome-soft);
+  transition: background-color var(--sc-duration-fast);
+}
+
+.sc-welcome-back:hover {
+  background: var(--sc-welcome-fill);
+}
+
+.sc-welcome-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-welcome-ink);
+  color: black;
+  font: inherit;
+  font-weight: var(--sc-weight-medium);
+  transition: opacity var(--sc-duration-fast);
+}
+
+.sc-welcome-next:hover {
+  opacity: 0.88;
+}
+
+/* Everything washes out to the page as the camera reaches the ground. */
+.sc-welcome-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--sc-surface);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sc-welcome[data-stage='leaving'] .sc-welcome-flash {
+  animation: sc-welcome-flash 1500ms cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+.sc-welcome[data-stage='leaving'] .sc-welcome-corner {
+  visibility: hidden;
+}
+
+/* Reduced motion gets the finished picture and simple fades. */
+.sc-welcome[data-still] * {
+  animation-delay: 0s !important;
+  animation-duration: 1ms !important;
+}
+
+@keyframes sc-welcome-letter {
+  from {
+    opacity: 0;
+    filter: blur(16px);
+    translate: 0 0.12em;
+    letter-spacing: 0.14em;
+  }
+}
+
+@keyframes sc-welcome-word {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    translate: 0 6px;
+  }
+}
+
+@keyframes sc-welcome-panel {
+  from {
+    opacity: 0;
+    translate: -16px -50%;
+  }
+}
+
+@keyframes sc-welcome-flash {
+  to {
+    opacity: 1;
+  }
+}

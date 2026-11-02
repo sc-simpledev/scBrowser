@@ -34,4 +34,22 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
-publish: null
+mac:
+  # The zip is what updates are checked against, and one is built on each kind of Mac.
+  target: [dmg, zip]
+  category: public.app-category.productivity
+  artifactName: scTerra-${version}-${arch}-mac.${ext}
+  # No certificate yet: Apple silicon still needs this ad-hoc signature to start at all.
+  identity: '-'
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extendInfo:
+    NSCameraUsageDescription: Websites you allow can use your camera.
+    NSMicrophoneUsageDescription: Websites you allow can use your microphone.
+# Only installers go here. The source stays in the private repo.
+publish:
+  provider: github
+  owner: sc-simpledev
+  repo: scTerra
+  # A release stays a draft until every platform has finished, so nobody gets half of one.
+  releaseType: draft

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { IconButton } from '@scbrowser/ui'
 import { useTabs } from '../state/tabs'
 import { Tab } from './Tab'
+import { WorkspaceBar } from './WorkspaceBar'
 
 export function TabStrip() {
   const tabs = useTabs((s) => s.tabs)
@@ -12,6 +13,7 @@ export function TabStrip() {
 
   return (
     <div className="sc-drag sc-wco-inset flex h-(--sc-tabstrip-height) shrink-0 items-center pl-1.5">
+      <WorkspaceBar direction="row" showAdd={false} />
       <div role="tablist" aria-label="Tabs" className="flex min-w-0 flex-1 items-center gap-1">
         {tabs.map((tab, index) => (
           <Tab

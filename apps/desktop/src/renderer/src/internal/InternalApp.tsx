@@ -15,6 +15,7 @@ import { NewTabPage } from './pages/NewTabPage'
 import { PdfPage } from './pages/PdfPage'
 import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
 import { VpnPage } from './pages/VpnPage'
+import { WelcomePage } from './welcome/WelcomePage'
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
@@ -31,6 +32,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
 export function InternalApp() {
   if (location.host === 'blocked') return <BlockedPage />
   if (location.host === 'pdf') return <PdfPage />
+  if (location.host === 'welcome') return <WelcomePage />
   return location.host === 'newtab' ? (
     <TooltipProvider>
       <NewTabPage />

@@ -189,7 +189,11 @@ export class SyncService {
         if (entry) visits[url] = { title: entry.title, visitCount: entry.visitCount, lastVisit: entry.lastVisit }
       }
     }
+    const groups = bookmarks.groups()
+    const names = new Map(groups.map(({ id, name }) => [id, name]))
     return {
+      groups: Object.fromEntries(groups.map(({ name }) => [name, true as const])),
+      placements: Object.fromEntries(bookmarks.list().flatMap(({ url, groupId }) => (groupId !== null && names.has(groupId) ? [[url, names.get(groupId)!]] : []))),
       bookmarks: Object.fromEntries(bookmarks.list().map(({ url, title }) => [url, title])),
       // With history switched off, leave what's in the folder as it is.
       history: current.syncHistory ? visits : base.history,
@@ -209,6 +213,7 @@ export class SyncService {
       else continue
       changed = true
     }
+    if (this.applyGroups(merged)) changed = true
     if (changed) onBookmarksChanged()
 
     if (settings.get().syncHistory) {
@@ -222,6 +227,33 @@ export class SyncService {
     const current = settings.get()
     const differs = Object.entries(patch).some(([key, value]) => JSON.stringify(value) !== JSON.stringify(current[key as keyof Settings]))
     if (differs) settings.set(patch)
+  }
+
+  /** Groups travel by name, as their ids differ between devices. */
+  private applyGroups(merged: SyncData): boolean {
+    const { bookmarks } = this.deps
+    const wanted = merged.groups ?? {}
+    let changed = false
+    for (const { id, name } of bookmarks.groups()) {
+      if (Object.hasOwn(wanted, name)) continue
+      bookmarks.removeGroup(id)
+      changed = true
+    }
+    const present = new Set(bookmarks.groups().map(({ name }) => name))
+    for (const name of Object.keys(wanted)) {
+      if (present.has(name)) continue
+      bookmarks.addGroup(name)
+      changed = true
+    }
+    const ids = new Map(bookmarks.groups().map(({ id, name }) => [name, id]))
+    for (const { id, url, groupId } of bookmarks.list()) {
+      const name = merged.placements?.[url]
+      const target = name === undefined ? null : (ids.get(name) ?? null)
+      if (target === groupId) continue
+      bookmarks.setGroup(id, target)
+      changed = true
+    }
+    return changed
   }
 
   /** The merge also drops the oldest visits to stay small; those stay on this device. */

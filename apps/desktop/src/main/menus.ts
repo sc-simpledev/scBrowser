@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type BookmarkGroup, type TabId } from '@scbrowser/shared'
+import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import type { BookmarksRepo } from './storage/bookmarks'
 
@@ -125,6 +125,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { type: 'separator' },
     { label: 'Organise tabs into groups', click: actions.organiseTabs },
     { label: 'Remove tab groups', click: () => tabs.clearGroups() },
+    { label: 'Clean up tabs', click: actions.cleanupTabs },
     { label: 'Reopen closed tab', click: () => tabs.reopenClosed() }
   ]).popup({ window })
 }
@@ -189,39 +190,44 @@ export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHook
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
 
-export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, window: BaseWindow, x: number, y: number): void {
+export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, update: UpdateState, window: BaseWindow, x: number, y: number): void {
   const { tabs } = actions
   const active = tabs.active
   const onActive = (action: (id: TabId) => void) => () => active && action(active.id)
+  const updateRow: MenuItemConstructorOptions[] =
+    update.phase === 'ready' || update.phase === 'manual'
+      ? [{ label: update.phase === 'ready' ? `Restart to update to ${update.version}` : `Get version ${update.version}`, click: actions.installUpdate }, { type: 'separator' }]
+      : []
   Menu.buildFromTemplate([
-    { label: 'New tab', accelerator: 'Ctrl+T', click: () => tabs.create() },
-    { label: 'Reopen closed tab', accelerator: 'Ctrl+Shift+T', click: () => tabs.reopenClosed() },
+    ...updateRow,
+    { label: 'New tab', accelerator: 'CmdOrCtrl+T', click: () => tabs.create() },
+    { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => tabs.reopenClosed() },
     { type: 'separator' },
-    { label: 'History', accelerator: 'Ctrl+H', click: () => actions.openPage('history') },
-    { label: 'Assistant', accelerator: 'Ctrl+Shift+A', click: actions.toggleAssistant },
-    { label: 'New private window', accelerator: 'Ctrl+Shift+N', click: actions.openPrivateWindow },
+    { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
+    { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
+    { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
     { type: 'separator' },
-    { label: 'Bookmarks', accelerator: 'Ctrl+Shift+O', click: () => actions.openPage('bookmarks') },
-    { label: 'Downloads', accelerator: 'Ctrl+J', click: () => actions.openPage('downloads') },
-    { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'Ctrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
+    { label: 'Bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
+    { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
+    { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'CmdOrCtrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
     { type: 'separator' },
-    { label: 'Find in page…', accelerator: 'Ctrl+F', click: actions.openFind },
+    { label: 'Find in page…', accelerator: 'CmdOrCtrl+F', click: actions.openFind },
     { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
-    { label: 'Command palette', accelerator: 'Ctrl+K', click: actions.togglePalette },
-    { label: 'Screenshot', accelerator: 'Ctrl+Shift+S', click: actions.screenshot },
-    { label: 'Print…', accelerator: 'Ctrl+P', click: onActive((id) => tabs.print(id)) },
+    { label: 'Command palette', accelerator: 'CmdOrCtrl+K', click: actions.togglePalette },
+    { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', click: actions.screenshot },
+    { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: onActive((id) => tabs.print(id)) },
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,
       submenu: [
-        { label: 'Zoom in', accelerator: 'Ctrl+=', click: onActive((id) => tabs.zoomBy(id, 1)) },
-        { label: 'Zoom out', accelerator: 'Ctrl+-', click: onActive((id) => tabs.zoomBy(id, -1)) },
-        { label: 'Reset', accelerator: 'Ctrl+0', click: onActive((id) => tabs.setZoom(id, 1)) }
+        { label: 'Zoom in', accelerator: 'CmdOrCtrl+=', click: onActive((id) => tabs.zoomBy(id, 1)) },
+        { label: 'Zoom out', accelerator: 'CmdOrCtrl+-', click: onActive((id) => tabs.zoomBy(id, -1)) },
+        { label: 'Reset', accelerator: 'CmdOrCtrl+0', click: onActive((id) => tabs.setZoom(id, 1)) }
       ]
     },
     { label: 'Full screen', accelerator: 'F11', click: actions.toggleFullscreen },
     { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) },
     { type: 'separator' },
     { label: 'Settings', click: () => actions.openPage('settings') },
-    { label: 'Quit', accelerator: 'Ctrl+Q', click: actions.quit }
+    { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: actions.quit }
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }

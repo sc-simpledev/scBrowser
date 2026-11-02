@@ -25,9 +25,9 @@ Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: 
 
 Built but needs a manual check, as automated tests can't drive them: print dialog, camera and microphone prompts, fullscreen video, Ctrl+scroll zoom, save-as dialogs, set as default browser (packaged builds only; Windows opens system settings).
 
-Known limits to pick up later: geolocation needs a Google API key in Electron; bookmarks have no folders yet; zoom isn't kept across restarts; HTTP auth dialogs aren't handled; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
+Known limits to pick up later: geolocation needs a Google API key in Electron; bookmarks have no folders yet; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
 
-**Phase 2 — nearly done.**
+**Phase 2 — done.**
 - [x] Provider layer: Anthropic (official SDK), OpenAI, Gemini, OpenRouter, Ollama, LM Studio, custom endpoints with extra headers
 - [x] Keys encrypted with the OS keychain, never sent to any page or UI
 - [x] `sc://ai` settings: add providers, test connection, choose the chat model, token usage
@@ -37,9 +37,9 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] PDF chat, parsed in a separate process (scans have no text and need OCR, which isn't built)
 - [x] Estimated cost for Anthropic's own API, tokens only for other providers
 - [x] Saved conversations, stored on this device with an off switch; page text isn't kept
-- [ ] Inline answers in the omnibox dropdown
+- [x] Inline answers in the address bar: Ask scTerra opens an answer card, and it can carry on in the assistant
 
-**Phase 3 — nearly done.**
+**Phase 3 — done.**
 - [x] Tracking protection (off, standard, strict) at the network level, with per-site exceptions and a blocked count
 - [x] HTTPS-only mode with a fallback prompt
 - [x] Reader view
@@ -48,9 +48,9 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Cosmetic filtering (hides ad placeholders with CSS once a page has loaded; ads added later aren't caught yet)
 - [x] Containers, from the tab menu
 - [x] Separate profiles, opened from Settings as their own window
-- [x] Split view (from the tab menu or Ctrl K, 50/50 and not restored after a restart yet)
+- [x] Split view (from the tab menu or Ctrl K, 50/50, restored after a restart)
 - [x] Vertical tabs as the default, with close on the favicon
-- [x] Toolbar items can be shown or hidden (no drag-to-arrange yet)
+- [x] Toolbar items can be shown, hidden and dragged anywhere in the bar
 - [x] `sc://flags`, screenshot tool (Ctrl Shift S)
 - [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox
 
@@ -75,13 +75,25 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. It covers every browser session, including containers and the assistant's requests, not other apps, and fails closed if the core stops. Ping loads a real 204 page through each connection, with a time limit set on `sc://vpn`.
 
-**Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. They don't sync yet: sync still carries only addresses and names.
+**Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. Group names and membership sync, by name. Their order on the bar doesn't.
 
 **Private windows.** Ctrl Shift N starts a separate copy of the app from a throwaway folder in the system temp directory, like a profile. It brings bookmarks and settings, but no history, AI keys or extensions, and a small watcher process deletes the folder after it closes or crashes.
 
 **PDF viewer.** PDFs open in `sc://pdf`, a pdf.js page with thumbnails, zoom, rotate, selectable text (so Ctrl F works), download and print. Chromium's own viewer stays as a fallback for damaged or locked files.
 
-**Auto-updates.** Proposed in [docs/auto-update.md](docs/auto-update.md), not built yet.
+**Auto-updates.** Built, as set out in [docs/auto-update.md](docs/auto-update.md). New versions download in the background and install on restart, from the public release repo. A switch in Settings turns it off.
+
+**First-run intro.** `sc://welcome` plays once, filling the window: the sun rises over a dotted Earth drawn by one WebGL shader, the name and "Browse the World" appear, and setup follows beside the globe (import, look, AI, privacy). It can be skipped at any point, played again from Settings, and has an optional sound made on the spot. Existing users don't see it.
+
+**Workspaces.** Separate sets of tabs, switched from the sidebar or with Ctrl Alt and a number. Each can turn Focus Mode on while it's open.
+
+**Tab clean-up.** Offers duplicates and tabs left for a week, plus, if AI is set up and only when asked, tabs that look finished with. Nothing closes without a tick.
+
+**Sign-in boxes.** Sites and proxies that ask for a username and password get a box in the overlay. Nothing is saved.
+
+**Scanned PDFs.** `sc://pdf` spots scans, and reads up to 30 pages on the computer with Tesseract, in English. That makes them searchable and selectable, and the assistant starts it by itself when asked about one.
+
+**macOS.** Builds for Apple silicon and Intel, with Mac shortcuts, window controls and menus. Not yet run on a real Mac.
 
 **Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scTerra applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 

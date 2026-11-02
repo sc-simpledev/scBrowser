@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cx } from '@scbrowser/ui'
-import { matchCommands, PALETTE_POPUP } from '@scbrowser/shared'
+import { matchCommands, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
 
 const ROW_HEIGHT = 36
 
@@ -78,7 +78,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
             className={cx('flex items-center justify-between rounded-lg px-2.5', index === selected && 'bg-accent-soft')}
           >
             {command.label}
-            {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{command.shortcut}</kbd>}
+            {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{shortcutLabel(command.shortcut, window.scbOverlay.platform)}</kbd>}
           </li>
         ))}
       </ul>

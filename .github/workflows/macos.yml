@@ -1,0 +1,39 @@
+name: macOS
+
+# Kept apart from CI because a private repo's macOS minutes count ten times over.
+# Run it from the Actions tab whenever a Mac build is wanted. Releases build Macs anyway.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Apple silicon, then Intel.
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec playwright test
+      - name: Build installers
+        # A failing test shouldn't stop people getting a build to try.
+        if: ${{ !cancelled() }}
+        run: pnpm dist
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: scterra-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*/*.dmg
+            apps/desktop/release/*/*.zip
+          if-no-files-found: ignore

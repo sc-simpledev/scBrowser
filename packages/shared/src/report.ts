@@ -247,3 +247,58 @@ export const REPORT_INSTRUCTIONS = `Usually answer in normal text. When the answ
 Theme is clean for general use, editorial for long reading, or brief for short decisions. Heading levels are 2 or 3. All text is plain: never write HTML, CSS, Markdown or styling, because the design is applied for you.
 
 The block must be valid JSON. Use straight double quotes, escape any double quote inside text as \\", write line breaks as \\n, and leave no trailing commas. Don't put backticks or code fences inside text. Stay under about 1,500 words so the report isn't cut off, and write the whole block before any closing remarks.`
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
+function blockHtml(block: ReportBlock): string {
+  const e = escapeHtml
+  switch (block.type) {
+    case 'heading':
+      return block.level === 3 ? `<h3>${e(block.text)}</h3>` : `<h2>${e(block.text)}</h2>`
+    case 'paragraph':
+      return `<p>${e(block.text)}</p>`
+    case 'list': {
+      const tag = block.ordered ? 'ol' : 'ul'
+      return `<${tag}>${block.items.map((item) => `<li>${e(item)}</li>`).join('')}</${tag}>`
+    }
+    case 'quote':
+      return `<blockquote>${e(block.text)}</blockquote>`
+    case 'callout':
+      return `<div class="callout">${e(block.text)}</div>`
+    case 'table':
+      return `<div class="table"><table><thead><tr>${block.headers.map((header) => `<th>${e(header)}</th>`).join('')}</tr></thead><tbody>${block.rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${e(cell)}</td>`).join('')}</tr>`)
+        .join('')}</tbody></table></div>`
+    case 'spacer':
+      return '<div class="spacer"></div>'
+    case 'divider':
+      return '<hr>'
+  }
+}
+
+/** A report as one file with no scripts or outside requests, safe to send to someone. */
+export function reportHtml(report: Report, css: string): string {
+  const e = escapeHtml
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>${e(report.title)}</title>
+<style>
+${css}
+body { margin: 0; padding: 40px 24px; background: var(--sc-surface); color: var(--sc-text); font-family: var(--sc-font-sans); font-size: var(--sc-text-sm); }
+.sc-report { max-width: 720px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<article class="sc-report" data-theme="${e(report.theme)}">
+<h1>${e(report.title)}</h1>
+${report.summary ? `<p class="summary">${e(report.summary)}</p>` : ''}
+${report.blocks.map(blockHtml).join('\n')}
+</article>
+</body>
+</html>
+`
+}

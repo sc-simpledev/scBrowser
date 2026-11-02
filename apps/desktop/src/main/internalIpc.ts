@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { buildSuggestions, DEFAULT_SETTINGS, engineById, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
@@ -22,6 +23,7 @@ import type { HistoryRepo } from './storage/history'
 import type { PermissionsRepo } from './storage/permissions'
 import type { SyncService } from './sync'
 import type { TabManager } from './tabs/TabManager'
+import type { UpdateService } from './updater'
 import type { VpnService } from './vpn'
 
 const CHANNEL = 'internal:call'
@@ -45,6 +47,9 @@ interface InternalServices {
   reporter: Reporter
   blocker: SiteBlocker
   vpn: VpnService
+  updates: UpdateService
+  /** The intro's tab takes over the window, or gives it back. */
+  setIntro: (tabId: number | null) => void
 }
 
 const text = (value: unknown, max = 8192): string => {
@@ -90,7 +95,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, updates, setIntro } = services
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
@@ -300,6 +305,30 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'vpn:ping-stop': () => vpn.stopPing(),
     'vpn:ping-progress': () => vpn.pingProgress(),
+    'report:save': async (name, html) => {
+      const title = text(name, 200).replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || 'Report'
+      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, {
+        defaultPath: `${title}.html`,
+        filters: [{ name: 'Web page', extensions: ['html'] }]
+      })
+      if (result.canceled || !result.filePath) return false
+      await writeFile(result.filePath, text(html, 8_000_000))
+      return true
+    },
+    'updates:state': () => updates.state(),
+    'updates:check': () => updates.check(),
+    'updates:install': () => updates.install(),
+    'welcome:finish': () => {
+      const id = caller && tabs.tabIdFor(caller)
+      setIntro(null)
+      if (id) tabs.navigate(id, '')
+    },
+    'welcome:replay': () => {
+      const id = caller && tabs.tabIdFor(caller)
+      if (!id) return
+      tabs.navigate(id, 'sc://welcome')
+      setIntro(id)
+    },
     'pdf:load': async () => {
       const address = caller && pdfSource(caller)
       return address ? fetchPdf(caller!.session, address) : null

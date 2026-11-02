@@ -21,7 +21,7 @@ const staticPages: Record<string, () => string> = {
 /** Internal pages can never be framed by a website. */
 const FRAME_POLICY = "frame-ancestors 'none'"
 
-const isAppPage = (host: string): boolean => host === 'newtab' || host === 'blocked' || host === 'pdf' || (INTERNAL_PAGES as readonly string[]).includes(host)
+const isAppPage = (host: string): boolean => host === 'newtab' || host === 'blocked' || host === 'pdf' || host === 'welcome' || (INTERNAL_PAGES as readonly string[]).includes(host)
 
 /** The React pages share one bundle, served from the build output (or dev server). */
 async function serveAppPage(url: URL): Promise<Response> {

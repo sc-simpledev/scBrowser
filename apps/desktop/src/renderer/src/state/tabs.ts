@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { TabState, TabsSnapshot } from '@scbrowser/shared'
+import { DEFAULT_WORKSPACE, type TabState, type TabsSnapshot } from '@scbrowser/shared'
 
 interface TabsStore extends TabsSnapshot {
   /** Bumped whenever the omnibox should take focus (Ctrl+L, new tab…). */
@@ -12,6 +12,8 @@ export const useTabs = create<TabsStore>((set) => ({
   tabs: [],
   activeId: null,
   splitIds: [],
+  workspaces: [DEFAULT_WORKSPACE],
+  activeWorkspace: DEFAULT_WORKSPACE.id,
   omniboxFocusRequest: 0,
   setSnapshot: (snapshot) => set(snapshot),
   requestOmniboxFocus: () => set((s) => ({ omniboxFocusRequest: s.omniboxFocusRequest + 1 }))

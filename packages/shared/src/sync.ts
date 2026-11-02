@@ -19,12 +19,16 @@ export interface SyncData {
   bookmarks: Record<string, string>
   history: Record<string, SyncedVisit>
   settings: Partial<Settings>
+  /** Bookmark group names. Files written by older versions leave these two out. */
+  groups?: Record<string, true>
+  /** The group each bookmark is in, by address. */
+  placements?: Record<string, string>
 }
 
 export const EMPTY_SYNC: SyncData = { bookmarks: {}, history: {}, settings: {} }
 
 /** These describe this computer, not the person. */
-export const LOCAL_SETTINGS: (keyof Settings)[] = ['downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode']
+export const LOCAL_SETTINGS: (keyof Settings)[] = ['downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode', 'autoUpdate']
 
 export const MAX_SYNCED_HISTORY = 5000
 
@@ -70,7 +74,12 @@ function recent(history: Record<string, SyncedVisit>): Record<string, SyncedVisi
 }
 
 export function mergeSync(base: SyncData, local: SyncData, remote: SyncData): SyncData {
+  // An older version rewrote the file without groups, which isn't the same as deleting them.
+  const groups = remote.groups ? mergeEntries(base.groups ?? {}, local.groups ?? {}, remote.groups) : (local.groups ?? {})
+  const placements = remote.placements ? mergeEntries(base.placements ?? {}, local.placements ?? {}, remote.placements) : (local.placements ?? {})
   return {
+    groups,
+    placements,
     bookmarks: mergeEntries(base.bookmarks, local.bookmarks, remote.bookmarks),
     history: recent(mergeEntries(base.history, local.history, remote.history, newestVisit)),
     settings: mergeEntries(base.settings, local.settings, remote.settings) as Partial<Settings>

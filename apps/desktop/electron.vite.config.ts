@@ -1,6 +1,6 @@
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
@@ -22,6 +22,20 @@ const copyExtensionPreloads = (): Plugin => ({
     const { resolve: find } = createRequire(__filename)
     copyFileSync(find('electron-chrome-extensions/preload'), resolve(out, 'chrome-extension-api.preload.js'))
     copyFileSync(find('electron-chrome-web-store/preload'), resolve(out, 'chrome-web-store.preload.js'))
+  }
+})
+
+/** Text recognition runs from files in the app, so scans never go anywhere. Vite serves this folder as it is. */
+const copyOcrFiles = (): Plugin => ({
+  name: 'scb-copy-ocr-files',
+  buildStart() {
+    const out = resolve(__dirname, 'src/renderer/public/ocr')
+    mkdirSync(out, { recursive: true })
+    const { resolve: find } = createRequire(__filename)
+    const core = dirname(find('tesseract.js-core/package.json'))
+    copyFileSync(join(dirname(find('tesseract.js/package.json')), 'dist/worker.min.js'), join(out, 'worker.min.js'))
+    copyFileSync(join(dirname(find('@tesseract.js-data/eng/package.json')), '4.0.0/eng.traineddata.gz'), join(out, 'eng.traineddata.gz'))
+    for (const file of readdirSync(core).filter((name) => name.endsWith('lstm.wasm.js'))) copyFileSync(join(core, file), join(out, file))
   }
 })
 
@@ -51,7 +65,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
-    plugins: [react(), tailwindcss(), stripCspInDev()],
+    plugins: [react(), tailwindcss(), stripCspInDev(), copyOcrFiles()],
     build: {
       minify: true,
       rollupOptions: {

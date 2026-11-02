@@ -52,7 +52,7 @@ jobs:
         with:
           name: scterra-${{ matrix.os }}
           path: |
-            apps/desktop/release/**/*.AppImage
-            apps/desktop/release/**/*.deb
-            apps/desktop/release/**/*.exe
+            apps/desktop/release/*/*.AppImage
+            apps/desktop/release/*/*.deb
+            apps/desktop/release/*/*.exe
           if-no-files-found: ignore

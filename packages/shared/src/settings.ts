@@ -1,5 +1,5 @@
 import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
-import { TOOLBAR_ITEMS, type ToolbarItemId } from './containers'
+import { isToolbarOrder, TOOLBAR_ITEMS, TOOLBAR_SLOTS, type ToolbarItemId, type ToolbarSlot } from './containers'
 import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
@@ -78,6 +78,7 @@ export interface Settings {
   /** A faint wash of the accent behind the toolbar and browser pages. */
   accentTint: boolean
   hiddenToolbarItems: ToolbarItemId[]
+  toolbarOrder: ToolbarSlot[]
   translateTo: TranslateLanguage
   newTab: NewTabConfig
   /** How long a VPN ping waits before moving to the next connection. */
@@ -90,6 +91,8 @@ export interface Settings {
   /** Off until the person turns them on. */
   crashReports: boolean
   usageStats: boolean
+  /** Download new versions in the background. */
+  autoUpdate: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -110,6 +113,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: 'teal',
   accentTint: false,
   hiddenToolbarItems: [],
+  toolbarOrder: [...TOOLBAR_SLOTS],
   translateTo: 'English',
   newTab: DEFAULT_NEW_TAB,
   vpnPingTimeout: 3000,
@@ -117,7 +121,8 @@ export const DEFAULT_SETTINGS: Settings = {
   focusMode: false,
   syncHistory: true,
   crashReports: false,
-  usageStats: false
+  usageStats: false,
+  autoUpdate: true
 }
 
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
@@ -141,13 +146,15 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   accentTint: (v) => typeof v === 'boolean',
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
+  toolbarOrder: isToolbarOrder,
   newTab: isNewTabConfig,
   vpnPingTimeout: (v) => Number.isInteger(v) && (v as number) >= 200 && (v as number) <= 30_000,
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',
   crashReports: (v) => typeof v === 'boolean',
-  usageStats: (v) => typeof v === 'boolean'
+  usageStats: (v) => typeof v === 'boolean',
+  autoUpdate: (v) => typeof v === 'boolean'
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

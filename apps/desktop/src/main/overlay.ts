@@ -5,11 +5,17 @@ import {
   overlayRegions,
   unionRect,
   type AccentId,
+  type AuthPopupState,
   type BookmarkEdit,
   type BookmarkEditorState,
+  type ChromeEvents,
+  type CleanupPopupState,
   type OverlayState,
   type OverlayView,
   type PermissionPopupState,
+  type TabId,
+  type WorkspaceEdit,
+  type WorkspaceEditorState,
   PALETTE_POPUP
 } from '@scbrowser/shared'
 
@@ -26,8 +32,12 @@ export class Overlay {
   private palette: { x: number; y: number } | null = null
   private toast: OverlayView['toast'] = null
   private bookmarkEditor: BookmarkEditorState | null = null
+  private auth: AuthPopupState | null = null
+  private cleanup: CleanupPopupState | null = null
+  private workspaceEditor: WorkspaceEditorState | null = null
   private toastTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
+  private readonly channels: string[] = []
 
   constructor(
     private readonly window: BaseWindow,
@@ -40,6 +50,13 @@ export class Overlay {
       onBookmarkSave: (edit: BookmarkEdit) => string | null
       onBookmarkRemove: (id: number) => void
       onBookmarkClose: () => void
+      onAnswerAction: (action: ChromeEvents['omnibox:answer-action']) => void
+      onAnswerLink: (href: string) => void
+      onAuth: (requestId: number, login: { username: string; password: string } | null) => void
+      onCleanup: (ids: TabId[] | null) => void
+      onWorkspaceSave: (edit: WorkspaceEdit) => void
+      onWorkspaceRemove: (id: string) => void
+      onPopupClosed: () => void
     }
   ) {
     this.view = new WebContentsView({
@@ -99,6 +116,45 @@ export class Overlay {
       if (event.sender !== contents) throw new Error('Rejected overlay:palette-close from untrusted sender')
       this.closePalette()
     })
+    const handle = (channel: string, listener: (...args: unknown[]) => void) => {
+      this.channels.push(channel)
+      ipcMain.handle(channel, (event, ...args: unknown[]) => {
+        if (event.sender !== contents) throw new Error(`Rejected ${channel} from untrusted sender`)
+        listener(...args)
+      })
+    }
+    handle('overlay:answer-action', (action) => {
+      if (action === 'close' || action === 'continue' || action === 'stop') this.hooks.onAnswerAction(action)
+    })
+    handle('overlay:answer-link', (href) => {
+      if (typeof href === 'string' && href.length <= 8192) this.hooks.onAnswerLink(href)
+    })
+    handle('overlay:auth', (requestId, login) => {
+      if (!Number.isInteger(requestId)) throw new Error('Invalid arguments')
+      const { username, password } = (login ?? {}) as { username?: unknown; password?: unknown }
+      const answer = typeof username === 'string' && typeof password === 'string' && username.length <= 1024 && password.length <= 4096 ? { username, password } : null
+      this.hooks.onAuth(requestId as number, answer)
+      this.hooks.onPopupClosed()
+    })
+    handle('overlay:cleanup', (ids) => {
+      const list = Array.isArray(ids) && ids.every(Number.isInteger) ? (ids as TabId[]) : null
+      this.cleanup = null
+      this.render()
+      this.hooks.onCleanup(list)
+      this.hooks.onPopupClosed()
+    })
+    handle('overlay:workspace-save', (edit) => {
+      const { id, name, focus } = (edit ?? {}) as WorkspaceEdit
+      if ((id !== null && typeof id !== 'string') || typeof name !== 'string' || name.length > 40 || typeof focus !== 'boolean') throw new Error('Invalid workspace')
+      this.hooks.onWorkspaceSave({ id, name, focus })
+      this.closeWorkspaceEditor()
+    })
+    handle('overlay:workspace-remove', (id) => {
+      if (typeof id !== 'string') throw new Error('Invalid workspace')
+      this.hooks.onWorkspaceRemove(id)
+      this.closeWorkspaceEditor()
+    })
+    handle('overlay:workspace-close', () => this.closeWorkspaceEditor())
     // A crashed overlay shouldn't take popups down for the rest of the session.
     contents.on('render-process-gone', () => contents.reload())
 
@@ -116,6 +172,30 @@ export class Overlay {
     this.bookmarkEditor = null
     this.render()
     this.hooks.onBookmarkClose()
+  }
+
+  setAuth(auth: AuthPopupState | null): void {
+    this.auth = auth
+    this.render()
+    if (auth) this.view.webContents.focus()
+  }
+
+  openCleanup(cleanup: CleanupPopupState): void {
+    this.cleanup = cleanup
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  openWorkspaceEditor(editor: WorkspaceEditorState): void {
+    this.workspaceEditor = editor
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  private closeWorkspaceEditor(): void {
+    this.workspaceEditor = null
+    this.render()
+    this.hooks.onPopupClosed()
   }
 
   /** Re-stacks the overlay on top; call after adding tab views. */
@@ -162,7 +242,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor }
+    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
   }
 
   private render(): void {
@@ -196,6 +276,7 @@ export class Overlay {
     ipcMain.removeHandler('overlay:bookmark-save')
     ipcMain.removeHandler('overlay:bookmark-remove')
     ipcMain.removeHandler('overlay:bookmark-close')
+    this.channels.forEach((channel) => ipcMain.removeHandler(channel))
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 

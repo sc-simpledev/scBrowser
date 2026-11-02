@@ -9,3 +9,4 @@ coverage/
 test-results/
 playwright-report/
 apps/desktop/resources/
+apps/desktop/src/renderer/public/

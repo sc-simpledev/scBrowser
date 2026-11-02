@@ -9,7 +9,8 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (input.type !== 'keyDown') return false
   const { tabs } = actions
   const key = input.key.toLowerCase()
-  const mod = input.control
+  // A Mac's Command does what Control does elsewhere; Ctrl Tab is Ctrl everywhere.
+  const mod = process.platform === 'darwin' ? input.meta : input.control
   const active = tabs.active
 
   const run = (action: () => void) => {
@@ -25,8 +26,14 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if ((mod && key === 'r') || key === 'f5') return onActive((id) => tabs.reload(id, input.shift || mod && key === 'f5'))
   if (input.alt && key === 'arrowleft') return onActive((id) => tabs.back(id))
   if (input.alt && key === 'arrowright') return onActive((id) => tabs.forward(id))
-  if (mod && key === 'tab') return run(() => tabs.activateRelative(input.shift ? -1 : 1))
+  if (mod && key === '[') return onActive((id) => tabs.back(id))
+  if (mod && key === ']') return onActive((id) => tabs.forward(id))
+  if (input.control && key === 'tab') return run(() => tabs.activateRelative(input.shift ? -1 : 1))
   if (mod && (key === 'pagedown' || key === 'pageup')) return run(() => tabs.activateRelative(key === 'pagedown' ? 1 : -1))
+  if (mod && input.alt && /^[1-9]$/.test(key)) {
+    const workspace = tabs.workspaceList()[Number(key) - 1]
+    return run(() => workspace && tabs.switchWorkspace(workspace.id))
+  }
   if (mod && /^[1-9]$/.test(key)) return run(() => tabs.activateIndex(Number(key)))
   if (key === 'f12' || (mod && input.shift && key === 'i')) return onActive((id) => tabs.toggleDevTools(id))
   if (key === 'f11') return run(actions.toggleFullscreen)

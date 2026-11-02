@@ -7,6 +7,8 @@ const SAVE_DELAY_MS = 1000
 interface SavedSession {
   tabs: SavedTab[]
   activeIndex: number
+  /** The two tabs in split view, as positions in `tabs`. */
+  split?: [number, number] | null
 }
 
 const isSavedTab = (value: unknown): value is SavedTab => {
@@ -25,7 +27,8 @@ export function loadSession(kv: KeyValueRepo): SavedSession | null {
   const saved = kv.get(KEY) as SavedSession | undefined
   if (!saved || !Array.isArray(saved.tabs)) return null
   const tabs = saved.tabs.filter(isSavedTab)
-  return tabs.length > 0 ? { tabs, activeIndex: Number(saved.activeIndex) || 0 } : null
+  const split = Array.isArray(saved.split) && saved.split.length === 2 && saved.tabs.length === tabs.length && saved.split.every((index) => Number.isInteger(index) && tabs[index]) ? saved.split : null
+  return tabs.length > 0 ? { tabs, activeIndex: Number(saved.activeIndex) || 0, split } : null
 }
 
 /**

@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FileDown } from 'lucide-react'
 import { Button } from '@scbrowser/ui'
 import { isHttpUrl, splitReply, type Report, type ReportBlock } from '@scbrowser/shared'
 
@@ -77,9 +78,17 @@ function Block({ block }: { block: ReportBlock }) {
 }
 
 /** All text is set as React text, and the only styling is the theme chosen from our own set. */
-export function ReportView({ report }: { report: Report }) {
+export function ReportView({ report, onSave }: { report: Report; onSave?: (report: Report) => void }) {
   return (
-    <article className="sc-report" data-theme={report.theme}>
+    <article className="sc-report relative" data-theme={report.theme}>
+      {onSave && (
+        <div className="float-right ml-3 not-prose">
+          <Button variant="ghost" onClick={() => onSave(report)}>
+            <FileDown aria-hidden size={14} strokeWidth={1.75} />
+            Save as HTML
+          </Button>
+        </div>
+      )}
       <h1>{report.title}</h1>
       {report.summary && <p className="summary">{report.summary}</p>}
       {report.blocks.map((block, index) => (
@@ -94,11 +103,13 @@ interface ReplyContentProps {
   onOpenLink: (href: string) => void
   /** When set, shows a card that opens the report rather than the report itself. */
   onOpenReport?: () => void
+  /** When set, a shown report offers to be saved as a file. */
+  onSaveReport?: (report: Report) => void
   /** The reply is still arriving, so an unfinished report is shown as in progress. */
   streaming?: boolean
 }
 
-export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport, streaming = false }: ReplyContentProps) {
+export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport, onSaveReport, streaming = false }: ReplyContentProps) {
   const { before, after, report, writing } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
@@ -114,9 +125,9 @@ export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpe
             </div>
           </div>
         ) : (
-          <ReportView report={report} />
+          <ReportView report={report} onSave={streaming ? undefined : onSaveReport} />
         ))}
-      {after && <ReplyContent text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} streaming={streaming} />}
+      {after && <ReplyContent text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} onSaveReport={onSaveReport} streaming={streaming} />}
     </div>
   )
 })

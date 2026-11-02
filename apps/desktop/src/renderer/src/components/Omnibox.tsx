@@ -7,7 +7,9 @@ import {
   effectiveUrl,
   engineById,
   isReaderUrl,
+  type AssistantEvent,
   type HistoryEntry,
+  type OmniboxAnswer,
   type Suggestion
 } from '@scbrowser/shared'
 import { useApp } from '../state/app'
@@ -81,6 +83,9 @@ export function Omnibox() {
   const [draft, setDraft] = useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [dismissed, setDismissed] = useState(false)
+  const [answer, setAnswer] = useState<OmniboxAnswer | null>(null)
+  const answerStream = useRef<string | null>(null)
+  const saveChats = useApp((s) => s.settings.saveChats)
 
   const url = tab ? displayUrl(tab.url) : ''
   const bookmarked = bookmarks.some((b) => b.url === url)
@@ -105,7 +110,7 @@ export function Omnibox() {
           }),
     [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources]
   )
-  const open = focused && !dismissed && suggestions.length > 0
+  const open = !answer && focused && !dismissed && suggestions.length > 0
   const selected = Math.min(selectedIndex, Math.max(0, suggestions.length - 1))
 
   // Rows picked in the overlay arrive after this input has blurred, so keep the list in a ref.
@@ -118,24 +123,80 @@ export function Omnibox() {
     setDismissed(false)
   }, [])
 
+  const closeAnswer = useCallback(() => {
+    if (answerStream.current) void window.scb.invoke('ai:cancel', answerStream.current)
+    answerStream.current = null
+    setAnswer(null)
+  }, [])
+
+  /** Only runs once someone chooses to ask. Page text isn't included. */
+  const ask = useCallback(
+    (question: string) => {
+      const streamId = crypto.randomUUID()
+      answerStream.current = streamId
+      setAnswer({ question, text: '', streaming: true, error: null, canContinue: saveChats })
+      void window.scb.invoke('ai:send', streamId, { messages: [{ role: 'user', content: question }], tabId: null, extraTabIds: [], includePage: false, selection: null })
+    },
+    [saveChats]
+  )
+
+  useEffect(
+    () =>
+      window.scb.on('ai:event', (event: AssistantEvent) => {
+        if (event.streamId !== answerStream.current) return
+        if (event.type === 'text') setAnswer((current) => current && { ...current, text: current.text + event.text })
+        if (event.type === 'error') setAnswer((current) => current && { ...current, streaming: false, error: event.message })
+        if (event.type === 'done') setAnswer((current) => current && { ...current, streaming: false })
+        if (event.type === 'error' || event.type === 'done') answerStream.current = null
+      }),
+    []
+  )
+
+  useEffect(
+    () =>
+      window.scb.on('omnibox:answer-action', (action) => {
+        if (action === 'stop' && answerStream.current) void window.scb.invoke('ai:cancel', answerStream.current)
+        if (action === 'close') closeAnswer()
+        if (action === 'continue') {
+          setAnswer((current) => {
+            if (current) {
+              const id = crypto.randomUUID()
+              const turns = [
+                { role: 'user' as const, content: current.question },
+                { role: 'assistant' as const, content: current.text }
+              ]
+              void window.scb.invoke('chats:save', id, turns).then(() => window.scb.invoke('ai:open-chat', id))
+            }
+            return null
+          })
+        }
+      }),
+    [closeAnswer]
+  )
+
   const run = useCallback(
     (suggestion: Suggestion | undefined) => {
       if (!tab || !suggestion) return
       const { action } = suggestion
+      if (action.type === 'ask') {
+        ask(action.text)
+        reset()
+        return
+      }
       if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
-      else if (action.type === 'ask') useAssistant.getState().applyPrompt({ text: action.text, selection: null, includePage: false })
       else if (action.type === 'ask-page') void window.scb.invoke('ai:open-assistant', action.text)
       else void window.scb.invoke('tabs:navigate', tab.id, action.url)
       reset()
       inputRef.current?.blur()
     },
-    [tab, reset]
+    [tab, reset, ask]
   )
 
   useEffect(() => window.scb.on('omnibox:pick', (index) => run(suggestionsRef.current[index])), [run])
 
   // Switching tabs discards an unsubmitted edit.
   useEffect(reset, [tab?.id, reset])
+  useEffect(closeAnswer, [tab?.id, tab?.url, closeAnswer])
 
   useEffect(() => {
     if (focusRequest === 0) return
@@ -145,19 +206,19 @@ export function Omnibox() {
 
   // Describe the dropdown to the overlay, re-anchoring if the window is resized.
   useEffect(() => {
-    if (!open || !boxRef.current) {
+    if ((!open && !answer) || !boxRef.current) {
       setPopup(null)
       return
     }
     const box = boxRef.current
     const publish = () => {
       const { x, y, width, height } = box.getBoundingClientRect()
-      setPopup({ anchor: { x, y, width, height }, suggestions, selectedIndex: selected })
+      setPopup({ anchor: { x, y, width, height }, suggestions: answer ? [] : suggestions, selectedIndex: selected, answer })
     }
     publish()
     window.addEventListener('resize', publish)
     return () => window.removeEventListener('resize', publish)
-  }, [open, suggestions, selected, setPopup])
+  }, [open, answer, suggestions, selected, setPopup])
 
   useEffect(() => () => setPopup(null), [setPopup])
 
@@ -177,7 +238,8 @@ export function Omnibox() {
       }
     } else if (e.key === 'Escape') {
       // First Escape closes the dropdown, the next restores the page's URL, then blur.
-      if (open) setDismissed(true)
+      if (answer) closeAnswer()
+      else if (open) setDismissed(true)
       else if (draft !== null) reset()
       else e.currentTarget.blur()
     }
@@ -187,7 +249,7 @@ export function Omnibox() {
     <div
       ref={boxRef}
       className={cx(
-        'sc-no-drag relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 transition-[background-color,box-shadow]',
+        'sc-no-drag relative flex h-8 w-full min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 transition-[background-color,box-shadow]',
         focused ? 'bg-surface shadow-[0_0_0_1px_var(--sc-accent)]' : 'bg-surface shadow-1 hover:shadow-[0_0_0_1px_var(--sc-border-strong)]'
       )}
       onMouseDown={(e) => {

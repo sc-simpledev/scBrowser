@@ -1,6 +1,6 @@
 # scTerra
 
-A modern, AI-native browser for Linux and Windows, inspired by Firefox and Dia.
+A modern, AI-native browser for Linux, Windows and macOS, inspired by Firefox and Dia.
 Built on Electron. See [Plan.md](Plan.md) for the product and technical roadmap.
 
 ## Getting started
@@ -53,6 +53,7 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
 | Ctrl Shift A | Assistant |
 | Ctrl K | Command palette |
+| Ctrl Alt 1–9 | Switch workspace |
 | Ctrl Shift S | Screenshot |
 | F9 | Reader view |
 | Ctrl P | Print |

@@ -24,6 +24,17 @@ export const TOOLBAR_ITEMS = [
 
 export type ToolbarItemId = (typeof TOOLBAR_ITEMS)[number]['id']
 
+/** Everything in the toolbar, in the order it starts in. It can be dragged into any other. */
+export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'downloads', 'extensions', 'assistant', 'menu'] as const
+
+export type ToolbarSlot = (typeof TOOLBAR_SLOTS)[number]
+
+export const isToolbarOrder = (value: unknown): value is ToolbarSlot[] =>
+  Array.isArray(value) && value.length === new Set(value).size && value.every((slot) => TOOLBAR_SLOTS.includes(slot))
+
+/** Slots added by a later version go at the end, so a saved order never hides one. */
+export const fullToolbarOrder = (order: readonly ToolbarSlot[]): ToolbarSlot[] => [...order, ...TOOLBAR_SLOTS.filter((slot) => !order.includes(slot))]
+
 export interface BrowserFlag {
   id: string
   name: string

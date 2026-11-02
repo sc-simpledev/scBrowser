@@ -50,6 +50,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'summarise', label: 'Summarise this page' },
   { id: 'translate', label: 'Translate this page' },
   { id: 'organise-tabs', label: 'Organise tabs into groups' },
+  { id: 'cleanup-tabs', label: 'Clean up tabs' },
+  { id: 'new-workspace', label: 'New workspace' },
   { id: 'ungroup-tabs', label: 'Remove tab groups' },
   { id: 'vertical-tabs', label: 'Switch tab layout' },
   { id: 'split', label: 'Split view with the next tab' },
@@ -69,3 +71,7 @@ export function matchCommands(query: string, commands: PaletteCommand[] = PALETT
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   return commands.filter((command) => words.every((word) => command.label.toLowerCase().includes(word)))
 }
+
+/** Shortcuts are written for Windows and Linux; a Mac shows its own keys. */
+export const shortcutLabel = (shortcut: string, platform: string) =>
+  platform === 'darwin' ? shortcut.replace(/\bCtrl\b/g, '⌘').replace(/\bAlt\b/g, '⌥').replace(/\bShift\b/g, '⇧') : shortcut

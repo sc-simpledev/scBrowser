@@ -1,7 +1,7 @@
 import type { BookmarkGroup, PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
 import type { AccentId } from './privacy'
-import type { PageRect } from './tabs'
+import type { CleanupRow, PageRect } from './tabs'
 
 /**
  * The overlay is a transparent view stacked above web pages so popups drawn by the chrome
@@ -12,6 +12,17 @@ export interface OmniboxPopupState {
   anchor: PageRect
   suggestions: Suggestion[]
   selectedIndex: number
+  /** Replaces the rows once the person has asked a question. */
+  answer: OmniboxAnswer | null
+}
+
+export interface OmniboxAnswer {
+  question: string
+  text: string
+  streaming: boolean
+  error: string | null
+  /** Saved chats are on, so this can carry on in the assistant. */
+  canContinue: boolean
 }
 
 export interface TooltipState {
@@ -45,6 +56,40 @@ export interface BookmarkEditorState {
   y: number
 }
 
+/** A site or proxy asking for a username and password. */
+export interface AuthPopupState {
+  requestId: number
+  host: string
+  /** Written by the site, so it's shown as a quote and never as our own words. */
+  realm: string
+  /** The password would travel unencrypted. */
+  insecure: boolean
+  x: number
+  y: number
+}
+
+export interface CleanupPopupState {
+  rows: CleanupRow[]
+  x: number
+  y: number
+}
+
+export interface WorkspaceEditorState {
+  /** Null while creating one. */
+  id: string | null
+  name: string
+  focus: boolean
+  canRemove: boolean
+  x: number
+  y: number
+}
+
+export interface WorkspaceEdit {
+  id: string | null
+  name: string
+  focus: boolean
+}
+
 export interface BookmarkEdit {
   id: number
   title: string
@@ -60,6 +105,9 @@ export interface OverlayView extends OverlayState {
   /** Brief confirmation near the top right of the page. */
   toast: { text: string; x: number; y: number } | null
   bookmarkEditor: BookmarkEditorState | null
+  auth: AuthPopupState | null
+  cleanup: CleanupPopupState | null
+  workspaceEditor: WorkspaceEditorState | null
 }
 
 export const EMPTY_OVERLAY: OverlayState = { omnibox: null, tooltip: null }
@@ -75,18 +123,30 @@ export const PALETTE_POPUP = { width: 560, height: 380, top: 72 }
 export const TOAST_POPUP = { width: 300, height: 40, inset: 8 }
 export const BOOKMARK_POPUP = { width: 320, height: 248, inset: 8 }
 export const PERMISSION_POPUP = { width: 340, height: 120, inset: 8 }
+export const ANSWER_HEIGHT = 300
+export const AUTH_POPUP = { width: 340, height: 248 }
+export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
+export const WORKSPACE_POPUP = { width: 300, height: 188 }
 
 /** Window-space rectangle each popup occupies, including its shadow margin. */
 export function overlayRegions(state: OverlayView): PageRect[] {
   const regions: PageRect[] = []
-  if (state.omnibox && state.omnibox.suggestions.length > 0) {
-    const { anchor, suggestions } = state.omnibox
+  if (state.omnibox && (state.omnibox.answer || state.omnibox.suggestions.length > 0)) {
+    const { anchor, suggestions, answer } = state.omnibox
     regions.push({
       x: anchor.x - OVERLAY_MARGIN,
       y: anchor.y + anchor.height + POPUP_GAP - OVERLAY_MARGIN,
       width: anchor.width + OVERLAY_MARGIN * 2,
-      height: suggestions.length * SUGGESTION_ROW_HEIGHT + POPUP_PADDING * 2 + OVERLAY_MARGIN * 2
+      height: (answer ? ANSWER_HEIGHT : suggestions.length * SUGGESTION_ROW_HEIGHT + POPUP_PADDING * 2) + OVERLAY_MARGIN * 2
     })
+  }
+  const popups = [
+    state.auth && { ...state.auth, ...AUTH_POPUP },
+    state.cleanup && { ...state.cleanup, ...CLEANUP_POPUP },
+    state.workspaceEditor && { ...state.workspaceEditor, ...WORKSPACE_POPUP }
+  ]
+  for (const popup of popups) {
+    if (popup) regions.push({ x: popup.x - OVERLAY_MARGIN, y: popup.y - OVERLAY_MARGIN, width: popup.width + OVERLAY_MARGIN * 2, height: popup.height + OVERLAY_MARGIN * 2 })
   }
   if (state.tooltip) {
     const { anchor } = state.tooltip

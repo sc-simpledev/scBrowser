@@ -4,10 +4,11 @@ import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, Pe
 import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
-import type { BookmarkEdit, OverlayState, OverlayView } from './overlay'
+import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
 import type { VpnAddResult, VpnPingProgress, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
+import type { UpdateState } from './updates'
 
 /**
  * Commands the chrome UI sends to the main process. Every channel is listed here so the
@@ -66,6 +67,12 @@ export interface ChromeCommands {
   'vpn:summary': () => VpnSummary
   'browser:is-private': () => boolean
   'vpn:menu': (x: number, y: number) => void
+  'tabs:cleanup': () => void
+  'workspaces:switch': (id: string) => void
+  /** Opens the small form for a workspace, or for a new one when `id` is null. */
+  'workspaces:edit': (id: string | null, x: number, y: number) => void
+  'updates:state': () => UpdateState
+  'updates:install': () => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -86,6 +93,9 @@ export interface ChromeEvents {
   'ui:assistant-prompt': AssistantPrompt
   'privacy:changed': string[]
   'vpn:changed': VpnSummary
+  'updates:changed': UpdateState
+  /** A button on the address bar's answer card. */
+  'omnibox:answer-action': 'close' | 'continue' | 'stop'
 }
 
 /** Commands the overlay view sends to the main process. */
@@ -98,6 +108,14 @@ export interface OverlayCommands {
   'overlay:bookmark-save': (edit: BookmarkEdit) => string | null
   'overlay:bookmark-remove': (id: number) => void
   'overlay:bookmark-close': () => void
+  'overlay:answer-action': (action: ChromeEvents['omnibox:answer-action']) => void
+  'overlay:answer-link': (href: string) => void
+  /** Null cancels. The password goes straight to the network stack and is never kept. */
+  'overlay:auth': (requestId: number, login: { username: string; password: string } | null) => void
+  'overlay:cleanup': (ids: TabId[] | null) => void
+  'overlay:workspace-save': (edit: WorkspaceEdit) => void
+  'overlay:workspace-remove': (id: string) => void
+  'overlay:workspace-close': () => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -160,7 +178,12 @@ export const COMMAND_CHANNELS = [
   'reader:toggle',
   'vpn:summary',
   'browser:is-private',
-  'vpn:menu'
+  'vpn:menu',
+  'tabs:cleanup',
+  'workspaces:switch',
+  'workspaces:edit',
+  'updates:state',
+  'updates:install'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -178,10 +201,12 @@ export const EVENT_CHANNELS = [
   'ui:assistant-toggle',
   'ui:assistant-prompt',
   'privacy:changed',
-  'vpn:changed'
+  'vpn:changed',
+  'updates:changed',
+  'omnibox:answer-action'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -302,6 +327,14 @@ export interface InternalCommands {
   'vpn:ping': (ids: string[]) => void
   'vpn:ping-stop': () => void
   'vpn:ping-progress': () => VpnPingProgress
+  /** Asks where to save, and returns false if the person cancelled. */
+  'report:save': (name: string, html: string) => boolean
+  'updates:state': () => UpdateState
+  'updates:check': () => UpdateState
+  'updates:install': () => void
+  /** Leaves the first-run intro for a new tab. */
+  'welcome:finish': () => void
+  'welcome:replay': () => void
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -394,7 +427,13 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'vpn:set-enabled',
   'vpn:ping',
   'vpn:ping-stop',
-  'vpn:ping-progress'
+  'vpn:ping-progress',
+  'report:save',
+  'updates:state',
+  'updates:check',
+  'updates:install',
+  'welcome:finish',
+  'welcome:replay'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

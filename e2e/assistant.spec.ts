@@ -152,8 +152,12 @@ test('asks from the address bar without sending the page', async () => {
   await omnibox(h).press('ArrowDown')
   await omnibox(h).press('Enter')
 
-  await expect(panel().getByText('Hello there')).toBeVisible()
+  const answer = overlay.getByRole('region', { name: 'Answer' })
+  await expect(answer.getByText('Hello there')).toBeVisible()
   expect(lastUserMessage()).toBe('why is the sky blue')
+  await expect(answer.getByRole('heading', { name: 'why is the sky blue' })).toBeVisible()
+  await answer.getByRole('button', { name: 'Close' }).click()
+  await expect(answer).toBeHidden()
 })
 
 test('reads PDFs in the viewer', async () => {

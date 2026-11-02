@@ -9,6 +9,7 @@
     "dev": "pnpm --filter @scbrowser/desktop dev",
     "build": "pnpm --filter @scbrowser/desktop build",
     "dist": "pnpm --filter @scbrowser/desktop dist",
+    "release": "pnpm --filter @scbrowser/desktop release",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "postinstall": "node node_modules/electron/install.js",

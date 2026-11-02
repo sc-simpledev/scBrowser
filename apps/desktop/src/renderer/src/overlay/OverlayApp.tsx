@@ -6,30 +6,35 @@ import {
   PERMISSION_LABELS,
   PERMISSION_POPUP,
   POPUP_GAP,
+  shortcutLabel,
   TOAST_POPUP,
   TOOLTIP_GAP,
   type OverlayEvents,
   type PermissionPopupState
 } from '@scbrowser/shared'
+import { AnswerCard } from './AnswerCard'
+import { AuthPopup } from './AuthPopup'
 import { BookmarkEditor } from './BookmarkEditor'
+import { CleanupPopup } from './CleanupPopup'
 import { CommandPalette } from './CommandPalette'
 import { SuggestionList } from './SuggestionList'
+import { WorkspaceEditor } from './WorkspaceEditor'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
-  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor } = state
+  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor, auth, cleanup, workspaceEditor } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
   }, [accent])
   return (
     <>
-      {omnibox && omnibox.suggestions.length > 0 && (
+      {omnibox && (omnibox.answer || omnibox.suggestions.length > 0) && (
         <div
           className="absolute"
           style={{
@@ -38,11 +43,15 @@ export function OverlayApp() {
             width: omnibox.anchor.width
           }}
         >
-          <SuggestionList
-            suggestions={omnibox.suggestions}
-            selectedIndex={omnibox.selectedIndex}
-            onPick={(index) => void window.scbOverlay.invoke('overlay:pick', index)}
-          />
+          {omnibox.answer ? (
+            <AnswerCard answer={omnibox.answer} />
+          ) : (
+            <SuggestionList
+              suggestions={omnibox.suggestions}
+              selectedIndex={omnibox.selectedIndex}
+              onPick={(index) => void window.scbOverlay.invoke('overlay:pick', index)}
+            />
+          )}
         </div>
       )}
       {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} />}
@@ -57,6 +66,9 @@ export function OverlayApp() {
       )}
       {bookmarkEditor && <BookmarkEditor key={bookmarkEditor.id} editor={bookmarkEditor} x={bookmarkEditor.x - origin.x} y={bookmarkEditor.y - origin.y} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
+      {auth && <AuthPopup key={auth.requestId} auth={auth} x={auth.x - origin.x} y={auth.y - origin.y} />}
+      {cleanup && <CleanupPopup cleanup={cleanup} x={cleanup.x - origin.x} y={cleanup.y - origin.y} />}
+      {workspaceEditor && <WorkspaceEditor key={workspaceEditor.id ?? 'new'} editor={workspaceEditor} x={workspaceEditor.x - origin.x} y={workspaceEditor.y - origin.y} />}
       {tooltip && (
         <PlacedTooltip
           key={`${tooltip.label}:${tooltip.anchor.x}`}
@@ -113,7 +125,7 @@ function PlacedTooltip({ centerX, top, label, shortcut }: { centerX: number; top
 
   return (
     <div ref={ref} className="absolute" style={{ left: left ?? centerX, top, visibility: left === null ? 'hidden' : 'visible' }}>
-      <TooltipBubble label={label} shortcut={shortcut} />
+      <TooltipBubble label={label} shortcut={shortcut && shortcutLabel(shortcut, window.scbOverlay.platform)} />
     </div>
   )
 }

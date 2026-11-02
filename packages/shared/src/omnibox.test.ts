@@ -14,7 +14,8 @@ const tab = (id: number, url: string, title = ''): TabState => ({
   zoomPercent: 100,
   blockedCount: 0,
   container: null,
-  group: null
+  group: null,
+  workspace: 'main'
 })
 
 const visit = (url: string, title = ''): HistoryEntry => ({ url, title, visitCount: 1, lastVisit: 0 })

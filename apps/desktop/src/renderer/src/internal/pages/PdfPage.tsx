@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Minus, PanelLeft, Plus, Printer, RotateCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileText, Maximize2, Minus, PanelLeft, Plus, Printer, RotateCw, ScanText } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import * as pdfjs from 'pdfjs-dist'
@@ -7,6 +7,7 @@ import 'pdfjs-dist/web/pdf_viewer.css'
 import { Button, cx, IconButton, Input, TooltipProvider } from '@scbrowser/ui'
 import { effectiveUrl } from '@scbrowser/shared'
 import { api } from '../api'
+import { readScan, type ScanWord } from '../scan'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -17,6 +18,7 @@ const PAGE_GAP = 12
 /** Space kept around the page when fitting it to the window. */
 const FIT_MARGIN = 48
 const THUMB_WIDTH = 120
+const NO_WORDS: ScanWord[] = []
 
 const fileName = (url: string) => {
   const name = URL.canParse(url) ? new URL(url).pathname.split('/').pop() : ''
@@ -31,10 +33,12 @@ interface PageProps {
   size: { width: number; height: number }
   renderAll: boolean
   observer: IntersectionObserver | null
+  /** Words recognised in a scan, which make it searchable and selectable. */
+  words: ScanWord[]
 }
 
 /** Draws only when near the screen, so long documents stay quick. */
-function Page({ doc, number, scale, rotation, size, renderAll, observer }: PageProps) {
+function Page({ doc, number, scale, rotation, size, renderAll, observer, words }: PageProps) {
   const holder = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const textLayer = useRef<HTMLDivElement>(null)
@@ -86,6 +90,16 @@ function Page({ doc, number, scale, rotation, size, renderAll, observer }: PageP
     <div ref={holder} data-page={number} className="sc-pdf-page relative mx-auto bg-[white] shadow-1" style={{ width, height, marginBottom: PAGE_GAP }}>
       <canvas ref={canvas} aria-label={`Page ${number}`} className="block size-full" />
       <div ref={textLayer} className="textLayer" />
+      {rotation === 0 &&
+        words.map((word, index) => (
+          <span
+            key={index}
+            className="absolute leading-none whitespace-pre text-transparent"
+            style={{ left: `${word.x * 100}%`, top: `${word.y * 100}%`, fontSize: word.height * height * 0.9 }}
+          >
+            {word.text}{' '}
+          </span>
+        ))}
     </div>
   )
 }
@@ -127,6 +141,10 @@ export function PdfPage() {
   const [thumbnails, setThumbnails] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [observer, setObserver] = useState<IntersectionObserver | null>(null)
+  const [isScan, setIsScan] = useState(false)
+  const [scanProgress, setScanProgress] = useState<string | null>(null)
+  const [scanWords, setScanWords] = useState<Record<number, ScanWord[]> | null>(null)
+  const scanRun = useRef<Promise<string> | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -188,6 +206,35 @@ export function PdfPage() {
       middle.disconnect()
     }
   }, [doc])
+
+  const startScan = useCallback(() => {
+    if (!doc) return Promise.resolve('')
+    scanRun.current ??= readScan(doc, (page, total) => setScanProgress(`Reading page ${page} of ${total}…`))
+      .then(({ text, words }) => {
+        setScanWords(words)
+        return text
+      })
+      .catch(() => '')
+      .finally(() => setScanProgress(null))
+    return scanRun.current
+  }, [doc])
+
+  // A document with no text in its first pages is a scan. The assistant calls this too.
+  useEffect(() => {
+    if (!doc) return
+    const scanner = window as unknown as { scbReadScan?: () => Promise<string> }
+    scanner.scbReadScan = startScan
+    void (async () => {
+      for (let number = 1; number <= Math.min(doc.numPages, 3); number++) {
+        const { items } = await (await doc.getPage(number)).getTextContent()
+        if (items.length > 0) return
+      }
+      setIsScan(true)
+    })()
+    return () => {
+      delete scanner.scbReadScan
+    }
+  }, [doc, startScan])
 
   useEffect(() => {
     const root = scroller.current
@@ -281,6 +328,13 @@ export function PdfPage() {
             <Printer size={15} strokeWidth={1.75} />
           </IconButton>
         </header>
+        {isScan && !scanWords && (
+          <div role="status" className="sc-pdf-chrome flex h-10 shrink-0 items-center gap-2 border-b border-border bg-surface px-3">
+            <ScanText aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+            <span className="min-w-0 flex-1 truncate text-text-muted">{scanProgress ?? 'This is a scan. Read its text to search and select it. It stays on this computer.'}</span>
+            {!scanProgress && <Button onClick={() => void startScan()}>Read text</Button>}
+          </div>
+        )}
         <div className="flex min-h-0 flex-1 bg-bg">
           {thumbnails && doc && (
             <nav aria-label="Pages" className="sc-pdf-chrome flex w-44 shrink-0 flex-col items-center gap-3 overflow-y-auto border-r border-border p-3">
@@ -292,7 +346,7 @@ export function PdfPage() {
           <div ref={scroller} className="sc-pdf-scroll min-w-0 flex-1 overflow-auto p-6">
             {!doc && <p className="text-center text-text-faint">Opening…</p>}
             {doc && Array.from({ length: doc.numPages }, (_, index) => (
-              <Page key={index} doc={doc} number={index + 1} scale={scale} rotation={rotation} size={size} renderAll={printing} observer={observer} />
+              <Page key={index} doc={doc} number={index + 1} scale={scale} rotation={rotation} size={size} renderAll={printing} observer={observer} words={scanWords?.[index + 1] ?? NO_WORDS} />
             ))}
           </div>
         </div>

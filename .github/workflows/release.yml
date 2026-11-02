@@ -1,0 +1,49 @@
+name: Release
+
+# Pushing a tag such as v0.2.0 builds every platform and publishes to the public scTerra repo,
+# which holds installers only. Browsers find new versions there, with no token.
+#
+# Needs one secret: RELEASE_TOKEN, a fine-grained token limited to sc-simpledev/scTerra with
+# Contents read and write. It must never go into the app.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the app's version
+        run: test "v$(node -p "require('./apps/desktop/package.json').version")" = "$GITHUB_REF_NAME"
+  build:
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the finished draft
+        run: gh release edit "$GITHUB_REF_NAME" --repo sc-simpledev/scTerra --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}

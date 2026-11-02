@@ -37,6 +37,8 @@
 /* Reserve space for the native window controls (Windows Controls Overlay). */
 @utility sc-wco-inset {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  /* A Mac's traffic lights sit on the left, and everywhere else this is zero. */
+  margin-left: env(titlebar-area-x, 0px);
 }
 
 .sc-tooltip {

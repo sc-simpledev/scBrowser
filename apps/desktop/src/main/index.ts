@@ -71,6 +71,24 @@ function urlsFromArgv(argv: string[]): string[] {
 
 let main: BrowserWindowHandle | null = null
 
+/** On a Mac, links from other apps arrive as events, and can come before the window exists. */
+const earlyUrls: string[] = []
+const openFromSystem = (event: Electron.Event, url: string) => {
+  event.preventDefault()
+  if (main) {
+    main.tabs.create(url)
+    main.window.focus()
+  } else earlyUrls.push(url)
+}
+app.on('open-url', openFromSystem)
+app.on('open-file', (event, path) => openFromSystem(event, pathToFileURL(path).toString()))
+
+/** A Mac has no window menu, and its editing keys only work through the system one. */
+function applyMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]
+  Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate(template) : null)
+}
+
 /** Reports share the AI server, so switching that off switches them off too. */
 function reportSender(): Send | null {
   const base = process.env.SCTERRA_AI_URL ?? HOSTED_AI_URL
@@ -92,7 +110,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    Menu.setApplicationMenu(null)
+    applyMenu()
     handleInternalPages()
     const db = openDatabase(join(app.getPath('userData'), 'browser.db'))
     // The last step of quitting: tabs winding down can still touch the database until then.
@@ -130,10 +148,10 @@ if (!app.requestSingleInstanceLock()) {
         chats: new ChatsRepo(db),
         reporter
       },
-      urlsFromArgv(process.argv)
+      [...urlsFromArgv(process.argv), ...earlyUrls]
     )
     main.window.on('closed', () => (main = null))
-    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs, scbActions: main.actions, scbExtensions: main.extensions, scbSync: main.sync, scbVpn: main.vpn, scbReporter: reporter })
+    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs, scbActions: main.actions, scbExtensions: main.extensions, scbSync: main.sync, scbVpn: main.vpn, scbReporter: reporter, scbUpdates: main.updates })
   })
 
   app.on('window-all-closed', () => app.quit())

@@ -1,18 +1,21 @@
 import { join } from 'node:path'
-import { session, WebContentsView, type BaseWindow, type Session, type WebContents } from 'electron'
+import { session, WebContentsView, type AuthInfo, type AuthenticationResponseDetails, type BaseWindow, type Session, type WebContents } from 'electron'
 import {
   containerPartition,
+  DEFAULT_WORKSPACE,
   effectiveUrl,
   ERROR_PAGE_URL,
   isNewTabUrl,
   isReaderUrl,
   NEW_TAB_URL,
   resolveOmniboxInput,
+  type CleanupInput,
   type PageRect,
   type SearchEngine,
   type TabId,
   type TabState,
-  type TabsSnapshot
+  type TabsSnapshot,
+  type Workspace
 } from '@scbrowser/shared'
 
 /** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
@@ -24,6 +27,8 @@ export interface SavedTab {
   entryIndex: number
   container?: string | null
   group?: string | null
+  workspace?: string
+  lastActiveAt?: number
 }
 
 interface Tab {
@@ -55,6 +60,12 @@ interface TabManagerOptions {
   errorUrl: (url: string, reason: string) => string
   /** Called before a session is first used, so it gets the same protections as the default one. */
   prepareSession: (session: Session) => void
+  /** A site or proxy wants a username and password. */
+  onLogin: (contents: WebContents, details: AuthenticationResponseDetails, info: AuthInfo, respond: (username?: string, password?: string) => void) => void
+  /** The zoom saved for this page's site, or 1. */
+  zoomFor: (url: string) => number
+  onZoom: (url: string, factor: number) => void
+  onWorkspaceChange: (next: Workspace, previous: Workspace | undefined) => void
 }
 
 const PAGE_RADIUS = 0
@@ -67,6 +78,9 @@ const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 
 
 const isInternal = (url: string) => url.startsWith('sc:')
 const isSavable = (url: string) => /^(https?|sc|file):/i.test(url)
+const remembersZoom = (url: string) => /^(https?|file):/i.test(url)
+/** The first-run intro plays again if it was closed partway through, rather than coming back as a tab. */
+const isIntro = (url: string) => url.startsWith('sc://welcome')
 
 export class TabManager {
   private readonly tabs = new Map<TabId, Tab>()
@@ -79,11 +93,87 @@ export class TabManager {
   private fullscreen = false
   /** Left and right tabs while split view is on. */
   private split: [TabId, TabId] | null = null
+  /** This tab covers the whole window, for the first-run intro. */
+  private immersiveId: TabId | null = null
+  private workspaces: Workspace[]
+  private workspaceId: string = DEFAULT_WORKSPACE.id
+  private readonly lastInWorkspace = new Map<string, TabId>()
 
   constructor(
     private readonly window: BaseWindow,
-    private readonly options: TabManagerOptions
-  ) {}
+    private readonly options: TabManagerOptions,
+    workspaces: Workspace[] = [DEFAULT_WORKSPACE]
+  ) {
+    this.workspaces = workspaces
+  }
+
+  /** Tabs in the open workspace, which is all that's ever shown. */
+  private get visible(): TabId[] {
+    return this.order.filter((id) => this.tabs.get(id)?.state.workspace === this.workspaceId)
+  }
+
+  workspaceList(): Workspace[] {
+    return this.workspaces
+  }
+
+  get workspace(): Workspace {
+    return this.workspaces.find((w) => w.id === this.workspaceId) ?? DEFAULT_WORKSPACE
+  }
+
+  setWorkspaces(workspaces: Workspace[]): void {
+    this.workspaces = workspaces
+    this.emitChange()
+  }
+
+  switchWorkspace(id: string): void {
+    const next = this.workspaces.find((w) => w.id === id)
+    if (!next || id === this.workspaceId) return
+    const previous = this.workspace
+    this.endSplit()
+    if (this.activeId !== null) {
+      const tab = this.tabs.get(this.activeId)
+      tab?.view?.setVisible(false)
+      tab?.view?.webContents.stopFindInPage('clearSelection')
+      if (tab) tab.lastActiveAt = Date.now()
+      this.lastInWorkspace.set(this.workspaceId, this.activeId)
+    }
+    this.workspaceId = id
+    this.activeId = null
+    const tabs = this.visible
+    const last = this.lastInWorkspace.get(id)
+    const target = last !== undefined && tabs.includes(last) ? last : tabs[0]
+    if (target === undefined) this.create()
+    else this.activate(target)
+    this.options.onWorkspaceChange(next, previous)
+  }
+
+  /** The workspace's tabs join the first one, so nothing disappears with it. */
+  removeWorkspace(id: string): void {
+    if (id === DEFAULT_WORKSPACE.id) return
+    if (this.workspaceId === id) this.switchWorkspace(DEFAULT_WORKSPACE.id)
+    for (const tab of this.tabs.values()) if (tab.state.workspace === id) tab.state.workspace = DEFAULT_WORKSPACE.id
+    this.workspaces = this.workspaces.filter((w) => w.id !== id)
+    this.emitChange()
+  }
+
+  /** What's needed to suggest tabs to close in the open workspace. */
+  cleanupInput(): CleanupInput[] {
+    return this.visible.flatMap((id) => {
+      const tab = this.tabs.get(id)!
+      const url = effectiveUrl(tab.state.url)
+      return isInternal(url) && !isNewTabUrl(url) ? [] : [{ id, url, title: tab.state.title, lastActiveAt: tab.lastActiveAt }]
+    })
+  }
+
+  /** Every loaded tab, including those in other workspaces. */
+  allContents(): WebContents[] {
+    return [...this.tabs.values()].flatMap((tab) => (tab.view ? [tab.view.webContents] : []))
+  }
+
+  setImmersive(id: TabId | null): void {
+    this.immersiveId = id
+    this.applyBounds()
+  }
 
   create(
     url: string = NEW_TAB_URL,
@@ -91,6 +181,7 @@ export class TabManager {
   ): TabId {
     const tab = this.addTab(url, null, afterId)
     tab.state.container = container
+    tab.state.workspace = this.workspaceId
     this.wake(tab)
     if (activate || this.activeId === null) this.activate(tab.state.id)
     else this.emitChange()
@@ -98,10 +189,14 @@ export class TabManager {
   }
 
   /** Adds saved tabs without loading them; only the one that gets activated wakes up. */
-  restore(saved: SavedTab[], activeIndex: number): void {
-    const ids = saved.map((tab) => this.addTab(tab.url, tab).state.id)
+  restore(saved: SavedTab[], activeIndex: number, split: [number, number] | null = null): void {
+    const known = (id: string | undefined) => this.workspaces.some((w) => w.id === id)
+    const ids = saved.map((tab) => this.addTab(tab.url, { ...tab, workspace: known(tab.workspace) ? tab.workspace : DEFAULT_WORKSPACE.id }).state.id)
     const active = ids[activeIndex] ?? ids[0]
-    if (active !== undefined) this.activate(active)
+    if (active === undefined) return
+    this.activate(active)
+    const other = split?.map((index) => ids[index]).find((id) => id !== active)
+    if (other !== undefined && split!.some((index) => ids[index] === active) && this.visible.includes(other)) this.startSplit(other)
   }
 
   close(id: TabId): void {
@@ -109,8 +204,8 @@ export class TabManager {
     if (!tab) return
 
     if (this.split?.includes(id)) this.endSplit()
-    const index = this.order.indexOf(id)
-    this.order.splice(index, 1)
+    const index = this.visible.indexOf(id)
+    this.order.splice(this.order.indexOf(id), 1)
     this.tabs.delete(id)
     if (!isNewTabUrl(tab.state.url)) this.closed = [this.toSaved(tab), ...this.closed].slice(0, CLOSED_TABS_LIMIT)
 
@@ -120,10 +215,10 @@ export class TabManager {
     if (this.activeId === id) {
       this.activeId = null
       // Like Firefox/Chrome: focus the tab to the right, else the one to the left.
-      const next = this.order[index] ?? this.order[index - 1]
+      const next = this.visible[index] ?? this.visible[index - 1]
       if (next !== undefined) this.activate(next)
     }
-    if (this.order.length === 0) this.create()
+    if (this.visible.length === 0) this.create()
     this.emitChange()
   }
 
@@ -154,7 +249,7 @@ export class TabManager {
   }
 
   closeOthers(id: TabId): void {
-    for (const other of [...this.order]) if (other !== id) this.close(other)
+    for (const other of this.visible) if (other !== id) this.close(other)
   }
 
   duplicate(id: TabId): void {
@@ -167,21 +262,26 @@ export class TabManager {
   reopenClosed(): void {
     const saved = this.closed.shift()
     if (!saved) return
-    const tab = this.addTab(saved.url, saved, this.activeId ?? undefined)
+    const tab = this.addTab(saved.url, { ...saved, workspace: this.workspaceId }, this.activeId ?? undefined)
     this.activate(tab.state.id)
   }
 
+  /** `index` counts the tabs in view, which may have others in between them. */
   move(id: TabId, index: number): void {
     const from = this.order.indexOf(id)
     if (from === -1) return
+    const others = this.visible.filter((other) => other !== id)
+    const before = others[Math.max(0, index)]
     this.order.splice(from, 1)
-    this.order.splice(Math.max(0, Math.min(index, this.order.length)), 0, id)
+    const at = before === undefined ? (others.length > 0 ? this.order.indexOf(others.at(-1)!) + 1 : this.order.length) : this.order.indexOf(before)
+    this.order.splice(at, 0, id)
     this.emitChange()
   }
 
   activate(id: TabId): void {
     const next = this.tabs.get(id)
     if (!next) return
+    this.workspaceId = next.state.workspace
     if (this.split?.includes(id)) {
       this.activeId = id
       this.options.onActivate(next.state)
@@ -225,8 +325,9 @@ export class TabManager {
       this.endSplit()
       return
     }
-    if (this.activeId === null || this.order.length < 2) return
-    const next = this.order[(this.order.indexOf(this.activeId) + 1) % this.order.length]
+    const tabs = this.visible
+    if (this.activeId === null || tabs.length < 2) return
+    const next = tabs[(tabs.indexOf(this.activeId) + 1) % tabs.length]
     if (next !== undefined) this.startSplit(next)
   }
 
@@ -239,15 +340,15 @@ export class TabManager {
   }
 
   activateRelative(offset: number): void {
-    if (this.activeId === null || this.order.length < 2) return
-    const index = this.order.indexOf(this.activeId)
-    const nextIndex = (index + offset + this.order.length) % this.order.length
-    this.activate(this.order[nextIndex]!)
+    const tabs = this.visible
+    if (this.activeId === null || tabs.length < 2) return
+    const nextIndex = (tabs.indexOf(this.activeId) + offset + tabs.length) % tabs.length
+    this.activate(tabs[nextIndex]!)
   }
 
   /** Ctrl+1…8 picks a position; Ctrl+9 always picks the last tab. */
   activateIndex(position: number): void {
-    const id = position >= 9 ? this.order.at(-1) : this.order[position - 1]
+    const id = position >= 9 ? this.visible.at(-1) : this.visible[position - 1]
     if (id !== undefined) this.activate(id)
   }
 
@@ -262,7 +363,7 @@ export class TabManager {
 
   /** Opens an internal page, reusing a tab already showing it. */
   openInternal(url: string): void {
-    const existing = this.order.find((id) => this.tabs.get(id)?.state.url.startsWith(url))
+    const existing = this.visible.find((id) => this.tabs.get(id)?.state.url.startsWith(url))
     if (existing !== undefined) this.activate(existing)
     else if (this.active && isNewTabUrl(this.active.url)) this.navigate(this.active.id, url)
     else this.create(url, { afterId: this.activeId ?? undefined })
@@ -317,6 +418,7 @@ export class TabManager {
     if (!tab?.view) return
     tab.view.webContents.setZoomFactor(factor)
     tab.state.zoomPercent = Math.round(factor * 100)
+    if (remembersZoom(tab.state.url)) this.options.onZoom(tab.state.url, factor)
     this.emitChange()
   }
 
@@ -347,7 +449,8 @@ export class TabManager {
     if (!view) return
     const { width, height } = this.window.getContentBounds()
     const [left, right] = this.split ?? []
-    if (this.split && !this.fullscreen) {
+    const covers = this.fullscreen || this.immersiveId === this.activeId
+    if (this.split && !covers) {
       const leftWidth = Math.floor((this.pageRect.width - SPLIT_GAP) / 2)
       const rightX = this.pageRect.x + leftWidth + SPLIT_GAP
       for (const [id, x, w] of [
@@ -363,8 +466,8 @@ export class TabManager {
     }
     // Fullscreen video covers the window, so the other half of a split steps aside.
     if (this.split) this.tabs.get(left === this.activeId ? right! : left!)?.view?.setVisible(false)
-    view.setBounds(this.fullscreen ? { x: 0, y: 0, width, height } : this.pageRect)
-    view.setBorderRadius(this.fullscreen ? 0 : PAGE_RADIUS)
+    view.setBounds(covers ? { x: 0, y: 0, width, height } : this.pageRect)
+    view.setBorderRadius(covers ? 0 : PAGE_RADIUS)
   }
 
   get active(): TabState | null {
@@ -399,16 +502,24 @@ export class TabManager {
 
   snapshot(): TabsSnapshot {
     return {
-      tabs: this.order.map((id) => ({ ...this.tabs.get(id)!.state })),
+      tabs: this.visible.map((id) => ({ ...this.tabs.get(id)!.state })),
       activeId: this.activeId,
-      splitIds: this.split ? [...this.split] : []
+      splitIds: this.split ? [...this.split] : [],
+      workspaces: this.workspaces,
+      activeWorkspace: this.workspaceId
     }
   }
 
   /** What to write to disk so the session can be restored. */
-  session(): { tabs: SavedTab[]; activeIndex: number } {
-    const tabs = this.order.map((id) => this.toSaved(this.tabs.get(id)!))
-    return { tabs, activeIndex: this.activeId === null ? 0 : this.order.indexOf(this.activeId) }
+  session(): { tabs: SavedTab[]; activeIndex: number; split: [number, number] | null } {
+    const kept = this.order.filter((id) => !isIntro(this.tabs.get(id)!.state.url))
+    const left = this.split ? kept.indexOf(this.split[0]) : -1
+    const right = this.split ? kept.indexOf(this.split[1]) : -1
+    return {
+      tabs: kept.map((id) => this.toSaved(this.tabs.get(id)!)),
+      activeIndex: this.activeId === null ? 0 : Math.max(0, kept.indexOf(this.activeId)),
+      split: left === -1 || right === -1 ? null : [left, right]
+    }
   }
 
   /** Unloads background tabs idle for longer than `maxIdleMs`. */
@@ -448,11 +559,12 @@ export class TabManager {
         zoomPercent: 100,
         blockedCount: 0,
         container: saved?.container ?? null,
-        group: saved?.group ?? null
+        group: saved?.group ?? null,
+        workspace: saved?.workspace ?? this.workspaceId
       },
       view: null,
       saved,
-      lastActiveAt: Date.now()
+      lastActiveAt: saved?.lastActiveAt ?? Date.now()
     }
     this.tabs.set(tab.state.id, tab)
     const index = afterId === undefined ? -1 : this.order.indexOf(afterId)
@@ -521,7 +633,9 @@ export class TabManager {
       entries: entries.length === all.length ? entries : [],
       entryIndex,
       container: tab.state.container,
-      group: tab.state.group
+      group: tab.state.group,
+      workspace: tab.state.workspace,
+      lastActiveAt: tab.lastActiveAt
     }
   }
 
@@ -551,6 +665,7 @@ export class TabManager {
       }
     })
     contents.on('did-navigate', (_e, url) => {
+      if (remembersZoom(url)) contents.setZoomFactor(this.options.zoomFor(url))
       sync({ url, faviconUrl: null, blockedCount: 0, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
       this.options.onVisit(url)
     })
@@ -579,6 +694,11 @@ export class TabManager {
     contents.on('render-process-gone', (_e, { reason }) => {
       if (reason === 'clean-exit') return
       void contents.loadURL(this.options.errorUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
+    })
+
+    contents.on('login', (event, details, info, respond) => {
+      event.preventDefault()
+      this.options.onLogin(contents, details, info, respond)
     })
 
     contents.on('enter-html-full-screen', () => this.setFullscreen(true))

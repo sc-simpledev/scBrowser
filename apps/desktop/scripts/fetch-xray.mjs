@@ -10,11 +10,13 @@ import { fileURLToPath } from 'node:url'
 const VERSION = 'v26.10.31'
 const BUILDS = {
   linux: { file: 'Xray-linux-64.zip', sha256: 'e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214', binary: 'xray' },
-  win32: { file: 'Xray-windows-64.zip', sha256: '2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a', binary: 'xray.exe' }
+  win32: { file: 'Xray-windows-64.zip', sha256: '2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a', binary: 'xray.exe' },
+  'darwin-x64': { file: 'Xray-macos-64.zip', sha256: '37c60b63c77ef5edcfb46a0d70349f7d96e0c132e6a356ead4fd20aeeacc5c75', binary: 'xray' },
+  'darwin-arm64': { file: 'Xray-macos-arm64-v8a.zip', sha256: '0a05dca3bd311b0bc5a89c7ce56350cab1e829e131e4b2bcd48eb304fac07e9a', binary: 'xray' }
 }
 
-const build = BUILDS[process.platform]
-if (!build) throw new Error(`No Xray build for ${process.platform}`)
+const build = BUILDS[process.platform] ?? BUILDS[`${process.platform}-${process.arch}`]
+if (!build) throw new Error(`No Xray build for ${process.platform} ${process.arch}`)
 const out = join(dirname(fileURLToPath(import.meta.url)), '../resources/xray')
 const target = join(out, build.binary)
 const stamp = join(out, `${build.sha256}.ok`)

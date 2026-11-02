@@ -16,10 +16,12 @@ export interface BrowserActions {
   toggleReader: () => void
   screenshot: () => void
   organiseTabs: () => void
+  cleanupTabs: () => void
   translatePage: () => void
   rewrite: (contents: WebContents, text: string, style: RewriteStyle) => void
   togglePalette: () => void
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void
   openPrivateWindow: () => void
+  installUpdate: () => void
 }

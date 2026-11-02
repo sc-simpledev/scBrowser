@@ -43,3 +43,25 @@ describe('mergeSync', () => {
     expect(merged.history.u0).toBeUndefined()
   })
 })
+
+describe('bookmark groups', () => {
+  const data = (groups: string[], placements: Record<string, string>) => ({ ...EMPTY_SYNC, groups: Object.fromEntries(groups.map((name) => [name, true as const])), placements })
+
+  it('brings in groups from the other device', () => {
+    const merged = mergeSync(EMPTY_SYNC, data(['Work'], {}), data(['Reading'], { 'https://a.example/': 'Reading' }))
+    expect(Object.keys(merged.groups!).sort()).toEqual(['Reading', 'Work'])
+    expect(merged.placements).toEqual({ 'https://a.example/': 'Reading' })
+  })
+
+  it('removes a group deleted on the other device', () => {
+    const base = data(['Work'], {})
+    expect(mergeSync(base, base, data([], {})).groups).toEqual({})
+  })
+
+  it('keeps groups when an older version rewrote the file without them', () => {
+    const base = data(['Work'], { 'https://a.example/': 'Work' })
+    const merged = mergeSync(base, base, EMPTY_SYNC)
+    expect(merged.groups).toEqual({ Work: true })
+    expect(merged.placements).toEqual({ 'https://a.example/': 'Work' })
+  })
+})

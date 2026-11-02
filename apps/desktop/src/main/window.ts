@@ -6,8 +6,13 @@ import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import {
   effectiveUrl,
   engineById,
+  AUTH_POPUP,
   BOOKMARK_POPUP,
+  CLEANUP_POPUP,
+  DEFAULT_WORKSPACE,
+  suggestCleanup,
   TOAST_POPUP,
+  WORKSPACE_POPUP,
   byPing,
   errorPageUrl,
   isReaderUrl,
@@ -16,15 +21,18 @@ import {
   type Bookmark,
   type ChromeEvents,
   type EventChannel,
-  type PermissionPrompt
+  type PermissionPrompt,
+  type Workspace,
+  type WorkspaceEdit
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
-import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabGroups } from '@scbrowser/ai'
+import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabGroups, TAB_CLEANUP_PROMPT } from '@scbrowser/ai'
 import { rewriteSelection, togglePageTranslation } from './ai/pageTools'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { DownloadManager, uniquePath } from './downloads'
 import { ExtensionManager } from './extensions'
+import { HttpAuthService, type AuthPrompt } from './httpAuth'
 import { handleInternalPages } from './internal/protocol'
 import { pdfPageUrl } from './internal/pdf'
 import { registerInternalIpc } from './internalIpc'
@@ -52,6 +60,7 @@ import type { HistoryRepo } from './storage/history'
 import type { KeyValueRepo } from './storage/kv'
 import type { PermissionsRepo } from './storage/permissions'
 import { TabManager } from './tabs/TabManager'
+import { UpdateService } from './updater'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = 60_000
@@ -59,7 +68,19 @@ const SYNC_FIRST_MS = 20_000
 const SYNC_EVERY_MS = 10 * 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
+const WORKSPACES_KEY = 'workspaces'
+const ZOOM_KEY = 'site-zoom'
+const WELCOME_KEY = 'welcome:done'
+const WELCOME_URL = 'sc://welcome'
+const INTRO_COLORS = { color: '#000000', symbolColor: '#ffffff' }
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
+
+const isWorkspace = (value: unknown): value is Workspace => {
+  const { id, name, focus } = (value ?? {}) as Workspace
+  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean'
+}
+
+const zoomSite = (url: string) => (URL.canParse(url) ? new URL(url).host || url : url)
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
 
@@ -88,6 +109,7 @@ export interface BrowserWindowHandle {
   extensions: ExtensionManager
   sync: SyncService
   vpn: VpnService
+  updates: UpdateService
 }
 
 interface SavedWindow {
@@ -108,6 +130,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     backgroundColor: colors.background,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: colors.background, symbolColor: colors.foreground, height: TABSTRIP_HEIGHT },
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 14, y: 14 } } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -145,6 +168,16 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     }
   }
 
+  function savedWorkspaces(): Workspace[] {
+    const saved = kv.get(WORKSPACES_KEY)
+    const list = Array.isArray(saved) ? saved.filter(isWorkspace) : []
+    return list.some(({ id }) => id === DEFAULT_WORKSPACE.id) ? list : [DEFAULT_WORKSPACE, ...list]
+  }
+  const storeWorkspaces = (list: Workspace[]) => {
+    kv.set(WORKSPACES_KEY, list)
+    tabs.setWorkspaces(list)
+  }
+
   const tabs = new TabManager(window, {
     onChange: (snapshot) => {
       // Tabs can still report in while the window is being torn down.
@@ -161,7 +194,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       overlay.raise()
     },
-    onTabClosed: () => permissionService.refresh(),
+    onTabClosed: () => {
+      permissionService.refresh()
+      httpAuth.refresh()
+    },
     // Only focus, not a new selection: the person may already be typing.
     onNewTabLoaded: () => {
       if (!chromeUi.isDestroyed()) chromeUi.focus()
@@ -172,6 +208,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (isNewTabUrl(tab.url)) focusOmnibox()
       else tabs.focusActive()
       permissionService.refresh()
+      httpAuth.refresh()
     },
     // Pages can still report in during shutdown, after the database has closed.
     onVisit: (url) => {
@@ -189,8 +226,19 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
     engine: () => engineById(settings.get().searchEngine),
     errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
-    prepareSession: (target) => prepareSession(target)
-  })
+    prepareSession: (target) => prepareSession(target),
+    onLogin: (contents, details, info, respond) => httpAuth.ask(contents, details, info, respond),
+    // Pages can still report in during shutdown, after the database has closed.
+    zoomFor: (url) => (window.isDestroyed() ? 1 : ((kv.get(ZOOM_KEY) as Record<string, number> | undefined)?.[zoomSite(url)] ?? 1)),
+    onZoom: (url, factor) => {
+      if (window.isDestroyed()) return
+      const { [zoomSite(url)]: _old, ...others } = (kv.get(ZOOM_KEY) as Record<string, number> | undefined) ?? {}
+      kv.set(ZOOM_KEY, factor === 1 ? others : { ...others, [zoomSite(url)]: factor })
+    },
+    onWorkspaceChange: (next, previous) => {
+      if (next.focus !== previous?.focus) settings.set({ focusMode: next.focus })
+    }
+  }, savedWorkspaces())
   const saver = new SessionSaver(kv, tabs)
 
   const actions: BrowserActions = {
@@ -234,6 +282,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       tabs.applyGroups(groups)
       return `Sorted into ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`
     }),
+    cleanupTabs: () => void cleanupTabs(),
     translatePage: () => {
       const active = tabs.active
       const contents = active && tabs.contentsFor(active.id)
@@ -257,7 +306,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit(),
-    openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list())
+    openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list()),
+    installUpdate: () => updates.install()
   }
   const { aiStore } = services
   const ai = new AiService(aiStore, (id) => tabs.contentsFor(id))
@@ -268,6 +318,15 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     tabIdFor: (contents) => tabs.tabIdFor(contents),
     activeTabId: () => tabs.active?.id ?? null,
     onPromptChanged: showPermission
+  })
+  const showAuth = (prompt: AuthPrompt | null) => {
+    const { x, y, width } = tabs.page
+    overlay.setAuth(prompt && { ...prompt, x: x + Math.max(0, (width - AUTH_POPUP.width) / 2), y: y + 48 })
+  }
+  const httpAuth = new HttpAuthService({
+    tabIdFor: (contents) => tabs.tabIdFor(contents),
+    activeTabId: () => tabs.active?.id ?? null,
+    onPromptChanged: showAuth
   })
   const overlay = new Overlay(
     window,
@@ -292,11 +351,51 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
         bookmarks.remove(id)
         publishBookmarks()
       },
-      onBookmarkClose: () => tabs.focusActive()
+      onBookmarkClose: () => tabs.focusActive(),
+      onAnswerAction: (action) => send('omnibox:answer-action', action),
+      onAnswerLink: (href) => {
+        if (/^https?:/i.test(href)) tabs.create(href, { afterId: tabs.active?.id })
+      },
+      onAuth: (requestId, login) => httpAuth.answer(requestId, login),
+      onCleanup: (ids) => {
+        if (!ids || ids.length === 0) return
+        ids.forEach((id) => tabs.close(id))
+        notify(`Closed ${ids.length} ${ids.length === 1 ? 'tab' : 'tabs'}. Ctrl Shift T brings them back`)
+      },
+      onWorkspaceSave: saveWorkspace,
+      onWorkspaceRemove: (id) => {
+        tabs.removeWorkspace(id)
+        kv.set(WORKSPACES_KEY, tabs.workspaceList())
+      },
+      onPopupClosed: () => tabs.focusActive()
     }
   )
   const onActive = (action: (id: number) => void) => () => {
     if (tabs.active) action(tabs.active.id)
+  }
+  function saveWorkspace({ id, name, focus }: WorkspaceEdit) {
+    const title = name.trim().slice(0, 40)
+    if (!title) return
+    if (id) {
+      storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus } : workspace)))
+      if (id === tabs.workspace.id && focus !== settings.get().focusMode) settings.set({ focusMode: focus })
+      return
+    }
+    const created = { id: crypto.randomUUID(), name: title, focus }
+    storeWorkspaces([...tabs.workspaceList(), created])
+    tabs.switchWorkspace(created.id)
+  }
+  const editWorkspace = (id: string | null, x: number, y: number) => {
+    const workspace = tabs.workspaceList().find((w) => w.id === id)
+    const { width, height } = window.getContentBounds()
+    overlay.openWorkspaceEditor({
+      id: workspace?.id ?? null,
+      name: workspace?.name ?? '',
+      focus: workspace?.focus ?? false,
+      canRemove: !!workspace && workspace.id !== DEFAULT_WORKSPACE.id,
+      x: Math.round(Math.max(8, Math.min(width - WORKSPACE_POPUP.width - 8, x))),
+      y: Math.round(Math.max(8, Math.min(height - WORKSPACE_POPUP.height - 8, y)))
+    })
   }
   const paletteActions: Record<string, () => void> = {
     'new-tab': () => tabs.create(),
@@ -312,6 +411,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     screenshot: actions.screenshot,
     translate: actions.translatePage,
     'organise-tabs': actions.organiseTabs,
+    'cleanup-tabs': actions.cleanupTabs,
+    'new-workspace': () => editWorkspace(null, tabs.page.x + 16, tabs.page.y + 16),
     'ungroup-tabs': () => tabs.clearGroups(),
     'vertical-tabs': () =>
       settings.set({ tabLayout: settings.get().tabLayout === 'vertical' ? 'horizontal' : 'vertical' }),
@@ -416,7 +517,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       }
       // WebRTC would otherwise reveal the real address by skipping the proxy.
       const policy = rules ? 'disable_non_proxied_udp' : 'default'
-      for (const { id } of tabs.snapshot().tabs) tabs.contentsFor(id)?.setWebRTCIPHandlingPolicy(policy)
+      for (const contents of tabs.allContents()) contents.setWebRTCIPHandlingPolicy(policy)
     },
     probeTarget: probeTarget(),
     fetchText: async (url) => {
@@ -467,6 +568,27 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     }
   }
 
+  /** Local checks first. The AI only sees titles and addresses, and only because the person asked. */
+  const cleanupTabs = async () => {
+    const input = tabs.cleanupInput()
+    const rows = suggestCleanup(input, tabs.active?.id ?? null)
+    const offered = new Set(rows.map((row) => row.id))
+    const candidates = input.filter(
+      (tab) => !offered.has(tab.id) && tab.id !== tabs.active?.id && /^https?:/.test(tab.url) && !aiStore.disabledHosts().includes(new URL(tab.url).host)
+    )
+    if (aiStore.status().ready && candidates.length > 1) {
+      notify('Looking through your tabs…')
+      const reply = await ai.complete(TAB_CLEANUP_PROMPT, groupTabsMessage(candidates)).catch(() => '')
+      for (const { id, reason } of parseTabCleanup(reply, candidates)) {
+        const tab = candidates.find((candidate) => candidate.id === id)!
+        rows.push({ id, title: tab.title || tab.url, url: tab.url, reason })
+      }
+    }
+    if (rows.length === 0) return notify('Your tabs look tidy')
+    const { width } = window.getContentBounds()
+    overlay.openCleanup({ rows, x: Math.max(0, Math.round((width - CLEANUP_POPUP.width) / 2)), y: CLEANUP_POPUP.top })
+  }
+
   const takeScreenshot = async (contents: Electron.WebContents) => {
     const image = await contents.capturePage()
     const png = image.toPNG()
@@ -496,6 +618,16 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
 
   attachShortcuts(chromeUi, actions)
+  const updates = new UpdateService(settings, (state) => send('updates:changed', state))
+  updates.start()
+  /** The intro runs edge to edge in the dark, whatever the theme. */
+  function setIntro(tabId: number | null) {
+    introActive = tabId !== null
+    tabs.setImmersive(tabId)
+    if (tabId === null) kv.set(WELCOME_KEY, true)
+    syncTheme()
+  }
+  let introActive = false
   const disposeIpc = registerIpc(chromeUi, {
     window,
     tabs,
@@ -506,6 +638,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     actions,
     onBookmarksChanged: publishBookmarks,
     editBookmark,
+    updates,
+    editWorkspace,
     aiStore,
     ai,
     chats: services.chats,
@@ -530,7 +664,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     sync,
     reporter: services.reporter,
     blocker,
-    vpn
+    vpn,
+    updates,
+    setIntro
   })
   const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
   chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
@@ -545,10 +681,11 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   // If the UI process dies, reload it: tabs live in the main process and reappear.
   chromeUi.on('render-process-gone', () => chromeUi.reload())
 
-  const syncTheme = () => {
+  function syncTheme() {
     const { background, foreground } = nativeColors()
-    window.setBackgroundColor(background)
-    window.setTitleBarOverlay({ color: background, symbolColor: foreground, height: TABSTRIP_HEIGHT })
+    window.setBackgroundColor(introActive ? INTRO_COLORS.color : background)
+    if (process.platform === 'darwin') return
+    window.setTitleBarOverlay({ ...(introActive ? INTRO_COLORS : { color: background, symbolColor: foreground }), height: TABSTRIP_HEIGHT })
   }
   nativeTheme.on('updated', syncTheme)
 
@@ -579,6 +716,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     clearTimeout(syncFirst)
     clearInterval(syncTimer)
     sync.stop()
+    updates.stop()
     vpn.stop()
     saver.stop()
     unsubscribeSettings()
@@ -596,10 +734,16 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   chromeUi.once('did-finish-load', () => {
     if (!isPrivate) void fillMissingIcons()
     const saved = settings.get().startup === 'restore' ? loadSession(kv) : null
-    if (saved) tabs.restore(saved.tabs, saved.activeIndex)
+    const previous = loadSession(kv)
+    if (saved) tabs.restore(saved.tabs, saved.activeIndex, saved.split)
     initialUrls.forEach((url) => tabs.create(url))
-    if (!saved && initialUrls.length === 0) tabs.create()
+    // Someone already using scTerra has no need of an introduction.
+    const seen = kv.get(WELCOME_KEY) === true || !!previous || bookmarks.list().length > 0
+    const eligible = !isPrivate && currentProfile() === DEFAULT_PROFILE && initialUrls.length === 0 && (!process.env.SCB_E2E || !!process.env.SCB_WELCOME)
+    if (!seen && eligible) setIntro(tabs.create(WELCOME_URL))
+    else if (!saved && initialUrls.length === 0) tabs.create()
+    if (seen) kv.set(WELCOME_KEY, true)
   })
 
-  return { window, tabs, actions, extensions, sync, vpn }
+  return { window, tabs, actions, extensions, sync, vpn, updates }
 }

@@ -1,9 +1,10 @@
-import { Layers, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
+import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
 import { Tab } from './Tab'
+import { WorkspaceBar } from './WorkspaceBar'
 
 export function VerticalTabs() {
   const tabs = useTabs((s) => s.tabs)
@@ -70,6 +71,9 @@ export function VerticalTabs() {
           </button>
         )}
       </div>
+      <div className={cx('shrink-0 border-t border-border pt-1', collapsed && 'self-center')}>
+        <WorkspaceBar direction={collapsed ? 'column' : 'row'} showAdd />
+      </div>
       {collapsed ? (
         <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
           <PanelLeftOpen size={16} strokeWidth={1.75} />
@@ -87,6 +91,9 @@ export function VerticalTabs() {
             </span>
             Collapse sidebar
           </button>
+          <IconButton label="Clean up tabs" onClick={() => void window.scb.invoke('tabs:cleanup')}>
+            <BrushCleaning size={15} strokeWidth={1.75} />
+          </IconButton>
           <IconButton label="Organise tabs" onClick={() => void window.scb.invoke('tabs:organise')}>
             <Layers size={15} strokeWidth={1.75} />
           </IconButton>

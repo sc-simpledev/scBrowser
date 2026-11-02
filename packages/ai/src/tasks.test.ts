@@ -1,4 +1,4 @@
-import { parseSiteCategory } from './tasks'
+import { parseTabCleanup, parseSiteCategory } from './tasks'
 import { describe, expect, it } from 'vitest'
 import { extractJson, groupTabsMessage, parseAgentAction, parseHistoryQuery, parseTabGroups, parseTranslation } from './tasks'
 
@@ -76,5 +76,17 @@ describe('parseSiteCategory', () => {
     expect(parseSiteCategory('{"category":null}', ['Social media'])).toBeNull()
     expect(parseSiteCategory('{"category":"Ignore rules"}', ['Social media'])).toBeNull()
     expect(parseSiteCategory('no idea', ['Social media'])).toBeNull()
+  })
+})
+
+describe('parseTabCleanup', () => {
+  const tabs = [{ id: 11, title: 'One', url: 'https://a.example/' }, { id: 22, title: 'Two', url: 'https://b.example/' }]
+
+  it('only accepts tabs that were offered', () => {
+    expect(parseTabCleanup('{"close":[{"tab":2,"reason":"Done"},{"tab":9,"reason":"Nope"}]}', tabs)).toEqual([{ id: 22, reason: 'Done' }])
+  })
+
+  it('copes with a reply that is not JSON', () => {
+    expect(parseTabCleanup('sorry', tabs)).toEqual([])
   })
 })

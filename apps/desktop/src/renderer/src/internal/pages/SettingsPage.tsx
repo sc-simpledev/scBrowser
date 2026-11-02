@@ -6,6 +6,7 @@ import {
   SEARCH_ENGINES,
   SUGGESTION_SOURCES,
   TOOLBAR_ITEMS,
+  TOOLBAR_SLOTS,
   TRANSLATE_LANGUAGES,
   type CrashEntry,
   type ExtensionInfo,
@@ -16,7 +17,8 @@ import {
   type Settings,
   type SitePermission,
   type SyncStatus,
-  type ToolbarItemId
+  type ToolbarItemId,
+  type UpdateState
 } from '@scbrowser/shared'
 import { api, applyTint } from '../api'
 
@@ -37,6 +39,61 @@ function Group({ id, title, children }: { id: string; title: string; children: R
       <h2 className="text-md font-semibold tracking-[-0.01em]">{title}</h2>
       {children}
     </div>
+  )
+}
+
+const UPDATE_WORDS: Record<UpdateState['phase'], string> = {
+  idle: 'Updates arrive in the background.',
+  checking: 'Checking for a new version…',
+  current: 'You have the latest version.',
+  available: 'Downloading a new version…',
+  downloading: 'Downloading a new version…',
+  ready: 'A new version is ready.',
+  manual: 'A new version is available to download.',
+  error: "Couldn't check for updates."
+}
+
+function UpdatesSection({ settings, update }: { settings: Settings; update: (patch: Partial<Settings>) => void }) {
+  const [state, setState] = useState<UpdateState | null>(null)
+  useEffect(() => {
+    const refresh = () => void api().invoke('updates:state').then(setState)
+    refresh()
+    const timer = setInterval(refresh, 1000)
+    return () => clearInterval(timer)
+  }, [])
+  if (!state) return null
+  const busy = state.phase === 'checking' || state.phase === 'available' || state.phase === 'downloading'
+  const hint =
+    state.phase === 'downloading' && state.percent !== null
+      ? `Downloading version ${state.version ?? ''}, ${state.percent}%`
+      : state.phase === 'ready' || state.phase === 'manual'
+        ? `Version ${state.version} is ready.`
+        : (state.error ?? UPDATE_WORDS[state.phase])
+  return (
+    <Section title="Updates">
+      {state.supported ? (
+        <>
+          <Row label="Update automatically" hint="Downloads new versions in the background.">
+            <Switch label="Update automatically" checked={settings.autoUpdate} onChange={(autoUpdate) => update({ autoUpdate })} />
+          </Row>
+          <Row label="Version" hint={hint}>
+            {state.phase === 'ready' || state.phase === 'manual' ? (
+              <Button variant="primary" onClick={() => void api().invoke('updates:install')}>
+                {state.phase === 'ready' ? 'Restart to update' : 'Get it'}
+              </Button>
+            ) : (
+              <Button disabled={busy} onClick={() => void api().invoke('updates:check').then(setState)}>
+                Check now
+              </Button>
+            )}
+          </Row>
+        </>
+      ) : (
+        <Row label="Updates" hint="This copy can't update itself. Install a release to get updates.">
+          {null}
+        </Row>
+      )}
+    </Section>
   )
 }
 
@@ -172,6 +229,11 @@ export function SettingsPage() {
             />
           </Row>
         ))}
+        <Row label="Arrange the toolbar" hint="Drag any button in the toolbar to a new place.">
+          <Button variant="ghost" disabled={settings.toolbarOrder.join() === TOOLBAR_SLOTS.join()} onClick={() => update({ toolbarOrder: [...TOOLBAR_SLOTS] })}>
+            Reset
+          </Button>
+        </Row>
       </Section>
       </Group>
 
@@ -522,6 +584,7 @@ export function SettingsPage() {
       </Group>
 
       <Group id="About" title="About">
+      <UpdatesSection settings={settings} update={update} />
       <Section title="About">
         <Row label="Default browser" hint={isDefault ? 'scTerra is your default browser' : undefined}>
           {!isDefault && (
@@ -538,6 +601,11 @@ export function SettingsPage() {
           )}
         </Row>
         {version && <Row label={`scTerra ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
+        <Row label="Welcome intro" hint="Browse the World.">
+          <Button variant="ghost" onClick={() => void api().invoke('welcome:replay')}>
+            Play again
+          </Button>
+        </Row>
       </Section>
       </Group>
     </>

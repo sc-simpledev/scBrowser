@@ -9,6 +9,7 @@ import { readPdf } from './pdfText'
 const ISOLATED_WORLD = 1001
 const MIN_ARTICLE_CHARS = 200
 const TRANSCRIPT_WAIT_MS = 6000
+const SCAN_WAIT_MS = 180_000
 
 const ARTICLE = `(() => {
   ${readabilitySource}
@@ -74,6 +75,13 @@ const isYouTubeWatch = (url: string) => {
 const run = <T>(contents: WebContents, code: string) =>
   contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code }]) as Promise<T>
 
+/** A scan has only pictures, so scTerra's PDF page recognises the text itself, on this computer. */
+function readScan(contents: WebContents): Promise<string> {
+  const timeout = new Promise<string>((resolve) => setTimeout(() => resolve(''), SCAN_WAIT_MS))
+  const reading = contents.executeJavaScript('window.scbReadScan?.() ?? ""').then((text: unknown) => (typeof text === 'string' ? text : ''))
+  return Promise.race([reading.catch(() => ''), timeout])
+}
+
 /** Reads what the tab is showing: a video transcript, a PDF, or the page's main text. */
 export async function extractContext(contents: WebContents): Promise<PageText | null> {
   const page = contents.getURL()
@@ -88,8 +96,9 @@ export async function extractContext(contents: WebContents): Promise<PageText | 
   if (page !== url || (await run<string>(contents, 'document.contentType')) === 'application/pdf') {
     const pdf = await readPdf(contents, url)
     if (!pdf) throw new UnreadablePdfError("This PDF couldn't be read. It may be locked, or too large.")
-    if (!pdf.text) throw new UnreadablePdfError("This PDF has no text to read. It may be a scan.")
-    return { url, title: pdf.title || contents.getTitle(), text: pdf.text, source: 'pdf' }
+    const text = pdf.text || (page !== url ? await readScan(contents) : '')
+    if (!text) throw new UnreadablePdfError("This PDF has no text to read, and nothing could be made out from its pictures.")
+    return { url, title: pdf.title || contents.getTitle(), text, source: 'pdf' }
   }
 
   const article = await run<{ title: string; text: string }>(contents, ARTICLE)

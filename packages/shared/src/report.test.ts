@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { repairJson, splitReply, toReport } from './report'
+import { reportHtml, type Report, repairJson, splitReply, toReport } from './report'
 
 const block = (json: string) => '```scterra-report\n' + json + '\n```'
 const valid = '{"title":"Plan","summary":"S","theme":"brief","blocks":[{"type":"heading","text":"One"},{"type":"paragraph","text":"Two"}]}'
@@ -143,5 +143,21 @@ describe('toReport', () => {
       { type: 'list', items: ['a', '2'], ordered: false },
       { type: 'table', headers: ['h'], rows: [['c', '1']] }
     ])
+  })
+})
+
+describe('reportHtml', () => {
+  const report = { title: '<script>alert(1)</script>', summary: 'A & B', theme: 'clean', blocks: [{ type: 'paragraph', text: '<img src=x onerror=alert(1)>' }] } as unknown as Report
+
+  it('escapes everything the model wrote', () => {
+    const html = reportHtml(report, '')
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    expect(html).toContain('A &amp; B')
+  })
+
+  it('stops the saved file running scripts or reaching the network', () => {
+    expect(reportHtml(report, '')).toContain("default-src 'none'")
   })
 })

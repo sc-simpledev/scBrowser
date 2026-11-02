@@ -22,6 +22,7 @@ import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupTabMenu } fro
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { PrivacyService } from './privacy/service'
+import type { UpdateService } from './updater'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -90,6 +91,14 @@ export const isTurns = (value: unknown): value is SavedTurn[] =>
 
 const chatIdArg = (args: unknown[]): args is [string] => args.length === 1 && isShortString(args[0], 64)
 
+const isAnswer = (value: unknown): boolean =>
+  record(value) &&
+  isShortString(value.question, 4000) &&
+  isShortString(value.text, MAX_CONVERSATION_CHARS) &&
+  typeof value.streaming === 'boolean' &&
+  typeof value.canContinue === 'boolean' &&
+  (value.error === null || isShortString(value.error, 2000))
+
 const isOverlayState = (value: unknown): value is OverlayState => {
   if (!record(value)) return false
   const { omnibox, tooltip } = value
@@ -97,6 +106,7 @@ const isOverlayState = (value: unknown): value is OverlayState => {
     omnibox === null ||
     (record(omnibox) &&
       isRect(omnibox.anchor) &&
+      (omnibox.answer === null || isAnswer(omnibox.answer)) &&
       Number.isInteger(omnibox.selectedIndex) &&
       Array.isArray(omnibox.suggestions) &&
       omnibox.suggestions.length <= MAX_SUGGESTIONS &&
@@ -178,7 +188,13 @@ const validators: Validators = {
     args.length === 2 && isShortString(args[0], 64) && isTurns(args[1]),
   'chats:delete': chatIdArg,
   'privacy:toggle-site': (args): args is [string] => args.length === 1 && isShortString(args[0], 512),
-  'reader:toggle': noArgs
+  'reader:toggle': noArgs,
+  'tabs:cleanup': noArgs,
+  'workspaces:switch': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
+  'workspaces:edit': (args): args is [string | null, number, number] =>
+    args.length === 3 && (args[0] === null || isShortString(args[0], 64)) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
+  'updates:state': noArgs,
+  'updates:install': noArgs
 }
 
 interface IpcServices {
@@ -194,6 +210,8 @@ interface IpcServices {
   editBookmark: (bookmark: Bookmark, fromBar: boolean) => void
   vpn: VpnService
   openVpnMenu: (x: number, y: number) => void
+  updates: UpdateService
+  editWorkspace: (id: string | null, x: number, y: number) => void
   aiStore: AiStore
   ai: AiService
   chats: ChatsRepo
@@ -205,7 +223,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu } = services
+  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace } = services
   const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
@@ -279,7 +297,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'zoom:reset': () => {
       if (tabs.active) tabs.setZoom(tabs.active.id, 1)
     },
-    'menu:open': (x, y) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', window, x, y),
+    'menu:open': (x, y) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', updates.state(), window, x, y),
     'downloads:open-page': () => actions.openPage('downloads'),
     'ai:status': () => aiStore.status(),
     'ai:send': (streamId, request) => {
@@ -315,7 +333,12 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       privacy.toggleSite(host)
       if (tabs.active) tabs.reload(tabs.active.id)
     },
-    'reader:toggle': () => actions.toggleReader()
+    'reader:toggle': () => actions.toggleReader(),
+    'tabs:cleanup': () => actions.cleanupTabs(),
+    'workspaces:switch': (id) => tabs.switchWorkspace(id),
+    'workspaces:edit': (id, x, y) => editWorkspace(id, x, y),
+    'updates:state': () => updates.state(),
+    'updates:install': () => updates.install()
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]
