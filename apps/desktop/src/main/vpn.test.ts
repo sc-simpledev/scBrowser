@@ -1,3 +1,4 @@
+import { createServer as createHttp } from 'node:http'
 import { createServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
@@ -17,6 +18,7 @@ function setup(fetchText: (url: string) => Promise<string> = async () => '') {
     corePath: () => '/nowhere/xray',
     applyProxy: async (rules: string | null) => void proxies.push(rules),
     fetchText,
+    probeTarget: { host: 'probe.example', port: 80 },
     onChange: () => undefined
   }
   return { vpn: new VpnService(deps), deps, kv, proxies }
@@ -88,10 +90,31 @@ describe('VpnService', () => {
     const { vpn } = setup()
     await vpn.add(`socks5://127.0.0.1:${port}#Up\nsocks5://127.0.0.1:1#Down`, null)
     const [up, down] = vpn.state().connections
-    const results = await vpn.ping([up!.id, down!.id])
-    expect(results[up!.id]).toEqual(expect.any(Number))
+    // This fake takes the connection but never talks, like many dead public servers.
+    const results = await vpn.ping([up!.id, down!.id], 300)
+    expect(results[up!.id]).toBeNull()
     expect(results[down!.id]).toBeNull()
+    expect(vpn.pingProgress()).toEqual({ running: false, done: 2, total: 2 })
     expect(await pingHost('127.0.0.1', 1)).toBeNull()
     server.close()
+  })
+
+  it('passes a proxy only when the test page really comes back', async () => {
+    const proxy = (reply: string) =>
+      new Promise<ReturnType<typeof createHttp>>((resolve) => {
+        const server = createHttp((_req, res) => res.writeHead(reply === 'ok' ? 204 : 200).end(reply === 'ok' ? undefined : 'Blocked'))
+        server.listen(0, '127.0.0.1', () => resolve(server))
+      })
+    const good = await proxy('ok')
+    const bad = await proxy('blocked')
+    const { vpn } = setup()
+    const portOf = (server: ReturnType<typeof createHttp>) => (server.address() as AddressInfo).port
+    await vpn.add(`http://127.0.0.1:${portOf(good)}#Good\nhttp://127.0.0.1:${portOf(bad)}#Bad`, null)
+    const [first, second] = vpn.state().connections
+    const results = await vpn.ping([first!.id, second!.id], 1000)
+    expect(results[first!.id]).toEqual(expect.any(Number))
+    expect(results[second!.id]).toBeNull()
+    good.close()
+    bad.close()
   })
 })

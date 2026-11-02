@@ -4,11 +4,12 @@ scDelta (formerly scBrowser) is an Electron browser for Linux and Windows with A
 
 ## How to work with the owner
 
-- Commit and push only when asked. They usually say "Commit and push" after each round.
+- Commit and push only when asked. They usually say "Commit and push" after each round. Work directly on `main`. A coworker also commits there, so pull first. `theme.html` in the root is the owner's scSpace style reference: don't commit it.
+- Commits need `git -c user.name=... -c user.email=...` using the last commit's author, as no git identity is set on this machine.
 - Don't spend their AI credit without asking. Live requests to the hosted server use real keys.
-- They want it modern but not "vibe coded": follow the design rules in Plan.md and use tokens, not raw colours or sizes.
+- They want it modern but not "vibe coded": follow the design rules in Plan.md and use tokens, not raw colours or sizes. They've pulled back glass, pills and big shadows once already: flat surfaces with thin borders, 4/6/10 radii, glass only on popups and new tab cards.
 - Report honestly what was and wasn't tested. Say so when something only ran against mocks.
-- Rebuild the Linux beta after a round of changes, and tell them where it is.
+- Rebuild the Linux beta after a round of changes, and tell them where it is. Run `build` before `electron-builder`, which packages whatever is already in `out/`.
 - Signing, store distribution and update channels are on hold until they say otherwise.
 
 ## Commands
@@ -45,7 +46,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 
 | Path | Contents |
 |---|---|
-| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
+| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `private.ts`, `siteIcons.ts`, `internal/pdf.ts`, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
 | `apps/desktop/src/preload` | Bridges: `index.ts` (browser UI), `overlay.ts`, `internal.ts` (sc:// pages only) |
 | `apps/desktop/src/renderer/src` | Browser UI in `components/`, overlay UI in `overlay/`, sc:// pages in `internal/`, reply and report rendering in `shared/` |
 | `packages/shared` | IPC contracts, settings, omnibox logic, reports, privacy helpers |
@@ -81,14 +82,17 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 ## Status
 
-Phases 0 to 5 are built, apart from signing, stores and update channels, which are on hold. See the Status section of Plan.md.
+Phases 0 to 5 are built, apart from signing, stores and update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, bookmark groups and icons, private windows, the PDF viewer, and the scSpace look. See Plan.md for what each does.
+
+Next up, if the owner agrees: auto-updates through the public `scTerra` repo, as set out in [docs/auto-update.md](docs/auto-update.md). Don't build it before they've chosen. The source repo stays private, and only installers go to scTerra.
 
 Open items:
+- CI: E2E failures used to stop the installer step, which looked like a broken build. Installers now build regardless, and CI retries flaky tests twice.
 - A real AI provider hasn't been used through the browser UI. Everything in the app was tested against mocks, so reports, agent mode, translation and the scAI identity need real-model checks.
 - `sc://assistant` has no saved-chat list. Chats open from the side panel.
 - Reports can't be saved as HTML files yet.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
-- VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is TCP only.
+- VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is a real request through each connection, so free lists mostly show Not working. That's accurate.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.
 - The server's `/v1/reports` route needs deploying before reports go anywhere. Native crash dumps aren't collected.
 - The accent tint is off by default, using `data-tint` on the root. Glass is only for popups and new tab cards.
@@ -110,6 +114,7 @@ Open items:
 - Playwright turns the sandbox off, and service worker extensions then lose the extra `chrome.*` APIs. Launch with `SCB_E2E_SANDBOX: '1'` for those tests.
 - VPN tests get `<-loopback>` in the bypass rules under `SCB_E2E`, so local servers go through the proxy.
 - `e2e/xray.spec.ts` makes real connections through a local Xray server, and is skipped if the core hasn't been fetched.
+- `SCB_VPN_PROBE=host:port` points VPN pings at a local page. `serveSite` answers `/generate_204`.
 - Don't take desktop screenshots with spectacle: it can capture the owner's own windows.
 - `pkill -f` patterns can match your own shell. Use `pgrep -f "dist/electro[n]" | xargs -r kill -9`.
 - Code running during shutdown must guard against the destroyed window and closed database.

@@ -17,7 +17,17 @@ export interface VpnGroup {
   subscription: boolean
 }
 
+/** Latest result per connection: milliseconds for a real page request, or null if it failed. */
+export type VpnPings = Record<string, number | null>
+
+export interface VpnPingProgress {
+  running: boolean
+  done: number
+  total: number
+}
+
 export interface VpnState {
+  pings: VpnPings
   enabled: boolean
   connecting: boolean
   activeId: string | null
@@ -213,11 +223,26 @@ function outbound(link: ParsedLink): Record<string, unknown> {
     case 'https':
       return {
         protocol: 'http',
-        settings: { servers: [{ address, port, users: [{ user: username, pass: password }] }] },
+        settings: { servers: [{ address, port, ...(username ? { users: [{ user: username, pass: password }] } : {}) }] },
         ...(link.protocol === 'https' ? { streamSettings: { security: 'tls', tlsSettings: { serverName: address } } } : {})
       }
     default:
-      return { protocol: 'socks', settings: { servers: [{ address, port, users: [{ user: username, pass: password }] }] } }
+      return { protocol: 'socks', settings: { servers: [{ address, port, ...(username ? { users: [{ user: username, pass: password }] } : {}) }] } }
+  }
+}
+
+/** Xray won't start with these, so there's no point trying. */
+export const coreRefuses = (link: ParsedLink) =>
+  (link.protocol === 'vless' || link.protocol === 'trojan') && !['tls', 'reality', 'xtls'].includes(link.params.security ?? (link.protocol === 'trojan' ? 'tls' : ''))
+
+/** One Xray process that tests many connections, each reached through its own local port. */
+export function xrayTestConfig(items: { link: ParsedLink; port: number }[]): unknown {
+  const tag = (index: number) => `t${index}`
+  return {
+    log: { loglevel: 'none' },
+    inbounds: items.map(({ port }, index) => ({ tag: tag(index), listen: '127.0.0.1', port, protocol: 'socks', settings: { auth: 'noauth', udp: false } })),
+    outbounds: items.map(({ link }, index) => ({ ...outbound(link), tag: tag(index) })),
+    routing: { rules: items.map((_, index) => ({ type: 'field', inboundTag: [tag(index)], outboundTag: tag(index) })) }
   }
 }
 

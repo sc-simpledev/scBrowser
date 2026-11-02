@@ -28,8 +28,8 @@ function parse(data: Uint8Array): Promise<PdfText | null> {
 }
 
 /** Downloads the tab's PDF with its own cookies, so signed-in documents work too. */
-export async function readPdf(contents: WebContents): Promise<PdfText | null> {
-  const response = await contents.session.fetch(contents.getURL())
+export async function readPdf(contents: WebContents, url: string): Promise<PdfText | null> {
+  const response = await contents.session.fetch(url)
   if (!response.ok) return null
   if (Number(response.headers.get('content-length')) > MAX_BYTES) return null
   const bytes = new Uint8Array(await response.arrayBuffer())

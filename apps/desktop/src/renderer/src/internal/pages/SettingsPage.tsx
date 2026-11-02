@@ -29,11 +29,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-const GROUPS = ['Look', 'Browsing', 'Privacy', 'Data', 'Add-ons', 'About']
+export const SETTINGS_GROUPS = ['Look', 'Browsing', 'Privacy', 'Data', 'Add-ons', 'About']
 
 function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <div id={id} className="flex scroll-mt-12 flex-col gap-5">
+    <div id={id} className="flex scroll-mt-6 flex-col gap-5">
       <h2 className="text-md font-semibold tracking-[-0.01em]">{title}</h2>
       {children}
     </div>
@@ -97,19 +97,6 @@ export function SettingsPage() {
 
   return (
     <>
-      <nav aria-label="Settings sections" className="sticky top-0 z-10 -mx-1 flex gap-1 bg-surface px-1 py-2">
-        {GROUPS.map((group) => (
-          <button
-            key={group}
-            type="button"
-            className="h-7 rounded-md px-2.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            onClick={() => document.getElementById(group)?.scrollIntoView({ behavior: 'smooth' })}
-          >
-            {group}
-          </button>
-        ))}
-      </nav>
-
       <Group id="Look" title="Look and feel">
       <Section title="Appearance">
         <Row label="Theme">

@@ -101,3 +101,23 @@ test('stops and says so when the core exits, and pages fail rather than go direc
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).not.toContainText('Alpha page')
 })
+
+test('ping passes a working connection and fails one that accepts but carries nothing', async () => {
+  const probe = new URL(site.url('/generate_204'))
+  const silent = createServer().listen(0, '127.0.0.1')
+  await new Promise((r) => silent.once('listening', r))
+  await h.close()
+  h = await launch(undefined, [], { SCB_VPN_PROBE: `${probe.hostname}:${probe.port}` })
+  await go(h, 'sc://vpn')
+  const page = await h.page('sc://vpn')
+  const dead = `ss://${btoa(`aes-256-gcm:${PASSWORD}`)}@127.0.0.1:${(silent.address() as AddressInfo).port}#Dead`
+  await page.getByRole('textbox', { name: 'Connection links' }).fill(`${links.ss().replace('#Node', '#Alive')}\n${dead}\nvless://${UUID}@198.51.100.1:443?security=none#Refused`)
+  await page.getByRole('button', { name: 'Add links' }).click()
+  await page.getByRole('combobox', { name: 'Ping time limit' }).selectOption('2000')
+  await page.getByRole('button', { name: 'Ping', exact: true }).click()
+  const row = (name: string) => page.locator('li', { hasText: name })
+  await expect(row('Alive')).toContainText(/\d+ ms/, { timeout: 15000 })
+  await expect(row('Dead')).toContainText('Not working', { timeout: 15000 })
+  await expect(row('Refused')).toContainText('Not working')
+  silent.close()
+})

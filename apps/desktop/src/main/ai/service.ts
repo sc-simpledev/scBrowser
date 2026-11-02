@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
-import { MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type ModelRef } from '@scbrowser/shared'
+import { effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import type { AiStore } from './store'
 
@@ -9,7 +9,9 @@ const MAX_OUTPUT_TOKENS = 16_000
 const TASK_OUTPUT_TOKENS = 4_000
 
 /** AI traffic gets an in-memory session, so browsing cookies are never attached. */
-const aiFetch: FetchLike = (input, init) => session.fromPartition('scb-ai').fetch(input as string, init)
+export const AI_PARTITION = 'scb-ai'
+
+const aiFetch: FetchLike = (input, init) => session.fromPartition(AI_PARTITION).fetch(input as string, init)
 
 export class AiService {
   private readonly running = new Map<string, AbortController>()
@@ -142,7 +144,7 @@ export class AiService {
     const allowed = ids.slice(0, MAX_MENTIONED_TABS + 1).flatMap((id) => {
       const contents = this.contentsFor(id)
       if (!contents || !URL.canParse(contents.getURL())) return []
-      return this.store.disabledHosts().includes(new URL(contents.getURL()).host) ? [] : [contents]
+      return this.store.disabledHosts().includes(new URL(effectiveUrl(contents.getURL())).host) ? [] : [contents]
     })
     const found = (await Promise.all(allowed.map(extractContext))).filter((page) => page !== null)
     if (found.length === 0) return []

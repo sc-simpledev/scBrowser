@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { FiltersEngine, Request } from '@ghostery/adblocker'
 import { app, type OnBeforeRequestListenerDetails, type Session, type WebContents } from 'electron'
 import { httpsUpgrade, type Settings } from '@scbrowser/shared'
+import { isBasicPdf, isPdfResponse } from '../internal/pdf'
 import type { SettingsStore } from '../settings'
 import type { KeyValueRepo } from '../storage/kv'
 
@@ -44,6 +45,9 @@ interface PrivacyOptions {
   screen: (url: string, contents: WebContents) => string | null | Promise<string | null>
   /** The load was stopped, so the tab needs to show why. */
   onScreenedOut: (url: string, reason: string, contents: WebContents) => void
+  isTab: (contents: WebContents) => boolean
+  /** A PDF is about to open in a tab, which should show it in scDelta's viewer instead. */
+  onPdf: (url: string, contents: WebContents) => void
   onChanged: () => void
 }
 
@@ -76,9 +80,20 @@ export class PrivacyService {
         respond({ cancel: true })
         this.options.onScreenedOut(details.url, reason, contents)
       }
+      if (/^file:.*\.pdf$/i.test(details.url) && this.options.isTab(contents) && !isBasicPdf(details.url)) {
+        respond({ cancel: true })
+        return this.options.onPdf(details.url, contents)
+      }
       const verdict = this.options.screen(details.url, contents)
       if (verdict instanceof Promise) void verdict.then(finish)
       else finish(verdict)
+    })
+    session.webRequest.onHeadersReceived((details, respond) => {
+      const { webContents: contents, resourceType, url, responseHeaders } = details
+      if (resourceType === 'mainFrame' && contents && this.options.isTab(contents) && isPdfResponse(url, responseHeaders)) {
+        respond({ cancel: true })
+        this.options.onPdf(url, contents)
+      } else respond({})
     })
   }
 

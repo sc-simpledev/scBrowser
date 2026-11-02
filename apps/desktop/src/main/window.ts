@@ -21,11 +21,12 @@ import {
 import type { BrowserActions } from './actions'
 import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabGroups } from '@scbrowser/ai'
 import { rewriteSelection, togglePageTranslation } from './ai/pageTools'
-import { AiService } from './ai/service'
+import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { DownloadManager, uniquePath } from './downloads'
 import { ExtensionManager } from './extensions'
 import { handleInternalPages } from './internal/protocol'
+import { pdfPageUrl } from './internal/pdf'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
 import { attachPageMenu } from './menus'
@@ -43,7 +44,7 @@ import { fetchIcon, fetchSiteIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
 import type { Reporter } from './reporter'
 import { SyncService, type KeyVault } from './sync'
-import { VpnService, xrayPath } from './vpn'
+import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { DownloadsRepo } from './storage/downloads'
@@ -61,6 +62,12 @@ const WINDOW_KEY = 'window'
 const APP_TITLE = isPrivate ? 'scDelta (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
+
+/** Tests point pings at a local page. */
+function probeTarget(): ProbeTarget {
+  const [host, port] = process.env.SCB_VPN_PROBE?.split(':') ?? []
+  return host && port ? { host, port: Number(port) } : DEFAULT_PROBE
+}
 
 export interface Services {
   kv: KeyValueRepo
@@ -348,6 +355,11 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onBlocked: (id) => tabs.noteBlocked(id),
     screen: (url, contents): string | null | Promise<string | null> => (tabs.owns(contents) ? blocker.screen(url) : null),
     onScreenedOut: (url, reason, contents) => void contents.loadURL(blocker.pageFor(url, reason)).catch(() => undefined),
+    isTab: (contents): boolean => tabs.owns(contents),
+    onPdf: (url, contents) => {
+      if (!isPrivate) history.recordVisit(url)
+      void contents.loadURL(pdfPageUrl(url)).catch(() => undefined)
+    },
     onChanged: () => send('privacy:changed', privacy.offHosts())
   })
   const downloads = new DownloadManager(services.downloads, settings, (progress) =>
@@ -355,6 +367,12 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   )
 
   const prepared = new Set<Session>()
+  let proxyRules: string | null = null
+  const applySessionProxy = (target: Session) => {
+    // Tests serve pages from this computer, which Chromium would otherwise send direct.
+    const proxyBypassRules = process.env.SCB_E2E ? '<-loopback>' : ''
+    return target.setProxy(proxyRules ? { mode: 'fixed_servers', proxyRules, proxyBypassRules } : { mode: 'direct' })
+  }
   const prepareSession = (target: Session) => {
     if (prepared.has(target)) return
     prepared.add(target)
@@ -362,6 +380,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     permissionService.attach(target)
     downloads.attach(target)
     void extensions.attach(target)
+    // A container opened while the VPN is on joins it straight away.
+    if (proxyRules) void applySessionProxy(target)
     if (target !== session.defaultSession) handleInternalPages(target)
   }
   prepareSession(session.defaultSession)
@@ -388,15 +408,17 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
     applyProxy: async (rules) => {
       // Tests serve pages from this computer, which Chromium would otherwise send direct.
-      const bypass = process.env.SCB_E2E ? '<-loopback>' : ''
-      for (const target of prepared) {
-        await target.setProxy(rules ? { mode: 'fixed_servers', proxyRules: rules, proxyBypassRules: bypass } : { mode: 'direct' })
+      proxyRules = rules
+      // The assistant has its own session, and its requests should take the same route as tabs.
+      for (const target of [...prepared, session.fromPartition(AI_PARTITION)]) {
+        await applySessionProxy(target)
         await target.closeAllConnections()
       }
       // WebRTC would otherwise reveal the real address by skipping the proxy.
       const policy = rules ? 'disable_non_proxied_udp' : 'default'
       for (const { id } of tabs.snapshot().tabs) tabs.contentsFor(id)?.setWebRTCIPHandlingPolicy(policy)
     },
+    probeTarget: probeTarget(),
     fetchText: async (url) => {
       const response = await net.fetch(url)
       if (!response.ok) throw new Error(`The subscription answered with error ${response.status}.`)
@@ -405,17 +427,18 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onChange: () => send('vpn:changed', vpn.summary())
   })
   const openVpnMenu = (x: number, y: number) => {
-    const { enabled, connections, activeId, groups } = vpn.state()
+    const { enabled, connections, activeId, groups, pings } = vpn.state()
     const pick = (id: string) => void vpn.select(id).then(() => (vpn.summary().enabled ? undefined : vpn.setEnabled(true)))
     const row = (connection: (typeof connections)[number]) => ({
-      label: `${connection.name}${pings[connection.id] ? `  ${pings[connection.id]} ms` : ''}`,
+      label: `${connection.name}${pings[connection.id] ? `  ${pings[connection.id]} ms` : pings[connection.id] === null ? '  not working' : ''}`,
       type: 'radio' as const,
       checked: connection.id === activeId,
       click: () => pick(connection.id)
     })
     const list = (items: typeof connections) => byPing(items, pings).slice(0, VPN_MENU_ROWS).map(row)
     const pingAll = async () => {
-      Object.assign(pings, await vpn.ping(connections.map(({ id }) => id)))
+      notify('Pinging…')
+      await vpn.ping(connections.map(({ id }) => id), settings.get().vpnPingTimeout)
       notify('Finished pinging')
     }
     Menu.buildFromTemplate([
@@ -428,8 +451,6 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       { label: 'Manage connections…', click: () => actions.openPage('vpn') }
     ]).popup({ window, x: Math.round(x), y: Math.round(y) })
   }
-  /** Latest ping times, shown in the toolbar menu. */
-  const pings: Record<string, number | null> = {}
   const syncFirst = setTimeout(() => void sync.run(), SYNC_FIRST_MS)
   const syncTimer = setInterval(() => void sync.run(), SYNC_EVERY_MS)
 

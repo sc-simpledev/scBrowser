@@ -80,6 +80,8 @@ export interface Settings {
   hiddenToolbarItems: ToolbarItemId[]
   translateTo: TranslateLanguage
   newTab: NewTabConfig
+  /** How long a VPN ping waits before moving to the next connection. */
+  vpnPingTimeout: number
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenToolbarItems: [],
   translateTo: 'English',
   newTab: DEFAULT_NEW_TAB,
+  vpnPingTimeout: 3000,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   syncHistory: true,
@@ -139,6 +142,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
   newTab: isNewTabConfig,
+  vpnPingTimeout: (v) => Number.isInteger(v) && (v as number) >= 200 && (v as number) <= 30_000,
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',

@@ -6,7 +6,7 @@ import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView } from './overlay'
 import type { Settings } from './settings'
-import type { VpnAddResult, VpnState, VpnSummary } from './vpn'
+import type { VpnAddResult, VpnPingProgress, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
 
 /**
@@ -279,6 +279,12 @@ export interface InternalCommands {
   'blocker:message': () => string
   'blocker:proceed': (url: string) => void
   'blocker:leave': () => void
+  /** The PDF in this tab, or null if it can't be fetched. */
+  'pdf:load': () => Uint8Array | null
+  'pdf:save': () => void
+  'pdf:print': () => void
+  /** Reopens this PDF in Chromium's own viewer. */
+  'pdf:basic': () => void
   'vpn:state': () => VpnState
   'vpn:add': (text: string, groupId: string | null) => VpnAddResult
   'vpn:subscribe': (url: string, name: string) => VpnAddResult
@@ -290,7 +296,10 @@ export interface InternalCommands {
   'vpn:remove': (id: string) => void
   'vpn:select': (id: string) => void
   'vpn:set-enabled': (enabled: boolean) => void
-  'vpn:ping': (ids: string[]) => Record<string, number | null>
+  /** Starts checking connections. Follow it with `vpn:ping-progress`. */
+  'vpn:ping': (ids: string[]) => void
+  'vpn:ping-stop': () => void
+  'vpn:ping-progress': () => VpnPingProgress
 }
 
 export const INTERNAL_COMMAND_CHANNELS = [
@@ -365,6 +374,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'blocker:message',
   'blocker:proceed',
   'blocker:leave',
+  'pdf:load',
+  'pdf:save',
+  'pdf:print',
+  'pdf:basic',
   'vpn:state',
   'vpn:add',
   'vpn:subscribe',
@@ -376,7 +389,9 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'vpn:remove',
   'vpn:select',
   'vpn:set-enabled',
-  'vpn:ping'
+  'vpn:ping',
+  'vpn:ping-stop',
+  'vpn:ping-progress'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

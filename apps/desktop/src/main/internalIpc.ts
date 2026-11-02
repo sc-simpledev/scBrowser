@@ -7,6 +7,7 @@ import type { DownloadManager } from './downloads'
 import type { ExtensionManager } from './extensions'
 import { readBackground, removeBackground, saveBackground } from './internal/background'
 import { isAssistantRequest, isTurns } from './ipc'
+import { allowBasicPdf, fetchPdf, pdfSource } from './internal/pdf'
 import { readFlags, setFlag } from './flags'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
@@ -278,7 +279,28 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'vpn:set-enabled': (enabled) => vpn.setEnabled(enabled === true),
     'vpn:ping': (ids) => {
       if (!Array.isArray(ids) || ids.length > 20_000) throw new Error('Too many connections')
-      return vpn.ping(ids.map((id) => text(id, 64)))
+      void vpn.ping(ids.map((id) => text(id, 64)), settings.get().vpnPingTimeout)
+    },
+    'vpn:ping-stop': () => vpn.stopPing(),
+    'vpn:ping-progress': () => vpn.pingProgress(),
+    'pdf:load': async () => {
+      const address = caller && pdfSource(caller)
+      return address ? fetchPdf(caller!.session, address) : null
+    },
+    'pdf:save': () => {
+      const address = caller && pdfSource(caller)
+      if (address) caller!.downloadURL(address)
+    },
+    'pdf:print': () => {
+      const id = caller && tabs.tabIdFor(caller)
+      if (id) tabs.print(id)
+    },
+    'pdf:basic': () => {
+      const address = caller && pdfSource(caller)
+      if (address) {
+        allowBasicPdf(address)
+        void caller!.loadURL(address)
+      }
     }
   }
 

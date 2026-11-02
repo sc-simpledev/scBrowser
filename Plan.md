@@ -73,11 +73,15 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Site blocker.** `sc://blocker`: block sites always, at set times or in Focus Mode (the same mode as Study Mode), with custom messages and an allowlist. Site categories are checked by the AI once per host, sending only the host name, always or only in Focus Mode. The block page offers a new tab or continuing, which lasts 15 minutes.
 
-**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. It covers browser tabs only, and fails closed if the core stops.
+**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. It covers every browser session, including containers and the assistant's requests, not other apps, and fails closed if the core stops. Ping loads a real 204 page through each connection, with a time limit set on `sc://vpn`.
 
 **Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. They don't sync yet: sync still carries only addresses and names.
 
 **Private windows.** Ctrl Shift N starts a separate copy of the app from a throwaway folder in the system temp directory, like a profile. It brings bookmarks and settings, but no history, AI keys or extensions, and a small watcher process deletes the folder after it closes or crashes.
+
+**PDF viewer.** PDFs open in `sc://pdf`, a pdf.js page with thumbnails, zoom, rotate, selectable text (so Ctrl F works), download and print. Chromium's own viewer stays as a fallback for damaged or locked files.
+
+**Auto-updates.** Proposed in [docs/auto-update.md](docs/auto-update.md), not built yet.
 
 **Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 

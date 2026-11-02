@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron'
 import readabilitySource from '@mozilla/readability/Readability.js?raw'
 import { formatTranscript } from '@scbrowser/ai'
-import type { ContextSource } from '@scbrowser/shared'
+import { effectiveUrl, PDF_PAGE_URL, type ContextSource } from '@scbrowser/shared'
 import type { ReaderArticle } from '../internal/reader'
 import { readPdf } from './pdfText'
 
@@ -76,7 +76,8 @@ const run = <T>(contents: WebContents, code: string) =>
 
 /** Reads what the tab is showing: a video transcript, a PDF, or the page's main text. */
 export async function extractContext(contents: WebContents): Promise<PageText | null> {
-  const url = contents.getURL()
+  const page = contents.getURL()
+  const url = page.startsWith(PDF_PAGE_URL) ? effectiveUrl(page) : page
   if (!/^(https?|file):/i.test(url)) return null
 
   if (isYouTubeWatch(url)) {
@@ -84,8 +85,8 @@ export async function extractContext(contents: WebContents): Promise<PageText | 
     if (video) return { url, title: video.title, text: formatTranscript(video.segments), source: 'transcript' }
   }
 
-  if ((await run<string>(contents, 'document.contentType')) === 'application/pdf') {
-    const pdf = await readPdf(contents)
+  if (page !== url || (await run<string>(contents, 'document.contentType')) === 'application/pdf') {
+    const pdf = await readPdf(contents, url)
     if (!pdf) throw new UnreadablePdfError("This PDF couldn't be read. It may be locked, or too large.")
     if (!pdf.text) throw new UnreadablePdfError("This PDF has no text to read. It may be a scan.")
     return { url, title: pdf.title || contents.getTitle(), text: pdf.text, source: 'pdf' }

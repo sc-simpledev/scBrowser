@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type Server } from 'node:http'
@@ -144,6 +144,7 @@ test('with a connection added, the VPN carries pages through it and turns off cl
   const seen: string[] = []
   const proxy: Server = createServer((req, res) => {
     seen.push(req.url ?? '')
+    if (req.url?.endsWith('/generate_204')) return void res.writeHead(204).end()
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end('<!doctype html><title>Through the proxy</title>')
   })
@@ -159,7 +160,7 @@ test('with a connection added, the VPN carries pages through it and turns off cl
   await expect(h.chrome.getByRole('button', { name: /^VPN/ })).toBeVisible()
 
   await page.getByRole('button', { name: 'Ping' }).click()
-  await expect(page.getByText(/\d+ ms/)).toBeVisible()
+  await expect(page.locator('li').getByText(/\d+ ms/)).toBeVisible()
 
   await page.getByRole('switch', { name: 'VPN' }).click()
   await expect(h.chrome.getByRole('button', { name: 'VPN: on, Local' })).toBeVisible()
@@ -229,6 +230,49 @@ test('the private window command starts a separate copy of the app', async () =>
   await expect.poll(() => existsSync(pidFile), { timeout: 10000 }).toBe(true)
   const pid = Number(readFileSync(pidFile, 'utf8'))
   expect(pid).not.toBe(await h.app.evaluate(() => process.pid))
+  const folder = join(tmpdir(), created()!)
   process.kill(pid)
-  rmSync(join(tmpdir(), created()!), { recursive: true, force: true })
+  // The watcher clears up after a crash too.
+  await expect.poll(() => existsSync(folder), { timeout: 15000 }).toBe(false)
+})
+
+test('Settings sections sit under Settings in the sidebar', async () => {
+  await go(h, 'sc://settings')
+  const page = await h.page('sc://settings')
+  const nav = page.getByRole('navigation', { name: 'Browser pages' })
+  await nav.getByRole('button', { name: 'About' }).click()
+  await expect(page.getByRole('region', { name: 'About' })).toBeInViewport()
+  await go(h, 'sc://history')
+  const history = await h.page('sc://history')
+  await expect(history.getByRole('navigation', { name: 'Browser pages' }).getByRole('button', { name: 'About' })).toHaveCount(0)
+})
+
+test('PDFs open in the scDelta viewer, with text, paging and zoom', async () => {
+  await go(h, site.url('/report.pdf'))
+  const page = await h.page('sc://pdf')
+  await expect(omnibox(h)).toHaveValue(site.url('/report.pdf'))
+  await expect(activeTab(h)).toContainText('report.pdf')
+  const bar = page.getByRole('toolbar', { name: 'PDF' })
+  await expect(bar).toContainText('of 1')
+  await expect(page.locator('.textLayer')).toContainText('marigold')
+  await expect.poll(() => page.locator('canvas[aria-label="Page 1"]').evaluate((c: HTMLCanvasElement) => c.width)).toBeGreaterThan(300)
+  const zoom = bar.getByLabel('Zoom', { exact: true })
+  const before = await zoom.textContent()
+  await bar.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(zoom).not.toHaveText(before!)
+})
+
+test('a damaged PDF offers the basic viewer', async () => {
+  await h.close()
+  const broken = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/pdf' })
+    res.end('not a pdf')
+  })
+  await new Promise<void>((r) => broken.listen(0, '127.0.0.1', r))
+  h = await launch()
+  await go(h, `http://127.0.0.1:${(broken.address() as AddressInfo).port}/broken.pdf`)
+  const page = await h.page('sc://pdf')
+  await expect(page.getByRole('button', { name: 'Open in basic viewer' })).toBeVisible()
+  broken.closeAllConnections()
+  broken.close()
 })

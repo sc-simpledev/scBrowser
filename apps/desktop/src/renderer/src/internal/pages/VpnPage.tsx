@@ -1,17 +1,19 @@
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input, Select, Switch } from '@scbrowser/ui'
-import { byPing, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnState } from '@scbrowser/shared'
+import { byPing, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnPingProgress, type VpnPings, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
 const VISIBLE_ROWS = 100
+const PING_REFRESH_MS = 500
+const TIMEOUT_CHOICES = [500, 1000, 2000, 3000, 5000, 10000]
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
 
 function pingText(ping: number | null | undefined) {
   if (ping === undefined) return ''
-  return ping === null ? 'No answer' : `${ping} ms`
+  return ping === null ? 'Not working' : `${ping} ms`
 }
 
 function ConnectionRow({ connection, active, ping, groups, onSelect, reload }: { connection: VpnConnection; active: boolean; ping: number | null | undefined; groups: VpnGroup[]; onSelect: () => void; reload: () => void }) {
@@ -47,22 +49,15 @@ function ConnectionRow({ connection, active, ping, groups, onSelect, reload }: {
   )
 }
 
-function ConnectionList({ title, group, connections, state, pings, setPings, reload }: { title: string; group: VpnGroup | null; connections: VpnConnection[]; state: VpnState; pings: Record<string, number | null>; setPings: (results: Record<string, number | null>) => void; reload: () => void }) {
-  const [pinging, setPinging] = useState(false)
+function ConnectionList({ title, group, connections, state, pings, progress, startPing, reload }: { title: string; group: VpnGroup | null; connections: VpnConnection[]; state: VpnState; pings: VpnPings; progress: VpnPingProgress; startPing: (ids: string[]) => void; reload: () => void }) {
   const [filter, setFilter] = useState('')
+  const [hideDead, setHideDead] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const shown = useMemo(() => {
     const needle = filter.toLowerCase()
-    return byPing(connections.filter((c) => `${c.name} ${c.host}`.toLowerCase().includes(needle)), pings)
-  }, [connections, filter, pings])
+    return byPing(connections.filter((c) => `${c.name} ${c.host}`.toLowerCase().includes(needle) && !(hideDead && pings[c.id] === null)), pings)
+  }, [connections, filter, pings, hideDead])
 
-  const pingAll = () => {
-    setPinging(true)
-    void api()
-      .invoke('vpn:ping', connections.map(({ id }) => id))
-      .then(setPings)
-      .finally(() => setPinging(false))
-  }
   const select = (id: string) => void api().invoke('vpn:select', id).then(reload)
   const fastest = shown[0] && pings[shown[0].id] ? shown[0] : null
 
@@ -73,8 +68,13 @@ function ConnectionList({ title, group, connections, state, pings, setPings, rel
           {title} <span className="font-normal text-text-faint">{connections.length}</span>
         </h2>
         {fastest && <Button variant="ghost" onClick={() => select(fastest.id)}>Use fastest</Button>}
-        <Button disabled={pinging || connections.length === 0} onClick={pingAll}>
-          {pinging ? 'Pinging…' : 'Ping'}
+        {connections.some((c) => pings[c.id] === null) && (
+          <Button variant="ghost" aria-pressed={hideDead} onClick={() => setHideDead(!hideDead)}>
+            {hideDead ? 'Show all' : 'Hide not working'}
+          </Button>
+        )}
+        <Button disabled={progress.running || connections.length === 0} onClick={() => startPing(connections.map(({ id }) => id))}>
+          Ping
         </Button>
         {group?.subscription && (
           <Button
@@ -107,17 +107,55 @@ function ConnectionList({ title, group, connections, state, pings, setPings, rel
 
 export function VpnPage() {
   const [state, setState] = useState<VpnState | null>(null)
-  const [pings, setPings] = useState<Record<string, number | null>>({})
+  const [pings, setPings] = useState<VpnPings>({})
+  const [progress, setProgress] = useState<VpnPingProgress>({ running: false, done: 0, total: 0 })
   const [links, setLinks] = useState('')
   const [groupId, setGroupId] = useState('')
   const [subscription, setSubscription] = useState('')
   const [subscriptionName, setSubscriptionName] = useState('')
   const [newGroup, setNewGroup] = useState('')
   const [note, setNote] = useState<string | null>(null)
+  const [pingTimeout, setTimeoutValue] = useState(3000)
 
-  const reload = useCallback(() => void api().invoke('vpn:state').then(setState), [])
+  const reload = useCallback(
+    () =>
+      void api()
+        .invoke('vpn:state')
+        .then((next) => {
+          setState(next)
+          setPings(next.pings)
+        }),
+    []
+  )
   useEffect(reload, [reload])
+  useEffect(() => {
+    void api().invoke('settings:get').then(({ vpnPingTimeout }) => setTimeoutValue(vpnPingTimeout))
+  }, [])
+  const setPingTimeout = (vpnPingTimeout: number) => {
+    setTimeoutValue(vpnPingTimeout)
+    void api().invoke('settings:set', { vpnPingTimeout })
+  }
+
+  // Results arrive as they come in, so long lists show progress.
+  useEffect(() => {
+    if (!progress.running) return
+    const timer = setInterval(() => {
+      void api()
+        .invoke('vpn:ping-progress')
+        .then((next) => {
+          setProgress(next)
+          reload()
+        })
+    }, PING_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [progress.running, reload])
+
   if (!state) return null
+
+  const startPing = (ids: string[]) => {
+    setProgress({ running: true, done: 0, total: ids.length })
+    void api().invoke('vpn:ping', ids)
+  }
 
   const report = ({ added, skipped }: VpnAddResult) => {
     setNote(`Added ${added}${skipped > 0 ? `, skipped ${skipped} that scDelta can't use or that went over its 20,000 limit` : ''}.`)
@@ -135,6 +173,36 @@ export function VpnPage() {
           {state.error && <p role="alert" className="pt-1 text-xs text-danger">{state.error}</p>}
         </div>
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
+      </section>
+
+      <section aria-label="Ping" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface p-3 shadow-1">
+        <div className="min-w-0">
+          <div>Ping time limit</div>
+          <div className="text-xs text-text-faint">Each ping loads a small page through the connection. Past this limit, it counts as not working and the next one starts.</div>
+        </div>
+        <Select aria-label="Ping time limit" value={pingTimeout} onChange={(e) => setPingTimeout(Number(e.target.value))}>
+          {TIMEOUT_CHOICES.map((ms) => (
+            <option key={ms} value={ms}>
+              {ms} ms
+            </option>
+          ))}
+        </Select>
+        {progress.running && (
+          <div className="flex w-full items-center gap-3">
+            <div role="status" aria-label="Ping progress" className="min-w-0 flex-1 text-xs text-text-muted tabular-nums">
+              Pinging {progress.done} of {progress.total}
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void api().invoke('vpn:ping-stop')
+                setProgress({ ...progress, running: false })
+              }}
+            >
+              Stop
+            </Button>
+          </div>
+        )}
       </section>
 
       <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
@@ -211,7 +279,7 @@ export function VpnPage() {
           </Button>
         </form>
         {note && <p role="status" className="text-xs text-text-muted">{note}</p>}
-        <p className="text-xs text-text-faint">Ping shows a server answers, not that it carries traffic, so free lists may take a few tries. Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>
+        <p className="text-xs text-text-faint">Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>
       </section>
 
       {state.groups.map((group) => (
@@ -222,7 +290,8 @@ export function VpnPage() {
           connections={state.connections.filter((connection) => connection.groupId === group.id)}
           state={state}
           pings={pings}
-          setPings={(results) => setPings((all) => ({ ...all, ...results }))}
+          progress={progress}
+          startPing={startPing}
           reload={reload}
         />
       ))}
@@ -233,7 +302,8 @@ export function VpnPage() {
           connections={state.connections.filter((connection) => connection.groupId === null)}
           state={state}
           pings={pings}
-          setPings={(results) => setPings((all) => ({ ...all, ...results }))}
+          progress={progress}
+          startPing={startPing}
           reload={reload}
         />
       )}

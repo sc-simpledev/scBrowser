@@ -1,18 +1,22 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { createServer, connect, type AddressInfo } from 'node:net'
+import { createServer, connect, type AddressInfo, type Socket } from 'node:net'
 import { join } from 'node:path'
 import {
+  coreRefuses,
   isDirectProxy,
   parseVpnLink,
   proxyRule,
   splitVpnLinks,
   xrayConfig,
+  xrayTestConfig,
   type ParsedLink,
   type VpnAddResult,
   type VpnConnection,
   type VpnGroup,
+  type VpnPingProgress,
+  type VpnPings,
   type VpnState,
   type VpnSummary
 } from '@scbrowser/shared'
@@ -23,6 +27,8 @@ const KEY = 'vpn:store'
 const MAX_CONNECTIONS = 20_000
 const PING_TIMEOUT_MS = 3000
 const PING_AT_ONCE = 128
+const TCP_CHECK_MS = 1500
+const PROBE_BATCH = 96
 const CORE_START_MS = 6000
 
 interface StoredConnection extends VpnConnection {
@@ -46,6 +52,8 @@ interface VpnDeps {
   /** Points every browser session at a proxy, or back to a direct connection. */
   applyProxy: (rules: string | null) => Promise<void>
   fetchText: (url: string) => Promise<string>
+  /** A small page that answers with an empty 204, requested through each connection. */
+  probeTarget: ProbeTarget
   onChange: () => void
 }
 
@@ -79,6 +87,67 @@ export const pingHost = (host: string, port: number, timeout = PING_TIMEOUT_MS) 
     socket.once('error', () => finish(null))
   })
 
+export interface ProbeTarget {
+  host: string
+  port: number
+}
+
+export const DEFAULT_PROBE: ProbeTarget = { host: 'cp.cloudflare.com', port: 80 }
+
+const probeRequest = (path: string, { host, port }: ProbeTarget) => `GET ${path} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\n\r\n`
+
+/** Runs `talk` over a socket, resolving with the milliseconds it took or null at the deadline. */
+function timedExchange(host: string, port: number, timeout: number, talk: (socket: Socket, finish: (ok: boolean) => void) => void): Promise<number | null> {
+  return new Promise((resolve) => {
+    const started = performance.now()
+    const socket = connect({ host, port })
+    const timer = setTimeout(() => finish(false), timeout)
+    function finish(ok: boolean) {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve(ok ? Math.round(performance.now() - started) : null)
+    }
+    socket.once('error', () => finish(false))
+    socket.once('close', () => finish(false))
+    talk(socket, finish)
+  })
+}
+
+const isNoContent = (reply: Buffer) => /^HTTP\/1\.[01] 204/.test(reply.toString('latin1'))
+
+/** Asks a SOCKS5 proxy for the test page. Only an exact empty 204 counts, so a block page doesn't pass. */
+export function probeSocks(host: string, port: number, target: ProbeTarget, timeout: number): Promise<number | null> {
+  return timedExchange(host, port, timeout, (socket, finish) => {
+    let stage = 0
+    let reply = Buffer.alloc(0)
+    socket.on('connect', () => socket.write(Buffer.from([5, 1, 0])))
+    socket.on('data', (data) => {
+      reply = Buffer.concat([reply, data])
+      if (stage === 0 && reply.length >= 2) {
+        if (reply[0] !== 5 || reply[1] !== 0) return finish(false)
+        stage = 1
+        reply = Buffer.alloc(0)
+        const name = Buffer.from(target.host)
+        socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, name.length]), name, Buffer.from([target.port >> 8, target.port & 255])]))
+      } else if (stage === 1 && reply.length >= 10) {
+        if (reply[1] !== 0) return finish(false)
+        stage = 2
+        reply = Buffer.alloc(0)
+        socket.write(probeRequest('/generate_204', target))
+      } else if (stage === 2 && reply.length >= 12) finish(isNoContent(reply))
+    })
+  })
+}
+
+/** The same check for a plain proxy, which Chromium can use directly. */
+function probeProxy(link: ParsedLink, target: ProbeTarget, timeout: number): Promise<number | null> {
+  if (link.protocol === 'socks5') return probeSocks(link.host, link.port, target, timeout)
+  return timedExchange(link.host, link.port, timeout, (socket, finish) => {
+    socket.on('connect', () => socket.write(probeRequest(`http://${target.host}:${target.port}/generate_204`, target)))
+    socket.on('data', (data) => finish(isNoContent(data)))
+  })
+}
+
 /**
  * Sends the browser's traffic through a connection the person supplies. Only browser
  * sessions are touched, so other apps on the computer are unaffected. Links hold passwords,
@@ -90,6 +159,10 @@ export class VpnService {
   private connecting = false
   private error: string | null = null
   private core: ChildProcess | null = null
+  private pings: VpnPings = {}
+  private progress: VpnPingProgress = { running: false, done: 0, total: 0 }
+  /** Changes when a check starts or stops, so an old one can't report in. */
+  private pingRun = 0
 
   constructor(private readonly deps: VpnDeps) {
     this.store = this.load()
@@ -118,7 +191,8 @@ export class VpnService {
       activeId: this.store.activeId,
       error: this.error,
       connections: this.store.connections.map(({ link: _link, ...connection }) => connection),
-      groups: this.store.groups.map(({ id, name, subscription }) => ({ id, name, subscription }))
+      groups: this.store.groups.map(({ id, name, subscription }) => ({ id, name, subscription })),
+      pings: this.pings
     }
   }
 
@@ -229,16 +303,78 @@ export class VpnService {
     if (this.enabled) await this.setEnabled(true)
   }
 
-  /** Runs in small batches, because subscriptions can list thousands of servers. */
-  async ping(ids: string[]): Promise<Record<string, number | null>> {
+  pingProgress(): VpnPingProgress {
+    return { ...this.progress }
+  }
+
+  stopPing(): void {
+    this.pingRun++
+    this.progress.running = false
+  }
+
+  /**
+   * Checks each connection by loading a tiny page through it, because a server can accept a
+   * connection and still carry nothing. Anything silent past `timeout` counts as failed, and
+   * the check moves on. Results arrive in `pings` as they come in.
+   */
+  async ping(ids: string[], timeout = PING_TIMEOUT_MS): Promise<VpnPings> {
+    const run = ++this.pingRun
     const wanted = new Set(ids)
     const queue = this.store.connections.filter((connection) => wanted.has(connection.id))
-    const results: Record<string, number | null> = {}
-    const worker = async () => {
-      for (let next = queue.pop(); next; next = queue.pop()) results[next.id] = await pingHost(next.host, next.port)
+    this.progress = { running: true, done: 0, total: queue.length }
+    const record = (id: string, result: number | null) => {
+      if (run !== this.pingRun) return
+      this.pings[id] = result
+      this.progress.done++
     }
-    await Promise.all(Array.from({ length: PING_AT_ONCE }, worker))
-    return results
+    const viaCore: { id: string; link: ParsedLink }[] = []
+    const core = existsSync(this.deps.corePath())
+    const reachable = async (connection: StoredConnection) => {
+      const link = parseVpnLink(connection.link)
+      if (!link || coreRefuses(link)) return record(connection.id, null)
+      // A server that won't even take a connection needs no further testing.
+      const reached = await pingHost(link.host, link.port, Math.min(timeout, TCP_CHECK_MS))
+      if (reached === null) return record(connection.id, null)
+      if (isDirectProxy(link) && link.protocol !== 'https' && link.protocol !== 'socks4') {
+        return record(connection.id, await probeProxy(link, this.deps.probeTarget, timeout))
+      }
+      if (core) viaCore.push({ id: connection.id, link })
+      else record(connection.id, reached)
+    }
+    await Promise.all(Array.from({ length: PING_AT_ONCE }, async () => {
+      for (let next = queue.pop(); next && run === this.pingRun; next = queue.pop()) await reachable(next)
+    }))
+    while (viaCore.length > 0 && run === this.pingRun) await this.probeBatch(viaCore.splice(0, PROBE_BATCH), timeout, record)
+    if (run === this.pingRun) this.progress.running = false
+    this.deps.onChange()
+    return this.pings
+  }
+
+  /** One core tests a whole batch. If a bad link stops it starting, the batch is split to find it. */
+  private async probeBatch(items: { id: string; link: ParsedLink }[], timeout: number, record: (id: string, result: number | null) => void): Promise<void> {
+    const ports = await Promise.all(items.map(() => freePort()))
+    const core = spawn(this.deps.corePath(), ['run', '-c', 'stdin:'], { stdio: ['pipe', 'ignore', 'ignore'] })
+    let exited = false
+    core.on('exit', () => (exited = true))
+    core.on('error', () => (exited = true))
+    core.stdin?.on('error', () => undefined)
+    core.stdin?.end(JSON.stringify(xrayTestConfig(items.map(({ link }, index) => ({ link, port: ports[index]! })))))
+    const deadline = Date.now() + CORE_START_MS
+    let ready = false
+    while (!exited && !ready && Date.now() < deadline) {
+      ready = (await pingHost('127.0.0.1', ports[0]!, 300)) !== null
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (!ready) {
+      core.kill()
+      if (items.length === 1) return record(items[0]!.id, null)
+      const middle = Math.ceil(items.length / 2)
+      await this.probeBatch(items.slice(0, middle), timeout, record)
+      await this.probeBatch(items.slice(middle), timeout, record)
+      return
+    }
+    await Promise.all(items.map(async ({ id }, index) => record(id, await probeSocks('127.0.0.1', ports[index]!, this.deps.probeTarget, timeout))))
+    core.kill()
   }
 
   async setEnabled(on: boolean): Promise<void> {

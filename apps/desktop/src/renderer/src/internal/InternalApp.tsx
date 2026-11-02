@@ -1,5 +1,5 @@
 import { Bookmark, Bot, Download, FlaskConical, Globe, History, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
-import { useEffect, type ComponentType } from 'react'
+import { Fragment, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { applyTint } from './api'
@@ -12,7 +12,8 @@ import { HistoryPage } from './pages/HistoryPage'
 import { BlockedPage } from './pages/BlockedPage'
 import { BlockerPage } from './pages/BlockerPage'
 import { NewTabPage } from './pages/NewTabPage'
-import { SettingsPage } from './pages/SettingsPage'
+import { PdfPage } from './pages/PdfPage'
+import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
 import { VpnPage } from './pages/VpnPage'
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
@@ -29,12 +30,52 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
 
 export function InternalApp() {
   if (location.host === 'blocked') return <BlockedPage />
+  if (location.host === 'pdf') return <PdfPage />
   return location.host === 'newtab' ? (
     <TooltipProvider>
       <NewTabPage />
     </TooltipProvider>
   ) : (
     <PageFrame />
+  )
+}
+
+/** The parts of Settings, listed under its entry in the sidebar. */
+function SettingsSections() {
+  const [current, setCurrent] = useState(SETTINGS_GROUPS[0])
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const seen = entries.find((entry) => entry.isIntersecting)
+        if (seen) setCurrent(seen.target.id)
+      },
+      // Only the band near the top of the page counts as the current section.
+      { rootMargin: '0px 0px -75% 0px' }
+    )
+    // The sections appear once settings have loaded.
+    const timer = setTimeout(() => SETTINGS_GROUPS.forEach((id) => {
+      const element = document.getElementById(id)
+      if (element) observer.observe(element)
+    }), 100)
+    return () => {
+      clearTimeout(timer)
+      observer.disconnect()
+    }
+  }, [])
+  return (
+    <div className="mb-1 ml-5 flex flex-col border-l border-border pl-2">
+      {SETTINGS_GROUPS.map((group) => (
+        <button
+          key={group}
+          type="button"
+          aria-current={group === current ? 'true' : undefined}
+          className={cx('flex h-7 items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text', group === current ? 'font-medium text-text' : 'text-text-muted')}
+          onClick={() => document.getElementById(group)?.scrollIntoView({ behavior: 'smooth' })}
+        >
+          {group}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -58,8 +99,8 @@ function PageFrame() {
       <div className="flex h-full">
         <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
           {(Object.entries(pages) as [InternalPage, (typeof pages)[InternalPage]][]).map(([page, { title, icon: Icon }]) => (
+            <Fragment key={page}>
             <a
-              key={page}
               href={`sc://${page}/`}
               aria-current={page === current ? 'page' : undefined}
               className={cx(
@@ -70,6 +111,8 @@ function PageFrame() {
               <Icon aria-hidden size={15} strokeWidth={1.75}  />
               {title}
             </a>
+            {page === 'settings' && current === 'settings' && <SettingsSections />}
+            </Fragment>
           ))}
         </nav>
         {current === 'assistant' ? (

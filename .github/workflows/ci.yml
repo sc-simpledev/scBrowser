@@ -43,8 +43,12 @@ jobs:
       - name: End-to-end tests (Windows)
         if: runner.os == 'Windows'
         run: pnpm exec playwright test
-      - run: pnpm dist
+      - name: Build installers
+        # A failing test shouldn't stop people getting a build to try.
+        if: ${{ !cancelled() }}
+        run: pnpm dist
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: scdelta-${{ matrix.os }}
           path: |

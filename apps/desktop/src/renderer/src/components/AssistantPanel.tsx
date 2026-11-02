@@ -1,7 +1,7 @@
 import { ArrowUp, AtSign, Check, FileText, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { isHttpUrl, SUMMARISE_PROMPT } from '@scbrowser/shared'
+import { isHttpUrl, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
 import { ReplyContent } from '../shared/ReplyContent'
@@ -120,8 +120,10 @@ export function AssistantPanel() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
 
-  const host = tab && isHttpUrl(tab.url) ? new URL(tab.url).host : null
-  const canRead = !!tab && /^(https?|file):/.test(tab.url)
+  // The PDF viewer stands in for the document it's showing.
+  const pageUrl = tab ? (tab.url.startsWith(PDF_PAGE_URL) ? effectiveUrl(tab.url) : tab.url) : ''
+  const host = isHttpUrl(pageUrl) ? new URL(pageUrl).host : null
+  const canRead = /^(https?|file):/.test(pageUrl)
   const siteOff = !!host && status.disabledHosts.includes(host)
   const sharing = includePage && canRead && !siteOff
 
@@ -288,7 +290,7 @@ export function AssistantPanel() {
                     <span className="truncate">{tab?.title || 'This page'}</span>
                   </button>
                 )}
-                {canRead && !siteOff && /^https?:/.test(tab?.url ?? '') && (
+                {canRead && !siteOff && /^https?:/.test(pageUrl) && (
                   <button
                     type="button"
                     aria-pressed={agentMode}

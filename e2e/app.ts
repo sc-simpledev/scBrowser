@@ -89,6 +89,11 @@ export async function serveSite(pages: Record<string, string>): Promise<Site> {
       res.end(pdfWith(req.url.includes('empty') ? '' : 'The launch code word is marigold.'))
       return
     }
+    if (req.url === '/generate_204') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
     const body = pages[req.url ?? '']
     res.writeHead(body ? 200 : 404, { 'content-type': 'text/html' })
     res.end(body ?? 'not found')

@@ -42,3 +42,26 @@
   color: var(--sc-newtab-text, var(--sc-text));
   text-shadow: var(--sc-newtab-shadow, none);
 }
+
+/* Paper only, when printing a PDF. */
+@media print {
+  .sc-pdf-chrome {
+    display: none;
+  }
+
+  html,
+  body,
+  #root,
+  .sc-pdf-scroll {
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: none;
+  }
+
+  .sc-pdf-page {
+    margin: 0 !important;
+    box-shadow: none;
+    break-after: page;
+  }
+}

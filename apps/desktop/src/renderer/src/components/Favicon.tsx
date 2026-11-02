@@ -1,9 +1,10 @@
-import { Bookmark, Bot, Download, FlaskConical, Globe, History, MessageCircle, Plus, Settings, type LucideIcon } from 'lucide-react'
+import { Bookmark, Bot, Download, FileText, FlaskConical, Globe, History, MessageCircle, Plus, Settings, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { cx } from '@scbrowser/ui'
 
 const INTERNAL_ICONS: Record<string, LucideIcon> = {
   newtab: Plus,
+  pdf: FileText,
   settings: Settings,
   ai: Bot,
   assistant: MessageCircle,
