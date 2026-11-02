@@ -1,4 +1,4 @@
-import { cpSync, existsSync, rmSync } from 'node:fs'
+import { cpSync, existsSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, Menu, net } from 'electron'
@@ -19,17 +19,17 @@ import { KeyValueRepo } from './storage/kv'
 import { PermissionsRepo } from './storage/permissions'
 import { createBrowserWindow, type BrowserWindowHandle } from './window'
 
-/** The app used to be called scBrowser; bring that profile along on first launch. */
+/** The app used to be called scDelta, and scBrowser before that. Copy that profile on first launch, leaving the original. */
 function moveLegacyProfile(): void {
-  const legacy = join(app.getPath('appData'), 'scBrowser')
   const current = app.getPath('userData')
   // Electron creates the new folder before this runs, so look for real data, not the folder.
-  if (!existsSync(join(legacy, 'browser.db')) || existsSync(join(current, 'browser.db'))) return
+  if (existsSync(join(current, 'browser.db'))) return
+  const legacy = ['scDelta', 'scBrowser'].map((name) => join(app.getPath('appData'), name)).find((path) => existsSync(join(path, 'browser.db')))
+  if (!legacy) return
   try {
     cpSync(legacy, current, { recursive: true, force: false, filter: (path) => !basename(path).startsWith('Singleton') })
-    rmSync(legacy, { recursive: true, force: true })
   } catch (error) {
-    // Starting with a fresh profile beats not starting; the old folder is left as it was.
+    // Starting with a fresh profile beats not starting.
     console.error('Could not move the old profile:', error)
   }
 }
@@ -45,19 +45,19 @@ process.on('uncaughtException', (error) => {
 // Playwright turns the sandbox off, but service worker extensions need it to get their APIs.
 if (process.env.SCB_E2E_SANDBOX) app.commandLine.removeSwitch('no-sandbox')
 
-app.setName('scDelta')
+app.setName('scTerra')
 // Lets tests (and power users) run with a throwaway profile.
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 else moveLegacyProfile()
 applyProfile()
 applyPrivate()
-if (process.platform === 'linux') app.setDesktopName('scdelta.desktop')
+if (process.platform === 'linux') app.setDesktopName('scterra.desktop')
 applyFlags()
 registerInternalScheme()
 
 // Present a plain Chrome user agent: some sites (notably Google sign-in) refuse
 // browsers that advertise Electron.
-app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scDelta|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
+app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scTerra|scDelta|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
 
 /** URLs and local HTML files passed on the command line, e.g. by the OS when we're the default browser. */
 function urlsFromArgv(argv: string[]): string[] {
@@ -73,7 +73,7 @@ let main: BrowserWindowHandle | null = null
 
 /** Reports share the AI server, so switching that off switches them off too. */
 function reportSender(): Send | null {
-  const base = process.env.SCDELTA_AI_URL ?? HOSTED_AI_URL
+  const base = process.env.SCTERRA_AI_URL ?? HOSTED_AI_URL
   if (base === 'off') return null
   return (body) => net.fetch(`${base}/reports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 }

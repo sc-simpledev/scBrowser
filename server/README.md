@@ -1,6 +1,6 @@
-# scDelta AI server
+# scTerra AI server
 
-The hosted option behind scDelta's AI features: people without their own API key use this
+The hosted option behind scTerra's AI features: people without their own API key use this
 server, which calls AI providers with your keys and enforces limits per IP address.
 It's a small Deno TypeScript service that speaks the OpenAI chat format, so the browser
 treats it like any other provider. Message contents are never logged or stored.
@@ -30,7 +30,7 @@ Once it's deployed, the browser reads the app's address from `HOSTED_AI_URL` in
 ## Reports
 
 `POST /v1/reports` takes crash reports and usage stats from people who turned them on in
-scDelta's settings. Only known fields are kept, and each one is written as a line of JSON to the
+scTerra's settings. Only known fields are kept, and each one is written as a line of JSON to the
 server log, without the sender's address. Find them in the Deno Deploy logs. Each address can
 send 30 an hour.
 

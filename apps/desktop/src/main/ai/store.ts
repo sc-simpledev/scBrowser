@@ -112,7 +112,7 @@ export class AiStore {
   }
 
   private hostedUrl(): string | null {
-    const override = process.env.SCDELTA_AI_URL
+    const override = process.env.SCTERRA_AI_URL
     if (override === 'off') return null
     return override || HOSTED_AI_URL || null
   }
@@ -120,7 +120,7 @@ export class AiStore {
   /** Switches chat to the hosted service. Only ever done at the person's request. */
   enableHosted(): void {
     const baseUrl = this.hostedUrl()
-    if (!baseUrl) throw new Error('scDelta AI is not available in this build.')
+    if (!baseUrl) throw new Error('scTerra AI is not available in this build.')
     const hosted: ProviderConfig = {
       id: HOSTED_PROVIDER_ID,
       name: HOSTED_NAME,

@@ -55,6 +55,8 @@ test('screenshot saves a PNG and confirms it', async () => {
   await setSetting(h, { downloadDir: h.profile })
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
+  // Keyboard focus reaches the page a moment after its title appears.
+  await expect.poll(() => h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? '')).toContain('/alpha')
   await shortcut(h, 'S', ['control', 'shift'])
   const overlay = await h.overlay()
   await expect(overlay.getByRole('status')).toContainText('Screenshot saved')

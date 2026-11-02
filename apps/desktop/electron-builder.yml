@@ -1,5 +1,5 @@
-appId: app.scdelta.desktop
-productName: scDelta
+appId: app.scterra.desktop
+productName: scTerra
 directories:
   output: release/${version}
   buildResources: build
@@ -19,17 +19,17 @@ linux:
   target: [AppImage, deb]
   maintainer: sc-simpledev <sc-simpledev@users.noreply.github.com>
   category: Network;WebBrowser
-  executableName: scdelta
+  executableName: scterra
   mimeTypes: [text/html, x-scheme-handler/http, x-scheme-handler/https]
   desktop:
     entry:
-      StartupWMClass: scDelta
+      StartupWMClass: scTerra
 deb:
-  packageName: scdelta
-  artifactName: scdelta_${version}_${arch}.${ext}
+  packageName: scterra
+  artifactName: scterra_${version}_${arch}.${ext}
 win:
   target: [nsis]
-  executableName: scDelta
+  executableName: scTerra
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

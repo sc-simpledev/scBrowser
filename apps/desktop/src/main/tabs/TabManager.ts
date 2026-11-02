@@ -57,7 +57,7 @@ interface TabManagerOptions {
   prepareSession: (session: Session) => void
 }
 
-const PAGE_RADIUS = 10
+const PAGE_RADIUS = 0
 const SPLIT_GAP = 6
 const CLOSED_TABS_LIMIT = 25
 const ABORTED = -3

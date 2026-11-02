@@ -25,8 +25,6 @@ export function PageSlot() {
   }, [])
 
   return (
-    <div className="flex min-h-0 flex-1 px-1.5 pb-1.5">
-      <div ref={ref} className="flex-1 rounded-lg bg-surface shadow-1" />
-    </div>
+    <div ref={ref} className="min-h-0 min-w-0 flex-1 border-t border-border bg-surface" />
   )
 }

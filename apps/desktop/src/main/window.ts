@@ -59,7 +59,7 @@ const SYNC_FIRST_MS = 20_000
 const SYNC_EVERY_MS = 10 * 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
-const APP_TITLE = isPrivate ? 'scDelta (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scDelta' : `scDelta (${currentProfile()})`
+const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
 
@@ -104,7 +104,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     minWidth: 520,
     minHeight: 360,
     show: false,
-    title: 'scDelta',
+    title: 'scTerra',
     backgroundColor: colors.background,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: colors.background, symbolColor: colors.foreground, height: TABSTRIP_HEIGHT },

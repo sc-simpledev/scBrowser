@@ -1,5 +1,5 @@
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { DEFAULT_SETTINGS, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { buildSuggestions, DEFAULT_SETTINGS, engineById, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
@@ -9,6 +9,7 @@ import { readBackground, removeBackground, saveBackground } from './internal/bac
 import { isAssistantRequest, isTurns } from './ipc'
 import { allowBasicPdf, fetchPdf, pdfSource } from './internal/pdf'
 import { readFlags, setFlag } from './flags'
+import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
 import { isPrivate } from './private'
@@ -239,6 +240,22 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'newtab:background': () => readBackground(),
     'newtab:top-sites': (limit) => history.top(Math.min(int(limit), 24)).filter((entry) => isHttpUrl(entry.url)),
+    'newtab:suggest': async (query) => {
+      const input = text(query, 1024)
+      const { searchEngine, searchSuggestions, suggestionSources } = settings.get()
+      const engine = engineById(searchEngine)
+      const phrases = searchSuggestions ? await fetchSearchSuggestions(input, engine).catch(() => []) : []
+      return buildSuggestions(input, {
+        history: history.search(input),
+        bookmarks: bookmarks.list(),
+        tabs: [],
+        activeTabId: null,
+        searchSuggestions: phrases,
+        engine,
+        assistantReady: false,
+        sources: suggestionSources.filter((source) => source === 'history' || source === 'bookmarks')
+      })
+    },
     'newtab:go': (input) => {
       const id = caller && tabs.tabIdFor(caller)
       if (id) tabs.navigate(id, text(input))

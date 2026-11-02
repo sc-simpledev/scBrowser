@@ -127,7 +127,7 @@ export function SettingsPage() {
             ))}
           </Select>
         </Row>
-        <Row label="Accent tint" hint="A faint wash of colour behind the toolbar and scDelta's pages.">
+        <Row label="Accent tint" hint="A faint wash of colour behind the toolbar and scTerra's pages.">
           <Switch
             label="Accent tint"
             checked={settings.accentTint}
@@ -223,9 +223,9 @@ export function SettingsPage() {
         ))}
       </Section>
       <Section title="Startup and performance">
-        <Row label="When scDelta starts">
+        <Row label="When scTerra starts">
           <Select
-            aria-label="When scDelta starts"
+            aria-label="When scTerra starts"
             value={settings.startup}
             onChange={(e) => update({ startup: e.target.value as Settings['startup'] })}
           >
@@ -301,7 +301,7 @@ export function SettingsPage() {
         <Row label="Site blocker" hint="Block sites by time, Focus Mode or category.">
           <Button onClick={() => void api().invoke('browser:open', 'sc://blocker')}>Open</Button>
         </Row>
-        <Row label="VPN" hint="Send scDelta's traffic through your own connection.">
+        <Row label="VPN" hint="Send scTerra's traffic through your own connection.">
           <Button onClick={() => void api().invoke('browser:open', 'sc://vpn')}>Open</Button>
         </Row>
       </Section>
@@ -523,7 +523,7 @@ export function SettingsPage() {
 
       <Group id="About" title="About">
       <Section title="About">
-        <Row label="Default browser" hint={isDefault ? 'scDelta is your default browser' : undefined}>
+        <Row label="Default browser" hint={isDefault ? 'scTerra is your default browser' : undefined}>
           {!isDefault && (
             <Button
               onClick={() =>
@@ -537,7 +537,7 @@ export function SettingsPage() {
             </Button>
           )}
         </Row>
-        {version && <Row label={`scDelta ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
+        {version && <Row label={`scTerra ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
       </Section>
       </Group>
     </>

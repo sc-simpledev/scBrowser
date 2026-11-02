@@ -10,6 +10,7 @@ import type { HistoryRepo } from './storage/history'
 import type { KeyValueRepo } from './storage/kv'
 
 const CONFIG_KEY = 'sync:config'
+// The old name stays, so that devices on different versions keep sharing one file.
 const FILE_NAME = 'scdelta-sync.bin'
 const FORMAT = 'scdelta-sync-1'
 const SCRYPT = { N: 2 ** 16, r: 8, p: 1, maxmem: 256 * 1024 * 1024 }
@@ -36,7 +37,7 @@ export function seal(data: SyncData, key: Buffer, salt: Buffer): Buffer {
 
 export function saltOf(file: Buffer): Buffer {
   const start = FORMAT.length + 1
-  if (file.subarray(0, start).toString() !== `${FORMAT}\n`) throw new Error("That folder's sync file isn't one scDelta can read.")
+  if (file.subarray(0, start).toString() !== `${FORMAT}\n`) throw new Error("That folder's sync file isn't one scTerra can read.")
   return file.subarray(start, start + SALT_BYTES)
 }
 
@@ -233,7 +234,7 @@ export class SyncService {
 function syncError(error: unknown): string {
   const code = (error as NodeJS.ErrnoException).code
   if (code === 'ENOENT') return "The sync folder can't be found."
-  if (code === 'EACCES' || code === 'EPERM') return "scDelta isn't allowed to write to the sync folder."
+  if (code === 'EACCES' || code === 'EPERM') return "scTerra isn't allowed to write to the sync folder."
   if (error instanceof Error && /authenticate|unsupported state/i.test(error.message)) return 'The sync file was changed by something else, or encrypted with another passphrase.'
   return error instanceof Error ? error.message : "Sync didn't finish."
 }

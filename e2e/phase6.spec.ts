@@ -201,7 +201,7 @@ test('bookmarks show the site icon, saved so nothing is contacted to draw it', a
 
 test('a private window keeps no history, shows it is private, and clears up after itself', async () => {
   await h.close()
-  const dir = mkdtempSync(join(tmpdir(), 'scdelta-private-'))
+  const dir = mkdtempSync(join(tmpdir(), 'scterra-private-'))
   writeFileSync(join(dir, 'seed.json'), JSON.stringify({ settings: { accent: 'iris', newTab: { widgets: [{ id: 'ai', size: 'full' }, { id: 'search', size: 'full' }] } }, bookmarks: [{ url: 'https://kept.example/', title: 'Kept' }] }))
   h = await launch(undefined, [`--private=${dir}`])
   await expect(h.chrome.getByText('Private', { exact: true })).toBeVisible()
@@ -222,9 +222,9 @@ test('a private window keeps no history, shows it is private, and clears up afte
 })
 
 test('the private window command starts a separate copy of the app', async () => {
-  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('scdelta-private-')))
+  const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('scterra-private-')))
   await h.app.evaluate(() => (globalThis as unknown as { scbActions: { openPrivateWindow(): void } }).scbActions.openPrivateWindow())
-  const created = () => readdirSync(tmpdir()).find((name) => name.startsWith('scdelta-private-') && !before.has(name))
+  const created = () => readdirSync(tmpdir()).find((name) => name.startsWith('scterra-private-') && !before.has(name))
   await expect.poll(created).toBeTruthy()
   const pidFile = join(tmpdir(), created()!, 'owner.pid')
   await expect.poll(() => existsSync(pidFile), { timeout: 10000 }).toBe(true)
@@ -247,7 +247,7 @@ test('Settings sections sit under Settings in the sidebar', async () => {
   await expect(history.getByRole('navigation', { name: 'Browser pages' }).getByRole('button', { name: 'About' })).toHaveCount(0)
 })
 
-test('PDFs open in the scDelta viewer, with text, paging and zoom', async () => {
+test('PDFs open in the scTerra viewer, with text, paging and zoom', async () => {
   await go(h, site.url('/report.pdf'))
   const page = await h.page('sc://pdf')
   await expect(omnibox(h)).toHaveValue(site.url('/report.pdf'))

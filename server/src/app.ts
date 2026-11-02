@@ -3,7 +3,7 @@ import { clientAddress, type Limiter } from './limits.ts'
 import type { Upstream, UpstreamMessage } from './upstream.ts'
 
 /** The only model apps can name; which real model runs is our choice. */
-export const PUBLIC_MODEL = 'scdelta-chat'
+export const PUBLIC_MODEL = 'scterra-chat'
 
 const CHARS_PER_TOKEN = 4
 

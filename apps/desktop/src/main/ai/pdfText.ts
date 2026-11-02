@@ -12,7 +12,7 @@ export interface PdfText {
 /** Parses PDF bytes in a separate process, which is killed if it takes too long. */
 function parse(data: Uint8Array): Promise<PdfText | null> {
   return new Promise((resolve) => {
-    const child = utilityProcess.fork(pdfWorkerPath, [], { serviceName: 'scDelta PDF reader' })
+    const child = utilityProcess.fork(pdfWorkerPath, [], { serviceName: 'scTerra PDF reader' })
     const finish = (result: PdfText | null) => {
       clearTimeout(timer)
       resolve(result)

@@ -46,7 +46,7 @@ interface PrivacyOptions {
   /** The load was stopped, so the tab needs to show why. */
   onScreenedOut: (url: string, reason: string, contents: WebContents) => void
   isTab: (contents: WebContents) => boolean
-  /** A PDF is about to open in a tab, which should show it in scDelta's viewer instead. */
+  /** A PDF is about to open in a tab, which should show it in scTerra's viewer instead. */
   onPdf: (url: string, contents: WebContents) => void
   onChanged: () => void
 }

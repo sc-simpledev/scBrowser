@@ -198,13 +198,13 @@ export function AssistantPanel() {
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <p className="text-text-muted">
               {status.hostedAvailable
-                ? 'Use scDelta AI for free, with daily limits, or connect your own API key or local model.'
+                ? 'Use scTerra AI for free, with daily limits, or connect your own API key or local model.'
                 : 'Connect an AI provider with your own API key, or a local model.'}
             </p>
             {status.hostedAvailable && (
               <>
                 <Button variant="primary" onClick={() => void window.scb.invoke('ai:enable-hosted')}>
-                  Use scDelta AI
+                  Use scTerra AI
                 </Button>
                 <p className="text-xs text-text-faint">Your messages, and pages you share, go to our server and its AI provider.</p>
               </>

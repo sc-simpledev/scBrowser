@@ -23,7 +23,9 @@ export interface Report {
   blocks: ReportBlock[]
 }
 
-const FENCE = 'scdelta-report'
+const FENCE = 'scterra-report'
+/** Chats saved under the old name still hold the old tag. */
+const FENCES = '(?:scterra|scdelta)-report'
 const MAX_BLOCKS = 300
 const MAX_TEXT = 8000
 
@@ -195,7 +197,7 @@ function jsonEnd(text: string, start: number): number {
  * fence, write the tag on one line with the JSON, or leave the fence out altogether.
  */
 function findOpening(text: string): { index: number; start: number; fence: string } | null {
-  const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCE + '[^\\n{]*', 'i').exec(text)
+  const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCES + '[^\\n{]*', 'i').exec(text)
   const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:title|summary|theme|blocks)")', 'i').exec(text)
   const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:title|summary|theme|blocks)")/.exec(text)
   const match = tagged ?? named ?? bare

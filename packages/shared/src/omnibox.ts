@@ -71,7 +71,7 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
   const sources = options.sources ?? ['tabs', 'bookmarks', 'history', 'assistant']
   if (isSearch && options.assistantReady && sources.includes('assistant')) {
     results.push(
-      { id: 'ask', kind: 'ask', title: input, detail: 'Ask scDelta', action: { type: 'ask', text: input } },
+      { id: 'ask', kind: 'ask', title: input, detail: 'Ask scTerra', action: { type: 'ask', text: input } },
       { id: 'ask-page', kind: 'ask-page', title: input, detail: 'Ask Assistant', action: { type: 'ask-page', text: input } }
     )
   }

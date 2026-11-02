@@ -144,7 +144,7 @@ const SCHEMES: Record<string, VpnProtocol> = {
   'trojan:': 'trojan'
 }
 
-/** Reads one connection link, or null if it's a kind scDelta can't use. */
+/** Reads one connection link, or null if it's a kind scTerra can't use. */
 export function parseVpnLink(raw: string): ParsedLink | null {
   const link = raw.trim()
   if (/^vmess:\/\//i.test(link)) return parseVmess(link)

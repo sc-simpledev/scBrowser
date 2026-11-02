@@ -215,16 +215,16 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
 
 function HostedCard({ onChange }: { onChange: () => void }) {
   return (
-    <section aria-label="scDelta AI" className="flex items-center justify-between gap-4 rounded-lg p-3 shadow-1">
+    <section aria-label="scTerra AI" className="flex items-center justify-between gap-4 rounded-lg p-3 shadow-1">
       <div className="min-w-0">
-        <div className="font-medium">scDelta AI</div>
+        <div className="font-medium">scTerra AI</div>
         <div className="text-xs text-text-faint">
           No key needed, with daily limits. Messages and pages you share go to our server and its AI provider, and we
           don't store them.
         </div>
       </div>
       <Button variant="primary" className="shrink-0" onClick={() => void api().invoke('ai:enable-hosted').then(onChange)}>
-        Use scDelta AI
+        Use scTerra AI
       </Button>
     </section>
   )
@@ -280,7 +280,7 @@ export function AiPage() {
   return (
     <>
       <p className="text-text-muted">
-        Use your own key, a model running on this computer, or scDelta AI where it's offered. Page text is only sent
+        Use your own key, a model running on this computer, or scTerra AI where it's offered. Page text is only sent
         when you ask the assistant something with the page attached.
       </p>
       {!state.keysProtected && (

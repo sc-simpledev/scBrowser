@@ -1,9 +1,9 @@
-# scDelta — Product & Technical Plan
+# scTerra — Product & Technical Plan
 
 Formerly scBrowser. The repository and internal `@scbrowser/*` package names are unchanged.
 
 ## Context
-Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: scDelta, a modern, commercial-quality desktop browser for **Linux and Windows** with deep **AI integration**, inspired by **Firefox** (privacy, customisation, reader view, containers) and **Dia** (AI sidebar that understands your tabs, AI-first omnibox, writing help). Built by a small team. Decisions made:
+Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: scTerra, a modern, commercial-quality desktop browser for **Linux and Windows** with deep **AI integration**, inspired by **Firefox** (privacy, customisation, reader view, containers) and **Dia** (AI sidebar that understands your tabs, AI-first omnibox, writing help). Built by a small team. Decisions made:
 - **Engine:** Electron (Chromium) + TypeScript.
 - **AI:** Bring-your-own API key, plus user-defined **custom providers** (any OpenAI- or Anthropic-compatible endpoint, local Ollama, etc.).
 - **Business model:** decide later — architecture keeps room for a hosted "Pro" tier, sync, or a paid licence without rewrites.
@@ -83,9 +83,9 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Auto-updates.** Proposed in [docs/auto-update.md](docs/auto-update.md), not built yet.
 
-**Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scDelta applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
+**Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scTerra applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
 
-**Hosted AI.** `server/` is a Deno service that lets people use scDelta AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
+**Hosted AI.** `server/` is a Deno service that lets people use scTerra AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.

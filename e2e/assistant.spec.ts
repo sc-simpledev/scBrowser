@@ -147,7 +147,7 @@ test('asks from the address bar without sending the page', async () => {
   await omnibox(h).click()
   await omnibox(h).fill('why is the sky blue')
   const overlay = await h.overlay()
-  await expect(overlay.getByRole('option', { name: /Ask scDelta/ })).toBeVisible()
+  await expect(overlay.getByRole('option', { name: /Ask scTerra/ })).toBeVisible()
   expect(mock.requests).toHaveLength(0)
   await omnibox(h).press('ArrowDown')
   await omnibox(h).press('Enter')
@@ -278,22 +278,22 @@ test('/ runs a saved skill, and skills can be added', async () => {
   expect(lastUserMessage()).toContain('Turn this page into a haiku.')
 })
 
-test.describe('hosted scDelta AI', () => {
+test.describe('hosted scTerra AI', () => {
   test.beforeEach(async () => {
     await h.close()
-    process.env.SCDELTA_AI_URL = `${mock.url}/v1`
+    process.env.SCTERRA_AI_URL = `${mock.url}/v1`
     h = await launch()
   })
 
   test.afterEach(() => {
-    delete process.env.SCDELTA_AI_URL
+    delete process.env.SCTERRA_AI_URL
   })
 
   test('works with no key, only after choosing it, and explains its limit', async () => {
     await h.chrome.getByRole('button', { name: 'Assistant' }).click()
-    await panel().getByRole('button', { name: 'Use scDelta AI' }).click()
+    await panel().getByRole('button', { name: 'Use scTerra AI' }).click()
     await expect(composer()).toBeVisible()
-    await expect(panel().getByText('scDelta AI', { exact: true })).toBeVisible()
+    await expect(panel().getByText('scTerra AI', { exact: true })).toBeVisible()
     expect(mock.requests).toHaveLength(0)
 
     await ask('Hello')
@@ -302,12 +302,12 @@ test.describe('hosted scDelta AI', () => {
 
     mock.status = 429
     await ask('Again')
-    await expect(panel().getByRole('alert')).toContainText('free scDelta AI limit')
+    await expect(panel().getByRole('alert')).toContainText('free scTerra AI limit')
   })
 })
 
-test('hides scDelta AI when this build has no server', async () => {
+test('hides scTerra AI when this build has no server', async () => {
   await h.chrome.getByRole('button', { name: 'Assistant' }).click()
   await expect(panel().getByRole('button', { name: 'Set up AI' })).toBeVisible()
-  await expect(panel().getByRole('button', { name: 'Use scDelta AI' })).toHaveCount(0)
+  await expect(panel().getByRole('button', { name: 'Use scTerra AI' })).toHaveCount(0)
 })

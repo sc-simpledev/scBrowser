@@ -113,7 +113,7 @@ test('ping passes a working connection and fails one that accepts but carries no
   const dead = `ss://${btoa(`aes-256-gcm:${PASSWORD}`)}@127.0.0.1:${(silent.address() as AddressInfo).port}#Dead`
   await page.getByRole('textbox', { name: 'Connection links' }).fill(`${links.ss().replace('#Node', '#Alive')}\n${dead}\nvless://${UUID}@198.51.100.1:443?security=none#Refused`)
   await page.getByRole('button', { name: 'Add links' }).click()
-  await page.getByRole('combobox', { name: 'Ping time limit' }).selectOption('2000')
+  await page.getByRole('spinbutton', { name: 'Ping time limit' }).fill('2500')
   await page.getByRole('button', { name: 'Ping', exact: true }).click()
   const row = (name: string) => page.locator('li', { hasText: name })
   await expect(row('Alive')).toContainText(/\d+ ms/, { timeout: 15000 })

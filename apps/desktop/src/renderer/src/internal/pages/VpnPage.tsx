@@ -7,7 +7,8 @@ import { api } from '../api'
 /** Subscriptions can hold thousands, and the fastest are what matter. */
 const VISIBLE_ROWS = 100
 const PING_REFRESH_MS = 500
-const TIMEOUT_CHOICES = [500, 1000, 2000, 3000, 5000, 10000]
+const MIN_PING_TIMEOUT = 200
+const MAX_PING_TIMEOUT = 30_000
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
 
@@ -115,7 +116,7 @@ export function VpnPage() {
   const [subscriptionName, setSubscriptionName] = useState('')
   const [newGroup, setNewGroup] = useState('')
   const [note, setNote] = useState<string | null>(null)
-  const [pingTimeout, setTimeoutValue] = useState(3000)
+  const [pingTimeout, setPingTimeout] = useState('3000')
 
   const reload = useCallback(
     () =>
@@ -129,11 +130,14 @@ export function VpnPage() {
   )
   useEffect(reload, [reload])
   useEffect(() => {
-    void api().invoke('settings:get').then(({ vpnPingTimeout }) => setTimeoutValue(vpnPingTimeout))
+    void api().invoke('settings:get').then(({ vpnPingTimeout }) => setPingTimeout(String(vpnPingTimeout)))
   }, [])
-  const setPingTimeout = (vpnPingTimeout: number) => {
-    setTimeoutValue(vpnPingTimeout)
-    void api().invoke('settings:set', { vpnPingTimeout })
+  /** Anything out of range is pulled back to the nearest allowed value. */
+  const savePingTimeout = () => {
+    const typed = Math.round(Number(pingTimeout)) || 3000
+    const vpnPingTimeout = Math.min(MAX_PING_TIMEOUT, Math.max(MIN_PING_TIMEOUT, typed))
+    setPingTimeout(String(vpnPingTimeout))
+    return api().invoke('settings:set', { vpnPingTimeout })
   }
 
   // Results arrive as they come in, so long lists show progress.
@@ -154,11 +158,11 @@ export function VpnPage() {
 
   const startPing = (ids: string[]) => {
     setProgress({ running: true, done: 0, total: ids.length })
-    void api().invoke('vpn:ping', ids)
+    void savePingTimeout().then(() => api().invoke('vpn:ping', ids))
   }
 
   const report = ({ added, skipped }: VpnAddResult) => {
-    setNote(`Added ${added}${skipped > 0 ? `, skipped ${skipped} that scDelta can't use or that went over its 20,000 limit` : ''}.`)
+    setNote(`Added ${added}${skipped > 0 ? `, skipped ${skipped} that scTerra can't use or that went over its 20,000 limit` : ''}.`)
     reload()
   }
   const fail = (error: Error) => setNote(cleanError(error))
@@ -169,7 +173,7 @@ export function VpnPage() {
       <section aria-label="Status" className="flex items-center justify-between gap-4 rounded-lg bg-surface p-3 shadow-1">
         <div className="min-w-0">
           <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? 'Connecting…' : 'Off'}</div>
-          <div className="truncate text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. Only scDelta uses this, not other apps.</div>
+          <div className="truncate text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. Only scTerra uses this, not other apps.</div>
           {state.error && <p role="alert" className="pt-1 text-xs text-danger">{state.error}</p>}
         </div>
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
@@ -180,13 +184,23 @@ export function VpnPage() {
           <div>Ping time limit</div>
           <div className="text-xs text-text-faint">Each ping loads a small page through the connection. Past this limit, it counts as not working and the next one starts.</div>
         </div>
-        <Select aria-label="Ping time limit" value={pingTimeout} onChange={(e) => setPingTimeout(Number(e.target.value))}>
-          {TIMEOUT_CHOICES.map((ms) => (
-            <option key={ms} value={ms}>
-              {ms} ms
-            </option>
-          ))}
-        </Select>
+        <label className="flex items-center gap-2 text-text-muted">
+          <Input
+            type="number"
+            aria-label="Ping time limit"
+            className="w-24 text-right tabular-nums"
+            min={MIN_PING_TIMEOUT}
+            max={MAX_PING_TIMEOUT}
+            step={100}
+            value={pingTimeout}
+            onChange={(e) => setPingTimeout(e.target.value)}
+            onBlur={savePingTimeout}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') savePingTimeout()
+            }}
+          />
+          ms
+        </label>
         {progress.running && (
           <div className="flex w-full items-center gap-3">
             <div role="status" aria-label="Ping progress" className="min-w-0 flex-1 text-xs text-text-muted tabular-nums">

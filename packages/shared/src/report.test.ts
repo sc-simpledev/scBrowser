@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { repairJson, splitReply, toReport } from './report'
 
-const block = (json: string) => '```scdelta-report\n' + json + '\n```'
+const block = (json: string) => '```scterra-report\n' + json + '\n```'
 const valid = '{"title":"Plan","summary":"S","theme":"brief","blocks":[{"type":"heading","text":"One"},{"type":"paragraph","text":"Two"}]}'
 
 describe('splitReply', () => {
@@ -17,8 +17,12 @@ describe('splitReply', () => {
     expect(parts.report?.theme).toBe('brief')
   })
 
+  it('still reads reports saved under the old name', () => {
+    expect(splitReply('```scdelta-report\n' + valid + '\n```').report?.title).toBe('Plan')
+  })
+
   it('reports progress while the block is unfinished', () => {
-    expect(splitReply('Intro\n```scdelta-report\n{"title":"Pl')).toMatchObject({ before: 'Intro', writing: true, report: null })
+    expect(splitReply('Intro\n```scterra-report\n{"title":"Pl')).toMatchObject({ before: 'Intro', writing: true, report: null })
   })
 
   it('falls back to the raw text if the report is unreadable', () => {
@@ -38,14 +42,14 @@ describe('splitReply with imperfect model output', () => {
   })
 
   it('accepts the JSON on the same line as the tag', () => {
-    expect(title('```scdelta-report {"title":"Plan","blocks":[{"type":"divider"}]}```')).toBe('Plan')
+    expect(title('```scterra-report {"title":"Plan","blocks":[{"type":"divider"}]}```')).toBe('Plan')
   })
 
   it('accepts a json fence, a tilde fence, Windows line ends, indents and capitals', () => {
     expect(title('Intro\n```json\n' + valid + '\n```')).toBe('Plan')
-    expect(title('~~~scdelta-report\n' + valid + '\n~~~')).toBe('Plan')
-    expect(title('Intro\r\n```scdelta-report\r\n' + valid + '\r\n```\r\n')).toBe('Plan')
-    expect(title('  ```SCDELTA-REPORT\n' + valid + '\n  ```')).toBe('Plan')
+    expect(title('~~~scterra-report\n' + valid + '\n~~~')).toBe('Plan')
+    expect(title('Intro\r\n```scterra-report\r\n' + valid + '\r\n```\r\n')).toBe('Plan')
+    expect(title('  ```SCTERRA-REPORT\n' + valid + '\n  ```')).toBe('Plan')
   })
 
   it('accepts a report with no fence at all', () => {
@@ -58,7 +62,7 @@ describe('splitReply with imperfect model output', () => {
   })
 
   it('keeps what was written when a reply is cut off, and only once it has finished', () => {
-    const cut = 'Intro\n```scdelta-report\n{"title":"Plan","blocks":[{"type":"paragraph","text":"One"},{"type":"list","items":["a","b'
+    const cut = 'Intro\n```scterra-report\n{"title":"Plan","blocks":[{"type":"paragraph","text":"One"},{"type":"list","items":["a","b'
     expect(splitReply(cut, false)).toMatchObject({ writing: true, report: null })
     const parts = splitReply(cut, true)
     expect(parts.writing).toBe(false)
@@ -69,7 +73,7 @@ describe('splitReply with imperfect model output', () => {
   })
 
   it('never stays on writing once the reply is finished', () => {
-    expect(splitReply('```scdelta-report\n', true).writing).toBe(false)
+    expect(splitReply('```scterra-report\n', true).writing).toBe(false)
   })
 
   it('handles JSON mistakes', () => {

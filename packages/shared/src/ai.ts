@@ -32,11 +32,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'lmstudio', name: 'LM Studio (local)', protocol: 'openai', baseUrl: 'http://localhost:1234/v1', needsKey: false }
 ]
 
-/** Address of the hosted AI service. SCDELTA_AI_URL overrides it, and `off` hides it. */
+/** Address of the hosted AI service. SCTERRA_AI_URL overrides it, and `off` hides it. */
 export const HOSTED_AI_URL = 'https://sc-delta-ai.scspacedev.deno.net/v1'
-export const HOSTED_PROVIDER_ID = 'scdelta'
-export const HOSTED_MODEL = 'scdelta-chat'
-export const HOSTED_NAME = 'scDelta AI'
+export const HOSTED_PROVIDER_ID = 'scterra'
+export const HOSTED_MODEL = 'scterra-chat'
+export const HOSTED_NAME = 'scTerra AI'
 
 /** A saved prompt, run from the assistant by typing `/`. */
 export interface Skill {

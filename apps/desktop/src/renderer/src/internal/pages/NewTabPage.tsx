@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Plus, Search, Settings2, Square, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Globe, History, Plus, Search, Settings2, Square, Star, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -13,7 +13,9 @@ import {
   type NewTabConfig,
   type NewTabLink,
   type NewTabWidgetId,
-  type Settings
+  type Settings,
+  type Suggestion,
+  type SuggestionKind
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
 import { api, applyTint } from '../api'
@@ -70,26 +72,102 @@ function GreetingWidget({ name }: { name: string }) {
   return <h1 className="sc-newtab-text text-center text-lg font-medium tracking-[-0.02em]">{name ? `${greeting}, ${name}` : greeting}</h1>
 }
 
+const SUGGEST_DELAY_MS = 120
+const SUGGESTION_ICONS: Partial<Record<SuggestionKind, LucideIcon>> = { bookmark: Star, history: History, navigate: Globe }
+
 function SearchWidget() {
   const [query, setQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [selected, setSelected] = useState(-1)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const input = query.trim()
+    if (!input) return setSuggestions([])
+    let stale = false
+    const timer = setTimeout(() => {
+      void api()
+        .invoke('newtab:suggest', input)
+        .then((rows) => {
+          if (stale) return
+          setSuggestions(rows)
+          setSelected(-1)
+        })
+    }, SUGGEST_DELAY_MS)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [query])
+
+  const pick = (row: Suggestion) => {
+    if (row.action.type === 'navigate') openHere(row.action.url)
+  }
+  const showing = open && suggestions.length > 0
+
   return (
     <form
       role="search"
-      className="flex h-11 items-center gap-2.5 rounded-lg bg-surface px-3.5 text-text shadow-1 focus-within:shadow-[0_0_0_1px_var(--sc-accent)]"
+      className="relative"
       onSubmit={(e) => {
         e.preventDefault()
-        if (query.trim()) openHere(query.trim())
+        const row = suggestions[selected]
+        if (showing && row) pick(row)
+        else if (query.trim()) openHere(query.trim())
       }}
     >
-      <Search aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
-      <input
-        aria-label="Search or enter an address"
-        placeholder="Search or enter an address"
-        spellCheck={false}
-        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-faint"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <div className="flex h-11 items-center gap-2.5 rounded-lg bg-surface px-3.5 text-text shadow-1 focus-within:shadow-[0_0_0_1px_var(--sc-accent)]">
+        <Search aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        <input
+          role="combobox"
+          aria-expanded={showing}
+          aria-controls="newtab-suggestions"
+          aria-autocomplete="list"
+          aria-label="Search or enter an address"
+          placeholder="Search or enter an address"
+          spellCheck={false}
+          autoComplete="off"
+          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-faint"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setOpen(false)
+            if (!showing || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+            e.preventDefault()
+            const count = suggestions.length
+            setSelected((current) => (e.key === 'ArrowDown' ? (current + 1) % count : (current - 1 + count) % count))
+          }}
+        />
+      </div>
+      {showing && (
+        <ul id="newtab-suggestions" role="listbox" aria-label="Suggestions" className="sc-glass-strong absolute inset-x-0 top-full z-20 mt-1 rounded-lg p-1 text-text shadow-3">
+          {suggestions.map((row, index) => {
+            const Icon = SUGGESTION_ICONS[row.kind] ?? Search
+            return (
+              <li
+                key={row.id}
+                role="option"
+                aria-selected={index === selected}
+                // On mouse down, because by click time the box has lost focus and closed the list.
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  pick(row)
+                }}
+                className={cx('flex h-9 items-center gap-3 rounded-md px-2.5', index === selected ? 'bg-accent-soft' : 'hover:bg-surface-hover')}
+              >
+                <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+                <span className="min-w-0 shrink truncate">{row.title}</span>
+                {row.detail && <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{row.detail}</span>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </form>
   )
 }

@@ -127,7 +127,7 @@ describe('system prompts', () => {
   })
 
   it('tell the assistant reports never contain styling', () => {
-    expect(SYSTEM_PROMPT).toContain('scdelta-report')
+    expect(SYSTEM_PROMPT).toContain('scterra-report')
     expect(SYSTEM_PROMPT).toContain('never write HTML, CSS')
   })
 })

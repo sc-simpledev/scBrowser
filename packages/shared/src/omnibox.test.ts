@@ -61,7 +61,7 @@ describe('buildSuggestions', () => {
   it('offers both assistant rows for searches, once one is set up', () => {
     const base = { history: [], tabs: [], activeTabId: null, assistantReady: true }
     expect(buildSuggestions('rust', base).slice(1, 3)).toMatchObject([
-      { detail: 'Ask scDelta', action: { type: 'ask', text: 'rust' } },
+      { detail: 'Ask scTerra', action: { type: 'ask', text: 'rust' } },
       { detail: 'Ask Assistant', action: { type: 'ask-page', text: 'rust' } }
     ])
     expect(buildSuggestions('example.com', base).some((s) => s.kind === 'ask')).toBe(false)

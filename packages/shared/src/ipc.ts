@@ -1,7 +1,7 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ImportResult, ImportSource } from './containers'
 import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision } from './library'
-import type { HistoryEntry } from './omnibox'
+import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView } from './overlay'
@@ -267,6 +267,8 @@ export interface InternalCommands {
   'newtab:top-sites': (limit: number) => HistoryEntry[]
   /** Opens an address or search in the new tab itself. */
   'newtab:go': (input: string) => void
+  /** Rows for the new tab search box: the address bar's, minus tabs and the assistant. */
+  'newtab:suggest': (query: string) => Suggestion[]
   'extensions:open-store': () => void
   'sync:status': () => SyncStatus
   'sync:pick-folder': () => string | null
@@ -363,6 +365,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'newtab:background',
   'newtab:top-sites',
   'newtab:go',
+  'newtab:suggest',
   'extensions:open-store',
   'sync:status',
   'sync:pick-folder',

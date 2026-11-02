@@ -16,7 +16,7 @@ const INTERNAL_ICONS: Record<string, LucideIcon> = {
 
 interface FaviconProps {
   url: string | null
-  /** The tab's address, which picks an icon for scDelta's own pages. */
+  /** The tab's address, which picks an icon for scTerra's own pages. */
   pageUrl: string
   isLoading: boolean
 }

@@ -12,7 +12,7 @@ let mock: AiMock
 const REPORT = [
   'Here is the plan.',
   '',
-  '```scdelta-report',
+  '```scterra-report',
   JSON.stringify({
     title: 'Launch plan',
     summary: 'Three steps to launch.',
@@ -88,7 +88,7 @@ test('suggestion sources can be switched off', async () => {
   await expect(overlay.getByRole('option')).toHaveCount(1)
 })
 
-test('search offers Ask scDelta and Ask Assistant, and the page gives a text answer', async () => {
+test('search offers Ask scTerra and Ask Assistant, and the page gives a text answer', async () => {
   await addProvider()
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
@@ -96,7 +96,7 @@ test('search offers Ask scDelta and Ask Assistant, and the page gives a text ans
   await omnibox(h).click()
   await omnibox(h).fill('rust')
   const overlay = await h.overlay()
-  await expect(overlay.getByRole('option', { name: /Ask scDelta/ })).toBeVisible()
+  await expect(overlay.getByRole('option', { name: /Ask scTerra/ })).toBeVisible()
   const askPage = overlay.getByRole('option', { name: /Ask Assistant/ })
   await expect(askPage).toBeVisible()
   expect(mock.requests).toHaveLength(0)
@@ -169,7 +169,7 @@ test('extensions load, run on pages, stay after a restart and can be removed', a
 
 test('reports that were cut off still appear', async () => {
   await addProvider()
-  mock.queue = ['Here.\n```scdelta-report\n{"title":"Cut off","blocks":[{"type":"paragraph","text":"Kept"},{"type":"paragraph","text":"Half wri']
+  mock.queue = ['Here.\n```scterra-report\n{"title":"Cut off","blocks":[{"type":"paragraph","text":"Kept"},{"type":"paragraph","text":"Half wri']
   await go(h, 'sc://assistant')
   const page = await h.page('sc://assistant')
   await page.getByRole('textbox', { name: 'Message the assistant' }).fill('Go')

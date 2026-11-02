@@ -17,7 +17,7 @@ export function VerticalTabs() {
   return (
     <aside
       className={cx(
-        'flex shrink-0 flex-col gap-1 pb-1.5 pl-1.5 transition-[width] duration-(--sc-duration-base) ease-out',
+        'flex shrink-0 flex-col gap-1 border-t border-r border-border px-1.5 py-1.5 transition-[width] duration-(--sc-duration-base) ease-out',
         collapsed ? 'w-12' : 'w-60'
       )}
     >

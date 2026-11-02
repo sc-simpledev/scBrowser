@@ -1,6 +1,6 @@
-# scDelta: context for a new session
+# scTerra: context for a new session
 
-scDelta (formerly scBrowser) is an Electron browser for Linux and Windows with AI built in, inspired by Firefox and Dia. Read [Plan.md](Plan.md) for the roadmap and status checklist, and [README.md](README.md) for layout and shortcuts. The repo is private: `sc-simpledev/scBrowser`, branch `main`.
+scTerra (formerly scTerra, and before that scBrowser) is an Electron browser for Linux and Windows with AI built in, inspired by Firefox and Dia. Read [Plan.md](Plan.md) for the roadmap and status checklist, and [README.md](README.md) for layout and shortcuts. The repo is private: `sc-simpledev/scBrowser`, branch `main`.
 
 ## How to work with the owner
 
@@ -35,7 +35,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.1.0/linux-unpacked/scdelta" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.1.0/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/0.1.0/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts.
@@ -84,7 +84,7 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 Phases 0 to 5 are built, apart from signing, stores and update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, bookmark groups and icons, private windows, the PDF viewer, and the scSpace look. See Plan.md for what each does.
 
-Next up, if the owner agrees: auto-updates through the public `scTerra` repo, as set out in [docs/auto-update.md](docs/auto-update.md). Don't build it before they've chosen. The source repo stays private, and only installers go to scTerra.
+Next up, if the owner agrees: auto-updates through the public `sc-simpledev/scDelta` repo, as set out in [docs/auto-update.md](docs/auto-update.md). Don't build it before they've chosen. The source repo stays private, and only installers go to that repo.
 
 Open items:
 - CI: E2E failures used to stop the installer step, which looked like a broken build. Installers now build regardless, and CI retries flaky tests twice.
@@ -100,7 +100,8 @@ Open items:
 - Phase 3 remaining: dragging to rearrange the toolbar.
 - Phase 0 remaining: Storybook, token lint rule, Style Dictionary.
 - Saved permissions are shared across containers.
-- Linux users may need to re-enter API keys after the rename from scBrowser.
+- The app was renamed from scDelta on 2026-11-02. The profile is copied on first launch and the old folder stays, but the rename changes the system keychain entry, so AI keys, VPN links and the sync key need adding again. The old `scdelta` package has to be uninstalled by hand.
+- Names deliberately left alone: `sc-simpledev/scBrowser` (private repo), `sc-simpledev/scDelta` (public release repo), `@scbrowser/*` packages, the hosted address `sc-delta-ai.scspacedev.deno.net`, the `scdelta-sync.bin` file so sync keeps working, and reading old `scdelta-report` blocks in saved chats.
 - The hosted server has IP limits but no sign-in, so it can be used as a free API from outside the browser.
 
 ## Test pitfalls
@@ -110,11 +111,12 @@ Open items:
 - `app.firstWindow()` may be the overlay, so use the harness's `chrome` page.
 - Playwright forces light mode unless launched with `colorScheme: null`.
 - Screenshots of the browser UI don't include native page views, so the page area appears blank.
-- Tests set `SCDELTA_AI_URL=off` and use `SCB_FILTERS` to avoid the network. `SCB_E2E` exposes `scbTabs`, `scbActions` and `scbExtensions` on the main process.
+- Tests set `SCTERRA_AI_URL=off` and use `SCB_FILTERS` to avoid the network. `SCB_E2E` exposes `scbTabs`, `scbActions` and `scbExtensions` on the main process.
 - Playwright turns the sandbox off, and service worker extensions then lose the extra `chrome.*` APIs. Launch with `SCB_E2E_SANDBOX: '1'` for those tests.
 - VPN tests get `<-loopback>` in the bypass rules under `SCB_E2E`, so local servers go through the proxy.
 - `e2e/xray.spec.ts` makes real connections through a local Xray server, and is skipped if the core hasn't been fetched.
 - `SCB_VPN_PROBE=host:port` points VPN pings at a local page. `serveSite` answers `/generate_204`.
+- Pages fill the window edge to edge, with no inset or rounded corners (`PAGE_RADIUS` is 0).
 - Don't take desktop screenshots with spectacle: it can capture the owner's own windows.
 - `pkill -f` patterns can match your own shell. Use `pgrep -f "dist/electro[n]" | xargs -r kill -9`.
 - Code running during shutdown must guard against the destroyed window and closed database.

@@ -8,7 +8,7 @@ import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 
 const FLAG = '--private='
-const PREFIX = 'scdelta-private-'
+const PREFIX = 'scterra-private-'
 const SEED = 'seed.json'
 const PID = 'owner.pid'
 
