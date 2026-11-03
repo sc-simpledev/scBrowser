@@ -846,7 +846,6 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     unsubscribeBypass()
     powerMonitor.off('lock-screen', lockPasswords)
     powerMonitor.off('suspend', lockPasswords)
-    passwords.lock()
     saver.stop()
     unsubscribeSettings()
     unsubscribeAi()
@@ -854,6 +853,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     disposeIpc()
     disposeInternalIpc()
     overlay.destroy()
+    // After the overlay, which went with the window: locking clears any save offer it was showing.
+    passwords.lock()
     tabs.destroy()
   })
 

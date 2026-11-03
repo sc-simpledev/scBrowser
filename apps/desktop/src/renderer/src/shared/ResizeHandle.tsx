@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface ResizeHandleProps {
   label: string
@@ -18,7 +18,11 @@ const KEY_STEP = 16
 
 /** A thin strip over a sidebar's border. Also works from the keyboard, with the arrow keys. */
 export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging }: ResizeHandleProps) {
-  const drag = useRef<{ x: number; width: number; latest: number } | null>(null)
+  const stopDrag = useRef<(() => void) | null>(null)
+  const callbacks = useRef({ onWidth, onCommit, onDragging })
+  callbacks.current = { onWidth, onCommit, onDragging }
+  // A sidebar closed mid-drag mustn't leave the page hidden.
+  useEffect(() => () => stopDrag.current?.(), [])
   const clamp = (value: number) => Math.round(Math.min(max, Math.max(min, value)))
   const sign = edge === 'left' ? -1 : 1
   return (
@@ -33,26 +37,30 @@ export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, 
       className={`sc-no-drag absolute inset-y-0 z-10 w-1.5 cursor-col-resize transition-colors outline-none hover:bg-border-strong focus-visible:bg-accent active:bg-accent ${edge === 'left' ? '-left-0.75' : '-right-0.75'}`}
       onPointerDown={(e) => {
         e.preventDefault()
-        e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { x: e.clientX, width, latest: width }
-        onDragging?.(true)
-      }}
-      onPointerMove={(e) => {
-        if (!drag.current) return
-        drag.current.latest = clamp(drag.current.width + (e.clientX - drag.current.x) * sign)
-        onWidth(drag.current.latest)
-      }}
-      onPointerUp={() => {
-        if (!drag.current) return
-        onCommit(drag.current.latest)
-        drag.current = null
-        onDragging?.(false)
-      }}
-      onLostPointerCapture={() => {
-        if (!drag.current) return
-        onCommit(drag.current.latest)
-        drag.current = null
-        onDragging?.(false)
+        stopDrag.current?.()
+        const startX = e.clientX
+        const startWidth = width
+        let latest = width
+        const finish = () => {
+          stopDrag.current = null
+          removeEventListener('pointermove', move)
+          removeEventListener('pointerup', finish)
+          removeEventListener('pointercancel', finish)
+          callbacks.current.onCommit(latest)
+          callbacks.current.onDragging?.(false)
+        }
+        // The window listens, not this strip: hiding the page drops any pointer capture part way through.
+        const move = (event: PointerEvent) => {
+          // The button was let go somewhere that couldn't report it.
+          if (event.buttons === 0) return finish()
+          latest = clamp(startWidth + (event.clientX - startX) * sign)
+          callbacks.current.onWidth(latest)
+        }
+        addEventListener('pointermove', move)
+        addEventListener('pointerup', finish)
+        addEventListener('pointercancel', finish)
+        stopDrag.current = finish
+        callbacks.current.onDragging?.(true)
       }}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return

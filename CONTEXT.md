@@ -38,7 +38,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.0/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.1/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
@@ -105,9 +105,9 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 ## Status
 
-Version 0.3.0. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
+Version 0.3.1. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
-0.2.0 and 0.3.0 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.0 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up.
+0.2.0 and 0.3.1 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.1 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up. 0.3.0 was never published: its release run was cancelled over an error on closing the browser, so a `v0.3.0` tag and a draft of it remain. A release doesn't wait for CI, so let CI pass on `main` before tagging.
 
 **Next ideas the owner hasn't taken up yet:** a live test with a real AI model (needs their OK, as it spends credit), citations linking replies to their tabs, research across several tabs into one report, a reading list with AI summaries, and sign-in for the hosted server. DRM stays their decision.
 
@@ -119,7 +119,8 @@ Open items:
 - macOS has never been run. Builds are unsigned, so they can't install updates: the app offers the release page instead. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
 - Whole-computer VPN: the TUN script was run for real in a throwaway network namespace (traffic, DNS and clean-up all worked), and system proxy against the real KDE and GNOME tools in a scratch config. Neither has run through pkexec or against the real desktop settings, so ask the owner to try both. Windows and macOS system proxy have only run against fake commands. TUN is Linux only: Windows needs the wintun driver. Two profiles could fight over the system proxy; that isn't handled. Switching connections under TUN asks for the password again.
 - The report side page takes its room from the page, so a narrow window leaves little of the page showing. The chosen design isn't saved with a chat, and is forgotten when the side page closes. Versions are matched by title, so a model that renames a report starts a new set.
-- Dragging a sidebar was only tested with Playwright's mouse, which never crosses the native page view. Hiding the page during a drag is meant to make that work, so ask the owner to try it with a real mouse. The page area goes blank during the drag.
+- Dragging a sidebar was only tested with Playwright's mouse, which never crosses the native page view. Hiding the page during a drag is meant to make that work, so ask the owner to try it with a real mouse. The page area goes blank during the drag. Hiding the page drops pointer capture mid-drag, which is why `ResizeHandle` listens on the window.
+- CI artifact storage hit its quota on 2026-11-03. Artifacts now last 5 days and a failed upload no longer fails CI, but older ones stay until they expire or are deleted. Releases don't use this storage.
 - The password vault's fill and save offer were tested on simple local sign-in pages only, not real sites. Pages with sign-in forms in iframes (some banks, some single sign-on) won't fill or offer, and multi-step sign-ins may save without a username. Bookmark imports don't bring folders.
 - Bookmark folder order doesn't sync, only names, membership and nesting.
 - The intro has night and daytime scenes, following the theme. It was checked on an Intel GPU at 1320 by 860, and falls back to a plain gradient without WebGL 2.
@@ -142,6 +143,8 @@ Open items:
 
 ## Test pitfalls
 
+- CI windows have no focus, unlike a run on the owner's desktop. `BaseWindow.getAllWindows()[0].blur()` gets close to it locally, as `xvfb-run` isn't installed here.
+- Local runs print uncaught main-process errors without failing, so read the output as well as the totals.
 - Native menus and save dialogs can't be driven by Playwright. Replace `Menu.buildFromTemplate` or `dialog.showSaveDialog` through `h.app.evaluate`, as `e2e/phase8.spec.ts` and `phase5.spec.ts` do.
 - `go(h, ...)` reuses the current tab, so a page object from before it now points at the new page.
 - Never test whole-computer VPN against the real system settings. Use `XDG_CONFIG_HOME` and `GSETTINGS_BACKEND=keyfile` for system proxy, and `unshare -Urnm` for the TUN script. The repo path contains an apostrophe, which breaks single-quoted shell scripts.

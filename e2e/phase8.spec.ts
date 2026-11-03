@@ -215,8 +215,19 @@ test('the panel asks for changes too, without sending the page', async () => {
   expect(sent).not.toContain('PAGE-WORDS')
 })
 
+test('closing the browser raises no errors', async () => {
+  let output = ''
+  const collect = (data: Buffer) => (output += data.toString())
+  h.app.process().stdout?.on('data', collect)
+  h.app.process().stderr?.on('data', collect)
+  await h.close()
+  expect(output).not.toContain('Uncaught exception')
+})
+
 test('sidebars drag wider, from the keyboard too, and remember it', async () => {
   await h.chrome.getByRole('button', { name: 'Assistant' }).click()
+  // Without focus is the hard case: the drag used to end early when the page stepped aside.
+  await h.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.blur())
   const panel = h.chrome.getByRole('complementary', { name: 'Assistant' })
   const handle = h.chrome.getByRole('separator', { name: 'Assistant width' })
   const before = (await panel.boundingBox())!.width

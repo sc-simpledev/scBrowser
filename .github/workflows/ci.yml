@@ -49,8 +49,11 @@ jobs:
         run: pnpm dist
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
+        # Running out of storage isn't a broken build. Releases don't use these.
+        continue-on-error: true
         with:
           name: scterra-${{ matrix.os }}
+          retention-days: 5
           path: |
             apps/desktop/release/*/*.AppImage
             apps/desktop/release/*/*.deb
