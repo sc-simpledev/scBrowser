@@ -18,7 +18,7 @@ import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { isPrivate } from './private'
-import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupTabMenu } from './menus'
+import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { PrivacyService } from './privacy/service'
@@ -165,8 +165,8 @@ const validators: Validators = {
     typeof args[1].findNext === 'boolean',
   'find:stop': noArgs,
   'zoom:reset': noArgs,
-  'menu:open': (args): args is [number, number] =>
-    args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'menu:open': (args): args is [number, number, boolean] =>
+    args.length === 3 && Number.isFinite(args[0]) && Number.isFinite(args[1]) && typeof args[2] === 'boolean',
   'downloads:open-page': noArgs,
   'ai:status': noArgs,
   'ai:send': (args): args is [string, AssistantRequest] =>
@@ -194,7 +194,15 @@ const validators: Validators = {
   'workspaces:edit': (args): args is [string | null, number, number] =>
     args.length === 3 && (args[0] === null || isShortString(args[0], 64)) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
   'updates:state': noArgs,
-  'updates:install': noArgs
+  'updates:install': noArgs,
+  'bookmarks:overflow-menu': (args): args is [BarItem[], number, number] =>
+    args.length === 3 &&
+    Array.isArray(args[0]) &&
+    args[0].length <= 10_000 &&
+    args[0].every((item: BarItem) => record(item) && (item.kind === 'bookmark' || item.kind === 'group') && isId(item.id)) &&
+    Number.isFinite(args[1]) &&
+    Number.isFinite(args[2]),
+  'profiles:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1])
 }
 
 interface IpcServices {
@@ -297,7 +305,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'zoom:reset': () => {
       if (tabs.active) tabs.setZoom(tabs.active.id, 1)
     },
-    'menu:open': (x, y) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', updates.state(), window, x, y),
+    'menu:open': (x, y, compact) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', updates.state(), compact, window, x, y),
     'downloads:open-page': () => actions.openPage('downloads'),
     'ai:status': () => aiStore.status(),
     'ai:send': (streamId, request) => {
@@ -338,7 +346,14 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'workspaces:switch': (id) => tabs.switchWorkspace(id),
     'workspaces:edit': (id, x, y) => editWorkspace(id, x, y),
     'updates:state': () => updates.state(),
-    'updates:install': () => updates.install()
+    'updates:install': () => updates.install(),
+    'bookmarks:overflow-menu': (items, x, y) => {
+      const open = (url: string) => {
+        if (tabs.active) tabs.navigate(tabs.active.id, url)
+      }
+      popupBookmarkOverflow(items, menuHooks, open, x, y)
+    },
+    'profiles:menu': (x, y) => popupProfilesMenu(actions, window, x, y)
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

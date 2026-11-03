@@ -99,7 +99,9 @@ Open items:
 - macOS has never been run. Builds are unsigned, so they can't install updates: the app offers the release page instead. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
 - Saved reports can't be saved from the side panel, only from `sc://assistant`.
 - Bookmark group order doesn't sync, only names and membership.
-- The intro was checked on an Intel GPU at 1320 by 860. It falls back to a plain gradient without WebGL 2.
+- The intro has night and daytime scenes, following the theme. It was checked on an Intel GPU at 1320 by 860, and falls back to a plain gradient without WebGL 2.
+- The overlay takes clicks wherever it's drawn, and has no way to let them through. Keep popup regions tight: tooltips only cover their own bubble and clear as soon as the pointer moves. The Settings link fix for this couldn't be tried with a real mouse here.
+- Assistant, Profiles and More are fixed at the end of the toolbar. Below 760 pixels wide (`compact`), spare buttons move into More and the sidebar becomes a rail.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
 - VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is a real request through each connection, so free lists mostly show Not working. That's accurate.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.

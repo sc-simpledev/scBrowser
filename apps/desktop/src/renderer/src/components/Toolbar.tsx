@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, fullToolbarOrder, type ToolbarSlot, type UpdateState, type VpnSummary } from '@scbrowser/shared'
@@ -68,6 +68,9 @@ function VpnButton() {
   )
 }
 
+/** Moved into the More menu when the window is narrow. */
+const SPARE_SLOTS: ToolbarSlot[] = ['vpn', 'downloads', 'extensions']
+
 /** Shows once a new version is on its way, and stays out of sight the rest of the time. */
 function UpdateButton() {
   const [update, setUpdate] = useState<UpdateState | null>(null)
@@ -135,6 +138,8 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
   const assistantOpen = useAssistant((s) => s.open)
   const hideAssistant = useApp((s) => s.settings.hiddenToolbarItems.includes('assistant'))
   const order = useApp((s) => s.settings.toolbarOrder)
+  const showProfiles = useApp((s) => s.settings.profilesButton)
+  const compact = useApp((s) => s.compact)
   const [dragging, setDragging] = useState<ToolbarSlot | null>(null)
   const [target, setTarget] = useState<{ slot: ToolbarSlot; after: boolean } | null>(null)
   const invoke = (channel: 'tabs:back' | 'tabs:forward' | 'tabs:reload' | 'tabs:stop') => {
@@ -165,29 +170,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
     omnibox: <Omnibox />,
     downloads: <DownloadsButton />,
     /* Drawn by the extensions library in its own shadow root. */
-    extensions: <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />,
-    assistant: !hideAssistant && (
-      <IconButton
-        label="Assistant"
-        shortcut="Ctrl Shift A"
-        aria-pressed={assistantOpen}
-        className={assistantOpen ? 'text-accent' : undefined}
-        onClick={useAssistant.getState().toggle}
-      >
-        <Bot size={16} strokeWidth={1.75} />
-      </IconButton>
-    ),
-    menu: (
-      <IconButton
-        label="Menu"
-        onClick={(e) => {
-          const { left, bottom } = e.currentTarget.getBoundingClientRect()
-          void window.scb.invoke('menu:open', left, bottom)
-        }}
-      >
-        <EllipsisVertical size={16} strokeWidth={1.75} />
-      </IconButton>
-    )
+    extensions: <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
   }
 
   const drop = () => {
@@ -203,7 +186,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
   return (
     // With vertical tabs there's no tab strip, so the toolbar doubles as the title bar.
     <div className={cx('relative flex h-(--sc-toolbar-height) shrink-0 items-center gap-1 px-1.5', titleBar && 'sc-drag sc-wco-inset')}>
-      {fullToolbarOrder(order).map((slot) => (
+      {fullToolbarOrder(order).filter((slot) => !compact || !SPARE_SLOTS.includes(slot)).map((slot) => (
         <Slot
           key={slot}
           slot={slot}
@@ -219,8 +202,40 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
           {items[slot]}
         </Slot>
       ))}
+      {/* These stay at the end of the bar, wherever everything else has been dragged. */}
       <PrivateBadge />
       <UpdateButton />
+      {showProfiles && !compact && (
+        <IconButton
+          label="Profiles"
+          onClick={(e) => {
+            const { left, bottom } = e.currentTarget.getBoundingClientRect()
+            void window.scb.invoke('profiles:menu', left, bottom)
+          }}
+        >
+          <CircleUserRound size={16} strokeWidth={1.75} />
+        </IconButton>
+      )}
+      {!hideAssistant && !compact && (
+        <IconButton
+          label="Assistant"
+          shortcut="Ctrl Shift A"
+          aria-pressed={assistantOpen}
+          className={assistantOpen ? 'text-accent' : undefined}
+          onClick={useAssistant.getState().toggle}
+        >
+          <Bot size={16} strokeWidth={1.75} />
+        </IconButton>
+      )}
+      <IconButton
+        label="Menu"
+        onClick={(e) => {
+          const { left, bottom } = e.currentTarget.getBoundingClientRect()
+          void window.scb.invoke('menu:open', left, bottom, compact)
+        }}
+      >
+        <EllipsisVertical size={16} strokeWidth={1.75} />
+      </IconButton>
       {tab?.isLoading && (
         <div aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 overflow-hidden rounded-full">
           <div className="h-full w-2/5 animate-[sc-progress_1.1s_var(--sc-ease-in-out)_infinite] rounded-full bg-accent" />

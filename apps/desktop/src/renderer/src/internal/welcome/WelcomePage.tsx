@@ -18,6 +18,8 @@ const DEPARTURE_SHOT: Shot = { distance: 1.03, shift: [0, 0], sun: [0, 0.3, 1], 
 const MOVE_SECONDS = 1.6
 const DEPARTURE_MS = 1500
 const SETUP_STEPS = 4
+/** How much of the change between the night and daytime scenes happens each frame. */
+const TONE_STEP = 0.06
 
 const ease = (t: number) => t * t * t * (t * (6 * t - 15) + 10)
 const blend = (a: number, b: number, t: number) => a + (b - a) * t
@@ -54,6 +56,7 @@ export function WelcomePage() {
   const globe = useRef<Globe | null>(null)
   const scene = useRef({ shot: OPENING[0]!.shot, from: OPENING[0]!.shot, to: null as Shot | null, moveStart: 0, seconds: 0 })
   const tint = useRef<[number, number, number]>([0.3, 0.7, 0.8])
+  const tone = useRef(matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0)
   const [stage, setStage] = useState<Stage>('opening')
   const [noGlobe, setNoGlobe] = useState(false)
   const [settled, setSettled] = useState(false)
@@ -82,7 +85,10 @@ export function WelcomePage() {
         const t = Math.min(1, (now - state.moveStart) / (MOVE_SECONDS * 1000))
         state.shot = blendShots(state.from, state.to, ease(t))
       } else state.shot = openingShot(seconds)
-      globe.current?.draw(state.shot, seconds, tint.current)
+      // Follows the system, and the theme picked during setup.
+      const wanted = matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0
+      tone.current += Math.max(-TONE_STEP, Math.min(TONE_STEP, wanted - tone.current))
+      globe.current?.draw(state.shot, seconds, tint.current, tone.current)
       frame = requestAnimationFrame(draw)
     }
     frame = requestAnimationFrame(draw)

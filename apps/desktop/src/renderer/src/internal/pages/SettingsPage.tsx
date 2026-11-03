@@ -500,6 +500,9 @@ export function SettingsPage() {
         ))}
       </Section>
       <Section title="Profiles">
+        <Row label="Show in the toolbar" hint="Adds a button beside the assistant for switching profiles.">
+          <Switch label="Show profiles in the toolbar" checked={settings.profilesButton} onChange={(profilesButton) => update({ profilesButton })} />
+        </Row>
         {profiles.names.map((name) => (
           <Row key={name} label={name} hint={name === profiles.current ? 'This window' : 'Separate tabs, history, bookmarks and logins'}>
             {name !== profiles.current && (

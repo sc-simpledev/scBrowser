@@ -118,7 +118,8 @@ export const SUGGESTION_ROW_HEIGHT = 36
 export const POPUP_PADDING = 4
 export const POPUP_GAP = 4
 export const TOOLTIP_GAP = 6
-export const TOOLTIP_REGION = { width: 320, height: 28 }
+/** Tooltips block clicks where they're drawn, so they take no more room than their text needs. */
+export const TOOLTIP_REGION = { maxWidth: 320, height: 28, charWidth: 7, padding: 24 }
 export const PALETTE_POPUP = { width: 560, height: 380, top: 72 }
 export const TOAST_POPUP = { width: 300, height: 40, inset: 8 }
 export const BOOKMARK_POPUP = { width: 320, height: 248, inset: 8 }
@@ -149,12 +150,14 @@ export function overlayRegions(state: OverlayView): PageRect[] {
     if (popup) regions.push({ x: popup.x - OVERLAY_MARGIN, y: popup.y - OVERLAY_MARGIN, width: popup.width + OVERLAY_MARGIN * 2, height: popup.height + OVERLAY_MARGIN * 2 })
   }
   if (state.tooltip) {
-    const { anchor } = state.tooltip
+    const { anchor, label, shortcut } = state.tooltip
+    const text = label.length + (shortcut ? shortcut.length + 2 : 0)
+    const width = Math.min(TOOLTIP_REGION.maxWidth, text * TOOLTIP_REGION.charWidth + TOOLTIP_REGION.padding)
     regions.push({
-      x: anchor.x + anchor.width / 2 - TOOLTIP_REGION.width / 2,
-      y: anchor.y + anchor.height + TOOLTIP_GAP - OVERLAY_MARGIN,
-      width: TOOLTIP_REGION.width,
-      height: TOOLTIP_REGION.height + OVERLAY_MARGIN * 2
+      x: anchor.x + anchor.width / 2 - width / 2,
+      y: anchor.y + anchor.height + TOOLTIP_GAP,
+      width,
+      height: TOOLTIP_REGION.height
     })
   }
   if (state.bookmarkEditor) {

@@ -10,7 +10,9 @@ export function VerticalTabs() {
   const tabs = useTabs((s) => s.tabs)
   const activeId = useTabs((s) => s.activeId)
   const splitIds = useTabs((s) => s.splitIds)
-  const collapsed = useApp((s) => s.settings.verticalTabsCollapsed)
+  // A narrow window has no room for titles, whatever the setting says.
+  const compact = useApp((s) => s.compact)
+  const collapsed = useApp((s) => s.settings.verticalTabsCollapsed) || compact
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const newTab = () => void window.scb.invoke('tabs:create')
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
@@ -18,7 +20,7 @@ export function VerticalTabs() {
   return (
     <aside
       className={cx(
-        'flex shrink-0 flex-col gap-1 border-t border-r border-border px-1.5 py-1.5 transition-[width] duration-(--sc-duration-base) ease-out',
+        'flex shrink-0 flex-col gap-1 border-r border-border px-1.5 py-1.5 transition-[width] duration-(--sc-duration-base) ease-out',
         collapsed ? 'w-12' : 'w-60'
       )}
     >
@@ -75,9 +77,11 @@ export function VerticalTabs() {
         <WorkspaceBar direction={collapsed ? 'column' : 'row'} showAdd />
       </div>
       {collapsed ? (
-        <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
-          <PanelLeftOpen size={16} strokeWidth={1.75} />
-        </IconButton>
+        !compact && (
+          <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
+            <PanelLeftOpen size={16} strokeWidth={1.75} />
+          </IconButton>
+        )
       ) : (
         <div className="flex shrink-0 items-center gap-1">
           <button

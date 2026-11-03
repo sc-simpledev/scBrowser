@@ -1,7 +1,8 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { CONTAINERS, SUMMARISE_PROMPT, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { CONTAINERS, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
+import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
 
 export function attachPageMenu(
@@ -190,7 +191,35 @@ export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHook
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
 
-export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, update: UpdateState, window: BaseWindow, x: number, y: number): void {
+/** What doesn't fit on the bookmarks bar. Groups open as submenus. */
+export function popupBookmarkOverflow(items: BarItem[], hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
+  const { repo, window } = hooks
+  const bookmarks = repo.list()
+  const groups = repo.groups()
+  const row = (bookmark: Bookmark): MenuItemConstructorOptions => ({ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) })
+  const template = items.flatMap(({ kind, id }): MenuItemConstructorOptions[] => {
+    if (kind === 'bookmark') {
+      const bookmark = bookmarks.find((b) => b.id === id)
+      return bookmark ? [row(bookmark)] : []
+    }
+    const group = groups.find((g) => g.id === id)
+    if (!group) return []
+    const inside = bookmarks.filter((b) => b.groupId === id)
+    return [{ label: group.name, submenu: inside.length > 0 ? inside.map(row) : [{ label: 'No bookmarks yet', enabled: false }] }]
+  })
+  if (template.length > 0) Menu.buildFromTemplate(template).popup({ window, x: Math.round(x), y: Math.round(y) })
+}
+
+export function popupProfilesMenu(actions: BrowserActions, window: BaseWindow, x: number, y: number): void {
+  const { current, names } = listProfiles()
+  Menu.buildFromTemplate([
+    ...names.map((name) => ({ label: name, type: 'radio' as const, checked: name === current, click: () => name !== current && openProfile(name) })),
+    { type: 'separator' },
+    { label: 'Manage profiles…', click: () => actions.openPage('settings') }
+  ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+}
+
+export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolean, update: UpdateState, compact: boolean, window: BaseWindow, x: number, y: number): void {
   const { tabs } = actions
   const active = tabs.active
   const onActive = (action: (id: TabId) => void) => () => active && action(active.id)
@@ -198,8 +227,18 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     update.phase === 'ready' || update.phase === 'manual'
       ? [{ label: update.phase === 'ready' ? `Restart to update to ${update.version}` : `Get version ${update.version}`, click: actions.installUpdate }, { type: 'separator' }]
       : []
+  // A narrow toolbar hides these buttons, so they're here instead of squashed.
+  const spareRows: MenuItemConstructorOptions[] = compact
+    ? [
+        { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
+        { label: 'VPN', click: () => actions.openPage('vpn') },
+        { label: 'Extensions and profiles', click: () => actions.openPage('settings') },
+        { type: 'separator' }
+      ]
+    : []
   Menu.buildFromTemplate([
     ...updateRow,
+    ...spareRows,
     { label: 'New tab', accelerator: 'CmdOrCtrl+T', click: () => tabs.create() },
     { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => tabs.reopenClosed() },
     { type: 'separator' },

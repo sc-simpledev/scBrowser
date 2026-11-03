@@ -31,9 +31,12 @@ export function connectOverlay(): () => void {
   // Popups anchored to the window shouldn't outlive it losing focus.
   const onBlur = () => useOverlay.getState().setTooltip(null)
   window.addEventListener('blur', onBlur)
+  // The main process saw the pointer reach a page, which this view can't see for itself.
+  const offClear = window.scb.on('overlay:clear-tooltip', onBlur)
   return () => {
     cancelAnimationFrame(frame)
     unsubscribe()
+    offClear()
     window.removeEventListener('blur', onBlur)
   }
 }

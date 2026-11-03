@@ -19,6 +19,7 @@ const ROLES = 'ai:roles'
 const USAGE = 'ai:usage'
 const DISABLED = 'ai:disabled-hosts'
 const SKILLS = 'ai:skills'
+const OLD_HOSTED_NAME = 'scDelta AI'
 const secretKey = (id: string) => `ai:secret:${id}`
 
 const ANTHROPIC_DEFAULT_CHAT = 'claude-opus-5-5'
@@ -59,6 +60,20 @@ export class AiStore {
     if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') {
       safeStorage.setUsePlainTextEncryption(true)
     }
+    this.retireOldHosted()
+  }
+
+  /** The service was called scDelta AI, at the same address. Its entry becomes the one scTerra AI. */
+  private retireOldHosted(): void {
+    const isOld = (p: ProviderConfig) => p.id !== HOSTED_PROVIDER_ID && (p.name === OLD_HOSTED_NAME || !!p.hosted)
+    const old = this.providers().filter(isOld)
+    if (old.length === 0) return
+    const inUse = Object.values(this.roles()).some((ref) => old.some((p) => p.id === ref.providerId))
+    this.kv.set(PROVIDERS, this.providers().filter((p) => !isOld(p)))
+    old.forEach((p) => this.kv.delete(secretKey(p.id)))
+    const moved = Object.entries(this.roles()).map(([role, ref]) => [role, old.some((p) => p.id === ref.providerId) ? { providerId: HOSTED_PROVIDER_ID, model: HOSTED_MODEL } : ref])
+    this.kv.set(ROLES, Object.fromEntries(moved))
+    if (inUse && !this.provider(HOSTED_PROVIDER_ID) && this.hostedUrl()) this.addHosted()
   }
 
   subscribe(listener: () => void): () => void {
@@ -119,6 +134,11 @@ export class AiStore {
 
   /** Switches chat to the hosted service. Only ever done at the person's request. */
   enableHosted(): void {
+    this.addHosted()
+    this.setRole('chat', { providerId: HOSTED_PROVIDER_ID, model: HOSTED_MODEL })
+  }
+
+  private addHosted(): void {
     const baseUrl = this.hostedUrl()
     if (!baseUrl) throw new Error('scTerra AI is not available in this build.')
     const hosted: ProviderConfig = {
@@ -131,7 +151,6 @@ export class AiStore {
       hosted: true
     }
     this.kv.set(PROVIDERS, [...this.providers().filter((p) => p.id !== HOSTED_PROVIDER_ID), hosted])
-    this.setRole('chat', { providerId: HOSTED_PROVIDER_ID, model: HOSTED_MODEL })
   }
 
   skills(): Skill[] {

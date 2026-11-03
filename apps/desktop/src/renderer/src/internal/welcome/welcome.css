@@ -1,4 +1,4 @@
-/* The intro is always dark: it's the one scene in the app, and it isn't a themed page. */
+/* The intro has a night scene and a daytime one, following the system or the chosen theme. */
 .sc-welcome {
   --sc-welcome-ink: oklch(0.97 0 0);
   --sc-welcome-soft: oklch(0.97 0 0 / 0.66);
@@ -7,12 +7,14 @@
   --sc-welcome-fill: oklch(0.97 0 0 / 0.07);
   --sc-welcome-panel: oklch(0.14 0.01 240 / 0.62);
   --sc-welcome-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --sc-welcome-sky: radial-gradient(120% 90% at 50% 120%, color-mix(in oklab, var(--sc-accent) 22%, black), black 62%);
+  --sc-welcome-on-ink: black;
+  --sc-welcome-shadow: 0 0 60px oklch(0 0 0 / 0.5);
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 120%, color-mix(in oklab, var(--sc-accent) 22%, black), black 62%);
+  background: var(--sc-welcome-sky);
   color: var(--sc-welcome-ink);
-  color-scheme: dark;
   font-family: var(--sc-font-sans);
   font-size: var(--sc-text-sm);
   user-select: none;
@@ -28,6 +30,20 @@
 
 .sc-welcome[data-fallback] .sc-welcome-scene {
   display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .sc-welcome {
+    --sc-welcome-ink: oklch(0.2 0.01 230);
+    --sc-welcome-soft: oklch(0.2 0.01 230 / 0.68);
+    --sc-welcome-faint: oklch(0.2 0.01 230 / 0.5);
+    --sc-welcome-line: oklch(0.2 0.01 230 / 0.14);
+    --sc-welcome-fill: oklch(0.2 0.01 230 / 0.06);
+    --sc-welcome-panel: oklch(0.99 0.002 220 / 0.72);
+    --sc-welcome-sky: radial-gradient(120% 90% at 50% 120%, color-mix(in oklab, var(--sc-accent) 18%, white), oklch(0.975 0.003 220) 62%);
+    --sc-welcome-on-ink: white;
+    --sc-welcome-shadow: 0 0 40px oklch(1 0 0 / 0.7);
+  }
 }
 
 /* The window can still be moved by its top edge. */
@@ -55,7 +71,7 @@
   font-weight: var(--sc-weight-medium);
   letter-spacing: -0.045em;
   line-height: 1;
-  text-shadow: 0 0 60px oklch(0 0 0 / 0.5);
+  text-shadow: var(--sc-welcome-shadow);
 }
 
 .sc-welcome-title h1 span {
@@ -297,7 +313,7 @@
 .sc-welcome-choice[aria-checked='true'] i {
   border-color: var(--sc-accent);
   background: var(--sc-accent);
-  color: black;
+  color: var(--sc-on-accent);
 }
 
 .sc-welcome-segments {
@@ -367,7 +383,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--sc-welcome-ink);
+  background: white;
   content: '';
   transition: translate var(--sc-duration-base) var(--sc-ease-out);
 }
@@ -409,7 +425,7 @@
   padding: 0 14px;
   border-radius: var(--sc-radius-md);
   background: var(--sc-welcome-ink);
-  color: black;
+  color: var(--sc-welcome-on-ink);
   font: inherit;
   font-weight: var(--sc-weight-medium);
   transition: opacity var(--sc-duration-fast);

@@ -91,6 +91,8 @@ export interface Settings {
   /** Off until the person turns them on. */
   crashReports: boolean
   usageStats: boolean
+  /** Show a button for switching profiles in the toolbar. */
+  profilesButton: boolean
   /** Download new versions in the background. */
   autoUpdate: boolean
 }
@@ -122,6 +124,7 @@ export const DEFAULT_SETTINGS: Settings = {
   syncHistory: true,
   crashReports: false,
   usageStats: false,
+  profilesButton: false,
   autoUpdate: true
 }
 
@@ -154,6 +157,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   syncHistory: (v) => typeof v === 'boolean',
   crashReports: (v) => typeof v === 'boolean',
   usageStats: (v) => typeof v === 'boolean',
+  profilesButton: (v) => typeof v === 'boolean',
   autoUpdate: (v) => typeof v === 'boolean'
 }
 

@@ -72,7 +72,7 @@ const WORKSPACES_KEY = 'workspaces'
 const ZOOM_KEY = 'site-zoom'
 const WELCOME_KEY = 'welcome:done'
 const WELCOME_URL = 'sc://welcome'
-const INTRO_COLORS = { color: '#000000', symbolColor: '#ffffff' }
+const INTRO_COLORS = { dark: { color: '#000000', symbolColor: '#ffffff' }, light: { color: '#f4f7f8', symbolColor: '#111111' } }
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
 const isWorkspace = (value: unknown): value is Workspace => {
@@ -191,6 +191,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       attachShortcuts(contents, actions)
       attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
       extensions.addTab(contents)
+      contents.on('input-event', (_event, input) => {
+        if (input.type === 'mouseMove') overlay.clearTooltip()
+      })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       overlay.raise()
     },
@@ -367,7 +370,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
         tabs.removeWorkspace(id)
         kv.set(WORKSPACES_KEY, tabs.workspaceList())
       },
-      onPopupClosed: () => tabs.focusActive()
+      onPopupClosed: () => tabs.focusActive(),
+      onTooltipCleared: () => send('overlay:clear-tooltip')
     }
   )
   const onActive = (action: (id: number) => void) => () => {
@@ -620,7 +624,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   attachShortcuts(chromeUi, actions)
   const updates = new UpdateService(settings, (state) => send('updates:changed', state))
   updates.start()
-  /** The intro runs edge to edge in the dark, whatever the theme. */
+  /** The intro runs edge to edge, with window controls to match its light or dark scene. */
   function setIntro(tabId: number | null) {
     introActive = tabId !== null
     tabs.setImmersive(tabId)
@@ -683,9 +687,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
 
   function syncTheme() {
     const { background, foreground } = nativeColors()
-    window.setBackgroundColor(introActive ? INTRO_COLORS.color : background)
+    const intro = INTRO_COLORS[nativeTheme.shouldUseDarkColors ? 'dark' : 'light']
+    window.setBackgroundColor(introActive ? intro.color : background)
     if (process.platform === 'darwin') return
-    window.setTitleBarOverlay({ ...(introActive ? INTRO_COLORS : { color: background, symbolColor: foreground }), height: TABSTRIP_HEIGHT })
+    window.setTitleBarOverlay({ ...(introActive ? intro : { color: background, symbolColor: foreground }), height: TABSTRIP_HEIGHT })
   }
   nativeTheme.on('updated', syncTheme)
 

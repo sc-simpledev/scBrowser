@@ -45,7 +45,8 @@ export interface ChromeCommands {
   'find:query': (text: string, options: { forward: boolean; findNext: boolean }) => void
   'find:stop': () => void
   'zoom:reset': () => void
-  'menu:open': (x: number, y: number) => void
+  /** `compact` adds what a narrow toolbar has no room for. */
+  'menu:open': (x: number, y: number, compact: boolean) => void
   'downloads:open-page': () => void
   'ai:status': () => AiStatus
   'ai:send': (streamId: string, request: AssistantRequest) => void
@@ -73,6 +74,8 @@ export interface ChromeCommands {
   'workspaces:edit': (id: string | null, x: number, y: number) => void
   'updates:state': () => UpdateState
   'updates:install': () => void
+  'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
+  'profiles:menu': (x: number, y: number) => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -96,6 +99,7 @@ export interface ChromeEvents {
   'updates:changed': UpdateState
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
+  'overlay:clear-tooltip': void
 }
 
 /** Commands the overlay view sends to the main process. */
@@ -116,6 +120,7 @@ export interface OverlayCommands {
   'overlay:workspace-save': (edit: WorkspaceEdit) => void
   'overlay:workspace-remove': (id: string) => void
   'overlay:workspace-close': () => void
+  'overlay:tooltip-clear': () => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -183,7 +188,9 @@ export const COMMAND_CHANNELS = [
   'workspaces:switch',
   'workspaces:edit',
   'updates:state',
-  'updates:install'
+  'updates:install',
+  'bookmarks:overflow-menu',
+  'profiles:menu'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -203,10 +210,11 @@ export const EVENT_CHANNELS = [
   'privacy:changed',
   'vpn:changed',
   'updates:changed',
-  'omnibox:answer-action'
+  'omnibox:answer-action',
+  'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */

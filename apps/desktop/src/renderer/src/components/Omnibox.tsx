@@ -76,6 +76,7 @@ export function Omnibox() {
   const sources = useApp((s) => s.settings.suggestionSources)
   const protection = useApp((s) => s.settings.trackingProtection)
   const hidden = useApp((s) => s.settings.hiddenToolbarItems)
+  const compact = useApp((s) => s.compact)
   const privacyOffHosts = useApp((s) => s.privacyOffHosts)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -295,7 +296,7 @@ export function Omnibox() {
           </div>
         )}
       </div>
-      {tab && /^https?:/.test(tab.url) && protection !== 'off' && !hidden.includes('protection') && (
+      {tab && /^https?:/.test(tab.url) && protection !== 'off' && !hidden.includes('protection') && !compact && (
         <IconButton
           size="sm"
           label={protectionOff ? 'Tracking protection is off here' : `${tab.blockedCount} blocked. Turn off for this site`}
@@ -306,7 +307,7 @@ export function Omnibox() {
           {!protectionOff && tab.blockedCount > 0 && <span className="text-2xs font-medium">{tab.blockedCount}</span>}
         </IconButton>
       )}
-      {tab && (/^https?:/.test(tab.url) || isReaderUrl(tab.url)) && !hidden.includes('reader') && (
+      {tab && (/^https?:/.test(tab.url) || isReaderUrl(tab.url)) && !hidden.includes('reader') && !compact && (
         <IconButton
           size="sm"
           label={isReaderUrl(tab.url) ? 'Leave reader view' : 'Reader view'}

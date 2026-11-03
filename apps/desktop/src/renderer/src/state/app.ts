@@ -10,7 +10,11 @@ interface AppStore {
   hasDownloaded: boolean
   /** Sites where tracking protection is switched off. */
   privacyOffHosts: string[]
+  /** The window is too narrow for everything, so spare buttons move into the More menu. */
+  compact: boolean
 }
+
+export const COMPACT_QUERY = '(max-width: 759px)'
 
 export const useApp = create<AppStore>(() => ({
   settings: DEFAULT_SETTINGS,
@@ -18,7 +22,8 @@ export const useApp = create<AppStore>(() => ({
   bookmarkGroups: [],
   downloads: { active: 0, fraction: null },
   hasDownloaded: false,
-  privacyOffHosts: []
+  privacyOffHosts: [],
+  compact: matchMedia(COMPACT_QUERY).matches
 }))
 
 /** Subscribes the store to main-process events. Call once at startup. */
@@ -32,7 +37,11 @@ export function connectApp(): () => void {
   void window.scb.invoke('settings:get').then(setSettings)
   void window.scb.invoke('bookmarks:list').then(setBookmarks)
   void window.scb.invoke('bookmarks:groups').then((bookmarkGroups) => useApp.setState({ bookmarkGroups }))
+  const narrow = matchMedia(COMPACT_QUERY)
+  const onNarrow = () => useApp.setState({ compact: narrow.matches })
+  narrow.addEventListener('change', onNarrow)
   const unsubscribers = [
+    () => narrow.removeEventListener('change', onNarrow),
     window.scb.on('settings:changed', setSettings),
     window.scb.on('bookmarks:changed', setBookmarks),
     window.scb.on('bookmark-groups:changed', (bookmarkGroups) => useApp.setState({ bookmarkGroups })),

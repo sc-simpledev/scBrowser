@@ -27,6 +27,13 @@ export function OverlayApp() {
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
+  // A tooltip must never get in the way: this view takes the pointer wherever it's drawn.
+  useEffect(() => {
+    const clear = () => void window.scbOverlay.invoke('overlay:tooltip-clear')
+    window.addEventListener('pointermove', clear)
+    return () => window.removeEventListener('pointermove', clear)
+  }, [])
+
   const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor, auth, cleanup, workspaceEditor } = state
 
   useEffect(() => {

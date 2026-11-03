@@ -13,6 +13,7 @@ uniform float uDistance;
 uniform float uSpin;
 uniform float uLit;
 uniform float uStars;
+uniform float uLight;
 uniform vec3 uSun;
 uniform vec3 uTint;
 uniform sampler2D uLand;
@@ -59,6 +60,10 @@ void main() {
   float h = b * b - c;
   bool hit = h > 0.0 && b < 0.0;
   vec3 result = stars(ray) * uStars;
+  // The daytime scene: a pale planet on paper, with the same geometry and camera.
+  vec3 paperSky = vec3(0.957, 0.969, 0.973);
+  vec3 ink = mix(uTint, vec3(0.05, 0.12, 0.15), 0.42);
+  vec3 paper = paperSky;
 
   if (hit) {
     float depth = -b - sqrt(h);
@@ -84,6 +89,11 @@ void main() {
     // Thin air seen edge-on, brightest where the sun is coming through.
     float edge = pow(1.0 - max(dot(n, -ray), 0.0), 3.2);
     result += mix(uTint, vec3(0.92, 0.98, 1.0), 0.35) * edge * (0.08 + 0.9 * smoothstep(-0.25, 0.3, light));
+
+    vec3 sphere = mix(vec3(0.885, 0.91, 0.918), vec3(0.992, 0.995, 0.996), 0.35 + 0.65 * day);
+    paper = mix(vec3(0.9, 0.922, 0.93), sphere, min(uLit + 0.25, 1.0));
+    paper = mix(paper, ink, dots * (0.55 + 0.3 * step(0.72, seed) * twinkle) * min(uLit, 1.0));
+    paper = mix(paper, mix(uTint, vec3(1.0), 0.45), edge * (0.2 + 0.6 * smoothstep(-0.25, 0.3, light)));
   } else {
     // The glow around the planet, from the closest the ray gets to it.
     vec3 nearest = origin + ray * max(-b, 0.0);
@@ -91,8 +101,10 @@ void main() {
     float toward = max(dot(normalize(nearest), sun), 0.0);
     float scatter = exp(-height * 15.0) * (0.03 + pow(toward, 3.0) * 1.15) + exp(-height * 4.0) * pow(toward, 6.0) * 0.16;
     result += mix(uTint, vec3(0.92, 0.98, 1.0), exp(-height * 26.0) * 0.7) * scatter;
+    paper = mix(paperSky, mix(uTint, vec3(1.0), 0.28 + exp(-height * 22.0) * 0.5), clamp(scatter * 1.1, 0.0, 0.8));
     float aim = max(dot(ray, sun), 0.0);
     result += vec3(1.0, 0.98, 0.94) * (pow(aim, 5200.0) * 5.0 + pow(aim, 180.0) * 0.32);
+    paper = mix(paper, vec3(1.0), clamp(pow(aim, 5200.0) * 5.0 + pow(aim, 120.0) * 0.8, 0.0, 1.0));
     // The long level streak a real lens gives a bright point.
     if (sun.z < 0.0) {
       vec2 point = sun.xy / -sun.z * 1.7;
@@ -105,7 +117,9 @@ void main() {
   vec2 centre = gl_FragCoord.xy / uSize - 0.5;
   result *= 1.0 - dot(centre, centre) * 0.7;
   result += (hash(gl_FragCoord.xy + uSpin) - 0.5) / 160.0;
-  color = vec4(pow(max(result, 0.0), vec3(0.88)), 1.0);
+  vec3 night = pow(max(result, 0.0), vec3(0.88));
+  vec3 daytime = paper * (1.0 - dot(centre, centre) * 0.12) + (hash(gl_FragCoord.xy + uSpin) - 0.5) / 200.0;
+  color = vec4(mix(night, daytime, uLight), 1.0);
 }`
 
 export interface Shot {
@@ -143,7 +157,8 @@ const fromLatLon = ([lat, lon]: [number, number]): [number, number, number] => {
 }
 
 export interface Globe {
-  draw: (shot: Shot, seconds: number, tint: [number, number, number]) => void
+  /** `light` runs from 0 for the night scene to 1 for the daytime one. */
+  draw: (shot: Shot, seconds: number, tint: [number, number, number], light: number) => void
   resize: () => void
   destroy: () => void
 }
@@ -190,6 +205,7 @@ export function createGlobe(canvas: HTMLCanvasElement, trails: HTMLCanvasElement
     spin: uniform('uSpin'),
     lit: uniform('uLit'),
     stars: uniform('uStars'),
+    light: uniform('uLight'),
     sun: uniform('uSun'),
     tint: uniform('uTint')
   }
@@ -222,11 +238,12 @@ export function createGlobe(canvas: HTMLCanvasElement, trails: HTMLCanvasElement
     return [innerWidth / 2 + (x * scale + shot.shift[0]) * innerHeight, innerHeight / 2 - (y * scale + shot.shift[1]) * innerHeight]
   }
 
-  const drawTrails = (shot: Shot, seconds: number, spin: number, tint: [number, number, number]) => {
+  const drawTrails = (shot: Shot, seconds: number, spin: number, tint: [number, number, number], light: number) => {
     ink.clearRect(0, 0, innerWidth, innerHeight)
     if (shot.lit < 0.4) return
     ink.lineCap = 'round'
-    const [r, g, b] = tint.map((value) => Math.round(value * 255 * 0.5 + 127))
+    // Bright lines on the night side, and deeper ones on pale paper.
+    const [r, g, b] = tint.map((value) => Math.round(value * 255 * (0.5 + light * 0.2) + 127 * (1 - light)))
     for (let route = 0; route < CITIES.length; route++) {
       const progress = (seconds / ROUTE_SECONDS + route * 0.37) % 1
       const from = fromLatLon(CITIES[route]!)
@@ -259,7 +276,7 @@ export function createGlobe(canvas: HTMLCanvasElement, trails: HTMLCanvasElement
 
   return {
     resize,
-    draw: (shot, seconds, tint) => {
+    draw: (shot, seconds, tint, light) => {
       // Slower machines get fewer pixels rather than a stutter.
       const now = performance.now()
       slow = now - last > 34 ? slow + 1 : Math.max(0, slow - 1)
@@ -275,10 +292,11 @@ export function createGlobe(canvas: HTMLCanvasElement, trails: HTMLCanvasElement
       gl.uniform1f(u.spin, spin)
       gl.uniform1f(u.lit, shot.lit)
       gl.uniform1f(u.stars, shot.stars)
+      gl.uniform1f(u.light, light)
       gl.uniform3f(u.sun, ...shot.sun)
       gl.uniform3f(u.tint, ...tint)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
-      drawTrails(shot, seconds, spin, tint)
+      drawTrails(shot, seconds, spin, tint, light)
     },
     destroy: () => gl.getExtension('WEBGL_lose_context')?.loseContext()
   }

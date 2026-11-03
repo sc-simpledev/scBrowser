@@ -1,11 +1,14 @@
-import { ChevronDown, Folder, Globe } from 'lucide-react'
-import { useState, type DragEvent } from 'react'
+import { ChevronDown, Ellipsis, Folder, Globe } from 'lucide-react'
+import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { barItems, isNewTabUrl, type BarItem, type Bookmark, type BookmarkGroup } from '@scbrowser/shared'
-import { cx } from '@scbrowser/ui'
+import { cx, IconButton } from '@scbrowser/ui'
 import { useApp } from '../state/app'
 import { useActiveTab } from '../state/tabs'
 
 const itemClass = 'flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text'
+
+/** Room kept at the end of the bar for the button that holds what doesn't fit. */
+const MORE_WIDTH = 32
 
 const same = (a: BarItem | null, b: BarItem) => a?.kind === b.kind && a.id === b.id
 
@@ -16,6 +19,25 @@ export function BookmarksBar() {
   const tab = useActiveTab()
   const [dragging, setDragging] = useState<BarItem | null>(null)
   const [target, setTarget] = useState<{ item: BarItem; into: boolean } | null>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [fits, setFits] = useState(Infinity)
+
+  // Everything stays laid out, with the extra items invisible, so they can always be measured.
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (!row) return
+    const measure = () => {
+      const children = [...row.children] as HTMLElement[]
+      const end = (element: HTMLElement | undefined) => (element ? element.offsetLeft - row.offsetLeft + element.offsetWidth : 0)
+      if (end(children.at(-1)) <= row.clientWidth) return setFits(Infinity)
+      const count = children.findIndex((child) => end(child) > row.clientWidth - MORE_WIDTH)
+      setFits(count === -1 ? children.length : count)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    measure()
+    return () => observer.disconnect()
+  })
 
   const visible =
     mode === 'always' || (mode === 'new-tab' ? !!tab && isNewTabUrl(tab.url) : !!tab?.url.startsWith('sc://bookmarks'))
@@ -64,6 +86,9 @@ export function BookmarksBar() {
 
   const highlight = (item: BarItem) => same(target?.item ?? null, item) && !same(dragging, item) && (target!.into ? 'bg-accent-soft' : 'shadow-[inset_2px_0_0_var(--sc-accent)]')
 
+  const hiddenItems = items.slice(fits).map(({ kind, item }) => ({ kind, id: item.id }))
+  const overflowed = (item: BarItem) => hiddenItems.some((hidden) => same(hidden, item))
+
   const bookmarkButton = (bookmark: Bookmark) => {
     const item: BarItem = { kind: 'bookmark', id: bookmark.id }
     return (
@@ -77,7 +102,7 @@ export function BookmarksBar() {
           if (e.button === 1) void window.scb.invoke('tabs:open-in-background', bookmark.url)
         }}
         onContextMenu={() => void window.scb.invoke('bookmarks:context-menu', bookmark.id)}
-        className={cx(itemClass, highlight(item))}
+        className={cx(itemClass, highlight(item), overflowed(item) && 'invisible')}
       >
         {bookmark.icon ? (
           <img src={bookmark.icon} alt="" draggable={false} className="size-3.5 shrink-0 rounded-sm object-contain" />
@@ -101,7 +126,7 @@ export function BookmarksBar() {
           const { left, bottom } = e.currentTarget.getBoundingClientRect()
           void window.scb.invoke('bookmarks:group-menu', group.id, left, bottom)
         }}
-        className={cx(itemClass, highlight(item))}
+        className={cx(itemClass, highlight(item), overflowed(item) && 'invisible')}
       >
         <Folder aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />
         <span className="truncate">{group.name}</span>
@@ -111,9 +136,24 @@ export function BookmarksBar() {
   }
 
   return (
-    <div role="toolbar" aria-label="Bookmarks" className="flex h-8 shrink-0 items-center gap-0.5 overflow-hidden px-1.5 pb-1">
-      {items.length === 0 && <span className="px-2 text-xs text-text-faint">Press Ctrl D to bookmark a page</span>}
-      {items.map((entry) => (entry.kind === 'group' ? groupButton(entry.item) : bookmarkButton(entry.item)))}
+    <div role="toolbar" aria-label="Bookmarks" className="relative flex h-8 shrink-0 items-center px-1.5 pb-1">
+      <div ref={rowRef} className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+        {items.length === 0 && <span className="px-2 text-xs text-text-faint">Press Ctrl D to bookmark a page</span>}
+        {items.map((entry) => (entry.kind === 'group' ? groupButton(entry.item) : bookmarkButton(entry.item)))}
+      </div>
+      {hiddenItems.length > 0 && (
+        <IconButton
+          size="sm"
+          label="More bookmarks"
+          className="absolute right-1.5"
+          onClick={(e) => {
+            const { left, bottom } = e.currentTarget.getBoundingClientRect()
+            void window.scb.invoke('bookmarks:overflow-menu', hiddenItems, left, bottom)
+          }}
+        >
+          <Ellipsis size={14} strokeWidth={1.75} />
+        </IconButton>
+      )}
     </div>
   )
 }

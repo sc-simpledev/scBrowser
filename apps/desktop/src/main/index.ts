@@ -136,6 +136,8 @@ if (!app.requestSingleInstanceLock()) {
     app.on('child-process-gone', (_event, { type, reason }) => {
       if (isCrash(reason)) reporter?.record(type === 'GPU' ? 'gpu' : 'utility', reason)
     })
+    const aiStore = new AiStore(kv)
+    if (process.env.SCB_E2E) Object.assign(globalThis, { scbAi: { kv } })
     main = createBrowserWindow(
       {
         kv,
@@ -144,7 +146,7 @@ if (!app.requestSingleInstanceLock()) {
         bookmarks,
         downloads: new DownloadsRepo(db),
         permissions: new PermissionsRepo(db),
-        aiStore: new AiStore(kv),
+        aiStore,
         chats: new ChatsRepo(db),
         reporter
       },

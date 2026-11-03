@@ -112,8 +112,13 @@ test('toolbar buttons can be moved, and reset', async () => {
   const app = await launch()
   const { chrome } = app
   const slots = () => chrome.locator('[data-toolbar-slot]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-toolbar-slot')))
-  await chrome.locator('[data-toolbar-slot="reload"]').dragTo(chrome.locator('[data-toolbar-slot="menu"]'), { targetPosition: { x: 28, y: 12 } })
-  await expect.poll(slots).toEqual(['back', 'forward', 'vpn', 'omnibox', 'downloads', 'extensions', 'assistant', 'menu', 'reload'])
+  await chrome.locator('[data-toolbar-slot="reload"]').dragTo(chrome.locator('[data-toolbar-slot="omnibox"]'), { targetPosition: { x: 600, y: 12 } })
+  await expect.poll(slots).toEqual(['back', 'forward', 'vpn', 'omnibox', 'reload', 'downloads', 'extensions'])
+  const assistant = await chrome.getByRole('button', { name: 'Assistant' }).boundingBox()
+  const menu = await chrome.getByRole('button', { name: 'Menu' }).boundingBox()
+  const box = await chrome.getByRole('combobox', { name: 'Search or enter address' }).boundingBox()
+  expect(assistant!.x).toBeGreaterThan(box!.x + box!.width)
+  expect(menu!.x).toBeGreaterThan(assistant!.x)
   await app.close()
 })
 
@@ -224,5 +229,43 @@ test('a finished update shows a restart button, in the toolbar and in Settings',
   const page = await app.page('sc://settings')
   await expect(page.getByRole('heading', { name: 'About', level: 2 })).toBeAttached()
   await expect(app.chrome.getByRole('button', { name: 'Restart to update' })).toBeVisible()
+  await app.close()
+})
+
+test('bookmarks that do not fit move behind a button, and a narrow toolbar empties into More', async () => {
+  const app = await launch()
+  const { chrome } = app
+  await chrome.evaluate(async () => {
+    for (let n = 0; n < 40; n++) await window.scb.invoke('bookmarks:toggle', `https://example.com/${n}`, `A bookmark called number ${n}`)
+  })
+  await expect(chrome.getByRole('button', { name: 'More bookmarks' })).toBeVisible()
+  await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(640, 600))
+  await expect(chrome.locator('[data-toolbar-slot="downloads"]')).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: 'Assistant' })).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: 'Menu' })).toBeVisible()
+  await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1320, 860))
+  await expect(chrome.getByRole('button', { name: 'Assistant' })).toBeVisible()
+  await app.close()
+})
+
+test('the old hosted AI entry is removed and its role moves to scTerra AI', async () => {
+  const first = await launch()
+  await first.app.evaluate(() => {
+    const { scbAi } = globalThis as never as { scbAi: { kv: { set: (key: string, value: unknown) => void } } }
+    scbAi.kv.set('ai:providers', [{ id: 'old', name: 'scDelta AI', protocol: 'openai', baseUrl: 'https://sc-delta-ai.scspacedev.deno.net/v1', models: ['scdelta-chat'], firstParty: false, hosted: true }])
+    scbAi.kv.set('ai:roles', { chat: { providerId: 'old', model: 'scdelta-chat' } })
+  })
+  await first.close()
+  const app = await launch(first.profile, [], { SCTERRA_AI_URL: 'https://sc-delta-ai.scspacedev.deno.net/v1' })
+  const state = await app.chrome.evaluate(() => window.scb.invoke('ai:status'))
+  expect(state.providerName).toBe('scTerra AI')
+  await app.close()
+})
+
+test('the profiles button appears from Settings, beside the assistant', async () => {
+  const app = await launch()
+  await expect(app.chrome.getByRole('button', { name: 'Profiles' })).toHaveCount(0)
+  await app.chrome.evaluate(() => window.scb.invoke('settings:set', { profilesButton: true }))
+  await expect(app.chrome.getByRole('button', { name: 'Profiles' })).toBeVisible()
   await app.close()
 })

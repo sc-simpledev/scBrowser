@@ -50,7 +50,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 - [x] Separate profiles, opened from Settings as their own window
 - [x] Split view (from the tab menu or Ctrl K, 50/50, restored after a restart)
 - [x] Vertical tabs as the default, with close on the favicon
-- [x] Toolbar items can be shown, hidden and dragged anywhere in the bar
+- [x] Toolbar items can be shown, hidden and dragged around the address bar. Assistant, Profiles and More stay at the end, and a narrow window moves spare buttons into More
 - [x] `sc://flags`, screenshot tool (Ctrl Shift S)
 - [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox
 
@@ -83,7 +83,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Auto-updates.** Built, as set out in [docs/auto-update.md](docs/auto-update.md). New versions download in the background and install on restart, from the public release repo. A switch in Settings turns it off.
 
-**First-run intro.** `sc://welcome` plays once, filling the window: the sun rises over a dotted Earth drawn by one WebGL shader, the name and "Browse the World" appear, and setup follows beside the globe (import, look, AI, privacy). It can be skipped at any point, played again from Settings, and has an optional sound made on the spot. Existing users don't see it.
+**First-run intro.** `sc://welcome` plays once, filling the window: the sun rises over a dotted Earth drawn by one WebGL shader, in a night or daytime scene to match the theme, the name and "Browse the World" appear, and setup follows beside the globe (import, look, AI, privacy). It can be skipped at any point, played again from Settings, and has an optional sound made on the spot. Existing users don't see it.
 
 **Workspaces.** Separate sets of tabs, switched from the sidebar or with Ctrl Alt and a number. Each can turn Focus Mode on while it's open.
 

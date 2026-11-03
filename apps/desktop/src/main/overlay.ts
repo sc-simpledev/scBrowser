@@ -57,6 +57,7 @@ export class Overlay {
       onWorkspaceSave: (edit: WorkspaceEdit) => void
       onWorkspaceRemove: (id: string) => void
       onPopupClosed: () => void
+      onTooltipCleared: () => void
     }
   ) {
     this.view = new WebContentsView({
@@ -155,6 +156,7 @@ export class Overlay {
       this.closeWorkspaceEditor()
     })
     handle('overlay:workspace-close', () => this.closeWorkspaceEditor())
+    handle('overlay:tooltip-clear', () => this.clearTooltip())
     // A crashed overlay shouldn't take popups down for the rest of the session.
     contents.on('render-process-gone', () => contents.reload())
 
@@ -196,6 +198,14 @@ export class Overlay {
     this.workspaceEditor = null
     this.render()
     this.hooks.onPopupClosed()
+  }
+
+  /** The pointer has moved on, so the chrome UI's leave event may never come. */
+  clearTooltip(): void {
+    if (!this.state.tooltip) return
+    this.state = { ...this.state, tooltip: null }
+    this.render()
+    this.hooks.onTooltipCleared()
   }
 
   /** Re-stacks the overlay on top; call after adding tab views. */
