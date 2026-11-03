@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { CONTAINERS, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { CONTAINERS, folderTree, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -151,12 +151,12 @@ export function popupBookmarkMenu(bookmark: Bookmark, { repo, onChange, actions,
     { label: 'Copy address', click: () => clipboard.writeText(bookmark.url) },
     { type: 'separator' },
     {
-      label: 'Move to group',
+      label: 'Move to folder',
       submenu: [
         { label: 'None', type: 'radio', checked: bookmark.groupId === null, click: () => move(null) },
-        ...groups.map((group) => ({ label: group.name, type: 'radio' as const, checked: bookmark.groupId === group.id, click: () => move(group.id) })),
+        ...folderTree(groups).map(({ group, path }) => ({ label: path, type: 'radio' as const, checked: bookmark.groupId === group.id, click: () => move(group.id) })),
         { type: 'separator' },
-        { label: 'Manage groups…', click: () => actions.openPage('bookmarks') }
+        { label: 'Manage folders…', click: () => actions.openPage('bookmarks') }
       ]
     },
     { type: 'separator' },
@@ -176,36 +176,42 @@ function menuIcon(icon: string | null | undefined): NativeImage | undefined {
   return image && !image.isEmpty() ? image.resize({ width: 16, height: 16 }) : undefined
 }
 
-/** A group's bookmarks drop down from the bar. Native menus draw above pages. */
+/** A folder's contents as menu rows: subfolders first, each opening to the side. */
+function folderRows(id: number, bookmarks: Bookmark[], groups: BookmarkGroup[], open: (url: string) => void): MenuItemConstructorOptions[] {
+  const rows: MenuItemConstructorOptions[] = [
+    ...groups.filter((group) => group.parentId === id).map((group) => ({ label: group.name, submenu: folderRows(group.id, bookmarks, groups, open) })),
+    ...bookmarks.filter((bookmark) => bookmark.groupId === id).map((bookmark) => ({ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) }))
+  ]
+  return rows.length > 0 ? rows : [{ label: 'Nothing here yet', enabled: false }]
+}
+
+/** A folder drops down from the bar. Native menus draw above pages. */
 export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
   const { repo, actions, window } = hooks
-  const items = repo.list().filter((bookmark) => bookmark.groupId === group.id)
+  const bookmarks = repo.list()
+  const items = bookmarks.filter((bookmark) => bookmark.groupId === group.id)
   Menu.buildFromTemplate([
-    ...(items.length === 0 ? [{ label: 'No bookmarks yet', enabled: false }] : []),
-    ...items.map((bookmark) => ({ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) })),
+    ...folderRows(group.id, bookmarks, repo.groups(), open),
     ...(items.length > 1
       ? [{ type: 'separator' as const }, { label: `Open all ${items.length}`, click: () => items.forEach((bookmark) => actions.tabs.create(bookmark.url)) }]
       : []),
     { type: 'separator' },
-    { label: 'Manage groups…', click: () => actions.openPage('bookmarks') }
+    { label: 'Manage folders…', click: () => actions.openPage('bookmarks') }
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
 
-/** What doesn't fit on the bookmarks bar. Groups open as submenus. */
+/** What doesn't fit on the bookmarks bar. Folders open as submenus. */
 export function popupBookmarkOverflow(items: BarItem[], hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
   const { repo, window } = hooks
   const bookmarks = repo.list()
   const groups = repo.groups()
-  const row = (bookmark: Bookmark): MenuItemConstructorOptions => ({ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) })
   const template = items.flatMap(({ kind, id }): MenuItemConstructorOptions[] => {
     if (kind === 'bookmark') {
       const bookmark = bookmarks.find((b) => b.id === id)
-      return bookmark ? [row(bookmark)] : []
+      return bookmark ? [{ label: bookmark.title || bookmark.url, icon: menuIcon(bookmark.icon), click: () => open(bookmark.url) }] : []
     }
     const group = groups.find((g) => g.id === id)
-    if (!group) return []
-    const inside = bookmarks.filter((b) => b.groupId === id)
-    return [{ label: group.name, submenu: inside.length > 0 ? inside.map(row) : [{ label: 'No bookmarks yet', enabled: false }] }]
+    return group ? [{ label: group.name, submenu: folderRows(id, bookmarks, groups, open) }] : []
   })
   if (template.length > 0) Menu.buildFromTemplate(template).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
@@ -232,6 +238,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     ? [
         { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
         { label: 'VPN', click: () => actions.openPage('vpn') },
+        { label: 'Passwords', accelerator: 'CmdOrCtrl+Shift+L', click: actions.passwordMenu },
         { label: 'Extensions and profiles', click: () => actions.openPage('settings') },
         { type: 'separator' }
       ]

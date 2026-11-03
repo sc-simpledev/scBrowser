@@ -11,8 +11,9 @@ export interface BrowserActions {
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
-  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'downloads' | 'blocker' | 'vpn') => void
+  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn') => void
   toggleAssistant: () => void
+  passwordMenu: () => void
   toggleReader: () => void
   screenshot: () => void
   organiseTabs: () => void

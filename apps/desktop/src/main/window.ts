@@ -1,13 +1,18 @@
+import { randomFillSync } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ClipboardItem, Menu, nativeTheme, net, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, Menu, nativeTheme, net, powerMonitor, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
 import {
   effectiveUrl,
   engineById,
   AUTH_POPUP,
+  bypassRules,
+  generatePassword,
+  originOf,
+  PASSWORD_POPUP,
   BOOKMARK_POPUP,
   CLEANUP_POPUP,
   DEFAULT_WORKSPACE,
@@ -53,6 +58,10 @@ import { fetchIcon, fetchSiteIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
 import type { Reporter } from './reporter'
 import { SyncService, type KeyVault } from './sync'
+import { systemProxyFor } from './systemProxy'
+import { tunnelFor } from './tun'
+import { copySecret, fillLogin, watchForSignIn } from './passwordFill'
+import { PasswordVault } from './passwords'
 import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -74,6 +83,8 @@ const ZOOM_KEY = 'site-zoom'
 const WELCOME_KEY = 'welcome:done'
 const WELCOME_URL = 'sc://welcome'
 const INTRO_COLORS = { dark: { color: '#000000', symbolColor: '#ffffff' }, light: { color: '#f4f7f8', symbolColor: '#111111' } }
+/** How long a just-used login waits to be saved before it's forgotten. */
+const LOGIN_PROMPT_MS = 60_000
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
 const isWorkspace = (value: unknown): value is Workspace => {
@@ -198,6 +209,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
         if (input.type === 'mouseMove') overlay.clearTooltip()
       })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+      contents.on('did-finish-load', () => watchTab(contents))
       overlay.raise()
     },
     onTabClosed: () => {
@@ -264,6 +276,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page) => tabs.openInternal(`sc://${page}`),
     toggleAssistant: () => send('ui:assistant-toggle'),
+    passwordMenu: () => openPasswordMenu(),
     toggleReader: () => {
       const active = tabs.active
       if (!active) return
@@ -363,6 +376,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
         if (/^https?:/i.test(href)) tabs.create(href, { afterId: tabs.active?.id })
       },
       onAuth: (requestId, login) => httpAuth.answer(requestId, login),
+      onPasswordAnswer: (choice) => answerPassword(choice),
       onCleanup: (ids) => {
         if (!ids || ids.length === 0) return
         ids.forEach((id) => tabs.close(id))
@@ -435,6 +449,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     'site-blocker': () => actions.openPage('blocker'),
     vpn: () => actions.openPage('vpn'),
+    passwords: () => actions.openPage('passwords'),
+    'fill-password': () => openPasswordMenu(),
     print: onActive((id) => tabs.print(id)),
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
@@ -478,7 +494,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   let proxyRules: string | null = null
   const applySessionProxy = (target: Session) => {
     // Tests serve pages from this computer, which Chromium would otherwise send direct.
-    const proxyBypassRules = process.env.SCB_E2E ? '<-loopback>' : ''
+    const proxyBypassRules = [...(process.env.SCB_E2E ? ['<-loopback>'] : []), bypassRules(settings.get().vpnBypass)].filter(Boolean).join(';')
     return target.setProxy(proxyRules ? { mode: 'fixed_servers', proxyRules, proxyBypassRules } : { mode: 'direct' })
   }
   const prepareSession = (target: Session) => {
@@ -514,6 +530,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     kv,
     vault,
     corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
+    autoFastest: () => settings.get().vpnAutoFastest,
+    route: () => ({ scope: settings.get().vpnScope, method: settings.get().vpnMethod }),
+    systemProxy: systemProxyFor(),
+    tun: tunnelFor(),
     applyProxy: async (rules) => {
       // Tests serve pages from this computer, which Chromium would otherwise send direct.
       proxyRules = rules
@@ -534,6 +554,100 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     onChange: () => send('vpn:changed', vpn.summary())
   })
+  // Asked to always connect, nothing goes out until it has.
+  if (settings.get().vpnAutoConnect && !isPrivate) {
+    void vpn.holdPages().then(() => vpn.connectAtStart())
+  }
+  let bypassInUse = JSON.stringify(settings.get().vpnBypass)
+  const unsubscribeBypass = settings.subscribe((next) => {
+    const wanted = JSON.stringify(next.vpnBypass)
+    if (wanted === bypassInUse) return
+    bypassInUse = wanted
+    if (!proxyRules) return
+    for (const target of [...prepared, session.fromPartition(AI_PARTITION)]) void applySessionProxy(target).then(() => target.closeAllConnections())
+  })
+
+  /** A login waiting on the person's answer. Only ever held here, and for a minute at most. */
+  let pendingLogin: { origin: string; username: string; password: string; timer: NodeJS.Timeout } | null = null
+  const clearPendingLogin = () => {
+    if (pendingLogin) clearTimeout(pendingLogin.timer)
+    pendingLogin = null
+    overlay.setPasswordPrompt(null)
+  }
+  const answerPassword = (choice: 'save' | 'never' | 'dismiss') => {
+    const login = pendingLogin
+    clearPendingLogin()
+    if (!login || !passwords.unlocked) return
+    if (choice === 'save') passwords.saveEntry({ url: login.origin, username: login.username, password: login.password, note: '' })
+    if (choice === 'never') passwords.neverFor(login.origin)
+  }
+  const watchTab = (contents: Electron.WebContents) => {
+    const url = contents.getURL()
+    const origin = /^https?:/.test(url) ? originOf(url) : null
+    if (!origin || !passwords.unlocked || !settings.get().passwordOfferSave) return
+    void watchForSignIn(contents).then((login) => {
+      if (contents.isDestroyed() || window.isDestroyed()) return
+      if (login && passwords.unlocked) {
+        const offer = passwords.offerFor(origin, login.username, login.password)
+        if (offer) {
+          clearPendingLogin()
+          pendingLogin = { origin, ...login, timer: setTimeout(clearPendingLogin, LOGIN_PROMPT_MS) }
+          const { x, y, width } = tabs.page
+          overlay.setPasswordPrompt({ host: new URL(origin).host, username: login.username, update: offer === 'update', x: x + width - PASSWORD_POPUP.width - PASSWORD_POPUP.inset, y: y + PASSWORD_POPUP.inset })
+        }
+      }
+      // Sites that sign in without loading a new page can still be watched for another try.
+      if (login) watchTab(contents)
+    })
+  }
+  const passwords = new PasswordVault({
+    kv,
+    available: !isPrivate,
+    lockMinutes: () => settings.get().passwordLockMinutes,
+    onChange: () => {
+      send('passwords:changed', passwords.state())
+      if (passwords.unlocked) tabs.allContents().forEach(watchTab)
+      else clearPendingLogin()
+    }
+  })
+  const lockPasswords = () => passwords.lock()
+  powerMonitor.on('lock-screen', lockPasswords)
+  powerMonitor.on('suspend', lockPasswords)
+
+  const openPasswordMenu = (x = tabs.page.x + tabs.page.width - 240, y = tabs.page.y) => {
+    const { available, exists, unlocked } = passwords.state()
+    if (!available) return notify("Private windows don't use saved passwords")
+    if (!exists || !unlocked) return actions.openPage('passwords')
+    const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+    const url = contents?.getURL() ?? ''
+    const origin = /^https?:/.test(url) ? originOf(url) : null
+    const logins = origin ? passwords.matches(origin) : []
+    const fill = (id: string) => {
+      // Checked again now, as the page may have moved on while the menu was open.
+      const current = tabs.active && tabs.contentsFor(tabs.active.id)
+      if (!current || !origin || originOf(current.getURL()) !== origin) return notify('This page has changed, so nothing was filled')
+      const { username, password } = passwords.find(id)
+      void fillLogin(current, username, password).then((filled) => {
+        if (!filled) notify('No sign-in form on this page')
+      })
+    }
+    Menu.buildFromTemplate([
+      ...(logins.length === 0 ? [{ label: origin ? 'No saved logins for this site' : 'Nothing to fill on this page', enabled: false }] : []),
+      ...logins.map((login) => ({ label: login.username || 'No username', click: () => fill(login.id) })),
+      ...(logins.length > 0 && origin?.startsWith('http:') ? [{ label: "This page isn't encrypted", enabled: false }] : []),
+      { type: 'separator' },
+      {
+        label: 'Copy a new strong password',
+        click: () => {
+          copySecret(generatePassword((values) => void randomFillSync(values)))
+          notify('Copied. It clears in 30 seconds')
+        }
+      },
+      { label: 'Lock', click: () => passwords.lock() },
+      { label: 'Manage passwords…', click: () => actions.openPage('passwords') }
+    ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+  }
+
   const openVpnMenu = (x: number, y: number) => {
     const { enabled, connections, activeId, groups, pings } = vpn.state()
     const pick = (id: string) => void vpn.select(id).then(() => (vpn.summary().enabled ? undefined : vpn.setEnabled(true)))
@@ -550,7 +664,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       notify('Finished pinging')
     }
     Menu.buildFromTemplate([
-      { label: enabled ? 'Turn off' : 'Turn on', click: () => void vpn.setEnabled(!enabled) },
+      { label: enabled ? 'Turn off' : 'Turn on', click: () => void (enabled ? vpn.setEnabled(false) : vpn.turnOn()) },
       { type: 'separator' },
       ...list(connections.filter((connection) => connection.groupId === null)),
       ...groups.map((group) => ({ label: group.name, submenu: list(connections.filter((connection) => connection.groupId === group.id)) })),
@@ -652,7 +766,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     chats: services.chats,
     privacy,
     vpn,
-    openVpnMenu
+    passwords,
+    openVpnMenu,
+    openPasswordMenu
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -672,6 +788,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     reporter: services.reporter,
     blocker,
     vpn,
+    passwords,
     updates,
     setIntro
   })
@@ -726,6 +843,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     sync.stop()
     updates.stop()
     vpn.stop()
+    unsubscribeBypass()
+    powerMonitor.off('lock-screen', lockPasswords)
+    powerMonitor.off('suspend', lockPasswords)
+    passwords.lock()
     saver.stop()
     unsubscribeSettings()
     unsubscribeAi()

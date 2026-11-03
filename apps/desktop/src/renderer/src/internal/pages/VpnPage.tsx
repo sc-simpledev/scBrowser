@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, IconButton, Input, Select, Switch } from '@scbrowser/ui'
-import { byPing, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnPingProgress, type VpnPings, type VpnState } from '@scbrowser/shared'
+import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
+import { byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
@@ -106,6 +106,116 @@ function ConnectionList({ title, group, connections, state, pings, progress, sta
   )
 }
 
+const ROUTE_NOTES: Record<string, string> = {
+  browser: 'Only scTerra uses this, not other apps.',
+  proxy: 'Apps that follow the system proxy use this. Your setting is put back when the VPN turns off.',
+  tun: 'Every app on this computer uses this.'
+}
+
+function RouteOption({ name, label, note, checked, disabled, onSelect }: { name: string; label: string; note: string; checked: boolean; disabled?: boolean; onSelect: () => void }) {
+  return (
+    <label className={cx('flex items-start gap-2.5 rounded-md px-2 py-1.5', disabled ? 'opacity-60' : 'hover:bg-surface-hover')}>
+      <input type="radio" name={name} checked={checked} disabled={disabled} onChange={onSelect} className="mt-0.5 accent-(--sc-accent)" />
+      <span className="min-w-0">
+        <span className="block">{label}</span>
+        <span className="block text-xs text-text-faint">{note}</span>
+      </span>
+    </label>
+  )
+}
+
+/** Just the browser by default. Anything wider is a deliberate choice, with the cost of each spelled out. */
+function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (state: VpnState) => void; reload: () => void }) {
+  // Shown straight away, as reconnecting can take a while, or wait on a password.
+  const set = (scope: VpnScope, method: VpnMethod) => {
+    setState({ ...state, scope, method })
+    void api().invoke('vpn:set-route', scope, method).then(reload)
+  }
+  return (
+    <section aria-label="What the VPN covers" className="flex flex-col gap-1 rounded-lg bg-surface p-3 shadow-1">
+      <h2 className="px-2 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">What it covers</h2>
+      <RouteOption name="vpn-scope" label="Just scTerra" note="Your other apps keep their normal connection." checked={state.scope === 'browser'} onSelect={() => set('browser', state.method)} />
+      <RouteOption name="vpn-scope" label="This whole computer" note="Other apps go through the connection too." checked={state.scope === 'computer'} onSelect={() => set('computer', state.method)} />
+      {state.scope === 'computer' && (
+        <div className="mt-1 ml-5 flex flex-col gap-1 border-l border-border pl-3">
+          <RouteOption
+            name="vpn-method"
+            label="System proxy"
+            note={state.unavailable.proxy ?? 'Needs no password. Apps that ignore the system proxy, and most command-line tools, stay on your normal connection.'}
+            checked={state.method === 'proxy'}
+            disabled={!!state.unavailable.proxy}
+            onSelect={() => set('computer', 'proxy')}
+          />
+          <RouteOption
+            name="vpn-method"
+            label="TUN"
+            note={state.unavailable.tun ?? 'Catches every app through a virtual network device. Asks for your password each time it connects, and pings go through the connection while it’s on.'}
+            checked={state.method === 'tun'}
+            disabled={!!state.unavailable.tun}
+            onSelect={() => set('computer', 'tun')}
+          />
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Saved as it changes, so there's nothing to forget to press. */
+function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWide: boolean }) {
+  const [settings, setSettings] = useState<Pick<Settings, 'vpnAutoConnect' | 'vpnAutoFastest' | 'vpnBypass'> | null>(null)
+  const [bypass, setBypass] = useState('')
+  useEffect(() => {
+    void api().invoke('settings:get').then((next) => {
+      setSettings(next)
+      setBypass(next.vpnBypass.join('\n'))
+    })
+  }, [])
+  if (!settings) return null
+  const change = (patch: Partial<Settings>) => {
+    setSettings({ ...settings, ...patch })
+    void api().invoke('settings:set', patch)
+  }
+  return (
+    <section aria-label="Convenience" className="flex flex-col gap-3 rounded-lg bg-surface p-3 shadow-1">
+      <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Convenience</h2>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div>Connect when scTerra starts</div>
+          <div className="text-xs text-text-faint">Pages wait until it’s connected, and stay blocked if it can’t.{usesTun && ' With TUN, this asks for your password at every start.'}</div>
+        </div>
+        <Switch label="Connect when scTerra starts" checked={settings.vpnAutoConnect} onChange={(vpnAutoConnect) => change({ vpnAutoConnect })} />
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div>Pick the fastest when turning on</div>
+          <div className="text-xs text-text-faint">Pings the first 300 connections in the same group, and uses the quickest that works.</div>
+        </div>
+        <Switch label="Pick the fastest when turning on" checked={settings.vpnAutoFastest} onChange={(vpnAutoFastest) => change({ vpnAutoFastest })} />
+      </div>
+      <label className="flex flex-col gap-1.5">
+        <span>Sites that skip the VPN</span>
+        <textarea
+          aria-label="Sites that skip the VPN"
+          rows={3}
+          spellCheck={false}
+          placeholder={'One per line, like bank.example.com'}
+          className="w-full resize-y rounded-md border border-border bg-field p-2 font-mono text-xs outline-none placeholder:text-text-faint focus-visible:outline-2 focus-visible:outline-focus-ring"
+          value={bypass}
+          onChange={(e) => setBypass(e.target.value)}
+          onBlur={() => {
+            const vpnBypass = parseBypassList(bypass)
+            setBypass(vpnBypass.join('\n'))
+            change({ vpnBypass })
+          }}
+        />
+        <span className="text-xs text-text-faint">
+          Subdomains are included. These sites see your real address{computerWide ? '. This only applies inside scTerra, not to other apps' : ''}{usesTun ? ', though with TUN they still go through the connection' : ''}.
+        </span>
+      </label>
+    </section>
+  )
+}
+
 export function VpnPage() {
   const [state, setState] = useState<VpnState | null>(null)
   const [pings, setPings] = useState<VpnPings>({})
@@ -167,17 +277,21 @@ export function VpnPage() {
   }
   const fail = (error: Error) => setNote(cleanError(error))
   const active = state.connections.find((connection) => connection.id === state.activeId)
+  const usesTun = state.scope === 'computer' && state.method === 'tun'
 
   return (
     <>
       <section aria-label="Status" className="flex items-center justify-between gap-4 rounded-lg bg-surface p-3 shadow-1">
         <div className="min-w-0">
-          <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? 'Connecting…' : 'Off'}</div>
-          <div className="truncate text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. Only scTerra uses this, not other apps.</div>
+          <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? (usesTun ? 'Waiting for your password…' : 'Connecting…') : 'Off'}</div>
+          <div className="text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. {ROUTE_NOTES[state.scope === 'browser' ? 'browser' : state.method]}</div>
           {state.error && <p role="alert" className="pt-1 text-xs text-danger">{state.error}</p>}
         </div>
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
       </section>
+
+      <RouteChoice state={state} setState={setState} reload={reload} />
+      <Conveniences usesTun={usesTun} computerWide={state.scope === 'computer'} />
 
       <section aria-label="Ping" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface p-3 shadow-1">
         <div className="min-w-0">

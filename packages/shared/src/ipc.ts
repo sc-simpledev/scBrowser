@@ -6,7 +6,9 @@ import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
-import type { VpnAddResult, VpnPingProgress, VpnState, VpnSummary } from './vpn'
+import type { PasswordEntry, PasswordState, PasswordSummary } from './passwords'
+import type { ReportFormat } from './report'
+import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
 import type { UpdateState } from './updates'
 
@@ -37,6 +39,7 @@ export interface ChromeCommands {
   'bookmarks:groups': () => BookmarkGroup[]
   'bookmarks:arrange': (items: BarItem[]) => void
   'bookmarks:set-group': (id: number, groupId: number | null) => void
+  'bookmarks:move-group': (id: number, parentId: number | null) => void
   'bookmarks:group-menu': (id: number, x: number, y: number) => void
   /** Adds the page if needed, then opens the name editor beside the star. */
   'bookmarks:edit-page': (url: string, title: string) => void
@@ -63,9 +66,14 @@ export interface ChromeCommands {
   'chats:get': (id: string) => SavedChat | null
   'chats:save': (id: string, turns: SavedTurn[]) => void
   'chats:delete': (id: string) => void
+  'report:save': (name: string, format: ReportFormat, content: string) => Promise<boolean>
   'privacy:toggle-site': (host: string) => void
   'reader:toggle': () => void
   'vpn:summary': () => VpnSummary
+  'passwords:summary': () => PasswordState
+  'passwords:menu': (x: number, y: number) => void
+  /** The native page view steps aside while a sidebar is dragged, so it can't swallow the pointer. */
+  'layout:resizing': (resizing: boolean) => void
   'browser:is-private': () => boolean
   'vpn:menu': (x: number, y: number) => void
   'tabs:cleanup': () => void
@@ -96,6 +104,7 @@ export interface ChromeEvents {
   'ui:assistant-prompt': AssistantPrompt
   'privacy:changed': string[]
   'vpn:changed': VpnSummary
+  'passwords:changed': PasswordState
   'updates:changed': UpdateState
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
@@ -115,6 +124,7 @@ export interface OverlayCommands {
   'overlay:answer-action': (action: ChromeEvents['omnibox:answer-action']) => void
   'overlay:answer-link': (href: string) => void
   /** Null cancels. The password goes straight to the network stack and is never kept. */
+  'overlay:password-answer': (choice: 'save' | 'never' | 'dismiss') => void
   'overlay:auth': (requestId: number, login: { username: string; password: string } | null) => void
   'overlay:cleanup': (ids: TabId[] | null) => void
   'overlay:workspace-save': (edit: WorkspaceEdit) => void
@@ -155,6 +165,7 @@ export const COMMAND_CHANNELS = [
   'bookmarks:groups',
   'bookmarks:arrange',
   'bookmarks:set-group',
+  'bookmarks:move-group',
   'bookmarks:group-menu',
   'bookmarks:edit-page',
   'settings:get',
@@ -179,9 +190,13 @@ export const COMMAND_CHANNELS = [
   'chats:get',
   'chats:save',
   'chats:delete',
+  'report:save',
   'privacy:toggle-site',
   'reader:toggle',
   'vpn:summary',
+  'passwords:summary',
+  'passwords:menu',
+  'layout:resizing',
   'browser:is-private',
   'vpn:menu',
   'tabs:cleanup',
@@ -209,12 +224,13 @@ export const EVENT_CHANNELS = [
   'ui:assistant-prompt',
   'privacy:changed',
   'vpn:changed',
+  'passwords:changed',
   'updates:changed',
   'omnibox:answer-action',
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -241,7 +257,8 @@ export interface InternalCommands {
   'bookmarks:edit': (id: number, title: string, url: string) => void
   'bookmarks:set-group': (id: number, groupId: number | null) => void
   'bookmarks:groups': () => BookmarkGroup[]
-  'bookmarks:add-group': (name: string) => number
+  'bookmarks:add-group': (name: string, parentId: number | null) => number
+  'bookmarks:move-group': (id: number, parentId: number | null) => void
   'bookmarks:rename-group': (id: number, name: string) => void
   'bookmarks:remove-group': (id: number) => void
   'downloads:list': () => DownloadInfo[]
@@ -320,6 +337,20 @@ export interface InternalCommands {
   'pdf:print': () => void
   /** Reopens this PDF in Chromium's own viewer. */
   'pdf:basic': () => void
+  'passwords:state': () => PasswordState
+  'passwords:create': (master: string) => void
+  'passwords:unlock': (master: string) => boolean
+  'passwords:lock': () => void
+  'passwords:change-master': (current: string, next: string) => boolean
+  'passwords:reset': () => void
+  'passwords:list': () => PasswordSummary[]
+  'passwords:reveal': (id: string) => string
+  'passwords:save': (entry: PasswordEntry) => string
+  'passwords:remove': (id: string) => void
+  'passwords:copy': (id: string) => void
+  /** Null if the person cancelled the file picker. */
+  'passwords:import': () => number | null
+  'passwords:export': () => boolean
   'vpn:state': () => VpnState
   'vpn:add': (text: string, groupId: string | null) => VpnAddResult
   'vpn:subscribe': (url: string, name: string) => VpnAddResult
@@ -331,12 +362,15 @@ export interface InternalCommands {
   'vpn:remove': (id: string) => void
   'vpn:select': (id: string) => void
   'vpn:set-enabled': (enabled: boolean) => void
+  /** Reconnects if the VPN is on, so the new choice applies straight away. */
+  'vpn:set-route': (scope: VpnScope, method: VpnMethod) => void
   /** Starts checking connections. Follow it with `vpn:ping-progress`. */
   'vpn:ping': (ids: string[]) => void
   'vpn:ping-stop': () => void
   'vpn:ping-progress': () => VpnPingProgress
   /** Asks where to save, and returns false if the person cancelled. */
-  'report:save': (name: string, html: string) => boolean
+  /** `content` is HTML for PDF and HTML, and Markdown for Markdown. */
+  'report:save': (name: string, format: ReportFormat, content: string) => Promise<boolean>
   'updates:state': () => UpdateState
   'updates:check': () => UpdateState
   'updates:install': () => void
@@ -359,6 +393,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'bookmarks:set-group',
   'bookmarks:groups',
   'bookmarks:add-group',
+  'bookmarks:move-group',
   'bookmarks:rename-group',
   'bookmarks:remove-group',
   'downloads:list',
@@ -422,6 +457,19 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'pdf:save',
   'pdf:print',
   'pdf:basic',
+  'passwords:state',
+  'passwords:create',
+  'passwords:unlock',
+  'passwords:lock',
+  'passwords:change-master',
+  'passwords:reset',
+  'passwords:list',
+  'passwords:reveal',
+  'passwords:save',
+  'passwords:remove',
+  'passwords:copy',
+  'passwords:import',
+  'passwords:export',
   'vpn:state',
   'vpn:add',
   'vpn:subscribe',
@@ -433,6 +481,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'vpn:remove',
   'vpn:select',
   'vpn:set-enabled',
+  'vpn:set-route',
   'vpn:ping',
   'vpn:ping-stop',
   'vpn:ping-progress',

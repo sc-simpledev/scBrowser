@@ -46,6 +46,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'focus-mode', label: 'Turn Focus Mode on or off' },
   { id: 'site-blocker', label: 'Site blocker' },
   { id: 'vpn', label: 'VPN' },
+  { id: 'passwords', label: 'Passwords' },
+  { id: 'fill-password', label: 'Fill a saved password', shortcut: 'Ctrl Shift L' },
   { id: 'assistant', label: 'Open assistant', shortcut: 'Ctrl Shift A' },
   { id: 'summarise', label: 'Summarise this page' },
   { id: 'translate', label: 'Translate this page' },

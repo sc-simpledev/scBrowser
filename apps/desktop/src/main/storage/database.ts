@@ -50,7 +50,8 @@ const MIGRATIONS: string[] = [
    ALTER TABLE bookmarks ADD COLUMN group_id INTEGER REFERENCES bookmark_groups (id) ON DELETE SET NULL;
    ALTER TABLE bookmarks ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
    UPDATE bookmarks SET position = id;`,
-  `CREATE TABLE site_icons (host TEXT PRIMARY KEY, icon TEXT NOT NULL);`
+  `CREATE TABLE site_icons (host TEXT PRIMARY KEY, icon TEXT NOT NULL);`,
+  `ALTER TABLE bookmark_groups ADD COLUMN parent_id INTEGER REFERENCES bookmark_groups (id) ON DELETE SET NULL;`
 ]
 
 export function openDatabase(path: string): DatabaseSync {

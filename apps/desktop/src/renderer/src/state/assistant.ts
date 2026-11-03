@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MAX_MENTIONED_TABS, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type SavedTurn } from '@scbrowser/shared'
+import { conversationReports, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 
 export interface Turn extends SavedTurn {
@@ -17,6 +17,8 @@ interface AssistantStore {
   /** Set once the conversation has been saved or reopened. */
   chatId: string | null
   chats: ChatSummary[] | null
+  /** The report shown beside the panel. */
+  report: Report | null
   streamId: string | null
   includePage: boolean
   selection: string | null
@@ -28,6 +30,9 @@ interface AssistantStore {
   /** Bumped to pull focus into the composer. */
   focusRequest: number
   toggle: () => void
+  showReport: (report: Report | null) => void
+  /** Asks for a new draft of the open report. It only needs the conversation, not the page. */
+  reviseReport: (change: string) => void
   close: () => void
   setIncludePage: (includePage: boolean) => void
   clearSelection: () => void
@@ -57,6 +62,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   turns: [],
   chatId: null,
   chats: null,
+  report: null,
   streamId: null,
   includePage: true,
   selection: null,
@@ -65,8 +71,16 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   approval: null,
   focusRequest: 0,
 
-  toggle: () => set((s) => ({ open: !s.open, focusRequest: s.focusRequest + 1 })),
-  close: () => set({ open: false }),
+  toggle: () => set((s) => ({ open: !s.open, report: s.open ? null : s.report, focusRequest: s.focusRequest + 1 })),
+  close: () => set({ open: false, report: null }),
+  showReport: (report) => set({ report }),
+  reviseReport: (change) => {
+    const { report, includePage, agentMode, send } = get()
+    if (!report) return
+    set({ includePage: false, agentMode: false })
+    send(reviseReportPrompt(report.title, change))
+    set({ includePage, agentMode })
+  },
   setIncludePage: (includePage) => set({ includePage }),
   clearSelection: () => set({ selection: null }),
   setAgentMode: (agentMode) => set({ agentMode }),
@@ -80,7 +94,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   unmention: (id) => set((s) => ({ mentions: s.mentions.filter((m) => m !== id) })),
   reset: () => {
     get().stop()
-    set({ turns: [], chatId: null, chats: null, selection: null, includePage: true, streamId: null })
+    set({ turns: [], chatId: null, chats: null, report: null, selection: null, includePage: true, streamId: null })
   },
 
   toggleChats: () => {
@@ -91,7 +105,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   openChat: (id) => {
     get().stop()
     void window.scb.invoke('chats:get', id).then((chat) => {
-      if (chat) set({ turns: chat.turns, chatId: chat.id, chats: null, streamId: null, selection: null })
+      if (chat) set({ turns: chat.turns, chatId: chat.id, chats: null, report: null, streamId: null, selection: null })
     })
   },
 
@@ -99,7 +113,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     void window.scb.invoke('chats:delete', id)
     set((s) => ({
       chats: s.chats?.filter((chat) => chat.id !== id) ?? null,
-      ...(s.chatId === id ? { chatId: null, turns: [] } : {})
+      ...(s.chatId === id ? { chatId: null, turns: [], report: null } : {})
     }))
   },
 
@@ -167,7 +181,11 @@ function onEvent(event: AssistantEvent) {
     useAssistant.setState({ approval: { id: event.approvalId, text: event.text, reason: event.reason } })
   } else {
     const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
-    useAssistant.setState({ turns: update(note ? { note } : {}), streamId: null, approval: null })
+    const finished = update(note ? { note } : {})
+    // A new draft takes over from the one being read.
+    const { report } = useAssistant.getState()
+    const newest = report ? conversationReports(finished).at(-1) : undefined
+    useAssistant.setState({ turns: finished, streamId: null, approval: null, ...(newest ? { report: newest } : {}) })
     saveChat()
   }
 }

@@ -1,7 +1,7 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { containerPartition, fullToolbarOrder, type ToolbarSlot, type UpdateState, type VpnSummary } from '@scbrowser/shared'
+import { containerPartition, fullToolbarOrder, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
@@ -69,7 +69,29 @@ function VpnButton() {
 }
 
 /** Moved into the More menu when the window is narrow. */
-const SPARE_SLOTS: ToolbarSlot[] = ['vpn', 'downloads', 'extensions']
+/** Appears once there's a vault, as there's nothing to fill before that. */
+function PasswordsButton() {
+  const [state, setState] = useState<PasswordState | null>(null)
+  useEffect(() => {
+    void window.scb.invoke('passwords:summary').then(setState)
+    return window.scb.on('passwords:changed', setState)
+  }, [])
+  if (!state?.exists) return null
+  return (
+    <IconButton
+      label={state.unlocked ? 'Passwords' : 'Passwords (locked)'}
+      shortcut="Ctrl Shift L"
+      onClick={(e) => {
+        const { left, bottom } = e.currentTarget.getBoundingClientRect()
+        void window.scb.invoke('passwords:menu', left, bottom)
+      }}
+    >
+      {state.unlocked ? <KeyRound size={15} strokeWidth={1.75} /> : <LockKeyhole size={15} strokeWidth={1.75} />}
+    </IconButton>
+  )
+}
+
+const SPARE_SLOTS: ToolbarSlot[] = ['vpn', 'downloads', 'passwords', 'extensions']
 
 /** Shows once a new version is on its way, and stays out of sight the rest of the time. */
 function UpdateButton() {
@@ -169,6 +191,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
     vpn: <VpnButton />,
     omnibox: <Omnibox />,
     downloads: <DownloadsButton />,
+    passwords: <PasswordsButton />,
     /* Drawn by the extensions library in its own shadow root. */
     extensions: <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
   }

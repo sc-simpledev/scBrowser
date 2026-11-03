@@ -137,6 +137,23 @@
   }
 }
 
+/* Paper is white whatever the theme. */
+@media print {
+  :root {
+    color-scheme: light;
+    --sc-bg: #f9f9f9;
+    --sc-surface: #ffffff;
+    --sc-surface-hover: #f3f3f3;
+    --sc-border: #e4e4e4;
+    --sc-border-strong: #cfcfcf;
+    --sc-text: #111111;
+    --sc-text-muted: #555555;
+    --sc-text-faint: #8a8a8a;
+    --sc-accent: oklch(0.65 var(--sc-chroma) var(--sc-hue));
+    --sc-accent-soft: oklch(0.65 var(--sc-chroma) var(--sc-hue) / 0.12);
+  }
+}
+
 @media (prefers-contrast: more) {
   :root {
     --sc-border: var(--sc-border-strong);

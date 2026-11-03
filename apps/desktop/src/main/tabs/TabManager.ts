@@ -88,6 +88,7 @@ export class TabManager {
   private activeId: TabId | null = null
   private nextId = 1
   private pageRect: PageRect = { x: 0, y: 0, width: 0, height: 0 }
+  private resizing = false
   private closed: SavedTab[] = []
   private changeQueued = false
   private fullscreen = false
@@ -433,6 +434,14 @@ export class TabManager {
     if (this.activeId !== null) this.contents(this.activeId)?.stopFindInPage('clearSelection')
   }
 
+  /** While a sidebar is dragged, a page under the pointer would otherwise take the mouse events. */
+  setResizing(resizing: boolean): void {
+    this.resizing = resizing
+    const shown = this.split ?? (this.activeId === null ? [] : [this.activeId])
+    for (const id of shown) this.tabs.get(id)?.view?.setVisible(!resizing)
+    this.applyBounds()
+  }
+
   setPageRect(rect: PageRect): void {
     this.pageRect = rect
     this.applyBounds()
@@ -444,7 +453,7 @@ export class TabManager {
 
   /** Re-fits the active tab: the page area normally, the whole window for fullscreen video. */
   applyBounds(): void {
-    if (this.activeId === null) return
+    if (this.activeId === null || this.resizing) return
     const view = this.tabs.get(this.activeId)?.view
     if (!view) return
     const { width, height } = this.window.getContentBounds()

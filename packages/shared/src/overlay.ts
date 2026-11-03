@@ -56,6 +56,15 @@ export interface BookmarkEditorState {
   y: number
 }
 
+/** Whether to keep a login someone just used. The password stays in the main process. */
+export interface PasswordPromptState {
+  host: string
+  username: string
+  update: boolean
+  x: number
+  y: number
+}
+
 /** A site or proxy asking for a username and password. */
 export interface AuthPopupState {
   requestId: number
@@ -106,6 +115,7 @@ export interface OverlayView extends OverlayState {
   toast: { text: string; x: number; y: number } | null
   bookmarkEditor: BookmarkEditorState | null
   auth: AuthPopupState | null
+  passwordPrompt: PasswordPromptState | null
   cleanup: CleanupPopupState | null
   workspaceEditor: WorkspaceEditorState | null
 }
@@ -126,6 +136,7 @@ export const BOOKMARK_POPUP = { width: 320, height: 248, inset: 8 }
 export const PERMISSION_POPUP = { width: 340, height: 120, inset: 8 }
 export const ANSWER_HEIGHT = 300
 export const AUTH_POPUP = { width: 340, height: 248 }
+export const PASSWORD_POPUP = { width: 340, height: 96, inset: 8 }
 export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
 export const WORKSPACE_POPUP = { width: 300, height: 188 }
 
@@ -143,6 +154,7 @@ export function overlayRegions(state: OverlayView): PageRect[] {
   }
   const popups = [
     state.auth && { ...state.auth, ...AUTH_POPUP },
+    state.passwordPrompt && { ...state.passwordPrompt, width: PASSWORD_POPUP.width, height: PASSWORD_POPUP.height },
     state.cleanup && { ...state.cleanup, ...CLEANUP_POPUP },
     state.workspaceEditor && { ...state.workspaceEditor, ...WORKSPACE_POPUP }
   ]

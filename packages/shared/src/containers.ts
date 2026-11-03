@@ -25,7 +25,7 @@ export const TOOLBAR_ITEMS = [
 export type ToolbarItemId = (typeof TOOLBAR_ITEMS)[number]['id']
 
 /** What can be dragged around the toolbar. Profiles, the assistant and More stay at its end. */
-export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'downloads', 'extensions'] as const
+export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'downloads', 'passwords', 'extensions'] as const
 
 export type ToolbarSlot = (typeof TOOLBAR_SLOTS)[number]
 

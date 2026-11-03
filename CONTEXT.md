@@ -38,7 +38,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.2.0/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.0/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
@@ -49,9 +49,9 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 
 | Path | Contents |
 |---|---|
-| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `updater.ts`, `httpAuth.ts`, `private.ts`, `siteIcons.ts`, `internal/pdf.ts`, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
+| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `systemProxy.ts`, `tun.ts`, `passwords.ts` (vault), `passwordFill.ts` (fill and save-offer scripts), `reportExport.ts`, `reportDocx.ts`, `updater.ts`, `httpAuth.ts`, `private.ts`, `siteIcons.ts`, `internal/pdf.ts`, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
 | `apps/desktop/src/preload` | Bridges: `index.ts` (browser UI), `overlay.ts`, `internal.ts` (sc:// pages only) |
-| `apps/desktop/src/renderer/src` | Browser UI in `components/`, overlay UI in `overlay/`, sc:// pages in `internal/` (the intro is `internal/welcome/`), reply and report rendering in `shared/` |
+| `apps/desktop/src/renderer/src` | Browser UI in `components/`, overlay UI in `overlay/`, sc:// pages in `internal/` (the intro is `internal/welcome/`), shared between both in `shared/`: `ReplyContent.tsx`, `ReportPane.tsx` (the side page), `ResizeHandle.tsx` |
 | `packages/shared` | IPC contracts, settings, omnibox logic, reports, privacy helpers |
 | `packages/ai` | Providers, prompts, parsers for AI tasks. No Electron |
 | `packages/ui` | Tokens, Tailwind theme, components, `content.css` (replies and report themes) |
@@ -79,7 +79,11 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - HTTP sign-in passwords go straight to Chromium and are never stored. The box closes if the page navigates away, so it can't sit over another site.
 - OCR runs in the sandboxed `sc://pdf` page from files in the app (`public/ocr`, copied at build time). No scan leaves the computer.
 - Workspaces: `TabManager.snapshot()` only returns the open workspace's tabs, so the UI needs no filtering. Use `allContents()` for anything that must reach every tab.
-- Saved reports are built by `reportHtml`, which escapes all text and carries a CSP blocking scripts and network requests.
+- The password vault is sealed with a key derived from the master password, which is never stored; the key and logins only exist in memory while unlocked. Passwords reach a renderer only through `passwords:reveal` on the `sc://passwords` bridge, never the browser UI or overlay. Filling is only ever by request, top frame only, with the exact origin rechecked at that moment. Save offers watch pages only while unlocked, count only real clicks and keys, and hold the login in the main process for a minute at most. It never syncs and isn't in private windows.
+- A native page view swallows mouse events over itself, so `layout:resizing` hides it while a sidebar is dragged.
+- Word files are rebuilt in the main process from the report's blocks through `toReport`, so only plain text reaches them. There's no docx dependency: `reportDocx.ts` writes the zip itself.
+- Saved reports are built by `reportHtml`, which escapes all text and carries a CSP blocking scripts and network requests. PDFs print that same file in a hidden window with scripts off.
+- The VPN defaults to just the browser. Whole-computer modes must always undo themselves: the system proxy's old values are saved before changing it and a watcher process restores them after a crash; the TUN script runs as root and removes its routes when its stdin closes. Never start either without the person choosing it. These settings stay out of sync (`LOCAL_SETTINGS`). Connect-at-start holds pages on a dead proxy port (`holdPages`) before any tab loads, and failing stays closed on purpose: the person asked to always be covered.
 - Claude calls use the official SDK (v1.3, which sends keys as `Authorization: Bearer`). Other providers use the OpenAI-compatible adapter.
 
 ## Releasing and updates
@@ -101,9 +105,11 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 ## Status
 
-Version 0.2.0. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, bookmark groups and icons, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, saved reports as HTML, a saved-chat list, a draggable toolbar, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
+Version 0.3.0. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
-0.2.0 is published at https://github.com/sc-simpledev/scTerra/releases/tag/v0.2.0, with the AppImage, .deb, Windows installer and both Mac builds. The first run split its files across two releases, because each build made its own. They were copied into the published one by hand, and `release.yml` now creates the draft once before building. That fix hasn't run yet, so check the next release has a single release with every file. A packaged 0.2.0 checked the live repo and correctly found no newer version. An update from one published release to the next hasn't happened yet.
+0.2.0 and 0.3.0 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.0 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up.
+
+**Next ideas the owner hasn't taken up yet:** a live test with a real AI model (needs their OK, as it spends credit), citations linking replies to their tabs, research across several tabs into one report, a reading list with AI summaries, and sign-in for the hosted server. DRM stays their decision.
 
 Open items:
 - CI: E2E failures used to stop the installer step, which looked like a broken build. Installers now build regardless, and CI retries flaky tests twice.
@@ -111,8 +117,11 @@ Open items:
 - DRM (Netflix, Spotify) isn't in. It needs castLabs' Electron, whose newest stable build (44.9.3 in November 2026) is behind our 45.1.0, plus VMP signing for Windows and macOS. It was never run here. Don't swap the engine without the owner's say.
 - Copies older than 0.2.0 can't update themselves, so they need one manual install.
 - macOS has never been run. Builds are unsigned, so they can't install updates: the app offers the release page instead. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
-- Saved reports can't be saved from the side panel, only from `sc://assistant`.
-- Bookmark group order doesn't sync, only names and membership.
+- Whole-computer VPN: the TUN script was run for real in a throwaway network namespace (traffic, DNS and clean-up all worked), and system proxy against the real KDE and GNOME tools in a scratch config. Neither has run through pkexec or against the real desktop settings, so ask the owner to try both. Windows and macOS system proxy have only run against fake commands. TUN is Linux only: Windows needs the wintun driver. Two profiles could fight over the system proxy; that isn't handled. Switching connections under TUN asks for the password again.
+- The report side page takes its room from the page, so a narrow window leaves little of the page showing. The chosen design isn't saved with a chat, and is forgotten when the side page closes. Versions are matched by title, so a model that renames a report starts a new set.
+- Dragging a sidebar was only tested with Playwright's mouse, which never crosses the native page view. Hiding the page during a drag is meant to make that work, so ask the owner to try it with a real mouse. The page area goes blank during the drag.
+- The password vault's fill and save offer were tested on simple local sign-in pages only, not real sites. Pages with sign-in forms in iframes (some banks, some single sign-on) won't fill or offer, and multi-step sign-ins may save without a username. Bookmark imports don't bring folders.
+- Bookmark folder order doesn't sync, only names, membership and nesting.
 - The intro has night and daytime scenes, following the theme. It was checked on an Intel GPU at 1320 by 860, and falls back to a plain gradient without WebGL 2.
 - The overlay takes clicks wherever it's drawn, and has no way to let them through. Keep popup regions tight: tooltips only cover their own bubble and clear as soon as the pointer moves. The fix for the Settings link needing a click below it couldn't be tried with a real mouse here, so ask whether it's gone.
 - Window buttons are drawn over the top right of the window. `sc-wco-inset` keeps bars clear of them with margins, as a bar's own padding utilities would override padding. A test checks More stays clear.
@@ -133,6 +142,10 @@ Open items:
 
 ## Test pitfalls
 
+- Native menus and save dialogs can't be driven by Playwright. Replace `Menu.buildFromTemplate` or `dialog.showSaveDialog` through `h.app.evaluate`, as `e2e/phase8.spec.ts` and `phase5.spec.ts` do.
+- `go(h, ...)` reuses the current tab, so a page object from before it now points at the new page.
+- Never test whole-computer VPN against the real system settings. Use `XDG_CONFIG_HOME` and `GSETTINGS_BACKEND=keyfile` for system proxy, and `unshare -Urnm` for the TUN script. The repo path contains an apostrophe, which breaks single-quoted shell scripts.
+- A controlled radio that only updates after an IPC reply fails Playwright's `check()`, so update local state first.
 - Playwright's simulated keys don't reach `before-input-event`. Use `shortcut()` from `e2e/app.ts` for browser shortcuts.
 - Playwright clicks don't move native focus between views. `toBeFocused` also only checks DOM focus, so check `getFocusedWebContents()` when real keyboard focus matters.
 - `app.firstWindow()` may be the overlay, so use the harness's `chrome` page.

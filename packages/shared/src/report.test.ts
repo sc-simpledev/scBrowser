@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reportHtml, type Report, repairJson, splitReply, toReport } from './report'
+import { reportHtml, reportMarkdown, reportVersions, reviseReportPrompt, shownMessage, type Report, repairJson, splitReply, toReport } from './report'
 
 const block = (json: string) => '```scterra-report\n' + json + '\n```'
 const valid = '{"title":"Plan","summary":"S","theme":"brief","blocks":[{"type":"heading","text":"One"},{"type":"paragraph","text":"Two"}]}'
@@ -159,5 +159,47 @@ describe('reportHtml', () => {
 
   it('stops the saved file running scripts or reaching the network', () => {
     expect(reportHtml(report, '')).toContain("default-src 'none'")
+  })
+})
+
+describe('report versions', () => {
+  it('finds every draft by title, and shows a change request as what was asked', () => {
+    const draft = (text: string, title = 'Plan') => 'Intro.\n' + block(JSON.stringify({ title, blocks: [{ type: 'paragraph', text }] }))
+    const turns = [
+      { role: 'user', content: 'Plan it' },
+      { role: 'assistant', content: draft('One') },
+      { role: 'user', content: reviseReportPrompt('Plan', 'Shorter') },
+      { role: 'assistant', content: draft('Two') },
+      { role: 'assistant', content: draft('Other', 'Something else') }
+    ]
+    expect(reportVersions(turns, 'Plan').map((report) => report.blocks[0])).toEqual([{ type: 'paragraph', text: 'One' }, { type: 'paragraph', text: 'Two' }])
+    expect(shownMessage(turns[2]!.content)).toBe('Change to “Plan”: Shorter')
+    expect(shownMessage('A normal question')).toBe('A normal question')
+  })
+})
+
+describe('report tables', () => {
+  it('keeps an empty corner cell, so the columns stay lined up', () => {
+    const report = toReport('{"blocks":[{"type":"table","headers":["","A","B"],"rows":[["x","1","2"]]}]}')
+    expect(report?.blocks[0]).toMatchObject({ headers: ['', 'A', 'B'] })
+  })
+})
+
+describe('reportMarkdown', () => {
+  it('writes every kind of block, keeping tables intact', () => {
+    const text = reportMarkdown({
+      title: 'Plan',
+      summary: 'Short.',
+      theme: 'clean',
+      blocks: [
+        { type: 'heading', level: 3, text: 'Steps' },
+        { type: 'list', ordered: true, items: ['One', 'Two'] },
+        { type: 'table', headers: ['A|B'], rows: [['line\nbreak']] },
+        { type: 'callout', text: 'Careful' },
+        { type: 'spacer' },
+        { type: 'divider' }
+      ]
+    })
+    expect(text).toBe('# Plan\n\nShort.\n\n### Steps\n\n1. One\n2. Two\n\n| A\\|B |\n| --- |\n| line break |\n\n> Careful\n\n---\n')
   })
 })

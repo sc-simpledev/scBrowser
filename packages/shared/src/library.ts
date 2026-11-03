@@ -11,10 +11,23 @@ export interface Bookmark {
   icon?: string | null
 }
 
+/** A folder of bookmarks, which can sit inside another folder. */
 export interface BookmarkGroup {
   id: number
   name: string
   position: number
+  /** Null when it sits directly on the bar. */
+  parentId: number | null
+}
+
+/** Every folder in reading order, each straight after its parent. */
+export function folderTree(groups: BookmarkGroup[]): { group: BookmarkGroup; depth: number; path: string }[] {
+  const walk = (parentId: number | null, depth: number, prefix: string): { group: BookmarkGroup; depth: number; path: string }[] =>
+    groups.filter((group) => group.parentId === parentId).flatMap((group) => {
+      const path = prefix ? `${prefix} / ${group.name}` : group.name
+      return [{ group, depth, path }, ...walk(group.id, depth + 1, path)]
+    })
+  return walk(null, 0, '')
 }
 
 /** One thing on the bookmarks bar, used when saving a new order. */
@@ -26,7 +39,7 @@ export interface BarItem {
 /** Bookmarks and groups in the order they sit on the bar. */
 export function barItems(bookmarks: Bookmark[], groups: BookmarkGroup[]): ({ kind: 'bookmark'; item: Bookmark } | { kind: 'group'; item: BookmarkGroup })[] {
   const items = [
-    ...groups.map((item) => ({ kind: 'group' as const, item })),
+    ...groups.filter((group) => group.parentId === null).map((item) => ({ kind: 'group' as const, item })),
     ...bookmarks.filter((b) => b.groupId === null).map((item) => ({ kind: 'bookmark' as const, item }))
   ]
   return items.sort((a, b) => a.item.position - b.item.position)
@@ -70,5 +83,5 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'use MIDI devices'
 }
 
-export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'downloads', 'blocker', 'vpn', 'flags'] as const
+export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'passwords', 'downloads', 'blocker', 'vpn', 'flags'] as const
 export type InternalPage = (typeof INTERNAL_PAGES)[number]

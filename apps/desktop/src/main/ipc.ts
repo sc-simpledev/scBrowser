@@ -17,7 +17,9 @@ import {
 import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
+import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
+import { isReportSave, saveReport } from './reportExport'
 import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
@@ -146,6 +148,10 @@ const validators: Validators = {
   'bookmarks:groups': noArgs,
   'vpn:summary': noArgs,
   'browser:is-private': noArgs,
+  'passwords:summary': noArgs,
+  'passwords:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
+  'layout:resizing': (args): args is [boolean] => args.length === 1 && typeof args[0] === 'boolean',
+  'bookmarks:move-group': (args): args is [number, number | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isId(args[1])),
   'vpn:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
   'bookmarks:arrange': (args): args is [BarItem[]] =>
     args.length === 1 &&
@@ -187,6 +193,7 @@ const validators: Validators = {
   'chats:save': (args): args is [string, SavedTurn[]] =>
     args.length === 2 && isShortString(args[0], 64) && isTurns(args[1]),
   'chats:delete': chatIdArg,
+  'report:save': isReportSave,
   'privacy:toggle-site': (args): args is [string] => args.length === 1 && isShortString(args[0], 512),
   'reader:toggle': noArgs,
   'tabs:cleanup': noArgs,
@@ -218,6 +225,8 @@ interface IpcServices {
   editBookmark: (bookmark: Bookmark, fromBar: boolean) => void
   vpn: VpnService
   openVpnMenu: (x: number, y: number) => void
+  openPasswordMenu: (x?: number, y?: number) => void
+  passwords: PasswordVault
   updates: UpdateService
   editWorkspace: (id: string | null, x: number, y: number) => void
   aiStore: AiStore
@@ -231,7 +240,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace } = services
+  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace } = services
   const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
@@ -275,6 +284,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'vpn:summary': () => vpn.summary(),
     'browser:is-private': () => isPrivate,
     'vpn:menu': (x, y) => openVpnMenu(x, y),
+    'passwords:summary': () => passwords.state(),
+    'passwords:menu': (x, y) => openPasswordMenu(x, y),
+    'layout:resizing': (resizing) => tabs.setResizing(resizing),
+    'bookmarks:move-group': (id, parentId) => {
+      bookmarks.moveGroup(id, parentId)
+      onBookmarksChanged()
+    },
     'bookmarks:arrange': (items) => {
       bookmarks.arrange(items)
       onBookmarksChanged()
@@ -337,6 +353,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       if (settings.get().saveChats) chats.save(id, turns)
     },
     'chats:delete': (id) => chats.delete(id),
+    'report:save': (name, format, content) => saveReport(window, name, format, content),
     'privacy:toggle-site': (host) => {
       privacy.toggleSite(host)
       if (tabs.active) tabs.reload(tabs.active.id)

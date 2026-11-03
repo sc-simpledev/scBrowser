@@ -1,7 +1,7 @@
-import { Globe, Pencil, X } from 'lucide-react'
+import { FolderPlus, Globe, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import type { Bookmark, BookmarkGroup } from '@scbrowser/shared'
+import { folderTree, type Bookmark, type BookmarkGroup } from '@scbrowser/shared'
 import { api } from '../api'
 
 function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups: BookmarkGroup[]; reload: () => void }) {
@@ -47,15 +47,15 @@ function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups:
       <span className="min-w-0 max-w-52 truncate text-xs text-text-faint">{bookmark.url}</span>
       {groups.length > 0 && (
         <Select
-          aria-label={`Group for ${bookmark.title || bookmark.url}`}
+          aria-label={`Folder for ${bookmark.title || bookmark.url}`}
           className="h-7 max-w-32 text-xs"
           value={bookmark.groupId ?? ''}
           onChange={(e) => void api().invoke('bookmarks:set-group', bookmark.id, e.target.value ? Number(e.target.value) : null).then(reload)}
         >
-          <option value="">No group</option>
-          {groups.map((group) => (
+          <option value="">No folder</option>
+          {folderTree(groups).map(({ group, path }) => (
             <option key={group.id} value={group.id}>
-              {group.name}
+              {path}
             </option>
           ))}
         </Select>
@@ -85,30 +85,98 @@ function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups:
   )
 }
 
-function GroupHeading({ group, reload }: { group: BookmarkGroup; reload: () => void }) {
+/** Where a folder can move to: anywhere but inside itself. */
+const folderTargets = (group: BookmarkGroup, groups: BookmarkGroup[]) => {
+  const tree = folderTree(groups)
+  const self = tree.find((entry) => entry.group.id === group.id)!
+  return tree.filter(({ path }) => path !== self.path && !path.startsWith(`${self.path} / `))
+}
+
+function FolderHeading({ group, groups, reload }: { group: BookmarkGroup; groups: BookmarkGroup[]; reload: () => void }) {
   const [name, setName] = useState(group.name)
+  const [adding, setAdding] = useState(false)
+  const [child, setChild] = useState('')
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        aria-label={`Name of group ${group.name}`}
-        className="min-w-0 flex-1 border-transparent bg-transparent font-medium"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onBlur={() => {
-          if (name.trim() && name !== group.name) void api().invoke('bookmarks:rename-group', group.id, name.trim()).then(reload)
-        }}
-      />
-      <Button variant="ghost" onClick={() => void api().invoke('bookmarks:remove-group', group.id).then(reload)}>
-        Delete group
-      </Button>
-    </div>
+    <>
+      <div className="flex items-center gap-2">
+        <Input
+          aria-label={`Name of folder ${group.name}`}
+          className="min-w-0 flex-1 border-transparent bg-transparent font-medium"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => {
+            if (name.trim() && name !== group.name) void api().invoke('bookmarks:rename-group', group.id, name.trim()).then(reload)
+          }}
+        />
+        <Select
+          aria-label={`Move folder ${group.name}`}
+          className="h-7 max-w-36 text-xs"
+          value={group.parentId ?? ''}
+          onChange={(e) => void api().invoke('bookmarks:move-group', group.id, e.target.value ? Number(e.target.value) : null).then(reload)}
+        >
+          <option value="">On the bar</option>
+          {folderTargets(group, groups).map(({ group: target, path }) => (
+            <option key={target.id} value={target.id}>
+              In {path}
+            </option>
+          ))}
+        </Select>
+        <IconButton size="sm" label={`Add a folder inside ${group.name}`} onClick={() => setAdding(!adding)}>
+          <FolderPlus size={13} strokeWidth={1.75} />
+        </IconButton>
+        <Button variant="ghost" onClick={() => void api().invoke('bookmarks:remove-group', group.id).then(reload)}>
+          Delete folder
+        </Button>
+      </div>
+      {adding && (
+        <form
+          className="flex gap-2 pl-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void api().invoke('bookmarks:add-group', child.trim(), group.id).then(() => {
+              setChild('')
+              setAdding(false)
+              reload()
+            })
+          }}
+        >
+          <Input autoFocus aria-label={`New folder inside ${group.name}`} placeholder="Folder name" className="min-w-0 flex-1" value={child} onChange={(e) => setChild(e.target.value)} />
+          <Button type="submit" disabled={!child.trim()}>
+            Add
+          </Button>
+        </form>
+      )}
+    </>
+  )
+}
+
+/** A folder, then whatever's inside it, each level set in a little further. */
+function FolderSection({ group, groups, bookmarks, reload }: { group: BookmarkGroup; groups: BookmarkGroup[]; bookmarks: Bookmark[]; reload: () => void }) {
+  return (
+    <section aria-label={group.name} className="flex flex-col gap-1">
+      <FolderHeading key={group.name} group={group} groups={groups} reload={reload} />
+      <div className="ml-3 flex flex-col gap-1 border-l border-border pl-3">
+        <ul>
+          {bookmarks
+            .filter((bookmark) => bookmark.groupId === group.id)
+            .map((bookmark) => (
+              <BookmarkRow key={bookmark.id} bookmark={bookmark} groups={groups} reload={reload} />
+            ))}
+        </ul>
+        {groups
+          .filter((child) => child.parentId === group.id)
+          .map((child) => (
+            <FolderSection key={child.id} group={child} groups={groups} bookmarks={bookmarks} reload={reload} />
+          ))}
+      </div>
+    </section>
   )
 }
 
 export function BookmarksPage() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [groups, setGroups] = useState<BookmarkGroup[]>([])
-  const [newGroup, setNewGroup] = useState('')
+  const [newFolder, setNewFolder] = useState('')
 
   const load = useCallback(() => {
     void api().invoke('bookmarks:list').then(setBookmarks)
@@ -125,31 +193,24 @@ export function BookmarksPage() {
         onSubmit={(e) => {
           e.preventDefault()
           void api()
-            .invoke('bookmarks:add-group', newGroup.trim())
+            .invoke('bookmarks:add-group', newFolder.trim(), null)
             .then(() => {
-              setNewGroup('')
+              setNewFolder('')
               load()
             })
         }}
       >
-        <Input aria-label="New group name" placeholder="New group" className="min-w-0 flex-1" value={newGroup} onChange={(e) => setNewGroup(e.target.value)} />
-        <Button type="submit" disabled={!newGroup.trim()}>
-          Add group
+        <Input aria-label="New folder name" placeholder="New folder" className="min-w-0 flex-1" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
+        <Button type="submit" disabled={!newFolder.trim()}>
+          Add folder
         </Button>
       </form>
       {bookmarks.length === 0 && <p className="text-text-muted">No bookmarks yet. Press Ctrl D on any page to add one.</p>}
-      {groups.map((group) => (
-        <section key={group.id} aria-label={group.name} className="flex flex-col gap-1">
-          <GroupHeading group={group} reload={load} />
-          <ul>
-            {bookmarks
-              .filter((bookmark) => bookmark.groupId === group.id)
-              .map((bookmark) => (
-                <BookmarkRow key={bookmark.id} bookmark={bookmark} groups={groups} reload={load} />
-              ))}
-          </ul>
-        </section>
-      ))}
+      {groups
+        .filter((group) => group.parentId === null)
+        .map((group) => (
+          <FolderSection key={group.id} group={group} groups={groups} bookmarks={bookmarks} reload={load} />
+        ))}
       {loose.length > 0 && (
         <ul>
           {loose.map((bookmark) => (

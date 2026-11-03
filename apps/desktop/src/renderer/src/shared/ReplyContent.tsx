@@ -1,9 +1,9 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileDown } from 'lucide-react'
-import { Button } from '@scbrowser/ui'
-import { isHttpUrl, splitReply, type Report, type ReportBlock } from '@scbrowser/shared'
+import { Check, ChevronRight, Copy, FileText } from 'lucide-react'
+import { cx, IconButton } from '@scbrowser/ui'
+import { conversationReports, isHttpUrl, splitReply, type Report, type ReportBlock } from '@scbrowser/shared'
 
 function ReplyMarkdown({ text, onOpenLink }: { text: string; onOpenLink: (href: string) => void }) {
   return (
@@ -78,17 +78,9 @@ function Block({ block }: { block: ReportBlock }) {
 }
 
 /** All text is set as React text, and the only styling is the theme chosen from our own set. */
-export function ReportView({ report, onSave }: { report: Report; onSave?: (report: Report) => void }) {
+export function ReportView({ report }: { report: Report }) {
   return (
-    <article className="sc-report relative" data-theme={report.theme}>
-      {onSave && (
-        <div className="float-right ml-3 not-prose">
-          <Button variant="ghost" onClick={() => onSave(report)}>
-            <FileDown aria-hidden size={14} strokeWidth={1.75} />
-            Save as HTML
-          </Button>
-        </div>
-      )}
+    <article className="sc-report" data-theme={report.theme}>
       <h1>{report.title}</h1>
       {report.summary && <p className="summary">{report.summary}</p>}
       {report.blocks.map((block, index) => (
@@ -98,36 +90,89 @@ export function ReportView({ report, onSave }: { report: Report; onSave?: (repor
   )
 }
 
+/** Three dots that pulse while a reply is on its way. */
+export function Thinking({ label = 'Thinking' }: { label?: string }) {
+  return (
+    <span role="status" className="flex h-5 items-center gap-2 text-text-faint">
+      <span aria-hidden className="sc-thinking">
+        <i />
+        <i />
+        <i />
+      </span>
+      {label}…
+    </span>
+  )
+}
+
+export function CopyReply({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <IconButton
+      size="sm"
+      label={copied ? 'Copied' : 'Copy reply'}
+      side="bottom"
+      onClick={() =>
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
+      }
+    >
+      {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.75} />}
+    </IconButton>
+  )
+}
+
+function ReportCard({ report, active, onOpen }: { report: Report; active: boolean; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Open report"
+      aria-pressed={active}
+      onClick={onOpen}
+      className={cx(
+        'group flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring',
+        active ? 'border-border-strong bg-surface-hover' : 'border-border bg-surface hover:bg-surface-hover'
+      )}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+        <FileText aria-hidden size={16} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{report.title}</span>
+        <span className="block truncate text-xs text-text-muted">{report.summary || 'Report'}</span>
+      </span>
+      <ChevronRight aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint transition-transform group-hover:translate-x-0.5" />
+    </button>
+  )
+}
+
 interface ReplyContentProps {
   text: string
   onOpenLink: (href: string) => void
   /** When set, shows a card that opens the report rather than the report itself. */
-  onOpenReport?: () => void
-  /** When set, a shown report offers to be saved as a file. */
-  onSaveReport?: (report: Report) => void
+  onOpenReport?: (report: Report) => void
+  /** The report open beside the conversation, so its card can show that. */
+  openReport?: Report | null
   /** The reply is still arriving, so an unfinished report is shown as in progress. */
   streaming?: boolean
 }
 
-export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport, onSaveReport, streaming = false }: ReplyContentProps) {
+export const ReplyContent = memo(function ReplyContent({ text, onOpenLink, onOpenReport, openReport, streaming = false }: ReplyContentProps) {
   const { before, after, report, writing } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
       {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} />}
-      {writing && <p className="text-text-faint">Writing a report…</p>}
-      {report &&
-        (onOpenReport ? (
-          <div className="flex flex-col gap-2 rounded-md bg-surface-hover p-3">
-            <div className="font-medium">{report.title}</div>
-            {report.summary && <div className="text-xs text-text-muted">{report.summary}</div>}
-            <div>
-              <Button onClick={onOpenReport}>Open report</Button>
-            </div>
-          </div>
-        ) : (
-          <ReportView report={report} onSave={streaming ? undefined : onSaveReport} />
-        ))}
-      {after && <ReplyContent text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} onSaveReport={onSaveReport} streaming={streaming} />}
+      {writing && (
+        <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+          <Thinking label="Writing a report" />
+        </div>
+      )}
+      {report && (onOpenReport ? <ReportCard report={report} active={!!openReport && JSON.stringify(openReport) === JSON.stringify(report)} onOpen={() => onOpenReport(report)} /> : <ReportView report={report} />)}
+      {after && <ReplyContent text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} />}
     </div>
   )
 })
+
+/** The newest report in a conversation, if it has one. */
+export const latestReport = (turns: { role: string; content: string }[]): Report | null => conversationReports(turns).at(-1) ?? null

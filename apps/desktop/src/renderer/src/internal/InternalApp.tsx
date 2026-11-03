@@ -1,4 +1,4 @@
-import { Bookmark, Bot, Download, FlaskConical, Globe, History, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
+import { Bookmark, Bot, Download, FlaskConical, Globe, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -12,6 +12,7 @@ import { HistoryPage } from './pages/HistoryPage'
 import { BlockedPage } from './pages/BlockedPage'
 import { BlockerPage } from './pages/BlockerPage'
 import { NewTabPage } from './pages/NewTabPage'
+import { PasswordsPage } from './pages/PasswordsPage'
 import { PdfPage } from './pages/PdfPage'
 import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
 import { VpnPage } from './pages/VpnPage'
@@ -23,6 +24,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   assistant: { title: 'Assistant', icon: MessageCircle, component: AssistantPage },
   history: { title: 'History', icon: History, component: HistoryPage },
   bookmarks: { title: 'Bookmarks', icon: Bookmark, component: BookmarksPage },
+  passwords: { title: 'Passwords', icon: KeyRound, component: PasswordsPage },
   downloads: { title: 'Downloads', icon: Download, component: DownloadsPage },
   blocker: { title: 'Site blocker', icon: ShieldBan, component: BlockerPage },
   vpn: { title: 'VPN', icon: Globe, component: VpnPage },
@@ -99,7 +101,8 @@ function PageFrame() {
   return (
     <TooltipProvider>
       <div className="flex h-full">
-        <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
+        {/* The assistant wants the width, and has its own way back to Settings. */}
+        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
           {(Object.entries(pages) as [InternalPage, (typeof pages)[InternalPage]][]).map(([page, { title, icon: Icon }]) => (
             <Fragment key={page}>
             <a
@@ -116,7 +119,7 @@ function PageFrame() {
             {page === 'settings' && current === 'settings' && <SettingsSections />}
             </Fragment>
           ))}
-        </nav>
+        </nav>}
         {current === 'assistant' ? (
           <main className="min-w-0 flex-1">
             <Page />

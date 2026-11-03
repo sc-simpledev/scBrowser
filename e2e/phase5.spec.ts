@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -132,7 +132,7 @@ test('long answers appear as a themed report, with no way to bring in markup', a
   await expect(page.getByText('Here is the plan.')).toBeVisible()
 })
 
-test('the side panel shows a report card that opens the full report', async () => {
+test('the side panel opens a report beside it, and it downloads as PDF, HTML and Markdown', async () => {
   await addProvider()
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
@@ -142,8 +142,30 @@ test('the side panel shows a report card that opens the full report', async () =
   await panel.getByRole('textbox', { name: 'Message the assistant' }).fill('Plan it')
   await panel.getByRole('textbox', { name: 'Message the assistant' }).press('Enter')
   await panel.getByRole('button', { name: 'Open report' }).click()
+  const pane = h.chrome.getByRole('region', { name: 'Report' })
+  await expect(pane.locator('article.sc-report')).toContainText('Launch plan')
+
+  const folder = mkdtempSync(join(tmpdir(), 'scb-report-'))
+  for (const [label, file] of [['PDF', 'out.pdf'], ['Web page (HTML)', 'out.html'], ['Markdown', 'out.md']] as const) {
+    await h.app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as never
+    }, join(folder, file))
+    await pane.getByRole('button', { name: 'Download' }).click()
+    await pane.getByRole('menuitem', { name: label }).click()
+    await expect(pane.getByRole('status')).toHaveText('Saved')
+    await expect.poll(() => existsSync(join(folder, file))).toBe(true)
+    await pane.getByRole('button', { name: 'Close report' }).click()
+    await panel.getByRole('button', { name: 'Open report' }).click()
+  }
+  expect(readFileSync(join(folder, 'out.pdf')).subarray(0, 5).toString()).toBe('%PDF-')
+  expect(readFileSync(join(folder, 'out.html'), 'utf8')).toContain('Launch plan')
+  expect(readFileSync(join(folder, 'out.md'), 'utf8')).toContain('# Launch plan')
+  rmSync(folder, { recursive: true, force: true })
+
+  await pane.getByRole('button', { name: 'Open in a full page' }).click()
   const page = await h.page('sc://assistant/?chat=')
   await expect(page.locator('article.sc-report')).toContainText('Launch plan')
+  await expect(page.getByRole('navigation', { name: 'Browser pages' })).toHaveCount(0)
 })
 
 test('extensions load, run on pages, stay after a restart and can be removed', async () => {

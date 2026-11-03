@@ -22,6 +22,7 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (mod && !input.shift && key === 't') return run(() => tabs.create())
   if (mod && input.shift && key === 't') return run(() => tabs.reopenClosed())
   if (mod && key === 'w') return onActive((id) => tabs.close(id))
+  if (mod && input.shift && key === 'l') return run(actions.passwordMenu)
   if ((mod && key === 'l') || key === 'f6' || (input.alt && key === 'd')) return run(actions.focusOmnibox)
   if ((mod && key === 'r') || key === 'f5') return onActive((id) => tabs.reload(id, input.shift || mod && key === 'f5'))
   if (input.alt && key === 'arrowleft') return onActive((id) => tabs.back(id))

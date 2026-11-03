@@ -1,10 +1,13 @@
 import { ArrowUp, AtSign, Check, FileText, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { isHttpUrl, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL } from '@scbrowser/shared'
+import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
-import { ReplyContent } from '../shared/ReplyContent'
+import { CopyReply, ReplyContent, Thinking } from '../shared/ReplyContent'
+import { ReportPane } from '../shared/ReportPane'
+import { ResizeHandle } from '../shared/ResizeHandle'
+import { useApp } from '../state/app'
 
 function contextLabel({ truncated, source }: Turn) {
   const what = source === 'transcript' ? 'the transcript of ' : source === 'pdf' ? 'the PDF ' : ''
@@ -36,6 +39,12 @@ function ChatList() {
   )
 }
 
+const PAGE_STARTERS = [
+  { label: 'Summarise this page', prompt: SUMMARISE_PROMPT },
+  { label: 'Pull out the key points', prompt: 'List the key points of this page as short bullets.' },
+  { label: 'Explain it simply', prompt: 'Explain this page simply, as if I know nothing about the topic.' }
+]
+
 const MENTION = /(^|\s)@([^\s]*)$/
 
 interface PickerItem {
@@ -65,17 +74,57 @@ function ComposerPicker({ items, selected }: { items: PickerItem[]; selected: nu
   )
 }
 
-function openReport() {
-  const { chatId } = useAssistant.getState()
-  if (chatId) void window.scb.invoke('ai:open-chat', chatId)
+const openLink = (href: string) => void window.scb.invoke('tabs:open-in-background', href)
+
+const setResizing = (resizing: boolean) => void window.scb.invoke('layout:resizing', resizing)
+const MIN_PANEL = 300
+const MAX_PANEL = 720
+
+/** The report beside the panel. It takes its room from the page, as the panel itself does. */
+export function AssistantReport() {
+  const report = useAssistant((s) => s.report)
+  const turns = useAssistant((s) => s.turns)
+  const streaming = useAssistant((s) => !!s.streamId)
+  const ready = useAssistant((s) => s.status.ready)
+  const chatId = useAssistant((s) => s.chatId)
+  const saved = useApp((s) => s.settings.reportWidth)
+  const [width, setWidth] = useState<number | null>(null)
+  const { close, showReport, reviseReport } = useAssistant.getState()
+  if (!report) return null
+  return (
+    <ReportPane
+      report={report}
+      versions={reportVersions(turns, report.title)}
+      onSelect={showReport}
+      onRevise={ready ? reviseReport : undefined}
+      busy={streaming}
+      width={width ?? saved}
+      onWidth={setWidth}
+      onWidthCommit={(reportWidth) => void window.scb.invoke('settings:set', { reportWidth })}
+      onDragging={setResizing}
+      save={(title, format, content) => window.scb.invoke('report:save', title, format, content)}
+      onClose={() => showReport(null)}
+      onExpand={
+        chatId
+          ? () => {
+              // The new tab gets the whole window, rather than what's left beside these.
+              close()
+              void window.scb.invoke('ai:open-chat', chatId)
+            }
+          : undefined
+      }
+    />
+  )
 }
 
 function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
+  const report = useAssistant((s) => s.report)
+  const { showReport } = useAssistant.getState()
   if (turn.role === 'user') {
-    return <div className="ml-6 self-end rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap select-text">{turn.content}</div>
+    return <div className="ml-8 self-end rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap select-text [overflow-wrap:anywhere]">{shownMessage(turn.content)}</div>
   }
   return (
-    <div className="flex flex-col gap-1 select-text">
+    <div className="group/reply flex flex-col gap-1.5 select-text">
       {turn.pageTitle && (
         <div className="flex items-center gap-1 text-xs text-text-faint">
           <FileText aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
@@ -94,12 +143,18 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
       {turn.content && (
         <ReplyContent
           text={turn.content}
-          onOpenLink={(href) => void window.scb.invoke('tabs:open-in-background', href)}
-          onOpenReport={openReport}
+          onOpenLink={openLink}
+          onOpenReport={showReport}
+          openReport={report}
           streaming={streaming}
         />
       )}
-      {streaming && !turn.content && <span className="text-text-faint">Thinking…</span>}
+      {streaming && !turn.content && <Thinking />}
+      {!streaming && turn.content && (
+        <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
+          <CopyReply text={turn.content} />
+        </div>
+      )}
       {turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
       {turn.error && (
         <p role="alert" className="text-danger">
@@ -117,6 +172,9 @@ export function AssistantPanel() {
   const [pickerIndex, setPickerIndex] = useState(0)
   const tab = useActiveTab()
   const [draft, setDraft] = useState('')
+  const savedWidth = useApp((s) => s.settings.assistantWidth)
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const width = dragWidth ?? savedWidth
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -178,11 +236,24 @@ export function AssistantPanel() {
   }
 
   return (
-    <aside aria-label="Assistant" className="relative flex w-90 shrink-0 flex-col pr-1.5 pb-1.5">
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-surface shadow-1">
+    <aside aria-label="Assistant" className="relative flex shrink-0 flex-col border-l border-border bg-surface" style={{ width }}>
+      <ResizeHandle
+        label="Assistant width"
+        edge="left"
+        width={width}
+        min={MIN_PANEL}
+        max={MAX_PANEL}
+        onWidth={setDragWidth}
+        onCommit={(assistantWidth) => void window.scb.invoke('settings:set', { assistantWidth })}
+        onDragging={setResizing}
+      />
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {streamId && <div aria-hidden className="sc-generating absolute inset-x-0 top-0 h-0.5" />}
-        <header className="flex h-10 shrink-0 items-center gap-1 pr-1 pl-3">
-          <div className="min-w-0 flex-1 truncate text-xs text-text-muted">{status.model ?? 'Assistant'}</div>
+        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
+          <div className="min-w-0 flex-1 truncate">
+            <span className="font-medium">Assistant</span>
+            {status.model && <span className="ml-2 text-xs text-text-faint">{status.model}</span>}
+          </div>
           <IconButton size="sm" label="Saved chats" aria-pressed={!!chats} onClick={toggleChats}>
             <History size={14} strokeWidth={1.75} />
           </IconButton>
@@ -220,17 +291,25 @@ export function AssistantPanel() {
           <ChatList />
         ) : (
           <>
-            <div ref={logRef} role="log" aria-label="Conversation" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-2">
-              {turns.length === 0 && canRead && !siteOff && (
-                <div className="flex flex-1 items-center justify-center">
-                  <Button
-                    onClick={() => {
-                      setIncludePage(true)
-                      send(SUMMARISE_PROMPT)
-                    }}
-                  >
-                    Summarise this page
-                  </Button>
+            <div ref={logRef} role="log" aria-label="Conversation" className="sc-scroll-quiet flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3.5 py-3">
+              {turns.length === 0 && (
+                <div className="flex flex-1 flex-col justify-end gap-3 pb-2">
+                  <h2 className="text-md font-medium">{canRead && !siteOff ? 'What do you want to know about this page?' : 'What can I help with?'}</h2>
+                  {canRead && !siteOff && (
+                    <div className="flex flex-col items-start gap-1.5">
+                      {PAGE_STARTERS.map(({ label, prompt }) => (
+                        <Button
+                          key={label}
+                          onClick={() => {
+                            setIncludePage(true)
+                            send(prompt)
+                          }}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {turns.map((turn, index) => (
@@ -238,7 +317,7 @@ export function AssistantPanel() {
               ))}
             </div>
 
-            <div className="flex shrink-0 flex-col gap-2 p-2">
+            <div className="flex shrink-0 flex-col gap-2 px-3 pt-1 pb-2">
               {pickerItems.length > 0 && <ComposerPicker items={pickerItems} selected={pickerSelected} />}
               {mentions.map((id) => {
                 const mentioned = allTabs.find((t) => t.id === id)
@@ -274,48 +353,7 @@ export function AssistantPanel() {
                   </IconButton>
                 </div>
               )}
-              <div className="flex items-center justify-between gap-2 text-xs">
-                {canRead && !siteOff && (
-                  <button
-                    type="button"
-                    aria-pressed={sharing}
-                    title={sharing ? `Page text is sent to ${status.providerName}` : 'Page text is not sent'}
-                    onClick={() => setIncludePage(!includePage)}
-                    className={cx(
-                      'flex h-6 min-w-0 items-center gap-1.5 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
-                      sharing ? 'text-text-muted' : 'text-text-faint line-through'
-                    )}
-                  >
-                    <FileText aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0', sharing && 'text-accent')} />
-                    <span className="truncate">{tab?.title || 'This page'}</span>
-                  </button>
-                )}
-                {canRead && !siteOff && /^https?:/.test(pageUrl) && (
-                  <button
-                    type="button"
-                    aria-pressed={agentMode}
-                    title="Lets the assistant act on this page. You approve every step."
-                    onClick={() => setAgentMode(!agentMode)}
-                    className={cx(
-                      'flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
-                      agentMode ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text'
-                    )}
-                  >
-                    <Hand aria-hidden size={12} strokeWidth={1.75} />
-                    Act on page
-                  </button>
-                )}
-                {host && (
-                  <button
-                    type="button"
-                    onClick={() => void window.scb.invoke('ai:set-site', host, !siteOff)}
-                    className="ml-auto h-6 shrink-0 rounded-sm px-1.5 text-text-faint transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    {siteOff ? 'Allow AI on this site' : 'Off for this site'}
-                  </button>
-                )}
-              </div>
-              <div className="flex items-end gap-1 rounded-md bg-field p-1 focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
+              <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
                 <textarea
                   ref={inputRef}
                   rows={2}
@@ -339,18 +377,61 @@ export function AssistantPanel() {
                       submit()
                     }
                   }}
-                  className="min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-text outline-none select-text placeholder:text-text-faint"
+                  className="max-h-40 min-h-13 w-full resize-none bg-transparent px-2.5 pt-2 text-sm text-text outline-none select-text [field-sizing:content] placeholder:text-text-faint"
                 />
-                {streamId ? (
-                  <IconButton size="sm" label="Stop" onClick={stop}>
-                    <Square size={12} strokeWidth={2} />
-                  </IconButton>
-                ) : (
-                  <IconButton size="sm" label="Send" disabled={!draft.trim()} onClick={submit}>
-                    <ArrowUp size={14} strokeWidth={2} />
-                  </IconButton>
-                )}
+                <div className="flex items-center gap-1 p-1.5 text-xs">
+                  {canRead && !siteOff && (
+                    <button
+                      type="button"
+                      aria-pressed={sharing}
+                      title={sharing ? `Page text is sent to ${status.providerName}` : 'Page text is not sent'}
+                      onClick={() => setIncludePage(!includePage)}
+                      className={cx(
+                        'flex h-6 min-w-0 items-center gap-1.5 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
+                        sharing ? 'text-text-muted' : 'text-text-faint line-through'
+                      )}
+                    >
+                      <FileText aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0', sharing && 'text-accent')} />
+                      <span className="truncate">{tab?.title || 'This page'}</span>
+                    </button>
+                  )}
+                  {canRead && !siteOff && /^https?:/.test(pageUrl) && (
+                    <button
+                      type="button"
+                      aria-pressed={agentMode}
+                      title="Lets the assistant act on this page. You approve every step."
+                      onClick={() => setAgentMode(!agentMode)}
+                      className={cx(
+                        'flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
+                        agentMode ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text'
+                      )}
+                    >
+                      <Hand aria-hidden size={12} strokeWidth={1.75} />
+                      Act on page
+                    </button>
+                  )}
+                  <div className="ml-auto shrink-0 pl-1">
+                    {streamId ? (
+                      <IconButton size="sm" label="Stop" onClick={stop}>
+                        <Square size={12} strokeWidth={2} />
+                      </IconButton>
+                    ) : (
+                      <IconButton size="sm" label="Send" disabled={!draft.trim()} className={draft.trim() ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={submit}>
+                        <ArrowUp size={14} strokeWidth={2} />
+                      </IconButton>
+                    )}
+                  </div>
+                </div>
               </div>
+              {host && (
+                <button
+                  type="button"
+                  onClick={() => void window.scb.invoke('ai:set-site', host, !siteOff)}
+                  className="self-end rounded-sm px-1 text-2xs text-text-faint transition-colors hover:text-text"
+                >
+                  {siteOff ? 'Allow AI on this site' : 'Off for this site'}
+                </button>
+              )}
             </div>
           </>
         )}

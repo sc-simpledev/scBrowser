@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Input, Select } from '@scbrowser/ui'
-import { BOOKMARK_POPUP, type BookmarkEditorState } from '@scbrowser/shared'
+import { BOOKMARK_POPUP, folderTree, type BookmarkEditorState } from '@scbrowser/shared'
 
-/** Name, group and, from the toolbar, the address of one bookmark. */
+/** Name, folder and, from the toolbar, the address of one bookmark. */
 export function BookmarkEditor({ editor, x, y }: { editor: BookmarkEditorState; x: number; y: number }) {
   const [title, setTitle] = useState(editor.title)
   const [url, setUrl] = useState(editor.url)
@@ -40,12 +40,12 @@ export function BookmarkEditor({ editor, x, y }: { editor: BookmarkEditorState; 
         </label>
       )}
       <label className="flex flex-col gap-1 text-xs text-text-muted">
-        Group
-        <Select aria-label="Bookmark group" value={groupId ?? ''} onChange={(e) => setGroupId(e.target.value ? Number(e.target.value) : null)}>
+        Folder
+        <Select aria-label="Bookmark folder" value={groupId ?? ''} onChange={(e) => setGroupId(e.target.value ? Number(e.target.value) : null)}>
           <option value="">None</option>
-          {editor.groups.map((group) => (
+          {folderTree(editor.groups).map(({ group, path }) => (
             <option key={group.id} value={group.id}>
-              {group.name}
+              {path}
             </option>
           ))}
         </Select>

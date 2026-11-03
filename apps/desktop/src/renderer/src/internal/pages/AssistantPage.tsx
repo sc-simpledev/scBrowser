@@ -1,10 +1,9 @@
-import { ArrowUp, Plus, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import contentCss from '@scbrowser/ui/content.css?raw'
-import tokensCss from '@scbrowser/ui/tokens.css?raw'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { reportHtml, type AiStatus, type AssistantEvent, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
-import { ReplyContent } from '../../shared/ReplyContent'
+import { reportVersions, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { CopyReply, latestReport, ReplyContent, Thinking } from '../../shared/ReplyContent'
+import { ReportPane, type SaveReport } from '../../shared/ReportPane'
 import { api } from '../api'
 
 interface Turn extends SavedTurn {
@@ -13,9 +12,12 @@ interface Turn extends SavedTurn {
 
 const openLink = (href: string) => void api().invoke('browser:open', href)
 
-// A saved report stands alone, so it takes the tokens but not the fonts they import.
-const REPORT_CSS = `${tokensCss.replace(/^@import .*$/gm, '')}\n${contentCss}`
-const saveReport = (report: Report) => void api().invoke('report:save', report.title, reportHtml(report, REPORT_CSS))
+const saveReport: SaveReport = (title, format, content) => api().invoke('report:save', title, format, content)
+
+/** Below this, a report and the chat list don't both leave room for the conversation. */
+const ROOM_FOR_ALL = 1180
+/** There's more room here than beside a page, so a report starts out wider. */
+const REPORT_START_WIDTH = 640
 
 const dayLabel = (time: number) => {
   const days = Math.floor((Date.now() - time) / 86_400_000)
@@ -25,7 +27,8 @@ const dayLabel = (time: number) => {
 /** Saved conversations, newest first. */
 function ChatList({ chats, current, onDelete }: { chats: ChatSummary[]; current: string | null; onDelete: (id: string) => void }) {
   return (
-    <nav aria-label="Saved chats" className="flex w-60 shrink-0 flex-col gap-2 border-r border-border p-3">
+    <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border p-3">
+    <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-2">
       <Button onClick={() => (location.href = 'sc://assistant/')}>
         <Plus aria-hidden size={14} strokeWidth={1.75} />
         New chat
@@ -53,6 +56,11 @@ function ChatList({ chats, current, onDelete }: { chats: ChatSummary[]; current:
         ))}
       </ul>
     </nav>
+      <a href="sc://settings/" className="flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text">
+        <Settings aria-hidden size={14} strokeWidth={1.75} />
+        Settings
+      </a>
+    </div>
   )
 }
 
@@ -63,6 +71,12 @@ export function AssistantPage() {
   const [draft, setDraft] = useState('')
   const [streamId, setStreamId] = useState<string | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
+  const [report, setReport] = useState<Report | null>(null)
+  const [listOpen, setListOpen] = useState(true)
+  const [reportWidth, setReportWidth] = useState(REPORT_START_WIDTH)
+  useEffect(() => {
+    void api().invoke('settings:get').then((settings) => setReportWidth(Math.max(REPORT_START_WIDTH, settings.reportWidth)))
+  }, [])
   const chatId = useRef<string | null>(new URLSearchParams(location.search).get('chat'))
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -83,6 +97,11 @@ export function AssistantPage() {
       })
       return [...history, { role: 'assistant', content: '' }]
     })
+  }, [])
+
+  const showReport = useCallback((next: Report | null) => {
+    setReport(next)
+    if (next && innerWidth < ROOM_FOR_ALL) setListOpen(false)
   }, [])
 
   const refreshChats = useCallback(() => void api().invoke('chats:list').then(setChats), [])
@@ -110,12 +129,14 @@ export function AssistantPage() {
         setTurns((current) => {
           const saved = current.filter((t) => t.content && !t.error).map(({ role, content }) => ({ role, content }))
           if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
+          const written = latestReport(current.slice(-1))
+          if (written) showReport(written)
           return current
         })
       }
     }
     return api().onAssistantEvent(onEvent)
-  }, [refreshChats])
+  }, [refreshChats, showReport])
 
   // Loads what this page was opened for, once the status says whether AI is ready.
   useEffect(() => {
@@ -127,7 +148,10 @@ export function AssistantPage() {
         setStatus(next)
         if (chatId.current) {
           const chat = await api().invoke('chats:get', chatId.current)
-          if (chat && !cancelled) setTurns(chat.turns)
+          if (chat && !cancelled) {
+            setTurns(chat.turns)
+            showReport(latestReport(chat.turns))
+          }
           return
         }
         const prompt = await api().invoke('ai:take-prompt')
@@ -136,7 +160,7 @@ export function AssistantPage() {
     return () => {
       cancelled = true
     }
-  }, [send])
+  }, [send, showReport])
 
   useLayoutEffect(() => {
     const log = logRef.current
@@ -164,61 +188,100 @@ export function AssistantPage() {
     )
   }
 
-  return (
-    <div className="flex h-full">
-    <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div ref={logRef} role="log" aria-label="Conversation" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-180 flex-col gap-6 px-8 py-8">
-          {turns.length === 0 && <h1 className="text-lg font-semibold">What can I help with?</h1>}
-          {turns.map((turn, index) =>
-            turn.role === 'user' ? (
-              <div key={index} className="ml-12 self-end rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap">
-                {turn.content}
-              </div>
-            ) : (
-              <div key={index}>
-                {turn.content && <ReplyContent text={turn.content} onOpenLink={openLink} onSaveReport={saveReport} streaming={streamId !== null && index === turns.length - 1} />}
-                {!turn.content && !turn.error && <span className="text-text-faint">Thinking…</span>}
-                {turn.error && (
-                  <p role="alert" className="text-danger">
-                    {turn.error}
-                  </p>
-                )}
-              </div>
-            )
-          )}
-        </div>
-      </div>
-      <div className="mx-auto w-full max-w-180 shrink-0 px-8 pb-6" hidden={!status?.ready}>
-        <div className="flex items-end gap-1 rounded-md bg-field p-1 focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
-          <textarea
-            autoFocus
-            rows={2}
-            value={draft}
-            aria-label="Message the assistant"
-            placeholder="Ask anything"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                submit()
-              }
-            }}
-            className="min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-text outline-none placeholder:text-text-faint"
-          />
+  const empty = turns.length === 0
+  const composer = (
+    <div className="mx-auto w-full max-w-180 shrink-0 px-8 pb-6" hidden={!status?.ready}>
+      <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
+        <textarea
+          autoFocus
+          rows={2}
+          value={draft}
+          aria-label="Message the assistant"
+          placeholder="Ask anything"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+          className="max-h-60 min-h-14 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
+        />
+        <div className="flex items-center justify-between gap-2 p-2">
+          <span className="min-w-0 truncate text-xs text-text-faint">{status?.model}</span>
           {streamId ? (
             <IconButton size="sm" label="Stop" onClick={() => void api().invoke('ai:cancel', streamId)}>
               <Square size={12} strokeWidth={2} />
             </IconButton>
           ) : (
-            <IconButton size="sm" label="Send" disabled={!draft.trim()} onClick={submit}>
+            <IconButton size="sm" label="Send" disabled={!draft.trim()} className={draft.trim() ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={submit}>
               <ArrowUp size={14} strokeWidth={2} />
             </IconButton>
           )}
         </div>
       </div>
     </div>
+  )
+
+  return (
+    <div className="flex h-full">
+      {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
+      <div className="relative flex min-w-72 flex-1 flex-col">
+        <IconButton label={listOpen ? 'Hide chats' : 'Show chats'} side="right" className="absolute top-2 left-2 z-10" aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
+          <PanelLeft size={15} strokeWidth={1.75} />
+        </IconButton>
+        {empty ? (
+          <div className="flex min-h-0 flex-1 flex-col justify-center pb-16">
+            <h1 className="mx-auto w-full max-w-180 px-8 pb-5 text-xl font-semibold tracking-[-0.03em]">What can I help with?</h1>
+            {composer}
+          </div>
+        ) : (
+          <>
+            <div ref={logRef} role="log" aria-label="Conversation" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto flex max-w-180 flex-col gap-7 px-8 py-10">
+                {turns.map((turn, index) => {
+                  const streaming = streamId !== null && index === turns.length - 1
+                  return turn.role === 'user' ? (
+                    <div key={index} className="ml-16 self-end rounded-lg bg-surface-hover px-3.5 py-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                      {shownMessage(turn.content)}
+                    </div>
+                  ) : (
+                    <div key={index} className="group/reply flex flex-col gap-1.5">
+                      {turn.content && <ReplyContent text={turn.content} onOpenLink={openLink} onOpenReport={showReport} openReport={report} streaming={streaming} />}
+                      {!turn.content && !turn.error && <Thinking />}
+                      {turn.error && (
+                        <p role="alert" className="text-danger">
+                          {turn.error}
+                        </p>
+                      )}
+                      {!streaming && turn.content && (
+                        <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
+                          <CopyReply text={turn.content} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            {composer}
+          </>
+        )}
+      </div>
+      {report && (
+        <ReportPane
+          report={report}
+          versions={reportVersions(turns, report.title)}
+          onSelect={setReport}
+          onRevise={status?.ready ? (change) => send(reviseReportPrompt(report.title, change)) : undefined}
+          busy={streamId !== null}
+          save={saveReport}
+          onClose={() => setReport(null)}
+          width={reportWidth}
+          onWidth={setReportWidth}
+          onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}
+        />
+      )}
     </div>
   )
 }

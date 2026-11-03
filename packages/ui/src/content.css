@@ -9,13 +9,16 @@
 .sc-prose {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--sc-space) * 2);
-  line-height: var(--sc-leading-normal);
+  gap: calc(var(--sc-space) * 2.5);
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
 .sc-prose ul,
 .sc-prose ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sc-space);
   padding-left: calc(var(--sc-space) * 5);
 }
 
@@ -27,10 +30,28 @@
   list-style: decimal;
 }
 
+.sc-prose li::marker {
+  color: var(--sc-text-faint);
+}
+
 .sc-prose h1,
 .sc-prose h2,
 .sc-prose h3 {
+  margin-top: calc(var(--sc-space) * 2);
   font-weight: var(--sc-weight-semibold);
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-prose h1 {
+  font-size: var(--sc-text-lg);
+}
+
+.sc-prose h2 {
+  font-size: var(--sc-text-md);
+}
+
+.sc-prose > :first-child {
+  margin-top: 0;
 }
 
 .sc-prose strong {
@@ -38,21 +59,35 @@
 }
 
 .sc-prose code {
+  padding: 0 var(--sc-space);
+  border-radius: var(--sc-radius-sm);
+  background: var(--sc-surface-hover);
   font-family: var(--sc-font-mono);
   font-size: var(--sc-text-xs);
 }
 
 .sc-prose pre {
   overflow-x: auto;
-  padding: calc(var(--sc-space) * 2);
+  padding: calc(var(--sc-space) * 3);
+  border: 1px solid var(--sc-border);
   border-radius: var(--sc-radius-md);
-  background: var(--sc-field);
+  background: var(--sc-bg);
+}
+
+.sc-prose pre code {
+  padding: 0;
+  background: none;
 }
 
 .sc-prose blockquote {
   padding-left: calc(var(--sc-space) * 3);
   border-left: 2px solid var(--sc-border-strong);
   color: var(--sc-text-muted);
+}
+
+.sc-prose hr {
+  border: 0;
+  border-top: 1px solid var(--sc-border);
 }
 
 .sc-prose table {
@@ -66,17 +101,59 @@
   text-align: left;
 }
 
+.sc-prose th {
+  font-weight: var(--sc-weight-medium);
+}
+
+.sc-thinking {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.sc-thinking i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--sc-accent);
+  animation: sc-thinking 1.2s var(--sc-ease-in-out) infinite;
+}
+
+.sc-thinking i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.sc-thinking i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes sc-thinking {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-thinking i {
+    animation: none;
+  }
+}
+
 /*
  * Reports are written by the assistant as blocks of plain text. All of their look comes
  * from these prebuilt themes, so a report can never bring its own styles.
  */
 .sc-report {
-  --report-gap: calc(var(--sc-space) * 4);
+  --report-gap: calc(var(--sc-space) * 3.5);
   display: flex;
   flex-direction: column;
   gap: var(--report-gap);
   color: var(--sc-text);
-  line-height: var(--sc-leading-normal);
+  line-height: 1.6;
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -84,32 +161,38 @@
 .sc-report h1 {
   font-size: var(--sc-text-xl);
   font-weight: var(--sc-weight-semibold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   line-height: var(--sc-leading-tight);
 }
 
 .sc-report h2 {
-  margin-top: calc(var(--sc-space) * 4);
+  margin-top: calc(var(--sc-space) * 5);
+  padding-top: calc(var(--sc-space) * 5);
+  border-top: 1px solid var(--sc-border);
   font-size: var(--sc-text-lg);
   font-weight: var(--sc-weight-semibold);
+  letter-spacing: -0.02em;
   line-height: var(--sc-leading-tight);
 }
 
 .sc-report h3 {
+  margin-top: calc(var(--sc-space) * 2);
   font-size: var(--sc-text-md);
   font-weight: var(--sc-weight-semibold);
+  line-height: var(--sc-leading-tight);
 }
 
 .sc-report .summary {
   color: var(--sc-text-muted);
   font-size: var(--sc-text-md);
+  line-height: var(--sc-leading-normal);
 }
 
 .sc-report ul,
 .sc-report ol {
   display: flex;
   flex-direction: column;
-  gap: var(--sc-space);
+  gap: calc(var(--sc-space) * 1.5);
   padding-left: calc(var(--sc-space) * 5);
 }
 
@@ -121,6 +204,11 @@
   list-style: decimal;
 }
 
+.sc-report li::marker {
+  color: var(--sc-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
 .sc-report blockquote {
   padding-left: calc(var(--sc-space) * 4);
   border-left: 2px solid var(--sc-border-strong);
@@ -128,13 +216,14 @@
 }
 
 .sc-report .callout {
-  padding: calc(var(--sc-space) * 3);
-  border-radius: var(--sc-radius-md);
+  padding: calc(var(--sc-space) * 3) calc(var(--sc-space) * 4);
+  border-left: 2px solid var(--sc-accent);
+  border-radius: 0 var(--sc-radius-md) var(--sc-radius-md) 0;
   background: var(--sc-accent-soft);
 }
 
 .sc-report .spacer {
-  height: calc(var(--sc-space) * 6);
+  height: calc(var(--sc-space) * 4);
 }
 
 .sc-report hr {
@@ -144,23 +233,52 @@
 
 .sc-report .table {
   overflow-x: auto;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
 }
 
 .sc-report table {
   width: 100%;
   border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
 }
 
 .sc-report th,
 .sc-report td {
-  padding: calc(var(--sc-space) * 2);
+  padding: calc(var(--sc-space) * 2) calc(var(--sc-space) * 3);
   border-bottom: 1px solid var(--sc-border);
   text-align: left;
   vertical-align: top;
 }
 
 .sc-report th {
-  font-weight: var(--sc-weight-semibold);
+  background: var(--sc-surface-hover);
+  color: var(--sc-text-muted);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-medium);
+}
+
+.sc-report tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* On paper, nothing should be split where it reads badly. */
+@media print {
+  .sc-report h2,
+  .sc-report h3 {
+    break-after: avoid;
+  }
+
+  .sc-report tr,
+  .sc-report li,
+  .sc-report blockquote,
+  .sc-report .callout {
+    break-inside: avoid;
+  }
+
+  .sc-report .table {
+    overflow: visible;
+  }
 }
 
 /* Editorial: long reading, with a serif voice and generous spacing. */
@@ -185,6 +303,10 @@
   --report-gap: calc(var(--sc-space) * 2.5);
 }
 
+.sc-report[data-theme='brief'] .summary {
+  font-size: var(--sc-text-sm);
+}
+
 .sc-report[data-theme='brief'] h1 {
   padding-bottom: calc(var(--sc-space) * 2);
   border-bottom: 2px solid var(--sc-accent);
@@ -193,5 +315,6 @@
 
 .sc-report[data-theme='brief'] h2 {
   margin-top: calc(var(--sc-space) * 2);
+  padding-top: calc(var(--sc-space) * 3);
   font-size: var(--sc-text-md);
 }

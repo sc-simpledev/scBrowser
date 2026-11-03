@@ -23,6 +23,15 @@ export interface Report {
   blocks: ReportBlock[]
 }
 
+export const REPORT_FORMATS = {
+  pdf: { extension: 'pdf', label: 'PDF' },
+  html: { extension: 'html', label: 'Web page (HTML)' },
+  md: { extension: 'md', label: 'Markdown' },
+  docx: { extension: 'docx', label: 'Word document' }
+} as const
+
+export type ReportFormat = keyof typeof REPORT_FORMATS
+
 const FENCE = 'scterra-report'
 /** Chats saved under the old name still hold the old tag. */
 const FENCES = '(?:scterra|scdelta)-report'
@@ -81,8 +90,10 @@ function toBlock(value: unknown): ReportBlock | null {
       return items.length > 0 ? { type: 'list', items, ordered: block!.ordered === true || raw === 'ol' || raw === 'numbered_list' || raw === 'ordered_list' } : null
     }
     case 'table': {
-      const headers = strings(block!.headers ?? block!.columns)
-      return headers.length > 0 ? { type: 'table', headers, rows: tableRows(block!.rows, headers) } : null
+      // An empty corner cell is normal in a comparison, and dropping it would shift every column.
+      const columns: unknown = block!.headers ?? block!.columns
+      const headers = Array.isArray(columns) ? columns.map((column) => itemText(column) ?? '') : []
+      return headers.some(Boolean) ? { type: 'table', headers, rows: tableRows(block!.rows, headers) } : null
     }
     case 'spacer':
       return { type: 'spacer' }
@@ -290,6 +301,7 @@ export function reportHtml(report: Report, css: string): string {
 ${css}
 body { margin: 0; padding: 40px 24px; background: var(--sc-surface); color: var(--sc-text); font-family: var(--sc-font-sans); font-size: var(--sc-text-sm); }
 .sc-report { max-width: 720px; margin: 0 auto; }
+@media print { body { padding: 0; } .sc-report { max-width: none; } }
 </style>
 </head>
 <body>
@@ -302,3 +314,63 @@ ${report.blocks.map(blockHtml).join('\n')}
 </html>
 `
 }
+
+/** Table cells can't hold pipes or line breaks. */
+const markdownCell = (text: string) => text.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ')
+
+function blockMarkdown(block: ReportBlock): string {
+  switch (block.type) {
+    case 'heading':
+      return `${'#'.repeat(block.level)} ${block.text}`
+    case 'paragraph':
+      return block.text
+    case 'list':
+      return block.items.map((item, index) => `${block.ordered ? `${index + 1}.` : '-'} ${item}`).join('\n')
+    case 'quote':
+    case 'callout':
+      return block.text
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n')
+    case 'table': {
+      const row = (cells: string[]) => `| ${cells.map(markdownCell).join(' | ')} |`
+      return [row(block.headers), row(block.headers.map(() => '---')), ...block.rows.map(row)].join('\n')
+    }
+    case 'spacer':
+      return ''
+    case 'divider':
+      return '---'
+  }
+}
+
+/** A report as Markdown, for pasting into other tools. */
+export function reportMarkdown(report: Report): string {
+  const parts = [`# ${report.title}`, report.summary, ...report.blocks.map(blockMarkdown)]
+  return `${parts.filter(Boolean).join('\n\n')}\n`
+}
+
+/** Every report in a reply, in the order written. */
+export function repliesReports(text: string): Report[] {
+  const { report, after } = splitReply(text, true)
+  return [...(report ? [report] : []), ...(after ? repliesReports(after) : [])]
+}
+
+/** Every report in a conversation, oldest first. */
+export function conversationReports(turns: { role: string; content: string }[]): Report[] {
+  return turns.flatMap((turn) => (turn.role === 'assistant' ? repliesReports(turn.content) : []))
+}
+
+/** Earlier and later drafts of a report: asking for changes keeps its title. */
+export const reportVersions = (turns: { role: string; content: string }[], title: string) => conversationReports(turns).filter((report) => report.title === title)
+
+const REVISE_ASK = /^Rewrite the report titled "(.*)" with this change: ([\s\S]*)\n\nReply with one short sentence, then the complete updated report/
+
+/** What to show for a message in the conversation: a change request reads as what the person asked for. */
+export function shownMessage(content: string): string {
+  const asked = REVISE_ASK.exec(content)
+  return asked ? `Change to “${asked[1]}”: ${asked[2]}` : content
+}
+
+/** Asks for a whole new draft, so each version stands alone. */
+export const reviseReportPrompt = (title: string, change: string) =>
+  `Rewrite the report titled "${title}" with this change: ${change}\n\nReply with one short sentence, then the complete updated report as a new ${FENCE} block. Keep exactly the same title, and keep everything else that wasn't asked to change.`

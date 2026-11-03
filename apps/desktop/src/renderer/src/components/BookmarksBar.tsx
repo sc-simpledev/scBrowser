@@ -51,8 +51,8 @@ export function BookmarksBar() {
     setDragging(null)
     setTarget(null)
     if (!moved || !over || same(moved, over.item)) return
-    if (over.into && moved.kind === 'bookmark') {
-      void window.scb.invoke('bookmarks:set-group', moved.id, over.item.id)
+    if (over.into) {
+      void window.scb.invoke(moved.kind === 'bookmark' ? 'bookmarks:set-group' : 'bookmarks:move-group', moved.id, over.item.id)
       return
     }
     const order: BarItem[] = items.map(({ kind, item }) => ({ kind, id: item.id })).filter((item) => !same(moved, item))
@@ -73,9 +73,9 @@ export function BookmarksBar() {
     onDragOver: (e: DragEvent) => {
       if (!dragging) return
       e.preventDefault()
-      // The middle of a group takes the bookmark in; its left edge places it beside the group.
+      // The middle of a folder takes the item in; its left edge places it beside the folder.
       const box = e.currentTarget.getBoundingClientRect()
-      const into = item.kind === 'group' && dragging.kind === 'bookmark' && e.clientX > box.left + box.width / 4
+      const into = item.kind === 'group' && e.clientX > box.left + box.width / 4
       setTarget({ item, into })
     },
     onDrop: (e: DragEvent) => {

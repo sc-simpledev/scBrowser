@@ -6,6 +6,7 @@ import {
   unionRect,
   type AccentId,
   type AuthPopupState,
+  type PasswordPromptState,
   type BookmarkEdit,
   type BookmarkEditorState,
   type ChromeEvents,
@@ -33,6 +34,7 @@ export class Overlay {
   private toast: OverlayView['toast'] = null
   private bookmarkEditor: BookmarkEditorState | null = null
   private auth: AuthPopupState | null = null
+  private passwordPrompt: PasswordPromptState | null = null
   private cleanup: CleanupPopupState | null = null
   private workspaceEditor: WorkspaceEditorState | null = null
   private toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -53,6 +55,7 @@ export class Overlay {
       onAnswerAction: (action: ChromeEvents['omnibox:answer-action']) => void
       onAnswerLink: (href: string) => void
       onAuth: (requestId: number, login: { username: string; password: string } | null) => void
+      onPasswordAnswer: (choice: 'save' | 'never' | 'dismiss') => void
       onCleanup: (ids: TabId[] | null) => void
       onWorkspaceSave: (edit: WorkspaceEdit) => void
       onWorkspaceRemove: (id: string) => void
@@ -137,6 +140,10 @@ export class Overlay {
       this.hooks.onAuth(requestId as number, answer)
       this.hooks.onPopupClosed()
     })
+    handle('overlay:password-answer', (choice) => {
+      if (choice !== 'save' && choice !== 'never' && choice !== 'dismiss') throw new Error('Invalid arguments')
+      this.hooks.onPasswordAnswer(choice)
+    })
     handle('overlay:cleanup', (ids) => {
       const list = Array.isArray(ids) && ids.every(Number.isInteger) ? (ids as TabId[]) : null
       this.cleanup = null
@@ -180,6 +187,12 @@ export class Overlay {
     this.auth = auth
     this.render()
     if (auth) this.view.webContents.focus()
+  }
+
+  /** It doesn't take focus, as the person is usually still typing or waiting for the next page. */
+  setPasswordPrompt(prompt: PasswordPromptState | null): void {
+    this.passwordPrompt = prompt
+    this.render()
   }
 
   openCleanup(cleanup: CleanupPopupState): void {
@@ -252,7 +265,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
   }
 
   private render(): void {

@@ -1,10 +1,14 @@
 import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
+import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
 import { Tab } from './Tab'
 import { WorkspaceBar } from './WorkspaceBar'
+
+const MIN_SIDEBAR = 180
+const MAX_SIDEBAR = 480
 
 export function VerticalTabs() {
   const tabs = useTabs((s) => s.tabs)
@@ -13,6 +17,8 @@ export function VerticalTabs() {
   // A narrow window has no room for titles, whatever the setting says.
   const compact = useApp((s) => s.compact)
   const collapsed = useApp((s) => s.settings.verticalTabsCollapsed) || compact
+  const savedWidth = useApp((s) => s.settings.sidebarWidth)
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const newTab = () => void window.scb.invoke('tabs:create')
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
@@ -20,10 +26,27 @@ export function VerticalTabs() {
   return (
     <aside
       className={cx(
-        'flex shrink-0 flex-col gap-1 border-r border-border px-1.5 py-1.5 transition-[width] duration-(--sc-duration-base) ease-out',
-        collapsed ? 'w-12' : 'w-60'
+        'relative flex shrink-0 flex-col gap-1 border-r border-border px-1.5 py-1.5 ease-out',
+        collapsed && 'w-12',
+        dragWidth === null && 'transition-[width] duration-(--sc-duration-base)'
       )}
+      style={collapsed ? undefined : { width: dragWidth ?? savedWidth }}
     >
+      {!collapsed && (
+        <ResizeHandle
+          label="Sidebar width"
+          edge="right"
+          width={dragWidth ?? savedWidth}
+          min={MIN_SIDEBAR}
+          max={MAX_SIDEBAR}
+          onWidth={setDragWidth}
+          onCommit={(sidebarWidth) => {
+            void window.scb.invoke('settings:set', { sidebarWidth })
+            setDragWidth(null)
+          }}
+          onDragging={(dragging) => void window.scb.invoke('layout:resizing', dragging)}
+        />
+      )}
       <div
         role="tablist"
         aria-label="Tabs"

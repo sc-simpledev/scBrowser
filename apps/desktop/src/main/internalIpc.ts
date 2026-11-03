@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { buildSuggestions, DEFAULT_SETTINGS, engineById, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
@@ -15,6 +15,8 @@ import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
 import { isPrivate } from './private'
 import type { PrivacyService } from './privacy/service'
+import type { PasswordEntry } from '@scbrowser/shared'
+import { isReportSave, saveReport } from './reportExport'
 import type { Reporter } from './reporter'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -24,6 +26,8 @@ import type { PermissionsRepo } from './storage/permissions'
 import type { SyncService } from './sync'
 import type { TabManager } from './tabs/TabManager'
 import type { UpdateService } from './updater'
+import { copySecret } from './passwordFill'
+import type { PasswordVault } from './passwords'
 import type { VpnService } from './vpn'
 
 const CHANNEL = 'internal:call'
@@ -47,6 +51,7 @@ interface InternalServices {
   reporter: Reporter
   blocker: SiteBlocker
   vpn: VpnService
+  passwords: PasswordVault
   updates: UpdateService
   /** The intro's tab takes over the window, or gives it back. */
   setIntro: (tabId: number | null) => void
@@ -95,7 +100,7 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
 }
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, updates, setIntro } = services
+  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
@@ -135,8 +140,12 @@ export function registerInternalIpc(services: InternalServices): () => void {
       onBookmarksChanged()
     },
     'bookmarks:groups': () => bookmarks.groups(),
-    'bookmarks:add-group': (name) => {
-      const id = bookmarks.addGroup(text(name, 80))
+    'bookmarks:move-group': (id, parentId) => {
+      bookmarks.moveGroup(int(id), parentId === null ? null : int(parentId))
+      onBookmarksChanged()
+    },
+    'bookmarks:add-group': (name, parentId) => {
+      const id = bookmarks.addGroup(text(name, 80), parentId === null ? null : int(parentId))
       onBookmarksChanged()
       return id
     },
@@ -288,6 +297,32 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const id = caller && tabs.tabIdFor(caller)
       if (id) tabs.navigate(id, '')
     },
+    'passwords:state': () => passwords.state(),
+    'passwords:create': (master) => passwords.create(text(master, 1024)),
+    'passwords:unlock': (master) => passwords.unlock(text(master, 1024)),
+    'passwords:lock': () => passwords.lock(),
+    'passwords:change-master': (current, next) => passwords.changeMaster(text(current, 1024), text(next, 1024)),
+    'passwords:reset': () => passwords.reset(),
+    'passwords:list': () => passwords.list(),
+    'passwords:reveal': (id) => passwords.reveal(text(id, 64)),
+    'passwords:save': (entry) => {
+      const { id, url, username, password, note } = (entry ?? {}) as Partial<PasswordEntry>
+      return passwords.saveEntry({ ...(id === undefined ? {} : { id: text(id, 64) }), url: text(url, 2048), username: text(username, 1024), password: text(password, 4096), note: text(note, 1024) })
+    },
+    'passwords:remove': (id) => passwords.remove(text(id, 64)),
+    'passwords:copy': (id) => copySecret(passwords.reveal(text(id, 64))),
+    'passwords:import': async () => {
+      const picked = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] })
+      const path = picked.filePaths[0]
+      if (picked.canceled || !path) return null
+      return passwords.importCsv(await readFile(path, 'utf8'))
+    },
+    'passwords:export': async () => {
+      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, { defaultPath: 'scTerra passwords.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] })
+      if (result.canceled || !result.filePath) return false
+      await writeFile(result.filePath, passwords.exportCsv(), { mode: 0o600 })
+      return true
+    },
     'vpn:state': () => vpn.state(),
     'vpn:add': (links, groupId) => vpn.add(text(links, 4_000_000), optionalId(groupId)),
     'vpn:subscribe': (url, name) => vpn.subscribe(text(url), text(name, 80)),
@@ -298,22 +333,20 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'vpn:move': (id, groupId) => vpn.moveToGroup(text(id, 64), optionalId(groupId)),
     'vpn:remove': (id) => vpn.remove(text(id, 64)),
     'vpn:select': (id) => vpn.select(text(id, 64)),
-    'vpn:set-enabled': (enabled) => vpn.setEnabled(enabled === true),
+    'vpn:set-enabled': (enabled) => (enabled === true ? vpn.turnOn() : vpn.setEnabled(false)),
+    'vpn:set-route': async (scope, method) => {
+      settings.set({ vpnScope: scope === 'computer' ? 'computer' : 'browser', vpnMethod: method === 'tun' ? 'tun' : 'proxy' })
+      if (vpn.summary().enabled) await vpn.setEnabled(true)
+    },
     'vpn:ping': (ids) => {
       if (!Array.isArray(ids) || ids.length > 20_000) throw new Error('Too many connections')
       void vpn.ping(ids.map((id) => text(id, 64)), settings.get().vpnPingTimeout)
     },
     'vpn:ping-stop': () => vpn.stopPing(),
     'vpn:ping-progress': () => vpn.pingProgress(),
-    'report:save': async (name, html) => {
-      const title = text(name, 200).replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || 'Report'
-      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, {
-        defaultPath: `${title}.html`,
-        filters: [{ name: 'Web page', extensions: ['html'] }]
-      })
-      if (result.canceled || !result.filePath) return false
-      await writeFile(result.filePath, text(html, 8_000_000))
-      return true
+    'report:save': (...args) => {
+      if (!isReportSave(args)) throw new Error('Invalid report')
+      return saveReport(window, ...args)
     },
     'updates:state': () => updates.state(),
     'updates:check': () => updates.check(),

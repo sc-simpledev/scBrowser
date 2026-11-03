@@ -5,9 +5,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { migrate } from './storage/database'
 import { KeyValueRepo } from './storage/kv'
+import { bypassRules, parseBypassList, type VpnMethod, type VpnScope } from '@scbrowser/shared'
+import { detectBackends, makeSystemProxy, type SystemProxy } from './systemProxy'
 import { pingHost, VpnService } from './vpn'
 
-function setup(fetchText: (url: string) => Promise<string> = async () => '') {
+function setup(fetchText: (url: string) => Promise<string> = async () => '', route: { scope: VpnScope; method: VpnMethod } = { scope: 'browser', method: 'proxy' }) {
   const db = new DatabaseSync(':memory:')
   migrate(db)
   const kv = new KeyValueRepo(db)
@@ -16,6 +18,10 @@ function setup(fetchText: (url: string) => Promise<string> = async () => '') {
     kv,
     vault: { encrypt: async (v: string) => `sealed:${v}`, decrypt: async (v: string) => v.slice('sealed:'.length) },
     corePath: () => '/nowhere/xray',
+    route: () => route,
+    autoFastest: () => false,
+    systemProxy: null as SystemProxy | null,
+    tun: null,
     applyProxy: async (rules: string | null) => void proxies.push(rules),
     fetchText,
     probeTarget: { host: 'probe.example', port: 80 },
@@ -128,5 +134,119 @@ describe('VpnService saving', () => {
     expect(await vpn.add(SECRET, null)).toEqual({ added: 1, skipped: 0 })
     expect(vpn.state().connections).toHaveLength(1)
     expect(vpn.state().error).toContain("couldn't be saved")
+  })
+})
+
+describe('whole-computer VPN', () => {
+  it('stays on the browser by default and refuses a method this computer lacks', async () => {
+    const { vpn, proxies } = setup(undefined, { scope: 'computer', method: 'tun' })
+    await vpn.add('http://proxy.example:8080#Plain', null)
+    await vpn.setEnabled(true)
+    expect(vpn.summary().enabled).toBe(false)
+    expect(vpn.summary().error).toContain('TUN')
+    expect(proxies.at(-1)).toBeNull()
+    expect(setup().vpn.state().scope).toBe('browser')
+    expect(setup().vpn.state().method).toBe('proxy')
+  })
+
+  it('puts a system proxy back after a crash, unless the person has since changed it', () => {
+    const fake = (current: string) => {
+      const restored: string[] = []
+      const systemProxy: SystemProxy = { read: () => current, apply: () => undefined, restore: (saved) => void restored.push(saved), watchForCrash: () => ({ stop: () => undefined }) }
+      return { systemProxy, restored }
+    }
+    const { deps, kv } = setup()
+    kv.set('vpn:system-proxy', JSON.stringify({ before: 'theirs', applied: 'ours' }))
+    const crashed = fake('ours')
+    new VpnService({ ...deps, systemProxy: crashed.systemProxy })
+    expect(crashed.restored).toEqual(['theirs'])
+    expect(kv.get('vpn:system-proxy')).toBeUndefined()
+
+    kv.set('vpn:system-proxy', JSON.stringify({ before: 'theirs', applied: 'ours' }))
+    const changed = fake('something new')
+    new VpnService({ ...deps, systemProxy: changed.systemProxy })
+    expect(changed.restored).toEqual([])
+  })
+})
+
+describe('system proxy commands', () => {
+  const recorder = (answers: Record<string, string> = {}) => {
+    const commands: string[][] = []
+    const run = (command: string[]) => {
+      commands.push(command)
+      const answer = Object.entries(answers).find(([match]) => command.join(' ').includes(match))
+      if (answers.fail && command.join(' ').includes(answers.fail)) throw new Error('missing')
+      return answer?.[1] ?? ''
+    }
+    return { commands, run: run as never }
+  }
+  const PORTS = { host: '127.0.0.1', httpPort: 1111, socksPort: 2222 }
+
+  it('sets and restores KDE and the GTK setting KDE apps also use', () => {
+    const { commands, run } = recorder({ 'kreadconfig6 --file kioslaverc --group Proxy Settings --key ProxyType': '0', 'proxy mode': "'none'" })
+    const proxy = makeSystemProxy(detectBackends('linux', 'KDE', run), run)!
+    const before = proxy.read()
+    commands.length = 0
+    proxy.apply(PORTS)
+    const written = commands.map((c) => c.join(' '))
+    expect(written).toContain('kwriteconfig6 --file kioslaverc --group Proxy Settings --key httpProxy http://127.0.0.1 1111')
+    expect(written).toContain('kwriteconfig6 --file kioslaverc --group Proxy Settings --key socksProxy socks://127.0.0.1 2222')
+    expect(written).toContain('gsettings set org.gnome.system.proxy mode manual')
+    expect(written.some((c) => c.startsWith('dbus-send'))).toBe(true)
+    commands.length = 0
+    proxy.restore(before)
+    const undone = commands.map((c) => c.join(' '))
+    expect(undone).toContain('kwriteconfig6 --file kioslaverc --group Proxy Settings --key ProxyType 0')
+    expect(undone).toContain('kwriteconfig6 --file kioslaverc --group Proxy Settings --key httpProxy --delete')
+    expect(undone).toContain("gsettings set org.gnome.system.proxy mode 'none'")
+  })
+
+  it('finds nothing to set on a desktop without either', () => {
+    const { run } = recorder({ fail: 'gsettings' })
+    expect(makeSystemProxy(detectBackends('linux', 'XFCE', run), run)).toBeNull()
+  })
+
+  it('writes the Windows registry and tells running apps', () => {
+    const { commands, run } = recorder({ ProxyEnable: '    ProxyEnable    REG_DWORD    0x0', ProxyServer: '    ProxyServer    REG_SZ    old:1' })
+    const proxy = makeSystemProxy(detectBackends('win32', '', run), run)!
+    const before = proxy.read()
+    commands.length = 0
+    proxy.apply(PORTS)
+    expect(commands.some((c) => c.join(' ').includes('http=127.0.0.1:1111;https=127.0.0.1:1111;socks=127.0.0.1:2222'))).toBe(true)
+    expect(commands.at(-1)?.[0]).toBe('powershell')
+    commands.length = 0
+    proxy.restore(before)
+    expect(commands[0]?.join(' ')).toContain('ProxyServer /t REG_SZ /d old:1')
+    expect(commands[1]?.join(' ')).toContain('ProxyEnable /t REG_DWORD /d 0')
+  })
+})
+
+describe('VPN conveniences', () => {
+  it('stays closed when connecting at start fails, until it is turned off', async () => {
+    const { vpn, proxies } = setup()
+    await vpn.add('trojan://x@t.example:443?security=tls#Node', null)
+    await vpn.holdPages()
+    await vpn.connectAtStart()
+    expect(vpn.summary().enabled).toBe(true)
+    expect(vpn.summary().error).toContain('won’t load')
+    expect(proxies.at(-1)).toContain('127.0.0.1')
+    await vpn.setEnabled(false)
+    expect(vpn.summary().enabled).toBe(false)
+    expect(proxies.at(-1)).toBeNull()
+  })
+
+  it('lets pages through at start if there is nothing to connect to', async () => {
+    const { vpn, proxies } = setup()
+    await vpn.holdPages()
+    await vpn.connectAtStart()
+    expect(proxies.at(-1)).toBeNull()
+    expect(vpn.summary().enabled).toBe(false)
+  })
+})
+
+describe('VPN bypass list', () => {
+  it('tidies what was typed, and covers subdomains', () => {
+    expect(parseBypassList('https://Example.com/path\nbank.example.org, *.corp.test\nnot a si!te\nexample.com')).toEqual(['example.com', 'bank.example.org', '*.corp.test', 'not', 'a'])
+    expect(bypassRules(['example.com', '*.corp.test'])).toBe('example.com;*.example.com;*.corp.test')
   })
 })

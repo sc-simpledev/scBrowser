@@ -14,6 +14,7 @@ import {
 } from '@scbrowser/shared'
 import { AnswerCard } from './AnswerCard'
 import { AuthPopup } from './AuthPopup'
+import { PasswordPrompt } from './PasswordPrompt'
 import { BookmarkEditor } from './BookmarkEditor'
 import { CleanupPopup } from './CleanupPopup'
 import { CommandPalette } from './CommandPalette'
@@ -23,7 +24,7 @@ import { WorkspaceEditor } from './WorkspaceEditor'
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
@@ -34,7 +35,7 @@ export function OverlayApp() {
     return () => window.removeEventListener('pointermove', clear)
   }, [])
 
-  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor, auth, cleanup, workspaceEditor } = state
+  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -73,6 +74,7 @@ export function OverlayApp() {
       )}
       {bookmarkEditor && <BookmarkEditor key={bookmarkEditor.id} editor={bookmarkEditor} x={bookmarkEditor.x - origin.x} y={bookmarkEditor.y - origin.y} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
+      {passwordPrompt && <PasswordPrompt prompt={passwordPrompt} x={passwordPrompt.x - origin.x} y={passwordPrompt.y - origin.y} />}
       {auth && <AuthPopup key={auth.requestId} auth={auth} x={auth.x - origin.x} y={auth.y - origin.y} />}
       {cleanup && <CleanupPopup cleanup={cleanup} x={cleanup.x - origin.x} y={cleanup.y - origin.y} />}
       {workspaceEditor && <WorkspaceEditor key={workspaceEditor.id ?? 'new'} editor={workspaceEditor} x={workspaceEditor.x - origin.x} y={workspaceEditor.y - origin.y} />}

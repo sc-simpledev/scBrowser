@@ -194,6 +194,7 @@ export class SyncService {
     const names = new Map(groups.map(({ id, name }) => [id, name]))
     return {
       groups: Object.fromEntries(groups.map(({ name }) => [name, true as const])),
+      folders: Object.fromEntries(groups.flatMap(({ name, parentId }) => (parentId !== null && names.has(parentId) ? [[name, names.get(parentId)!]] : []))),
       placements: Object.fromEntries(bookmarks.list().flatMap(({ url, groupId }) => (groupId !== null && names.has(groupId) ? [[url, names.get(groupId)!]] : []))),
       bookmarks: Object.fromEntries(bookmarks.list().map(({ url, title }) => [url, title])),
       // With history switched off, leave what's in the folder as it is.
@@ -247,6 +248,13 @@ export class SyncService {
       changed = true
     }
     const ids = new Map(bookmarks.groups().map(({ id, name }) => [name, id]))
+    for (const { id, name, parentId } of bookmarks.groups()) {
+      const parent = merged.folders?.[name]
+      const target = parent === undefined ? null : (ids.get(parent) ?? null)
+      if (target === parentId) continue
+      bookmarks.moveGroup(id, target)
+      changed = true
+    }
     for (const { id, url, groupId } of bookmarks.list()) {
       const name = merged.placements?.[url]
       const target = name === undefined ? null : (ids.get(name) ?? null)

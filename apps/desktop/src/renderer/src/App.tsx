@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { TooltipProvider } from '@scbrowser/ui'
-import { AssistantPanel } from './components/AssistantPanel'
+import { AssistantPanel, AssistantReport } from './components/AssistantPanel'
 import { BookmarksBar } from './components/BookmarksBar'
 import { FindBar } from './components/FindBar'
 import { PageSlot } from './components/PageSlot'
@@ -29,6 +29,7 @@ export function App() {
         <div className="flex min-h-0 flex-1">
           {vertical && <VerticalTabs />}
           <PageSlot />
+          <AssistantReport />
           <AssistantPanel />
         </div>
       </div>

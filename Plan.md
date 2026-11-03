@@ -25,7 +25,7 @@ Greenfield project (empty folder at `~/Alex's Folder/scSpace/scBrowser`). Goal: 
 
 Built but needs a manual check, as automated tests can't drive them: print dialog, camera and microphone prompts, fullscreen video, Ctrl+scroll zoom, save-as dialogs, set as default browser (packaged builds only; Windows opens system settings).
 
-Known limits to pick up later: geolocation needs a Google API key in Electron; bookmarks have no folders yet; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
+Known limits to pick up later: geolocation needs a Google API key in Electron; one window only (no Ctrl+N or private windows); tab drag has no spring animation yet.
 
 **Phase 2 — done.**
 - [x] Provider layer: Anthropic (official SDK), OpenAI, Gemini, OpenRouter, Ollama, LM Studio, custom endpoints with extra headers
@@ -65,7 +65,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Phase 5 — built.** The rest of shipping (signing, stores, update channels) waits until the product is ready.
 - [x] Extensions: Chrome Web Store installs and unpacked folders, in every container, with toolbar buttons, popups, right-click items and `chrome.tabs`, using `electron-chrome-extensions` and `electron-chrome-web-store`. Firefox extensions can't run on Chromium
-- [x] Password managers, through extensions. Bitwarden from the Web Store installs and opens its popup; signing in and autofill need a manual check. A native vault is a later job
+- [x] Password managers, through extensions. Bitwarden from the Web Store installs and opens its popup; signing in and autofill need a manual check. There's also a built-in vault (see Passwords)
 - [x] Encrypted sync of bookmarks, history and settings, through a folder the person already syncs (Syncthing, Dropbox and so on). Passphrase-derived key with scrypt, AES-256-GCM. The format can move to a hosted service later
 - [x] Crash reports and usage stats, both off by default. Crashes are always logged locally for Settings. Reports contain no page data and go to `POST /v1/reports` on the hosted server. Native minidumps aren't collected
 
@@ -73,9 +73,11 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **Site blocker.** `sc://blocker`: block sites always, at set times or in Focus Mode (the same mode as Study Mode), with custom messages and an allowlist. Site categories are checked by the AI once per host, sending only the host name, always or only in Focus Mode. The block page offers a new tab or continuing, which lasts 15 minutes.
 
-**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. It covers every browser session, including containers and the assistant's requests, not other apps, and fails closed if the core stops. Ping loads a real 204 page through each connection, with a time limit set on `sc://vpn`.
+**VPN.** `sc://vpn`: paste links or add a subscription, sort them into groups and ping them. Plain HTTP and SOCKS proxies go through Chromium itself. VLESS, VMess, Trojan, Shadowsocks and proxies with passwords run through a bundled Xray core, which ships inside the installers. `apps/desktop/scripts/fetch-xray.mjs` downloads it at build time, at a pinned version and checksum, and packaging stops without it. By default it covers every browser session, including containers and the assistant's requests, not other apps, and fails closed if the core stops. It can cover the whole computer instead, by system proxy (the default: KDE, GNOME, Windows and macOS settings, put back when it turns off, and by a watcher process after a crash) or TUN (Linux only for now: asks for a password through pkexec, and removes its routes when scTerra stops). It can connect when scTerra starts, holding pages back until it has and keeping them blocked if it can't. Turning on can pick the fastest working connection in the same group. Listed sites can skip the VPN, inside scTerra only. Ping loads a real 204 page through each connection, with a time limit set on `sc://vpn`.
 
-**Bookmark groups.** Groups sit on the bar with bookmarks, drag to rearrange or into a group, and open as menus. Group names and membership sync, by name. Their order on the bar doesn't.
+**Bookmark folders.** Folders sit on the bar with bookmarks, drag to rearrange or into a folder, and open as menus. They nest to any depth, managed on `sc://bookmarks`, and deleting one moves what's inside up a level. Names, membership and nesting sync, by name, so two folders with one name merge. Their order on the bar doesn't sync. In the code they're still called groups (`BookmarkGroup`, `bookmark_groups`).
+
+**Passwords.** `sc://passwords` is a built-in vault, sealed with a master password that's never stored (scrypt, AES-256-GCM), on this computer only. It locks itself after a chosen time and when the computer sleeps or locks. After a sign-in it offers to save or update; the key button or Ctrl Shift L fills a login, only on request and only on the exact same site. It imports and exports CSV. Top-level pages only, no iframes. Not in private windows.
 
 **Private windows.** Ctrl Shift N starts a separate copy of the app from a throwaway folder in the system temp directory, like a profile. It brings bookmarks and settings, but no history, AI keys or extensions, and a small watcher process deletes the folder after it closes or crashes.
 
@@ -95,7 +97,9 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; b
 
 **macOS.** Builds for Apple silicon and Intel, with Mac shortcuts, window controls and menus. Not yet run on a real Mac.
 
-**Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scTerra applies one of three prebuilt designs (`packages/ui/src/content.css`). `sc://assistant` is the full-page chat.
+**Assistant.** Replies that are long or plans can be reports: the model writes blocks of plain text, and scTerra applies one of three prebuilt designs (`packages/ui/src/content.css`). A report appears as a card that opens a side page beside the conversation, with copy and download as PDF, HTML, Markdown or Word. A box there asks for a change, and each new draft becomes a version to step through. Its design can be switched, for viewing and downloading. `sc://assistant` is the full-page chat, without the browser pages sidebar.
+
+**Resizable sidebars.** The vertical tabs, assistant and report side page drag wider or narrower, or move with the arrow keys, and keep their widths.
 
 **Hosted AI.** `server/` is a Deno service that lets people use scTerra AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 

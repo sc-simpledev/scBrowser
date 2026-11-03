@@ -51,9 +51,9 @@ test('the star edits the name, and bookmarks can be grouped and edited from the 
 
   await go(h, 'sc://bookmarks')
   const page = await h.page('sc://bookmarks')
-  await page.getByRole('textbox', { name: 'New group name' }).fill('Work')
-  await page.getByRole('button', { name: 'Add group' }).click()
-  await page.getByRole('combobox', { name: 'Group for Renamed' }).selectOption({ label: 'Work' })
+  await page.getByRole('textbox', { name: 'New folder name' }).fill('Work')
+  await page.getByRole('button', { name: 'Add folder' }).click()
+  await page.getByRole('combobox', { name: 'Folder for Renamed' }).selectOption({ label: 'Work' })
   await expect(page.getByRole('region', { name: 'Work' }).getByText('Renamed')).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Work' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Renamed' })).toHaveCount(0)
@@ -77,8 +77,8 @@ test('bookmarks drag along the bar and into a group', async () => {
   await expect(bar.getByRole('button')).toHaveText(['/two', '/one'])
 
   const page = await h.page('sc://bookmarks')
-  await page.getByRole('textbox', { name: 'New group name' }).fill('Work')
-  await page.getByRole('button', { name: 'Add group' }).click()
+  await page.getByRole('textbox', { name: 'New folder name' }).fill('Work')
+  await page.getByRole('button', { name: 'Add folder' }).click()
   await bar.getByRole('button', { name: '/one' }).dragTo(bar.getByRole('button', { name: 'Work' }))
   await expect(bar.getByRole('button', { name: '/one' })).toHaveCount(0)
 })
@@ -138,6 +138,20 @@ test('a category check sends only the site name, once per site', async () => {
   await go(h, 'http://games.invalid/another')
   await expect(await h.page('sc://blocked')).toBeTruthy()
   expect(mock.requests.length).toBe(before + 1)
+})
+
+test('the VPN covers just the browser unless the person chooses the whole computer', async () => {
+  await go(h, 'sc://vpn')
+  const page = await h.page('sc://vpn')
+  const section = page.getByRole('region', { name: 'What the VPN covers' })
+  await expect(section.getByRole('radio', { name: /Just scTerra/ })).toBeChecked()
+  await expect(section.getByRole('radio', { name: /System proxy/ })).toHaveCount(0)
+  await section.getByRole('radio', { name: /This whole computer/ }).check()
+  await expect(section.getByRole('radio', { name: /System proxy/ })).toBeChecked()
+  await expect(section.getByRole('radio', { name: /TUN/ })).not.toBeChecked()
+  await expect(page.getByRole('region', { name: 'Status' })).toContainText('follow the system proxy')
+  await section.getByRole('radio', { name: /Just scTerra/ }).check()
+  await expect(page.getByRole('region', { name: 'Status' })).toContainText('Only scTerra uses this')
 })
 
 test('with a connection added, the VPN carries pages through it and turns off cleanly', async () => {

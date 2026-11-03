@@ -26,6 +26,9 @@ export class BookmarksRepo {
   private readonly renameGroup_: StatementSync
   private readonly deleteGroup: StatementSync
   private readonly setGroupPosition: StatementSync
+  private readonly setParent: StatementSync
+  private readonly liftBookmarks: StatementSync
+  private readonly liftFolders: StatementSync
   private readonly nextPosition: StatementSync
   private readonly iconsQuery: StatementSync
   private readonly saveIcon: StatementSync
@@ -39,10 +42,13 @@ export class BookmarksRepo {
     this.edit_ = db.prepare(`UPDATE bookmarks SET title = ?, url = ? WHERE id = ?`)
     this.setGroup_ = db.prepare(`UPDATE bookmarks SET group_id = ?, position = ? WHERE id = ?`)
     this.setPosition = db.prepare(`UPDATE bookmarks SET position = ? WHERE id = ?`)
-    this.groupsQuery = db.prepare(`SELECT id, name, position FROM bookmark_groups ORDER BY position, id`)
-    this.insertGroup = db.prepare(`INSERT INTO bookmark_groups (name, position) VALUES (?, ?)`)
+    this.groupsQuery = db.prepare(`SELECT id, name, position, parent_id AS parentId FROM bookmark_groups ORDER BY position, id`)
+    this.insertGroup = db.prepare(`INSERT INTO bookmark_groups (name, position, parent_id) VALUES (?, ?, ?)`)
     this.renameGroup_ = db.prepare(`UPDATE bookmark_groups SET name = ? WHERE id = ?`)
     this.deleteGroup = db.prepare(`DELETE FROM bookmark_groups WHERE id = ?`)
+    this.setParent = db.prepare(`UPDATE bookmark_groups SET parent_id = ?, position = ? WHERE id = ?`)
+    this.liftBookmarks = db.prepare(`UPDATE bookmarks SET group_id = ? WHERE group_id = ?`)
+    this.liftFolders = db.prepare(`UPDATE bookmark_groups SET parent_id = ? WHERE parent_id = ?`)
     this.setGroupPosition = db.prepare(`UPDATE bookmark_groups SET position = ? WHERE id = ?`)
     this.iconsQuery = db.prepare(`SELECT host, icon FROM site_icons`)
     this.saveIcon = db.prepare(`INSERT INTO site_icons (host, icon) VALUES (?, ?) ON CONFLICT (host) DO UPDATE SET icon = excluded.icon`)
@@ -80,16 +86,28 @@ export class BookmarksRepo {
     return this.groupsQuery.all() as unknown as BookmarkGroup[]
   }
 
-  addGroup(name: string): number {
-    return Number(this.insertGroup.run(name, this.next()).lastInsertRowid)
+  addGroup(name: string, parentId: number | null = null): number {
+    return Number(this.insertGroup.run(name, this.next(), parentId).lastInsertRowid)
+  }
+
+  /** Moves a folder inside another, or onto the bar with null. A folder can't go inside itself. */
+  moveGroup(id: number, parentId: number | null): void {
+    const groups = this.groups()
+    for (let at = parentId; at !== null; at = groups.find((group) => group.id === at)?.parentId ?? null) {
+      if (at === id) return
+    }
+    this.setParent.run(parentId, this.next(), id)
   }
 
   renameGroup(id: number, name: string): void {
     this.renameGroup_.run(name, id)
   }
 
-  /** The bookmarks inside go back onto the bar. */
+  /** What's inside moves up a level, so deleting a folder never loses a bookmark. */
   removeGroup(id: number): void {
+    const parentId = this.groups().find((group) => group.id === id)?.parentId ?? null
+    this.liftBookmarks.run(parentId, id)
+    this.liftFolders.run(parentId, id)
     this.deleteGroup.run(id)
   }
 

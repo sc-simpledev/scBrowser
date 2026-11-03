@@ -26,8 +26,17 @@ export interface VpnPingProgress {
   total: number
 }
 
+/** How much of the computer's traffic the VPN carries. */
+export type VpnScope = 'browser' | 'computer'
+/** How the whole computer is covered: apps that follow the system's proxy setting, or every app through a virtual network device. */
+export type VpnMethod = 'proxy' | 'tun'
+
 export interface VpnState {
   pings: VpnPings
+  scope: VpnScope
+  method: VpnMethod
+  /** What this computer can do. A method is null when it's usable, otherwise the reason it isn't. */
+  unavailable: Record<VpnMethod, string | null>
   enabled: boolean
   connecting: boolean
   activeId: string | null
@@ -208,8 +217,9 @@ function streamSettings(link: ParsedLink): Record<string, unknown> {
   return stream
 }
 
-function outbound(link: ParsedLink): Record<string, unknown> {
-  const { host: address, port, username, password, params } = link
+/** `address` replaces where to connect, while TLS still names the server from the link. */
+function outbound(link: ParsedLink, address = link.host): Record<string, unknown> {
+  const { port, username, password, params } = link
   switch (link.protocol) {
     case 'vless':
       return { protocol: 'vless', settings: { vnext: [{ address, port, users: [{ id: username, encryption: params.encryption || 'none', ...(params.flow ? { flow: params.flow } : {}) }] }] }, streamSettings: streamSettings(link) }
@@ -254,6 +264,59 @@ export function xrayConfig(link: ParsedLink, localPort: number): unknown {
     outbounds: [outbound(link)]
   }
 }
+
+export interface WholeComputerConfig {
+  socksPort: number
+  /** For apps following the system proxy, many of which only speak HTTP. */
+  httpPort?: number
+  /** Takes every app's traffic from a virtual network device. */
+  tun?: { device: string; mark: number; serverAddress: string }
+}
+
+/**
+ * The same, for the whole computer. With TUN, the core's own connections carry a mark so the
+ * routing rules let them out instead of looping back into the device. DNS is answered through
+ * the connection too, because some kinds of server can't carry the UDP it normally uses.
+ */
+export function xrayComputerConfig(link: ParsedLink, { socksPort, httpPort, tun }: WholeComputerConfig): unknown {
+  const local = { listen: '127.0.0.1', settings: {} }
+  const out = outbound(link, tun?.serverAddress)
+  return {
+    log: { loglevel: 'none' },
+    inbounds: [
+      { ...local, port: socksPort, protocol: 'socks', settings: { auth: 'noauth', udp: false } },
+      ...(httpPort ? [{ ...local, port: httpPort, protocol: 'http' }] : []),
+      ...(tun ? [{ tag: 'tun', protocol: 'tun', settings: { name: tun.device, MTU: 1500 }, sniffing: { enabled: true, destOverride: ['http', 'tls'] } }] : [])
+    ],
+    outbounds: tun
+      ? [
+          { ...out, streamSettings: { ...(out.streamSettings as object | undefined), sockopt: { mark: tun.mark } } },
+          { protocol: 'dns', tag: 'dns-out', streamSettings: { sockopt: { mark: tun.mark } } }
+        ]
+      : [out],
+    ...(tun
+      ? {
+          dns: { servers: ['tcp://1.1.1.1'] },
+          routing: { rules: [{ type: 'field', inboundTag: ['tun'], port: 53, outboundTag: 'dns-out' }] }
+        }
+      : {})
+  }
+}
+
+/** A site that skips the VPN: a plain host name, optionally starting with *. for its subdomains. */
+export const isBypassHost = (value: unknown): value is string => typeof value === 'string' && value.length <= 253 && /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(value)
+
+/** Tidies what someone typed or pasted, one site per line, dropping what isn't a site. */
+export function parseBypassList(text: string): string[] {
+  const hosts = text
+    .split(/[\s,]+/)
+    .map((line) => line.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/:].*$/, ''))
+    .filter(isBypassHost)
+  return [...new Set(hosts)]
+}
+
+/** Chromium's bypass rules. A site also covers its subdomains, as people expect from "example.com". */
+export const bypassRules = (hosts: string[]) => hosts.flatMap((host) => (host.startsWith('*.') ? [host] : [host, `*.${host}`])).join(';')
 
 /** Fastest first, with anything that didn't answer last. */
 export function byPing<T extends { id: string }>(items: T[], pings: Record<string, number | null>): T[] {

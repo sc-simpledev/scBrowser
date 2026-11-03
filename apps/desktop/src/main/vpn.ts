@@ -4,26 +4,37 @@ import { existsSync } from 'node:fs'
 import { createServer, connect, type AddressInfo, type Socket } from 'node:net'
 import { join } from 'node:path'
 import {
+  byPing,
   coreRefuses,
   isDirectProxy,
   parseVpnLink,
   proxyRule,
   splitVpnLinks,
+  xrayComputerConfig,
   xrayConfig,
   xrayTestConfig,
   type ParsedLink,
   type VpnAddResult,
   type VpnConnection,
   type VpnGroup,
+  type VpnMethod,
+  type VpnScope,
   type VpnPingProgress,
   type VpnPings,
   type VpnState,
   type VpnSummary
 } from '@scbrowser/shared'
 import type { KeyVault } from './sync'
+import type { ProxyPorts, SystemProxy } from './systemProxy'
+import type { Tunnel, TunnelHandle } from './tun'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'vpn:store'
+/** Points at a port nothing listens on, so pages fail rather than go out directly. */
+const HOLD_RULE = 'socks5://127.0.0.1:9'
+const FASTEST_LIMIT = 300
+/** What the system proxy was before we changed it, so it survives a crash. */
+const RESTORE_KEY = 'vpn:system-proxy'
 const MAX_CONNECTIONS = 20_000
 const PING_TIMEOUT_MS = 3000
 const PING_AT_ONCE = 128
@@ -49,6 +60,14 @@ interface VpnDeps {
   kv: KeyValueRepo
   vault: KeyVault
   corePath: () => string
+  /** The person's choice of how much the VPN covers. */
+  route: () => { scope: VpnScope; method: VpnMethod }
+  /** Turning on first looks for the fastest working connection. */
+  autoFastest: () => boolean
+  /** Null where this desktop has no system proxy we know how to set. */
+  systemProxy: SystemProxy | null
+  /** Null where TUN isn't available. */
+  tun: Tunnel | null
   /** Points every browser session at a proxy, or back to a direct connection. */
   applyProxy: (rules: string | null) => Promise<void>
   fetchText: (url: string) => Promise<string>
@@ -148,10 +167,16 @@ function probeProxy(link: ParsedLink, target: ProbeTarget, timeout: number): Pro
   })
 }
 
+/** The system proxy's values as we found them and as we left them. */
+interface SavedProxy {
+  before: string
+  applied: string
+}
+
 /**
- * Sends the browser's traffic through a connection the person supplies. Only browser
- * sessions are touched, so other apps on the computer are unaffected. Links hold passwords,
- * so they're kept encrypted and never reach a renderer.
+ * Sends traffic through a connection the person supplies. By default only browser sessions
+ * are touched, so other apps are unaffected; they can choose to cover the whole computer.
+ * Links hold passwords, so they're kept encrypted and never reach a renderer.
  */
 export class VpnService {
   private store: Stored = { connections: [], groups: [], activeId: null }
@@ -163,12 +188,17 @@ export class VpnService {
   private connecting = false
   private error: string | null = null
   private core: ChildProcess | null = null
+  private tunnel: TunnelHandle | null = null
+  private proxyWatcher: { stop: () => void } | null = null
   private pings: VpnPings = {}
   private progress: VpnPingProgress = { running: false, done: 0, total: 0 }
   /** Changes when a check starts or stops, so an old one can't report in. */
   private pingRun = 0
+  /** Changes when a connection attempt is abandoned, so a password prompt left open can't connect later. */
+  private startRun = 0
 
   constructor(private readonly deps: VpnDeps) {
+    this.recoverSystemProxy()
     this.ready = this.load().then((store) => {
       this.store = store
       this.deps.onChange()
@@ -203,8 +233,19 @@ export class VpnService {
     return this.saving
   }
 
-  state(): VpnState {
+  private unavailable(): VpnState['unavailable'] {
     return {
+      proxy: this.deps.systemProxy ? null : "scTerra can't set the system proxy on this desktop.",
+      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux for now.'
+    }
+  }
+
+  state(): VpnState {
+    const { scope, method } = this.deps.route()
+    return {
+      scope,
+      method,
+      unavailable: this.unavailable(),
       enabled: this.enabled,
       connecting: this.connecting,
       activeId: this.store.activeId,
@@ -405,9 +446,48 @@ export class VpnService {
     core.kill()
   }
 
+  /** Holds pages back at startup until `connectAtStart` settles, so nothing slips out before the VPN is up. */
+  holdPages(): Promise<void> {
+    return this.deps.applyProxy(HOLD_RULE)
+  }
+
+  /** A failure stays closed, as someone who asked to always connect shouldn't silently browse without it. */
+  async connectAtStart(): Promise<void> {
+    await this.ready
+    if (!this.store.connections.some((connection) => connection.id === this.store.activeId)) return this.deps.applyProxy(null)
+    await this.turnOn()
+    if (this.enabled) return
+    const reason = this.error
+    await this.deps.applyProxy(HOLD_RULE)
+    this.enabled = true
+    this.error = `${reason ?? "The VPN didn't connect."} Pages won’t load until you turn the VPN off or pick another connection.`
+    this.deps.onChange()
+  }
+
+  /** What the on switch does: picks a connection if asked to, then connects. */
+  async turnOn(): Promise<void> {
+    if (this.deps.autoFastest()) await this.pickFastest()
+    await this.setEnabled(true)
+  }
+
+  /** Within the current connection's group, as a free list can be huge and some groups are kept apart on purpose. */
+  private async pickFastest(): Promise<void> {
+    const active = this.store.connections.find((connection) => connection.id === this.store.activeId)
+    const candidates = this.store.connections.filter((connection) => connection.groupId === (active?.groupId ?? null)).slice(0, FASTEST_LIMIT)
+    if (candidates.length < 2) return
+    this.connecting = true
+    this.deps.onChange()
+    const pings = await this.ping(candidates.map(({ id }) => id))
+    const best = byPing(candidates, pings)[0]
+    if (best && pings[best.id]) {
+      this.store.activeId = best.id
+      await this.save()
+    }
+  }
+
   async setEnabled(on: boolean): Promise<void> {
     this.error = null
-    this.stopCore()
+    await this.stopEverything()
     if (!on) {
       this.enabled = false
       await this.deps.applyProxy(null)
@@ -424,10 +504,17 @@ export class VpnService {
     this.connecting = true
     this.deps.onChange()
     try {
-      await this.deps.applyProxy(isDirectProxy(parsed) ? proxyRule(parsed) : await this.startCore(parsed))
+      const { scope, method } = this.deps.route()
+      const rules =
+        scope === 'computer'
+          ? await (method === 'tun' ? this.startTunnel(parsed) : this.startSystemProxy(parsed))
+          : isDirectProxy(parsed)
+            ? proxyRule(parsed)
+            : await this.startCore((port) => xrayConfig(parsed, port))
+      await this.deps.applyProxy(rules)
       this.enabled = true
     } catch (error) {
-      this.stopCore()
+      await this.stopEverything()
       this.enabled = false
       await this.deps.applyProxy(null)
       this.error = error instanceof Error ? error.message : "That connection didn't start."
@@ -437,7 +524,82 @@ export class VpnService {
     }
   }
 
-  private async startCore(link: ParsedLink): Promise<string> {
+  /** The core carries every whole-computer connection, and has no way to speak SOCKS4. */
+  private checkCoreCanCarry(link: ParsedLink): void {
+    if (link.protocol === 'socks4') throw new Error("SOCKS4 servers can't cover the whole computer. Pick another connection, or use just the browser.")
+    if (coreRefuses(link)) throw new Error("This connection can't cover the whole computer, because it has no encryption.")
+    if (!existsSync(this.deps.corePath())) throw new Error('The VPN core is missing from this build.')
+  }
+
+  private async startSystemProxy(link: ParsedLink): Promise<string> {
+    const proxy = this.deps.systemProxy
+    if (!proxy) throw new Error(this.unavailable().proxy!)
+    this.checkCoreCanCarry(link)
+    const httpPort = await freePort()
+    const rules = await this.startCore((socksPort) => xrayComputerConfig(link, { socksPort, httpPort }))
+    const ports: ProxyPorts = { host: '127.0.0.1', httpPort, socksPort: Number(rules.split(':').at(-1)) }
+    // Saved first, so that a crash part way through can still be put right.
+    const before = proxy.read()
+    this.deps.kv.set(RESTORE_KEY, JSON.stringify({ before, applied: '' } satisfies SavedProxy))
+    proxy.apply(ports)
+    this.deps.kv.set(RESTORE_KEY, JSON.stringify({ before, applied: proxy.read() } satisfies SavedProxy))
+    this.proxyWatcher = proxy.watchForCrash(before)
+    return rules
+  }
+
+  /** Puts the system proxy back as it was found. Runs at shutdown too, so it can't wait. */
+  private releaseSystemProxy(): void {
+    this.proxyWatcher?.stop()
+    this.proxyWatcher = null
+    const saved = this.deps.kv.get(RESTORE_KEY)
+    if (typeof saved !== 'string') return
+    try {
+      this.deps.systemProxy?.restore((JSON.parse(saved) as SavedProxy).before)
+    } catch {
+      this.error = "Your system proxy couldn't be put back, so check it in your network settings."
+    } finally {
+      this.deps.kv.delete(RESTORE_KEY)
+    }
+  }
+
+  /** After a crash, only undoes our own change: the person may have set something else since. */
+  private recoverSystemProxy(): void {
+    const saved = this.deps.kv.get(RESTORE_KEY)
+    if (typeof saved !== 'string') return
+    try {
+      const { before, applied } = JSON.parse(saved) as SavedProxy
+      const current = this.deps.systemProxy?.read()
+      if (current !== undefined && (applied === '' || current === applied)) this.deps.systemProxy?.restore(before)
+    } catch {
+      // Nothing more can be done, and it shouldn't stop the browser starting.
+    }
+    this.deps.kv.delete(RESTORE_KEY)
+  }
+
+  private async startTunnel(link: ParsedLink): Promise<string> {
+    const tun = this.deps.tun
+    if (!tun) throw new Error(this.unavailable().tun!)
+    this.checkCoreCanCarry(link)
+    const socksPort = await freePort()
+    const cancelled = this.startRun
+    // Looked up now, as DNS itself goes through the connection once the routes change.
+    const serverAddress = await tun.resolve(link.host)
+    const handle = await tun.start({
+      corePath: this.deps.corePath(),
+      config: (device, mark) => xrayComputerConfig(link, { socksPort, tun: { device, mark, serverAddress } }),
+      onExit: () => {
+        if (this.tunnel !== handle) return
+        this.tunnel = null
+        this.error = 'The connection stopped. Other apps are back on your normal connection, and pages won’t load in scTerra until you turn the VPN off or pick another connection.'
+        this.deps.onChange()
+      },
+      isCancelled: () => cancelled !== this.startRun
+    })
+    this.tunnel = handle
+    return `socks5://127.0.0.1:${socksPort}`
+  }
+
+  private async startCore(config: (port: number) => unknown): Promise<string> {
     const path = this.deps.corePath()
     if (!existsSync(path)) throw new Error('The VPN core is missing from this build, so only plain proxies work.')
     const port = await freePort()
@@ -452,12 +614,17 @@ export class VpnService {
     core.on('exit', () => {
       if (this.core !== core) return
       this.core = null
-      // The proxy stays pointed at the closed port, so pages fail rather than leaking out directly.
-      this.error = 'The connection stopped. Pages won’t load until you turn the VPN off or pick another connection.'
+      // The browser's proxy stays pointed at the closed port, so pages fail rather than leaking
+      // out directly. Other apps go back to normal, as they'd otherwise lose the internet.
+      const covered = this.proxyWatcher !== null
+      this.releaseSystemProxy()
+      this.error = covered
+        ? 'The connection stopped. Other apps are back on your normal connection, and pages won’t load in scTerra until you turn the VPN off or pick another connection.'
+        : 'The connection stopped. Pages won’t load until you turn the VPN off or pick another connection.'
       this.deps.onChange()
     })
     core.stdin?.on('error', () => undefined)
-    core.stdin?.end(JSON.stringify(xrayConfig(link, port)))
+    core.stdin?.end(JSON.stringify(config(port)))
     const deadline = Date.now() + CORE_START_MS
     while (Date.now() < deadline) {
       if (this.core !== core) throw new Error(`That connection didn't start. ${coreReason(output)}`.trim())
@@ -473,10 +640,22 @@ export class VpnService {
     core?.kill()
   }
 
-  /** Closes the core with the browser, so nothing is left listening. */
+  private async stopEverything(): Promise<void> {
+    this.startRun++
+    this.releaseSystemProxy()
+    this.stopCore()
+    const tunnel = this.tunnel
+    this.tunnel = null
+    await tunnel?.stop()
+  }
+
+  /** Closes everything with the browser, so nothing is left listening or pointing at a closed port. */
   stop(): void {
     this.stopped = true
+    this.releaseSystemProxy()
     this.stopCore()
+    // The tunnel removes its own routes once this end of its pipe closes.
+    void this.tunnel?.stop()
   }
 }
 

@@ -23,12 +23,14 @@ export interface SyncData {
   groups?: Record<string, true>
   /** The group each bookmark is in, by address. */
   placements?: Record<string, string>
+  /** The folder each folder sits inside, by name. */
+  folders?: Record<string, string>
 }
 
 export const EMPTY_SYNC: SyncData = { bookmarks: {}, history: {}, settings: {} }
 
 /** These describe this computer, not the person. */
-export const LOCAL_SETTINGS: (keyof Settings)[] = ['downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode', 'autoUpdate']
+export const LOCAL_SETTINGS: (keyof Settings)[] = ['vpnScope', 'vpnMethod', 'vpnAutoConnect', 'vpnAutoFastest', 'assistantWidth', 'reportWidth', 'sidebarWidth', 'passwordLockMinutes', 'passwordOfferSave', 'downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode', 'autoUpdate']
 
 export const MAX_SYNCED_HISTORY = 5000
 
@@ -77,9 +79,11 @@ export function mergeSync(base: SyncData, local: SyncData, remote: SyncData): Sy
   // An older version rewrote the file without groups, which isn't the same as deleting them.
   const groups = remote.groups ? mergeEntries(base.groups ?? {}, local.groups ?? {}, remote.groups) : (local.groups ?? {})
   const placements = remote.placements ? mergeEntries(base.placements ?? {}, local.placements ?? {}, remote.placements) : (local.placements ?? {})
+  const folders = remote.folders ? mergeEntries(base.folders ?? {}, local.folders ?? {}, remote.folders) : (local.folders ?? {})
   return {
     groups,
     placements,
+    folders,
     bookmarks: mergeEntries(base.bookmarks, local.bookmarks, remote.bookmarks),
     history: recent(mergeEntries(base.history, local.history, remote.history, newestVisit)),
     settings: mergeEntries(base.settings, local.settings, remote.settings) as Partial<Settings>

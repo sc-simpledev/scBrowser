@@ -1,9 +1,13 @@
+import { PASSWORD_LOCK_CHOICES } from './passwords'
+import { isBypassHost, type VpnMethod, type VpnScope } from './vpn'
 import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
 import { isToolbarOrder, TOOLBAR_ITEMS, TOOLBAR_SLOTS, type ToolbarItemId, type ToolbarSlot } from './containers'
 import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
+
+const isWidth = (v: unknown) => Number.isInteger(v) && (v as number) >= 160 && (v as number) <= 2000
 
 export interface EngineOption extends SearchEngine {
   id: string
@@ -83,6 +87,21 @@ export interface Settings {
   newTab: NewTabConfig
   /** How long a VPN ping waits before moving to the next connection. */
   vpnPingTimeout: number
+  vpnScope: VpnScope
+  vpnMethod: VpnMethod
+  /** Connect as soon as scTerra starts, holding pages back until it has. */
+  vpnAutoConnect: boolean
+  /** Turning the VPN on first picks the fastest working connection in the same group. */
+  vpnAutoFastest: boolean
+  /** Sites that go direct instead of through the VPN, like example.com. */
+  vpnBypass: string[]
+  /** Widths in pixels of what can be dragged wider or narrower. */
+  assistantWidth: number
+  reportWidth: number
+  sidebarWidth: number
+  /** Minutes unused before passwords lock again, or 0 for only when closed. */
+  passwordLockMinutes: number
+  passwordOfferSave: boolean
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -119,6 +138,16 @@ export const DEFAULT_SETTINGS: Settings = {
   translateTo: 'English',
   newTab: DEFAULT_NEW_TAB,
   vpnPingTimeout: 3000,
+  vpnScope: 'browser',
+  vpnMethod: 'proxy',
+  vpnAutoConnect: false,
+  vpnAutoFastest: false,
+  vpnBypass: [],
+  assistantWidth: 360,
+  reportWidth: 560,
+  sidebarWidth: 240,
+  passwordLockMinutes: 15,
+  passwordOfferSave: true,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   syncHistory: true,
@@ -152,6 +181,16 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   toolbarOrder: isToolbarOrder,
   newTab: isNewTabConfig,
   vpnPingTimeout: (v) => Number.isInteger(v) && (v as number) >= 200 && (v as number) <= 30_000,
+  vpnScope: (v) => v === 'browser' || v === 'computer',
+  vpnMethod: (v) => v === 'proxy' || v === 'tun',
+  vpnAutoConnect: (v) => typeof v === 'boolean',
+  vpnAutoFastest: (v) => typeof v === 'boolean',
+  vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
+  assistantWidth: isWidth,
+  reportWidth: isWidth,
+  sidebarWidth: isWidth,
+  passwordLockMinutes: (v) => (PASSWORD_LOCK_CHOICES as readonly unknown[]).includes(v),
+  passwordOfferSave: (v) => typeof v === 'boolean',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',

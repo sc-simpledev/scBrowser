@@ -50,6 +50,7 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl F | Find in page |
 | Ctrl D / Ctrl Shift B | Bookmark page / show bookmarks bar |
 | Ctrl H, Ctrl J, Ctrl Shift O | History, downloads, bookmarks |
+| Ctrl Shift L | Fill a saved password |
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
 | Ctrl Shift A | Assistant |
 | Ctrl K | Command palette |
