@@ -14,7 +14,7 @@ function setup(fetchText: (url: string) => Promise<string> = async () => '') {
   const proxies: (string | null)[] = []
   const deps = {
     kv,
-    vault: { encrypt: (v: string) => `sealed:${v}`, decrypt: (v: string) => v.slice('sealed:'.length) },
+    vault: { encrypt: async (v: string) => `sealed:${v}`, decrypt: async (v: string) => v.slice('sealed:'.length) },
     corePath: () => '/nowhere/xray',
     applyProxy: async (rules: string | null) => void proxies.push(rules),
     fetchText,
@@ -32,7 +32,9 @@ describe('VpnService', () => {
     await vpn.add(SECRET, null)
     expect(JSON.stringify(vpn.state())).not.toContain('hunter2')
     expect(String(kv.get('vpn:store'))).toMatch(/^sealed:/)
-    expect(new VpnService(deps).state().connections).toHaveLength(1)
+    const reopened = new VpnService(deps)
+    await reopened.ready
+    expect(reopened.state().connections).toHaveLength(1)
   })
 
   it('counts duplicates once and reports unusable links', async () => {
@@ -77,9 +79,9 @@ describe('VpnService', () => {
 
   it('keeps a hand-made group’s connections when the group goes', async () => {
     const { vpn } = setup()
-    const id = vpn.addGroup('Fast')
+    const id = await vpn.addGroup('Fast')
     await vpn.add(SECRET, id)
-    vpn.removeGroup(id)
+    await vpn.removeGroup(id)
     expect(vpn.state().connections[0]?.groupId).toBeNull()
   })
 
@@ -116,5 +118,15 @@ describe('VpnService', () => {
     expect(results[second!.id]).toBeNull()
     good.close()
     bad.close()
+  })
+})
+
+describe('VpnService saving', () => {
+  it('keeps the change and says so when the system cannot encrypt', async () => {
+    const { deps } = setup()
+    const vpn = new VpnService({ ...deps, vault: { encrypt: async () => Promise.reject(new Error('no keychain')), decrypt: async (v: string) => v } })
+    expect(await vpn.add(SECRET, null)).toEqual({ added: 1, skipped: 0 })
+    expect(vpn.state().connections).toHaveLength(1)
+    expect(vpn.state().error).toContain("couldn't be saved")
   })
 })

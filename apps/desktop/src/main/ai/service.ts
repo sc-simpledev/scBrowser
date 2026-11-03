@@ -25,16 +25,16 @@ export class AiService {
     private readonly contentsFor: (tabId: number) => WebContents | undefined
   ) {}
 
-  private provider(id: string): Provider {
+  private async provider(id: string): Promise<Provider> {
     const config = this.store.provider(id)
     if (!config) throw new AiError('not-found', 'That provider no longer exists.')
-    return createProvider({ config, secret: this.store.secret(id), fetch: aiFetch })
+    return createProvider({ config, secret: await this.store.secret(id), fetch: aiFetch })
   }
 
   async models(id: string): Promise<{ models: string[]; error: string | null }> {
     const manual = this.store.provider(id)?.models ?? []
     try {
-      const listed = await this.provider(id).listModels()
+      const listed = await (await this.provider(id)).listModels()
       return { models: [...new Set([...manual, ...listed])], error: null }
     } catch (error) {
       return { models: manual, error: error instanceof AiError ? error.message : "Couldn't list models." }
@@ -62,7 +62,7 @@ export class AiService {
 
   private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal): Promise<string> {
     let text = ''
-    const stream = this.provider(ref.providerId).chat({ model: ref.model, system, messages, maxTokens: TASK_OUTPUT_TOKENS, signal })
+    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: TASK_OUTPUT_TOKENS, signal })
     for await (const event of stream) {
       if (event.type === 'text') text += event.text
       if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
@@ -110,7 +110,7 @@ export class AiService {
     try {
       const chat = this.store.roles().chat
       if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')
-      const provider = this.provider(chat.providerId)
+      const provider = await this.provider(chat.providerId)
       const pages = await this.readPages(request, streamId, emit).catch((error: unknown) => {
         if (error instanceof UnreadablePdfError) throw new AiError('bad-request', error.message)
         throw error

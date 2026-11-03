@@ -21,6 +21,8 @@ const DISABLED = 'ai:disabled-hosts'
 const SKILLS = 'ai:skills'
 const OLD_HOSTED_NAME = 'scDelta AI'
 const secretKey = (id: string) => `ai:secret:${id}`
+/** Kept in the clear so the settings page can say a key is saved without decrypting it. */
+const hasKeyKey = (id: string) => `ai:has-key:${id}`
 
 const ANTHROPIC_DEFAULT_CHAT = 'claude-opus-5-5'
 
@@ -70,7 +72,10 @@ export class AiStore {
     if (old.length === 0) return
     const inUse = Object.values(this.roles()).some((ref) => old.some((p) => p.id === ref.providerId))
     this.kv.set(PROVIDERS, this.providers().filter((p) => !isOld(p)))
-    old.forEach((p) => this.kv.delete(secretKey(p.id)))
+    old.forEach((p) => {
+      this.kv.delete(secretKey(p.id))
+      this.kv.delete(hasKeyKey(p.id))
+    })
     const moved = Object.entries(this.roles()).map(([role, ref]) => [role, old.some((p) => p.id === ref.providerId) ? { providerId: HOSTED_PROVIDER_ID, model: HOSTED_MODEL } : ref])
     this.kv.set(ROLES, Object.fromEntries(moved))
     if (inUse && !this.provider(HOSTED_PROVIDER_ID) && this.hostedUrl()) this.addHosted()
@@ -103,7 +108,7 @@ export class AiStore {
 
   state(): AiState {
     return {
-      providers: this.providers().map((p) => ({ ...p, hasKey: this.secret(p.id).apiKey !== '' })),
+      providers: this.providers().map((p) => ({ ...p, hasKey: this.hasKey(p.id) })),
       roles: this.roles(),
       usage: this.usage(),
       disabledHosts: this.disabledHosts(),
@@ -162,7 +167,13 @@ export class AiStore {
     this.notify()
   }
 
-  save(input: ProviderInput): string {
+  private hasKey(id: string): boolean {
+    const flag = this.kv.get(hasKeyKey(id))
+    // Keys saved before the flag existed are counted by their stored secret.
+    return typeof flag === 'boolean' ? flag : typeof this.kv.get(secretKey(id)) === 'string'
+  }
+
+  async save(input: ProviderInput): Promise<string> {
     if (!URL.canParse(input.baseUrl)) throw new Error('Check the address: it should look like https://example.com/v1')
     const url = new URL(input.baseUrl)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('The address must start with http or https.')
@@ -179,8 +190,8 @@ export class AiStore {
     this.kv.set(PROVIDERS, [...others, config])
 
     if (input.apiKey !== undefined || input.headers !== undefined) {
-      const current = this.secret(id)
-      this.writeSecret(id, {
+      const current = await this.secret(id)
+      await this.writeSecret(id, {
         apiKey: input.apiKey ?? current.apiKey,
         headers: input.headers === undefined ? current.headers : parseHeaders(input.headers)
       })
@@ -193,6 +204,7 @@ export class AiStore {
   remove(id: string): void {
     this.kv.set(PROVIDERS, this.providers().filter((p) => p.id !== id))
     this.kv.delete(secretKey(id))
+    this.kv.delete(hasKeyKey(id))
     const roles = Object.fromEntries(Object.entries(this.roles()).filter(([, ref]) => ref.providerId !== id))
     this.kv.set(ROLES, roles)
     this.notify()
@@ -226,24 +238,24 @@ export class AiStore {
     this.notify()
   }
 
-  secret(id: string): ProviderSecret {
+  async secret(id: string): Promise<ProviderSecret> {
     const stored = this.kv.get(secretKey(id))
     if (typeof stored !== 'string') return { apiKey: '', headers: {} }
     try {
-      return JSON.parse(safeStorage.decryptString(Buffer.from(stored, 'base64'))) as ProviderSecret
+      return JSON.parse((await safeStorage.decryptStringAsync(Buffer.from(stored, 'base64'))).result) as ProviderSecret
     } catch {
       // The keychain changed or the value can't be read; treat the key as missing.
       return { apiKey: '', headers: {} }
     }
   }
 
-  private writeSecret(id: string, secret: ProviderSecret): void {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error("This system can't store API keys securely yet.")
-    this.kv.set(secretKey(id), safeStorage.encryptString(JSON.stringify(secret)).toString('base64'))
+  private async writeSecret(id: string, secret: ProviderSecret): Promise<void> {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This system can't store API keys securely yet.")
+    this.kv.set(secretKey(id), (await safeStorage.encryptStringAsync(JSON.stringify(secret))).toString('base64'))
+    this.kv.set(hasKeyKey(id), secret.apiKey !== '')
   }
 
   private keysProtected(): boolean {
-    if (!safeStorage.isEncryptionAvailable()) return false
     return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'
   }
 

@@ -46,6 +46,8 @@ process.on('uncaughtException', (error) => {
 if (process.env.SCB_E2E_SANDBOX) app.commandLine.removeSwitch('no-sandbox')
 
 app.setName('scTerra')
+// Windows matches the taskbar button to the installed shortcut, and its icon, by this id.
+if (process.platform === 'win32') app.setAppUserModelId('app.scterra.desktop')
 // Lets tests (and power users) run with a throwaway profile.
 if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 else moveLegacyProfile()

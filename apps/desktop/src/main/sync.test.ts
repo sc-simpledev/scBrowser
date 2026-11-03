@@ -50,7 +50,7 @@ function device(folder: string) {
     settings,
     history,
     bookmarks,
-    vault: { encrypt: (v) => v, decrypt: (v) => v },
+    vault: { encrypt: async (v) => v, decrypt: async (v) => v },
     basePath: join(dir, 'base.json'),
     onBookmarksChanged: () => undefined
   })

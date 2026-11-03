@@ -35,9 +35,12 @@
 }
 
 /* Reserve space for the native window controls (Windows Controls Overlay). */
+/*
+ * Keep clear of the window buttons drawn over the top of the window. Margins, as a bar's own
+ * padding utilities would otherwise override this. A Mac's traffic lights sit on the left.
+ */
 @utility sc-wco-inset {
-  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
-  /* A Mac's traffic lights sit on the left, and everywhere else this is zero. */
+  margin-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
   margin-left: env(titlebar-area-x, 0px);
 }
 

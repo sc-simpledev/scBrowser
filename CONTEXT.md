@@ -61,7 +61,8 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Tabs are sandboxed `WebContentsView`s. Native views draw above the browser UI, so popups that cover a page must go in the overlay view (`overlay.ts` and `renderer/src/overlay`).
 - `sc://` pages get `window.scbInternal`, and the main process checks the calling frame. Websites must never reach them: navigation, redirects, iframes and `window.open` are all blocked.
 - Page content is untrusted. It's read in isolated worlds and wrapped in `<page>` tags. Replies never render images or raw HTML.
-- API keys stay in the main process, encrypted with `safeStorage`. Never send them to a renderer.
+- API keys stay in the main process, encrypted with `safeStorage`. Never send them to a renderer. Use only its async calls (`encryptStringAsync`, `decryptStringAsync`, `isAsyncEncryptionAvailable`): with KDE Wallet (the owner runs Kubuntu) the old synchronous ones report no encryption at all, which stopped VPN links saving. Dev builds use `basic_text`, so only packaged builds show this.
+- The owner's desktop is Kubuntu with a Windows-style theme, so screenshots can look like Windows.
 - Parsing PDFs happens in a separate utility process, never in the main process.
 - The new tab picture reaches `sc://newtab` only through the internal bridge, so it has no address a website could load. It stays in the profile folder and isn't synced.
 - The sync folder only ever holds ciphertext. The passphrase isn't stored, and the derived key is kept with `safeStorage`.

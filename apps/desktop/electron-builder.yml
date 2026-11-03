@@ -29,6 +29,7 @@ deb:
   artifactName: scterra_${version}_${arch}.${ext}
 win:
   target: [nsis]
+  icon: build/icon.ico
   executableName: scTerra
 nsis:
   oneClick: false

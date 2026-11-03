@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { app, BrowserWindow, clipboard, ClipboardItem, Menu, nativeTheme, net, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
+import iconPath from '../../build/icon.png?asset'
 import {
   effectiveUrl,
   engineById,
@@ -127,6 +128,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     minHeight: 360,
     show: false,
     title: 'scTerra',
+    // A Mac takes the icon from the app bundle; elsewhere the window carries its own.
+    ...(process.platform === 'darwin' ? {} : { icon: iconPath }),
     backgroundColor: colors.background,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: colors.background, symbolColor: colors.foreground, height: TABSTRIP_HEIGHT },
@@ -492,11 +495,11 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   prepareSession(session.defaultSession)
 
   const vault: KeyVault = {
-    encrypt: (value) => {
-      if (!safeStorage.isEncryptionAvailable()) throw new Error("This system can't store this securely yet.")
-      return safeStorage.encryptString(value).toString('base64')
+    encrypt: async (value) => {
+      if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This system can't store this securely yet.")
+      return (await safeStorage.encryptStringAsync(value)).toString('base64')
     },
-    decrypt: (value) => safeStorage.decryptString(Buffer.from(value, 'base64'))
+    decrypt: async (value) => (await safeStorage.decryptStringAsync(Buffer.from(value, 'base64'))).result
   }
   const sync = new SyncService({
     kv,

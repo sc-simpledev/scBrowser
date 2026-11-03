@@ -269,3 +269,14 @@ test('the profiles button appears from Settings, beside the assistant', async ()
   await expect(app.chrome.getByRole('button', { name: 'Profiles' })).toBeVisible()
   await app.close()
 })
+
+test('the toolbar keeps clear of the window buttons', async () => {
+  const app = await launch()
+  const clear = await app.chrome.evaluate(() => {
+    const area = (navigator as unknown as { windowControlsOverlay: { getTitlebarAreaRect: () => DOMRect } }).windowControlsOverlay.getTitlebarAreaRect()
+    const menu = document.querySelector('[aria-label="Menu"]')!.getBoundingClientRect()
+    return { menuRight: menu.right, areaRight: area.x + area.width }
+  })
+  expect(clear.menuRight).toBeLessThanOrEqual(clear.areaRight)
+  await app.close()
+})

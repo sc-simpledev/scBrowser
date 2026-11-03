@@ -154,7 +154,11 @@ function probeProxy(link: ParsedLink, target: ProbeTarget, timeout: number): Pro
  * so they're kept encrypted and never reach a renderer.
  */
 export class VpnService {
-  private store: Stored
+  private store: Stored = { connections: [], groups: [], activeId: null }
+  /** Settles once the saved connections have been decrypted. */
+  readonly ready: Promise<void>
+  private saving: Promise<void> = Promise.resolve()
+  private stopped = false
   private enabled = false
   private connecting = false
   private error: string | null = null
@@ -165,23 +169,38 @@ export class VpnService {
   private pingRun = 0
 
   constructor(private readonly deps: VpnDeps) {
-    this.store = this.load()
+    this.ready = this.load().then((store) => {
+      this.store = store
+      this.deps.onChange()
+    })
   }
 
-  private load(): Stored {
+  private async load(): Promise<Stored> {
     const empty: Stored = { connections: [], groups: [], activeId: null }
     const saved = this.deps.kv.get(KEY)
     if (typeof saved !== 'string') return empty
     try {
-      return { ...empty, ...(JSON.parse(this.deps.vault.decrypt(saved)) as Stored) }
+      return { ...empty, ...(JSON.parse(await this.deps.vault.decrypt(saved)) as Stored) }
     } catch {
       return empty
     }
   }
 
-  private save(): void {
-    this.deps.kv.set(KEY, this.deps.vault.encrypt(JSON.stringify(this.store)))
+  /** Saves in order, and says so if the system can't encrypt rather than failing the change itself. */
+  private save(): Promise<void> {
+    const json = JSON.stringify(this.store)
     this.deps.onChange()
+    this.saving = this.saving
+      .then(() => this.deps.vault.encrypt(json))
+      .then((sealed) => {
+        // The database may have closed while this was encrypting.
+        if (!this.stopped) this.deps.kv.set(KEY, sealed)
+      })
+      .catch(() => {
+        this.error = "Your connections couldn't be saved securely, so they'll be gone when scTerra closes."
+        this.deps.onChange()
+      })
+    return this.saving
   }
 
   state(): VpnState {
@@ -219,6 +238,7 @@ export class VpnService {
 
   /** Takes pasted links. A web address with a path is treated as a subscription. */
   async add(text: string, groupId: string | null): Promise<VpnAddResult> {
+    await this.ready
     const lines = splitVpnLinks(text)
     const subscriptions = lines.filter((line) => /^https?:\/\/[^/]+\/./i.test(line))
     const result = this.addLinks(lines.filter((line) => !subscriptions.includes(line)), groupId)
@@ -228,23 +248,25 @@ export class VpnService {
       result.skipped += skipped
     }
     this.store.activeId ??= this.store.connections[0]?.id ?? null
-    this.save()
+    await this.save()
     return result
   }
 
   async subscribe(url: string, name: string): Promise<VpnAddResult> {
+    await this.ready
     if (!/^https?:\/\//i.test(url)) throw new Error('Use a web address for the subscription.')
     const text = await this.deps.fetchText(url)
     const group: StoredGroup = { id: randomUUID(), name: name.trim() || new URL(url).hostname, subscription: true, url }
     this.store.groups.push(group)
     const result = this.addLinks(splitVpnLinks(text), group.id)
     this.store.activeId ??= this.store.connections[0]?.id ?? null
-    this.save()
+    await this.save()
     return result
   }
 
   /** Replaces a subscription's connections with its current list. */
   async refresh(groupId: string): Promise<VpnAddResult> {
+    await this.ready
     const group = this.store.groups.find((candidate) => candidate.id === groupId)
     if (!group?.url) throw new Error('This group has no subscription.')
     const lines = splitVpnLinks(await this.deps.fetchText(group.url))
@@ -252,54 +274,60 @@ export class VpnService {
     // The one in use stays, so that a refresh doesn't pull it out from under the browser.
     this.store.connections = this.store.connections.filter((connection) => connection.groupId !== groupId || (connection === active && this.enabled))
     const result = this.addLinks(lines, groupId)
-    this.save()
+    await this.save()
     return result
   }
 
-  addGroup(name: string): string {
+  async addGroup(name: string): Promise<string> {
+    await this.ready
     const id = randomUUID()
     this.store.groups.push({ id, name, subscription: false })
-    this.save()
+    await this.save()
     return id
   }
 
-  renameGroup(id: string, name: string): void {
+  async renameGroup(id: string, name: string): Promise<void> {
+    await this.ready
     const group = this.store.groups.find((candidate) => candidate.id === id)
     if (group) group.name = name
-    this.save()
+    await this.save()
   }
 
   /** A subscription's connections go with it; connections in a hand-made group stay, ungrouped. */
-  removeGroup(id: string): void {
+  async removeGroup(id: string): Promise<void> {
+    await this.ready
     const group = this.store.groups.find((candidate) => candidate.id === id)
     this.store.groups = this.store.groups.filter((candidate) => candidate.id !== id)
     this.store.connections = this.store.connections.flatMap((connection) => {
       if (connection.groupId !== id) return [connection]
       return group?.subscription && connection.id !== this.store.activeId ? [] : [{ ...connection, groupId: null }]
     })
-    this.save()
+    await this.save()
   }
 
-  moveToGroup(id: string, groupId: string | null): void {
+  async moveToGroup(id: string, groupId: string | null): Promise<void> {
+    await this.ready
     const connection = this.store.connections.find((candidate) => candidate.id === id)
     if (connection) connection.groupId = groupId
-    this.save()
+    await this.save()
   }
 
   async remove(id: string): Promise<void> {
+    await this.ready
     if (this.store.activeId === id) {
       await this.setEnabled(false)
       this.store.activeId = null
     }
     this.store.connections = this.store.connections.filter((connection) => connection.id !== id)
     this.store.activeId ??= this.store.connections[0]?.id ?? null
-    this.save()
+    await this.save()
   }
 
   async select(id: string): Promise<void> {
+    await this.ready
     if (!this.store.connections.some((connection) => connection.id === id)) return
     this.store.activeId = id
-    this.save()
+    await this.save()
     if (this.enabled) await this.setEnabled(true)
   }
 
@@ -447,6 +475,7 @@ export class VpnService {
 
   /** Closes the core with the browser, so nothing is left listening. */
   stop(): void {
+    this.stopped = true
     this.stopCore()
   }
 }

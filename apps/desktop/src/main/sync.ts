@@ -55,9 +55,10 @@ export function unseal(file: Buffer, key: Buffer): SyncData {
   return { ...EMPTY_SYNC, ...data }
 }
 
+/** The system keychain. Asynchronous, as Windows no longer offers it any other way. */
 export interface KeyVault {
-  encrypt: (value: string) => string
-  decrypt: (value: string) => string
+  encrypt: (value: string) => Promise<string>
+  decrypt: (value: string) => Promise<string>
 }
 
 interface SyncConfig {
@@ -115,7 +116,7 @@ export class SyncService {
     rmSync(this.deps.basePath, { force: true })
     this.deps.kv.set(CONFIG_KEY, {
       folder,
-      key: this.deps.vault.encrypt(key.toString('base64')),
+      key: await this.deps.vault.encrypt(key.toString('base64')),
       salt: salt.toString('base64'),
       lastSync: null
     } satisfies SyncConfig)
@@ -139,7 +140,7 @@ export class SyncService {
     if (!config || this.running) return this.status()
     this.running = true
     try {
-      const key = Buffer.from(this.deps.vault.decrypt(config.key), 'base64')
+      const key = Buffer.from(await this.deps.vault.decrypt(config.key), 'base64')
       const path = join(config.folder, FILE_NAME)
       const file = await readFile(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return null
