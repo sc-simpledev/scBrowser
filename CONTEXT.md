@@ -11,6 +11,9 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 - Report honestly what was and wasn't tested. Say so when something only ran against mocks.
 - Rebuild the Linux beta after a round of changes, and tell them where it is. Run `build` before `electron-builder`, which packages whatever is already in `out/`.
 - Signing, store distribution and extra update channels are on hold until they say otherwise.
+- Their desktop is Kubuntu (KDE Plasma) with a Windows-style theme, so screenshots can look like Windows. They test the packaged Linux build. Nobody has tried a Windows or Mac build yet.
+- They care a lot about polish. Check new UI on screen, as Playwright screenshots, before saying it's done. When they say a control was moved, they mean its place in the toolbar: Assistant, Profiles and More sit to the right of the address bar.
+- They usually send a list of changes with screenshots. Work through all of it, then say plainly what couldn't be checked.
 
 ## Commands
 
@@ -61,8 +64,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Tabs are sandboxed `WebContentsView`s. Native views draw above the browser UI, so popups that cover a page must go in the overlay view (`overlay.ts` and `renderer/src/overlay`).
 - `sc://` pages get `window.scbInternal`, and the main process checks the calling frame. Websites must never reach them: navigation, redirects, iframes and `window.open` are all blocked.
 - Page content is untrusted. It's read in isolated worlds and wrapped in `<page>` tags. Replies never render images or raw HTML.
-- API keys stay in the main process, encrypted with `safeStorage`. Never send them to a renderer. Use only its async calls (`encryptStringAsync`, `decryptStringAsync`, `isAsyncEncryptionAvailable`): with KDE Wallet (the owner runs Kubuntu) the old synchronous ones report no encryption at all, which stopped VPN links saving. Dev builds use `basic_text`, so only packaged builds show this.
-- The owner's desktop is Kubuntu with a Windows-style theme, so screenshots can look like Windows.
+- API keys stay in the main process, encrypted with `safeStorage`. Never send them to a renderer. Use only its async calls (`encryptStringAsync`, `decryptStringAsync`, `isAsyncEncryptionAvailable`): with KDE Wallet the old synchronous ones report no encryption at all, which stopped VPN links saving. Dev builds use `basic_text`, so only packaged builds show this.
 - Parsing PDFs happens in a separate utility process, never in the main process.
 - The new tab picture reaches `sc://newtab` only through the internal bridge, so it has no address a website could load. It stays in the profile folder and isn't synced.
 - The sync folder only ever holds ciphertext. The passphrase isn't stored, and the derived key is kept with `safeStorage`.
@@ -80,6 +82,17 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Saved reports are built by `reportHtml`, which escapes all text and carries a CSP blocking scripts and network requests.
 - Claude calls use the official SDK (v1.3, which sends keys as `Authorization: Bearer`). Other providers use the OpenAI-compatible adapter.
 
+## Releasing and updates
+
+Installers and update files go to the public `sc-simpledev/scTerra` repo (renamed from scDelta on 2026-11-03). The source never goes there. Details are in [docs/auto-update.md](docs/auto-update.md).
+
+1. Set `version` in `apps/desktop/package.json`, commit and push.
+2. Tag it to match and push the tag: `git tag -a v0.2.1 -m "scTerra 0.2.1"`, then `git push origin v0.2.1`. Only a tag publishes. Pushes to `main` just run CI.
+3. `.github/workflows/release.yml` checks the tag against the version, builds Linux, Windows and both kinds of Mac into a draft release using the `RELEASE_TOKEN` secret (already set), and publishes the draft only once every build succeeds.
+4. Watch it with `gh run list --workflow release.yml`, and check the release appeared with `gh release list --repo sc-simpledev/scTerra`.
+
+The app checks for updates 30 seconds after starting and every 4 hours (`apps/desktop/src/main/updater.ts`). AppImage replaces itself; Windows installs on restart; .deb asks for a password when Restart to update is pressed; unsigned Macs only point at the release page. Settings has a switch and Check now.
+
 ## Hosted AI server
 
 Deployed on Deno Deploy with `server/main.ts` as the entrypoint from the repo root. Deno Deploy has no app directory setting. The browser's address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`, including `/v1`.
@@ -88,20 +101,23 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 ## Status
 
-Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, bookmark groups and icons, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro, workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR, and macOS builds. See Plan.md for what each does.
+Version 0.2.0. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, bookmark groups and icons, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, saved reports as HTML, a saved-chat list, a draggable toolbar, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
-Updates publish to the public `sc-simpledev/scTerra` repo, renamed from scDelta on 2026-11-03. The source repo stays private, and only installers go to that repo.
+0.2.0 is published at https://github.com/sc-simpledev/scTerra/releases/tag/v0.2.0, with the AppImage, .deb, Windows installer and both Mac builds. The first run split its files across two releases, because each build made its own. They were copied into the published one by hand, and `release.yml` now creates the draft once before building. That fix hasn't run yet, so check the next release has a single release with every file. A leftover hidden draft of 0.2.0 is still in the public repo. A packaged 0.2.0 checked the live repo and correctly found no newer version. An update from one published release to the next hasn't happened yet.
 
 Open items:
 - CI: E2E failures used to stop the installer step, which looked like a broken build. Installers now build regardless, and CI retries flaky tests twice.
 - A real AI provider hasn't been used through the browser UI. Everything in the app was tested against mocks, so reports, agent mode, translation, inline answers, AI tab clean-up and the scAI identity need real-model checks.
 - DRM (Netflix, Spotify) isn't in. It needs castLabs' Electron, whose newest stable build (44.9.3 in November 2026) is behind our 45.1.0, plus VMP signing for Windows and macOS. It was never run here. Don't swap the engine without the owner's say.
-- Before the first release, add the `RELEASE_TOKEN` secret. See docs/auto-update.md. Copies older than 0.2.0 can't update themselves.
+- Copies older than 0.2.0 can't update themselves, so they need one manual install.
 - macOS has never been run. Builds are unsigned, so they can't install updates: the app offers the release page instead. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
 - Saved reports can't be saved from the side panel, only from `sc://assistant`.
 - Bookmark group order doesn't sync, only names and membership.
 - The intro has night and daytime scenes, following the theme. It was checked on an Intel GPU at 1320 by 860, and falls back to a plain gradient without WebGL 2.
-- The overlay takes clicks wherever it's drawn, and has no way to let them through. Keep popup regions tight: tooltips only cover their own bubble and clear as soon as the pointer moves. The Settings link fix for this couldn't be tried with a real mouse here.
+- The overlay takes clicks wherever it's drawn, and has no way to let them through. Keep popup regions tight: tooltips only cover their own bubble and clear as soon as the pointer moves. The fix for the Settings link needing a click below it couldn't be tried with a real mouse here, so ask whether it's gone.
+- Window buttons are drawn over the top right of the window. `sc-wco-inset` keeps bars clear of them with margins, as a bar's own padding utilities would override padding. A test checks More stays clear.
+- The taskbar icon was blank on KDE. The window now sets its own icon (`build/icon.png`), but whether KDE shows it hasn't been confirmed.
+- DRM: see above. The Widevine build couldn't be run here: the permission system blocks running downloaded binaries.
 - Assistant, Profiles and More are fixed at the end of the toolbar. Below 760 pixels wide (`compact`), spare buttons move into More and the sidebar becomes a rail.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
 - VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is a real request through each connection, so free lists mostly show Not working. That's accurate.
