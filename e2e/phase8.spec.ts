@@ -234,7 +234,10 @@ test('sidebars drag wider, from the keyboard too, and remember it', async () => 
   const box = (await handle.boundingBox())!
   await h.chrome.mouse.move(box.x + 2, box.y + 200)
   await h.chrome.mouse.down()
-  await h.chrome.mouse.move(box.x - 98, box.y + 200, { steps: 5 })
+  await h.chrome.mouse.move(box.x - 50, box.y + 200, { steps: 3 })
+  // Displays with no window manager send one of these as the page steps aside. It's not a release.
+  await h.chrome.evaluate(() => void window.dispatchEvent(new PointerEvent('pointermove', { clientX: 5, buttons: 0 })))
+  await h.chrome.mouse.move(box.x - 98, box.y + 200, { steps: 3 })
   await h.chrome.mouse.up()
   await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(before + 100))
   await handle.focus()

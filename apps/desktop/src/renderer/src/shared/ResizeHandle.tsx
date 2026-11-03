@@ -15,6 +15,7 @@ interface ResizeHandleProps {
 }
 
 const KEY_STEP = 16
+const RELEASED_MOVES = 3
 
 /** A thin strip over a sidebar's border. Also works from the keyboard, with the arrow keys. */
 export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging }: ResizeHandleProps) {
@@ -41,6 +42,7 @@ export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, 
         const startX = e.clientX
         const startWidth = width
         let latest = width
+        let releasedMoves = 0
         const finish = () => {
           stopDrag.current = null
           removeEventListener('pointermove', move)
@@ -51,8 +53,13 @@ export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, 
         }
         // The window listens, not this strip: hiding the page drops any pointer capture part way through.
         const move = (event: PointerEvent) => {
-          // The button was let go somewhere that couldn't report it.
-          if (event.buttons === 0) return finish()
+          // Hiding the page can bring one made-up move with no button held, which isn't a release.
+          // Several in a row mean the button was let go somewhere that couldn't report it.
+          if (event.buttons === 0) {
+            if (++releasedMoves >= RELEASED_MOVES) finish()
+            return
+          }
+          releasedMoves = 0
           latest = clamp(startWidth + (event.clientX - startX) * sign)
           callbacks.current.onWidth(latest)
         }
