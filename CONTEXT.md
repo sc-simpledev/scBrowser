@@ -194,6 +194,7 @@ Open items:
 - Tests run in parallel, each with its own app and profile, but the system clipboard is shared.
 - `accounts.google.com` is preloaded as HTTPS-only in Chromium, so a local HTTP test can't reach it. Use `SCB_SIGN_IN_HOST` with `--host-resolver-rules`, as `e2e/phase9.spec.ts` does, and turn `httpsOnly` off.
 - `--repeat-each=25 --retries=0` finds flakes quickly. Trace each step before believing a cause: the screenshot flake looked like the clipboard and wasn't, and the tracker flake looked like slow filter loading but was mostly the count being reset.
+- Don't rely on hover in tests: on CI's display, stray pointer moves can dismiss a tooltip before it opens. Focus the element instead.
 - CI windows have no focus, unlike a run on the owner's desktop. `BaseWindow.getAllWindows()[0].blur()` gets close to it locally, as `xvfb-run` isn't installed here.
 - Local runs print uncaught main-process errors without failing, so read the output as well as the totals.
 - Native menus and save dialogs can't be driven by Playwright. Replace `Menu.buildFromTemplate` or `dialog.showSaveDialog` through `h.app.evaluate`, as `e2e/phase8.spec.ts` and `phase5.spec.ts` do.

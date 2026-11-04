@@ -17,10 +17,8 @@ test('a tooltip on an sc:// page never takes the clicks of what is under it', as
   const page = await h.page('sc://vpn')
   await page.getByRole('textbox', { name: 'Connection links' }).fill('http://127.0.0.1:9#One\nhttp://127.0.0.1:8#Two')
   await page.getByRole('button', { name: 'Add links' }).click()
-  // A second move, as tooltips open on pointer movement and a busy machine can miss the first.
-  const remove = page.getByRole('button', { name: 'Remove One' })
-  await remove.hover()
-  await remove.hover({ position: { x: 3, y: 3 } })
+  // Focus opens it too. Hovering is unreliable here, as a display with no window manager sends stray moves.
+  await page.getByRole('button', { name: 'Remove One' }).focus()
   const tip = page.locator('[data-radix-popper-content-wrapper]')
   await expect(tip).toContainText('Remove One')
   const box = (await tip.boundingBox())!
