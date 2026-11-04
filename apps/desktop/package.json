@@ -1,7 +1,7 @@
 {
   "name": "@scbrowser/desktop",
   "productName": "scTerra",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "A modern, AI-native browser for Linux, Windows and macOS.",
   "author": "sc-simpledev <sc-simpledev@users.noreply.github.com>",

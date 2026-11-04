@@ -1,3 +1,4 @@
+import { rememberOwnUserAgent } from './googleSignIn'
 import { cpSync, existsSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -57,8 +58,9 @@ if (process.platform === 'linux') app.setDesktopName('scterra.desktop')
 applyFlags()
 registerInternalScheme()
 
-// Present a plain Chrome user agent: some sites (notably Google sign-in) refuse
-// browsers that advertise Electron.
+// Present a plain Chrome user agent, as some sites refuse browsers that advertise Electron.
+// Google's sign-in pages are the exception: see googleSignIn.ts.
+rememberOwnUserAgent(app.userAgentFallback)
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|scTerra|scDelta|scBrowser|@scbrowser\/desktop)\/\S+/gi, '')
 
 /** URLs and local HTML files passed on the command line, e.g. by the OS when we're the default browser. */

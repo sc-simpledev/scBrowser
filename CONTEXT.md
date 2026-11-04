@@ -2,9 +2,26 @@
 
 scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for Linux, Windows and macOS with AI built in, inspired by Firefox and Dia. Its catchphrase is "Browse the World". Read [Plan.md](Plan.md) for the roadmap and status checklist, and [README.md](README.md) for layout and shortcuts. The repo is private: `sc-simpledev/scBrowser`, branch `main`.
 
+## Where things stand right now
+
+Written on 2026-11-05. Version 0.3.3 is committed and tagged. The owner was leaving, and asked for the release before confirming the popup fix. So ask them first:
+
+1. **Does signing in to an app work now?** On `beta.scspace.app/flow` (Firebase), Google let them through, then it returned to the same page and said `auth/popup-blocked`. The popup fix below should cure that, but it has only been tested with a local sign-in-style popup, not real Firebase. If it still fails, ask whether a sign-in tab opened, whether the same error appeared, and whether it works with tracking protection off for that site. It may be a redirect sign-in flow, or tracking protection blocking something Firebase needs.
+2. **Did a copy on an older version update itself?** No update from one published version to another has been confirmed yet.
+
+What 0.3.3 changed:
+
+- **Google sign-in uses Electron's own identity** (see "Google sign-in" below). The owner confirmed Google now lets them through. Only the step they reached is confirmed.
+- **Popups keep their link to the page that opened them.** `window.open` used to be cancelled and replaced with a new tab, which lost `window.opener` and refused blank starter popups. `TabManager.adoptPopup` now shows the real window as a tab, closes it on `window.close()`, and returns to the opener. Tabs in a popup pair don't sleep.
+- **Screenshots** retry when Chromium's capture rejects with `UnknownVizError` just after a page loads. That error used to be dropped, so a screenshot could silently do nothing. It also saves before touching the clipboard, and says so if it fails.
+- **Tracker blocking** holds requests for up to 5 seconds while the filter engine loads, so restored tabs' trackers can't slip out first. The blocked count now resets when navigation starts, as resetting when the page commits could wipe it.
+- **End-to-end tests run in parallel:** 3 workers locally, 2 on CI. The local run went from 186 to about 105 seconds, with every test kept.
+
+Known flakes: `privacy.spec.ts:21` still fails about 1 run in 75 under parallel load, showing 1 blocked instead of 2. The cause isn't known, and CI's retries cover it. The private window test also failed once on Windows CI and passed on retry.
+
 ## How to work with the owner
 
-- Commit and push only when asked. They usually say "Commit and push" after each round. Work directly on `main`. A coworker also commits there, so pull first. `theme.html` in the root is the owner's scSpace style reference: don't commit it.
+- Never commit, push or tag on your own. The owner tests the AppImage first, then tells you to commit and rebuild, even if an earlier message in the chat asked for a release. An instruction to commit only covers that round. Work directly on `main`. A coworker also commits there, so pull first. `theme.html` in the root is the owner's scSpace style reference: don't commit it.
 - Commits need `git -c user.name=... -c user.email=...` using the last commit's author, as no git identity is set on this machine.
 - Don't spend their AI credit without asking. Live requests to the hosted server use real keys.
 - They want it modern but not "vibe coded": follow the design rules in Plan.md and use tokens, not raw colours or sizes. They've pulled back glass, pills and big shadows once already: flat surfaces with thin borders, 4/6/10 radii, glass only on popups and new tab cards.
@@ -27,7 +44,7 @@ npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
 ```
 
-Build first, because E2E tests run the built app. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+Build first, because E2E tests run the built app. The suite has 123 tests and takes under 2 minutes locally, and there are 201 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
 
 ```bash
 node apps/desktop/scripts/fetch-xray.mjs
@@ -38,7 +55,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.2/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.3/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
@@ -81,7 +98,8 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Workspaces: `TabManager.snapshot()` only returns the open workspace's tabs, so the UI needs no filtering. Use `allContents()` for anything that must reach every tab.
 - The password vault is sealed with a key derived from the master password, which is never stored; the key and logins only exist in memory while unlocked. Passwords reach a renderer only through `passwords:reveal` on the `sc://passwords` bridge, never the browser UI or overlay. Filling is only ever by request, top frame only, with the exact origin rechecked at that moment. Save offers watch pages only while unlocked, count only real clicks and keys, and hold the login in the main process for a minute at most. It never syncs and isn't in private windows.
 - A native page view swallows mouse events over itself, so `layout:resizing` hides it while a sidebar is dragged.
-- Google refuses sign-in from unrecognised Chromium browsers, so `googleSignIn.ts` tells `accounts.google.com`, and nothing else, that this is Firefox: in the header, with the `sec-ch-ua` hints removed, and to the page's scripts. `navigator.userAgentData` still exists there. It has never been tried against the real Google, as that needs the owner's account.
+- Google sign-in pages (`accounts.google.com`, `accounts.youtube.com`) see Electron's own user agent, in the header and to scripts. Every other site sees the clean Chrome one. `googleSignIn.ts` sets the header per request, because a tab's identity changes too late for the first request of a navigation. Electron keeps only one listener per `webRequest` event per session, so anything else needing `onBeforeSendHeaders` has to share this one.
+- Links and `window.open` from websites become tabs. Unless they ask for `noopener` or open in the background, the tab holds the real popup, and `window.opener` works. `window.close()` shows up as the `close` event on its `WebContents`, not `destroyed`. `sc://` stays unreachable from them.
 - Tooltips on `sc://` pages are Radix, in the document. They must keep `pointer-events: none`, or they take the clicks of whatever's under them. The browser UI's tooltips are in the overlay and clear when the pointer moves.
 - Word files are rebuilt in the main process from the report's blocks through `toReport`, so only plain text reaches them. There's no docx dependency: `reportDocx.ts` writes the zip itself.
 - Saved reports are built by `reportHtml`, which escapes all text and carries a CSP blocking scripts and network requests. PDFs print that same file in a hidden window with scripts off.
@@ -93,7 +111,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 Installers and update files go to the public `sc-simpledev/scTerra` repo (renamed from scDelta on 2026-11-03). The source never goes there. Details are in [docs/auto-update.md](docs/auto-update.md).
 
 1. Set `version` in `apps/desktop/package.json`, commit and push.
-2. Tag it to match and push the tag: `git tag -a v0.2.1 -m "scTerra 0.2.1"`, then `git push origin v0.2.1`. Only a tag publishes. Pushes to `main` just run CI.
+2. Wait for CI to pass on `main`, as a release doesn't wait for it. Then tag to match and push the tag, with the `git -c user.name=... -c user.email=...` identity: `git tag -a v0.3.4 -m "scTerra 0.3.4"`, then `git push origin v0.3.4`. Only a tag publishes. Pushes to `main` just run CI.
 3. `.github/workflows/release.yml` checks the tag against the version, builds Linux, Windows and both kinds of Mac into a draft release using the `RELEASE_TOKEN` secret (already set), and publishes the draft only once every build succeeds.
 4. Watch it with `gh run list --workflow release.yml`, and check the release appeared with `gh release list --repo sc-simpledev/scTerra`.
 
@@ -105,15 +123,38 @@ Deployed on Deno Deploy with `server/main.ts` as the entrypoint from the repo ro
 
 Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING_n` and `FORMAT_n`. Two or more routes means random weighted routing, with failover before any text is sent. `BASE_URL_n` includes `/v1` for OpenAI format and leaves it out for Anthropic format. Limits and details are in [server/README.md](server/README.md). The live server returned a real reply when last tested.
 
+## Google sign-in
+
+Published 0.3.2 told Google's pages it was Firefox, and the owner still got "This browser or app may not be secure". With Electron's own identity Google lets them through.
+
+Why that failed, from two other Electron browsers that measured this against the live site in October 2026 ([Mise PR 19](https://github.com/Rakosn1cek/Mise-browser/pull/19), [Orca PR 36519](https://github.com/stablyai/orca/pull/36519)):
+
+- A clean Chrome identity is rejected: Google then runs its full Chrome checks, which Electron fails. That's also why the original setup failed.
+- A Firefox identity is rejected often, as the page can see it's really Chromium. A faked Google Chrome with full client hints was also rejected.
+- Electron's own identity passed every time in both: Orca 4 of 4, and 4 of 4 on the redirect from "Sign in with Google", Mise through to a full sign-in in a packaged Linux AppImage on X11.
+- It also fits [Google's guidance](https://developers.googleblog.com/guidance-to-developers-affected-by-our-effort-to-block-less-secure-browsers-and-applications/), which says a browser must identify itself and not use another browser's user agent.
+
+To check it: open `accounts.google.com`, enter an email, press Next. Getting to the password step, or "Couldn't find this account", passes. `/v3/signin/rejected` fails. The check runs at the email step. Neither project reported on passkeys or two-step verification.
+
+If Google starts refusing again, in the order to try them:
+
+1. **Check for a second cause first:** Mise's first bug was another `webRequest` listener silently replacing theirs. Compare with Orca's and Mise's hosts and flow, and whether scTerra's privacy rules touch the page. Mise also rewrites `GlifWebSignIn` to `WebLiteSignIn`, which it calls mostly redundant.
+2. **Use Electron's identity everywhere:** this passed for Orca, but it revoked sessions on other sites such as x.com and LinkedIn, so it's a last resort.
+3. **Sign in through a real browser:** Google's supported route for embedded apps is OAuth in the system browser. That only gives an app access to Google's APIs. It doesn't sign the tabs in to Gmail or YouTube, so it wouldn't solve this alone.
+4. **Importing cookies from Chrome** is fragile and touches other people's saved sessions. Avoid it unless the owner decides otherwise.
+5. **Say it isn't supported,** and offer the sites that work.
+
+Passing Google's check may stop working at any time, as it's Google's to change.
+
 ## Flags
 
 `BROWSER_FLAGS` in `packages/shared/src/containers.ts` lists them, kept in `flags.json`. The ones marked `fun` become `data-flag-<id>` on each page's root (`renderer/src/shared/funFlags.ts` and `.css`), so most are only CSS. They take effect after a restart and must never take clicks.
 
 ## Status
 
-Version 0.3.2. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
+Version 0.3.3. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
-0.2.0, 0.3.1 and 0.3.2 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.1 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up. 0.3.1 has no Apple silicon Mac build: that runner sat queued, so the owner chose to publish without it, by cancelling the run and running `gh release edit v0.3.1 --repo sc-simpledev/scTerra --draft=false --latest`. Intel Mac, Linux and Windows are there. 0.3.2 built everything into one release, so the single-draft fix works. 0.3.0 was never published: its release run was cancelled over an error on closing the browser, and its draft is deleted. Only a `v0.3.0` tag remains, in the private repo. A release doesn't wait for CI, so let CI pass on `main` before tagging.
+0.2.0, 0.3.1, 0.3.2 and 0.3.3 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.1 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up. 0.3.1 has no Apple silicon Mac build: that runner sat queued, so the owner chose to publish without it, by cancelling the run and running `gh release edit v0.3.1 --repo sc-simpledev/scTerra --draft=false --latest`. Intel Mac, Linux and Windows are there. 0.3.2 built everything into one release, so the single-draft fix works. 0.3.0 was never published: its release run was cancelled over an error on closing the browser, and its draft is deleted. Only a `v0.3.0` tag remains, in the private repo. A release doesn't wait for CI, so let CI pass on `main` before tagging.
 
 **Next ideas the owner hasn't taken up yet:** a live test with a real AI model (needs their OK, as it spends credit), citations linking replies to their tabs, research across several tabs into one report, a reading list with AI summaries, and sign-in for the hosted server. DRM stays their decision.
 
@@ -130,7 +171,7 @@ Open items:
 - The password vault's fill and save offer were tested on simple local sign-in pages only, not real sites. Pages with sign-in forms in iframes (some banks, some single sign-on) won't fill or offer, and multi-step sign-ins may save without a username. Bookmark imports don't bring folders.
 - Bookmark folder order doesn't sync, only names, membership and nesting.
 - The intro has night and daytime scenes, following the theme. It was checked on an Intel GPU at 1320 by 860, and falls back to a plain gradient without WebGL 2.
-- Clicks landing below a button: the owner reported this on 0.3.1. The likely cause, hoverable tooltips on `sc://` pages, is fixed in 0.3.2, and a scan of the browser UI and `sc://` pages found nothing else covering a button at rest. It couldn't be tried with a real mouse, so ask whether it's gone, and where if not. Google sign-in is also untried on the real site.
+- Clicks landing below a button: the owner reported this on 0.3.1. The likely cause, hoverable tooltips on `sc://` pages, is fixed in 0.3.2, and a scan of the browser UI and `sc://` pages found nothing else covering a button at rest. It couldn't be tried with a real mouse, so ask whether it's gone, and where if not.
 - The overlay takes clicks wherever it's drawn, and has no way to let them through. Keep popup regions tight: tooltips only cover their own bubble and clear as soon as the pointer moves. The fix for the Settings link needing a click below it couldn't be tried with a real mouse here, so ask whether it's gone.
 - Window buttons are drawn over the top right of the window. `sc-wco-inset` keeps bars clear of them with margins, as a bar's own padding utilities would override padding. A test checks More stays clear.
 - The taskbar icon was blank on KDE. The window now sets its own icon (`build/icon.png`), but whether KDE shows it hasn't been confirmed.
@@ -150,9 +191,13 @@ Open items:
 
 ## Test pitfalls
 
+- Tests run in parallel, each with its own app and profile, but the system clipboard is shared.
+- `accounts.google.com` is preloaded as HTTPS-only in Chromium, so a local HTTP test can't reach it. Use `SCB_SIGN_IN_HOST` with `--host-resolver-rules`, as `e2e/phase9.spec.ts` does, and turn `httpsOnly` off.
+- `--repeat-each=25 --retries=0` finds flakes quickly. Trace each step before believing a cause: the screenshot flake looked like the clipboard and wasn't, and the tracker flake looked like slow filter loading but was mostly the count being reset.
 - CI windows have no focus, unlike a run on the owner's desktop. `BaseWindow.getAllWindows()[0].blur()` gets close to it locally, as `xvfb-run` isn't installed here.
 - Local runs print uncaught main-process errors without failing, so read the output as well as the totals.
 - Native menus and save dialogs can't be driven by Playwright. Replace `Menu.buildFromTemplate` or `dialog.showSaveDialog` through `h.app.evaluate`, as `e2e/phase8.spec.ts` and `phase5.spec.ts` do.
+- `h.page(text)` matches any part of a page's address, including the app's own path, so a route called `/app` finds the wrong page.
 - `go(h, ...)` reuses the current tab, so a page object from before it now points at the new page.
 - Never test whole-computer VPN against the real system settings. Use `XDG_CONFIG_HOME` and `GSETTINGS_BACKEND=keyfile` for system proxy, and `unshare -Urnm` for the TUN script. The repo path contains an apostrophe, which breaks single-quoted shell scripts.
 - A controlled radio that only updates after an IPC reply fails Playwright's `check()`, so update local state first.

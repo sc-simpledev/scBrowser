@@ -87,6 +87,9 @@ const WELCOME_URL = 'sc://welcome'
 const INTRO_COLORS = { dark: { color: '#000000', symbolColor: '#ffffff' }, light: { color: '#f4f7f8', symbolColor: '#111111' } }
 /** How long a just-used login waits to be saved before it's forgotten. */
 const LOGIN_PROMPT_MS = 60_000
+const CLIPBOARD_WAIT_MS = 2000
+const CAPTURE_RETRY_MS = 200
+const CAPTURE_ATTEMPTS = 15
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
 const isWorkspace = (value: unknown): value is Workspace => {
@@ -339,7 +342,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     screenshot: () => {
       const contents = tabs.active && tabs.contentsFor(tabs.active.id)
-      if (contents) void takeScreenshot(contents)
+      if (contents) void takeScreenshot(contents).catch(() => notify("Couldn't save the screenshot"))
     },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit(),
@@ -729,16 +732,31 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     overlay.openCleanup({ rows, x: Math.max(0, Math.round((width - CLEANUP_POPUP.width) / 2)), y: CLEANUP_POPUP.top })
   }
 
+  /** Chromium can refuse a capture until the page has painted, so it's asked to, and tried again. */
+  const capturePage = async (contents: Electron.WebContents) => {
+    for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
+      contents.invalidate()
+      const image = await contents.capturePage().catch(() => null)
+      if (image && !image.isEmpty()) return image
+      await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_MS))
+    }
+    return null
+  }
   const takeScreenshot = async (contents: Electron.WebContents) => {
-    const image = await contents.capturePage()
+    const image = await capturePage(contents)
+    if (!image) return notify("Couldn't take a screenshot")
     const png = image.toPNG()
-    const copied = await clipboard
-      .write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })])
-      .then(() => true)
-      .catch(() => false)
     const dir = settings.get().downloadDir || app.getPath('downloads')
     const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', ' ')
     await writeFile(uniquePath(dir, `Screenshot ${stamp}.png`, existsSync), png)
+    // Saved first, and with a limit here: a busy system clipboard can leave this waiting for good.
+    const copied = await Promise.race([
+      clipboard
+        .write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })])
+        .then(() => true)
+        .catch(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), CLIPBOARD_WAIT_MS))
+    ])
     notify(copied ? 'Screenshot saved and copied' : 'Screenshot saved')
   }
 

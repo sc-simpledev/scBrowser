@@ -24,6 +24,9 @@ const READ_DOM = `(() => {
 
 type Level = Settings['trackingProtection']
 
+/** A first download can take a while, and pages shouldn't stall for all of it. */
+const ENGINE_WAIT_MS = 5000
+
 async function loadEngine(level: Level): Promise<FiltersEngine | null> {
   // Tests supply their own rules so they don't depend on downloading filter lists.
   if (process.env.SCB_FILTERS) return FiltersEngine.parse(process.env.SCB_FILTERS)
@@ -55,6 +58,8 @@ interface PrivacyOptions {
 export class PrivacyService {
   private engine: FiltersEngine | null = null
   private engineLevel: Level = 'off'
+  /** Set while filters are loading. Requests wait on it, for a limited time. */
+  private engineWait: Promise<void> | null = null
   /** Sites where the person chose plain HTTP after the upgrade failed. Forgotten on restart. */
   private readonly httpAllowed = new Set<string>()
   private readonly upgraded = new Map<string, string>()
@@ -74,7 +79,10 @@ export class PrivacyService {
   attach(session: Session): void {
     session.webRequest.onBeforeRequest((details, respond) => {
       const { webContents: contents } = details
-      if (details.resourceType !== 'mainFrame' || !contents) return respond(this.decide(details))
+      if (details.resourceType !== 'mainFrame' || !contents) {
+        if (!this.engineWait) return respond(this.decide(details))
+        return void this.engineWait.then(() => respond(this.decide(details)))
+      }
       const finish = (reason: string | null) => {
         if (!reason) return respond(this.decide(details))
         respond({ cancel: true })
@@ -143,8 +151,17 @@ export class PrivacyService {
     if (level === this.engineLevel && (this.engine || level === 'off')) return
     this.engineLevel = level
     // If filter lists can't be fetched, browsing carries on without blocking until next time.
-    const engine = await loadEngine(level).catch(() => null)
-    if (this.engineLevel === level) this.engine = engine
+    const load = loadEngine(level)
+      .catch(() => null)
+      .then((engine) => {
+        if (this.engineLevel === level) this.engine = engine
+      })
+    // Restored tabs start loading straight away, and their trackers shouldn't slip out meanwhile.
+    const waiting: Promise<void> = Promise.race([load, new Promise<void>((resolve) => setTimeout(resolve, ENGINE_WAIT_MS).unref?.())]).then(() => {
+      if (this.engineWait === waiting) this.engineWait = null
+    })
+    this.engineWait = waiting
+    await load
   }
 
   private decide(details: OnBeforeRequestListenerDetails) {
@@ -159,8 +176,9 @@ export class PrivacyService {
     return this.isBlocked(details) ? { cancel: true } : {}
   }
 
-  private isBlocked({ url, resourceType, webContents, webContentsId }: OnBeforeRequestListenerDetails): boolean {
-    const source = webContents?.getURL() ?? ''
+  private isBlocked({ url, resourceType, webContents, webContentsId, frame }: OnBeforeRequestListenerDetails): boolean {
+    // The frame making the request, as a tab's own address can still be the page before.
+    const source = frame?.url || webContents?.getURL() || ''
     if (!this.engine || !/^https?:/i.test(source) || !/^https?:|^wss?:/i.test(url)) return false
     if (this.off.has(new URL(source).host)) return false
     const { match } = this.engine.match(

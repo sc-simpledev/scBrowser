@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { session, WebContentsView, type AuthInfo, type AuthenticationResponseDetails, type BaseWindow, type Session, type WebContents } from 'electron'
+import { session, WebContentsView, type AuthInfo, type AuthenticationResponseDetails, type BaseWindow, type Session, type WebContents, type BrowserWindowConstructorOptions } from 'electron'
 import {
   containerPartition,
   DEFAULT_WORKSPACE,
@@ -33,6 +33,8 @@ export interface SavedTab {
 
 interface Tab {
   state: TabState
+  /** The tab whose page opened this one as a popup. */
+  openerId?: TabId
   /** Null while asleep: the page is unloaded and only `saved` remains. */
   view: WebContentsView | null
   saved: SavedTab | null
@@ -216,7 +218,9 @@ export class TabManager {
     if (this.activeId === id) {
       this.activeId = null
       // Like Firefox/Chrome: focus the tab to the right, else the one to the left.
-      const next = this.visible[index] ?? this.visible[index - 1]
+      // A popup goes back to the page that opened it, like closing a real window does.
+      const opener = tab.openerId !== undefined && this.visible.includes(tab.openerId) ? tab.openerId : undefined
+      const next = opener ?? this.visible[index] ?? this.visible[index - 1]
       if (next !== undefined) this.activate(next)
     }
     if (this.visible.length === 0) this.create()
@@ -537,6 +541,9 @@ export class TabManager {
       if (tab.state.id === this.activeId || this.split?.includes(tab.state.id) || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
       const contents = tab.view.webContents
       if (contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) continue
+      // Sleeping would cut the link between a popup and its opener, which may be mid sign-in.
+      const inPopupPair = (tab.openerId !== undefined && this.tabs.get(tab.openerId)?.view) || [...this.tabs.values()].some((other) => other.openerId === tab.state.id && other.view)
+      if (inPopupPair) continue
       tab.saved = this.toSaved(tab)
       this.destroyView(tab)
       tab.state.isSleeping = true
@@ -582,11 +589,24 @@ export class TabManager {
     return tab
   }
 
-  private wake(tab: Tab): void {
+  /** A window a page opened, shown as a tab beside it. Pages with `noopener` give us no window to adopt. */
+  private adoptPopup(url: string, opener: TabState, options: BrowserWindowConstructorOptions): WebContents {
+    const tab = this.addTab(url, null, opener.id)
+    tab.state.container = opener.container
+    tab.state.workspace = opener.workspace
+    tab.openerId = opener.id
+    const { webContents } = options as { webContents?: WebContents }
+    this.wake(tab, webContents ? { webContents } : undefined)
+    this.activate(tab.state.id)
+    return tab.view!.webContents
+  }
+
+  private wake(tab: Tab, adopted?: { webContents: WebContents }): void {
     if (tab.view) return
     const partition = tab.state.container ? containerPartition(tab.state.container) : undefined
     if (partition) this.options.prepareSession(session.fromPartition(partition))
     const view = new WebContentsView({
+      ...(adopted ?? {}),
       webPreferences: {
         partition,
         // Only exposes anything on sc:// pages; see preload/internal.ts.
@@ -610,6 +630,14 @@ export class TabManager {
     const { saved } = tab
     tab.saved = null
     const contents = view.webContents
+    // A page asking to close its own window ends the tab, as it would for any window.
+    if (tab.openerId !== undefined) {
+      contents.on('close' as never, () => {
+        if (tab.view?.webContents === contents && !this.window.isDestroyed()) this.close(tab.state.id)
+      })
+    }
+    // Chromium is already loading a window it made for a page.
+    if (adopted) return
     if (saved && saved.entries.length > 0) {
       contents.navigationHistory
         .restore({ index: saved.entryIndex, entries: saved.entries })
@@ -673,9 +701,13 @@ export class TabManager {
         this.emitChange()
       }
     })
+    // Counted from the start: news of the page committing can arrive after its trackers were blocked.
+    contents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+      if (isMainFrame && !isSameDocument) sync({ blockedCount: 0 })
+    })
     contents.on('did-navigate', (_e, url) => {
       if (remembersZoom(url)) contents.setZoomFactor(this.options.zoomFor(url))
-      sync({ url, faviconUrl: null, blockedCount: 0, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
+      sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
       this.options.onVisit(url)
     })
     contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -726,6 +758,14 @@ export class TabManager {
 
     // Links with target=_blank and window.open land in a new tab next to their opener.
     contents.setWindowOpenHandler(({ url, disposition }) => {
+      const fromSite = /^https?:/i.test(contents.getURL())
+      // Sign-in popups often start blank, and are sent on their way once they're open.
+      const blank = url === '' || url === 'about:blank'
+      if (fromSite && disposition !== 'background-tab' && (blank || /^https?:/i.test(url))) {
+        // The real window, rather than a fresh tab at the same address: sign-in popups report
+        // back through window.opener, and have to be able to close themselves.
+        return { action: 'allow', createWindow: (options) => this.adoptPopup(url || 'about:blank', state, options) }
+      }
       const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(contents.getURL()))
       if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id, container: state.container })
       return { action: 'deny' }
