@@ -1,3 +1,9 @@
+/* A tooltip sits over whatever's next to its button, and must never take that thing's clicks. */
+.sc-tooltip-passive,
+[data-radix-popper-content-wrapper]:has(.sc-tooltip-passive) {
+  pointer-events: none !important;
+}
+
 /* How assistant replies and reports look, wherever they appear. */
 .sc-link {
   color: var(--sc-accent);

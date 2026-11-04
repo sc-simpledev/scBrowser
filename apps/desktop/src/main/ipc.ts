@@ -17,6 +17,7 @@ import {
 import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
+import { readFlags } from './flags'
 import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
@@ -149,6 +150,7 @@ const validators: Validators = {
   'vpn:summary': noArgs,
   'browser:is-private': noArgs,
   'passwords:summary': noArgs,
+  'flags:get': noArgs,
   'passwords:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
   'layout:resizing': (args): args is [boolean] => args.length === 1 && typeof args[0] === 'boolean',
   'bookmarks:move-group': (args): args is [number, number | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isId(args[1])),
@@ -285,6 +287,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'browser:is-private': () => isPrivate,
     'vpn:menu': (x, y) => openVpnMenu(x, y),
     'passwords:summary': () => passwords.state(),
+    'flags:get': () => readFlags(),
     'passwords:menu': (x, y) => openPasswordMenu(x, y),
     'layout:resizing': (resizing) => tabs.setResizing(resizing),
     'bookmarks:move-group': (id, parentId) => {

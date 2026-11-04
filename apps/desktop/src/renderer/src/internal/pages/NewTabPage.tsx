@@ -19,6 +19,7 @@ import {
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
 import { api, applyTint } from '../api'
+import { ColorPicker } from '../ColorPicker'
 
 const NOTES_SAVE_DELAY_MS = 500
 const MAX_SHORTCUTS = 8
@@ -501,6 +502,7 @@ function WidgetList({ config, update }: { config: NewTabConfig; update: Update }
 
 function BackgroundOptions({ config, update }: { config: NewTabConfig; update: Update }) {
   const [error, setError] = useState<string | null>(null)
+  const [pickingColour, setPickingColour] = useState(false)
   const pick = () => {
     setError(null)
     void api()
@@ -522,15 +524,12 @@ function BackgroundOptions({ config, update }: { config: NewTabConfig; update: U
         </Select>
       </Row>
       {config.background === 'color' && (
-        <Row label="Colour">
-          <input
-            type="color"
-            aria-label="Background colour"
-            className="h-8 w-12 rounded-md bg-field"
-            value={config.color}
-            onChange={(e) => update({ color: e.target.value })}
-          />
-        </Row>
+        <>
+          <Row label="Colour">
+            <button type="button" aria-label="Background colour" aria-expanded={pickingColour} className="h-8 w-12 rounded-md shadow-1" style={{ background: config.color }} onClick={() => setPickingColour(!pickingColour)} />
+          </Row>
+          {pickingColour && <ColorPicker value={config.color} onChange={(color) => update({ color })} />}
+        </>
       )}
       {config.background === 'image' && (
         <>
@@ -670,7 +669,7 @@ function useBackgroundImage(version: number, wanted: boolean): { url: string | n
 
 function Backdrop({ config, image }: { config: NewTabConfig; image: string | null }) {
   if (config.background === 'color') return <div aria-hidden className="fixed inset-0 -z-10" style={{ background: config.color }} />
-  if (config.background !== 'image' || !image) return null
+  if (config.background !== 'image' || !image) return <div aria-hidden className="sc-aurora" />
   const blur = config.blur > 0 ? { filter: `blur(${config.blur}px)`, scale: '1.05' } : {}
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">

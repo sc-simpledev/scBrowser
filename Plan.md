@@ -101,6 +101,8 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; o
 
 **Resizable sidebars.** The vertical tabs, assistant and report side page drag wider or narrower, or move with the arrow keys, and keep their widths.
 
+**Fun flags.** `sc://flags` also has switches just for fun: site colours in the toolbar, an accent that follows the sun, an aurora new tab, a retro screen, wobbly tabs, a clicky address bar and download sparkles.
+
 **Hosted AI.** `server/` is a Deno service that lets people use scTerra AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 
 ## Design direction — modern, deliberate, not "vibe coded"

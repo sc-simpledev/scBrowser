@@ -71,6 +71,7 @@ export interface ChromeCommands {
   'reader:toggle': () => void
   'vpn:summary': () => VpnSummary
   'passwords:summary': () => PasswordState
+  'flags:get': () => string[]
   'passwords:menu': (x: number, y: number) => void
   /** The native page view steps aside while a sidebar is dragged, so it can't swallow the pointer. */
   'layout:resizing': (resizing: boolean) => void
@@ -105,6 +106,8 @@ export interface ChromeEvents {
   'privacy:changed': string[]
   'vpn:changed': VpnSummary
   'passwords:changed': PasswordState
+  /** The colour the active page asks for. Only sent with the Site colours flag on. */
+  'ui:site-colour': string | null
   'updates:changed': UpdateState
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
@@ -195,6 +198,7 @@ export const COMMAND_CHANNELS = [
   'reader:toggle',
   'vpn:summary',
   'passwords:summary',
+  'flags:get',
   'passwords:menu',
   'layout:resizing',
   'browser:is-private',
@@ -225,6 +229,7 @@ export const EVENT_CHANNELS = [
   'privacy:changed',
   'vpn:changed',
   'passwords:changed',
+  'ui:site-colour',
   'updates:changed',
   'omnibox:answer-action',
   'overlay:clear-tooltip'

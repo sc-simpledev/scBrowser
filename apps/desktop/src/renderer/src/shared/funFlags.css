@@ -1,0 +1,109 @@
+/* The fun switches on sc://flags. Each only does anything when its mark is on the root element. */
+.sc-aurora,
+.sc-sparkles {
+  display: none;
+}
+
+html[data-flag-retro-screen] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, oklch(0 0 0 / 0.07) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 62%, oklch(0 0 0 / 0.14));
+}
+
+html[data-flag-wobbly-tabs] [role='tab']:hover {
+  animation: sc-wobble 0.45s var(--sc-ease-out);
+}
+
+@keyframes sc-wobble {
+  25% {
+    rotate: -1.4deg;
+  }
+  60% {
+    rotate: 1deg;
+  }
+  85% {
+    rotate: -0.4deg;
+  }
+}
+
+html[data-flag-site-colours] .sc-site-tint {
+  background: color-mix(in oklab, var(--sc-site-colour, transparent) 24%, transparent);
+  transition: background var(--sc-duration-slow) var(--sc-ease-out);
+}
+
+html[data-flag-aurora] .sc-aurora {
+  display: block;
+  position: fixed;
+  inset: -20%;
+  z-index: -10;
+  filter: blur(60px);
+  background:
+    radial-gradient(40% 35% at 25% 30%, color-mix(in oklab, var(--sc-accent) 45%, transparent), transparent),
+    radial-gradient(35% 40% at 75% 25%, oklch(0.7 0.14 calc(var(--sc-hue) + 70) / 0.4), transparent),
+    radial-gradient(45% 35% at 55% 80%, oklch(0.7 0.14 calc(var(--sc-hue) - 70) / 0.35), transparent);
+  animation: sc-aurora 26s var(--sc-ease-in-out) infinite alternate;
+}
+
+@keyframes sc-aurora {
+  to {
+    transform: translate(6%, -5%) rotate(14deg) scale(1.15);
+  }
+}
+
+html[data-flag-download-sparkles] .sc-sparkles {
+  display: block;
+  position: absolute;
+  inset: 50% auto auto 50%;
+  pointer-events: none;
+}
+
+.sc-sparkles i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--sc-accent);
+  animation: sc-sparkle 0.8s var(--sc-ease-out) forwards;
+}
+
+.sc-sparkles i:nth-child(2n) {
+  background: oklch(0.8 0.16 90);
+}
+
+.sc-sparkles i:nth-child(3n) {
+  background: oklch(0.7 0.18 10);
+}
+
+@keyframes sc-sparkle {
+  to {
+    transform: rotate(var(--turn)) translateY(-18px) rotate(120deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-flag-wobbly-tabs] [role='tab']:hover,
+  html[data-flag-aurora] .sc-aurora,
+  .sc-sparkles i {
+    animation: none;
+  }
+}
+
+.sc-hue-slider {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+.sc-hue-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: var(--sc-shadow-1);
+}

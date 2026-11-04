@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, fullToolbarOrder, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
@@ -10,6 +10,13 @@ import { Omnibox } from './Omnibox'
 function DownloadsButton() {
   const { active, fraction } = useApp((s) => s.downloads)
   const hasDownloaded = useApp((s) => s.hasDownloaded)
+  // Counts finished bursts, so each one starts its animation afresh.
+  const [bursts, setBursts] = useState(0)
+  const wasActive = useRef(0)
+  useEffect(() => {
+    if (wasActive.current > 0 && active === 0) setBursts((count) => count + 1)
+    wasActive.current = active
+  }, [active])
   if (!hasDownloaded) return null
   return (
     <IconButton
@@ -19,6 +26,13 @@ function DownloadsButton() {
       onClick={() => void window.scb.invoke('downloads:open-page')}
     >
       <Download size={15} strokeWidth={1.75} className={active > 0 ? 'text-accent' : undefined} />
+      {bursts > 0 && (
+        <span key={bursts} aria-hidden className="sc-sparkles">
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((turn) => (
+            <i key={turn} style={{ '--turn': `${turn}deg` } as CSSProperties} />
+          ))}
+        </span>
+      )}
       {active > 0 && (
         <span aria-hidden className="absolute inset-x-1.5 bottom-1 h-0.5 overflow-hidden rounded-full bg-surface-active">
           <span className="block h-full rounded-full bg-accent" style={{ width: `${(fraction ?? 0.5) * 100}%` }} />
@@ -208,7 +222,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
 
   return (
     // With vertical tabs there's no tab strip, so the toolbar doubles as the title bar.
-    <div className={cx('relative flex h-(--sc-toolbar-height) shrink-0 items-center gap-1 px-1.5', titleBar && 'sc-drag sc-wco-inset')}>
+    <div className={cx('sc-site-tint relative flex h-(--sc-toolbar-height) shrink-0 items-center gap-1 px-1.5', titleBar && 'sc-drag sc-wco-inset')}>
       {fullToolbarOrder(order).filter((slot) => !compact || !SPARE_SLOTS.includes(slot)).map((slot) => (
         <Slot
           key={slot}

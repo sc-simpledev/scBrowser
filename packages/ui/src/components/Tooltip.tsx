@@ -37,7 +37,7 @@ let lastHiddenAt = 0
 
 export const TooltipProvider = ({ host = null, children }: { host?: TooltipHost | null; children: ReactNode }) => (
   <TooltipHostContext.Provider value={host}>
-    <RadixTooltip.Provider delayDuration={SHOW_DELAY_MS} skipDelayDuration={SKIP_DELAY_MS}>
+    <RadixTooltip.Provider delayDuration={SHOW_DELAY_MS} skipDelayDuration={SKIP_DELAY_MS} disableHoverableContent>
       {children}
     </RadixTooltip.Provider>
   </TooltipHostContext.Provider>
@@ -110,7 +110,7 @@ export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipP
     <RadixTooltip.Root>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
       <RadixTooltip.Portal>
-        <RadixTooltip.Content side={side} sideOffset={6}>
+        <RadixTooltip.Content side={side} sideOffset={6} className="sc-tooltip-passive">
           <TooltipBubble label={label} shortcut={shortcut} />
         </RadixTooltip.Content>
       </RadixTooltip.Portal>

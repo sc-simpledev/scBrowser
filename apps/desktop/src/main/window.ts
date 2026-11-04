@@ -60,6 +60,8 @@ import type { Reporter } from './reporter'
 import { SyncService, type KeyVault } from './sync'
 import { systemProxyFor } from './systemProxy'
 import { tunnelFor } from './tun'
+import { readFlags } from './flags'
+import { attachGoogleSignIn, followGoogleSignIn } from './googleSignIn'
 import { copySecret, fillLogin, watchForSignIn } from './passwordFill'
 import { PasswordVault } from './passwords'
 import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
@@ -157,6 +159,14 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   const send = <E extends EventChannel>(channel: E, ...payload: ChromeEvents[E] extends void ? [] : [ChromeEvents[E]]) => {
     if (!chromeUi.isDestroyed()) chromeUi.send(channel, ...payload)
   }
+  const siteColours = readFlags().includes('site-colours')
+  const pageColours = new WeakMap<Electron.WebContents, string | null>()
+  const publishSiteColour = () => {
+    if (!siteColours) return
+    const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+    const color = contents ? pageColours.get(contents) : null
+    send('ui:site-colour', color && /^#[0-9a-f]{6,8}$/i.test(color) ? color : null)
+  }
   const focusOmnibox = () => {
     chromeUi.focus()
     send('ui:focus-omnibox')
@@ -210,6 +220,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       contents.on('did-finish-load', () => watchTab(contents))
+      followGoogleSignIn(contents)
+      if (siteColours) {
+        contents.on('did-change-theme-color', (_event, color) => {
+          pageColours.set(contents, color)
+          publishSiteColour()
+        })
+      }
       overlay.raise()
     },
     onTabClosed: () => {
@@ -222,6 +239,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     onActivate: (tab) => {
       const contents = tabs.contentsFor(tab.id)
+      publishSiteColour()
       if (contents) extensions.selectTab(contents)
       if (isNewTabUrl(tab.url)) focusOmnibox()
       else tabs.focusActive()
@@ -500,6 +518,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   const prepareSession = (target: Session) => {
     if (prepared.has(target)) return
     prepared.add(target)
+    attachGoogleSignIn(target)
     privacy.attach(target)
     permissionService.attach(target)
     downloads.attach(target)

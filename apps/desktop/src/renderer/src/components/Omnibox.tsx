@@ -12,6 +12,7 @@ import {
   type OmniboxAnswer,
   type Suggestion
 } from '@scbrowser/shared'
+import { clack, hasFlag } from '../shared/funFlags'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useOverlay } from '../state/overlay'
@@ -273,6 +274,7 @@ export function Omnibox() {
           aria-label="Search or enter address"
           placeholder="Search or enter address"
           onChange={(e) => {
+            if (hasFlag('clicky-keys')) clack()
             setDraft(e.target.value)
             setSelectedIndex(0)
             setDismissed(false)
