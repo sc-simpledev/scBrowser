@@ -1,9 +1,9 @@
 name: CI
 
+# Only started by hand from the Actions tab, as running on every commit used up the minutes.
+# See "How to work with the owner" in CONTEXT.md before changing this.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   server:
