@@ -4,7 +4,7 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 
 ## Where things stand right now
 
-Written on 2026-11-05. Version 0.3.3 was committed and tagged after the owner tested the AppImage and said it works, including the Chrome Web Store and signing in. Check `gh release list --repo sc-simpledev/scTerra` to confirm it published.
+Written on 2026-11-05. Version 0.3.3 was committed and tagged after the owner tested the AppImage and said it works, including the Chrome Web Store and signing in. It's published for Linux, Windows and Intel Mac. It has no Apple silicon Mac build: that runner sat queued again, as it did for 0.3.1, so the owner asked to go without it and the run was cancelled. Check the next release builds both Macs.
 
 What 0.3.3 changed:
 
