@@ -4,7 +4,15 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 
 ## Where things stand right now
 
-Written on 2026-11-05. Version 0.3.3 was committed and tagged after the owner tested the AppImage and said it works, including the Chrome Web Store and signing in. It's published for Linux, Windows and Intel Mac. It has no Apple silicon Mac build: that runner sat queued again, as it did for 0.3.1, so the owner asked to go without it and the run was cancelled. Check the next release builds both Macs.
+Written on 2026-11-05. Version 0.3.4 was committed and tagged after the owner tested the AppImage and said it works. Which extensions they tried wasn't recorded. Check the release finished before saying it's published.
+
+What 0.3.4 changed:
+
+- **Extensions menu:** a toolbar button lists every extension, to open, pin or remove. Unpinned extensions leave the bar.
+- **Side panels, new tab pages and popup windows** from extensions work, and links from extension pages open as tabs (see the notes on `chrome.sidePanel` below).
+- **Extension tabs** come back after a restart, and `chrome-extension://` addresses can be typed in the address bar.
+
+Version 0.3.3 was committed and tagged after the owner tested the AppImage and said it works, including the Chrome Web Store and signing in. It's published for Linux, Windows and Intel Mac. It has no Apple silicon Mac build: that runner sat queued again, as it did for 0.3.1, so the owner asked to go without it and the run was cancelled. Check the next release builds both Macs.
 
 What 0.3.3 changed:
 
@@ -55,7 +63,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.3/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.4/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
@@ -152,7 +160,7 @@ Passing Google's check may stop working at any time, as it's Google's to change.
 
 ## Status
 
-Version 0.3.3. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
+Version 0.3.4. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
 0.2.0, 0.3.1, 0.3.2 and 0.3.3 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.1 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up. 0.3.1 has no Apple silicon Mac build: that runner sat queued, so the owner chose to publish without it, by cancelling the run and running `gh release edit v0.3.1 --repo sc-simpledev/scTerra --draft=false --latest`. Intel Mac, Linux and Windows are there. 0.3.2 built everything into one release, so the single-draft fix works. 0.3.0 was never published: its release run was cancelled over an error on closing the browser, and its draft is deleted. Only a `v0.3.0` tag remains, in the private repo. A release doesn't wait for CI, so let CI pass on `main` before tagging.
 
@@ -178,7 +186,7 @@ Open items:
 - DRM: see above. The Widevine build couldn't be run here: the permission system blocks running downloaded binaries.
 - Assistant, Profiles and More are fixed at the end of the toolbar. Below 760 pixels wide (`compact`), spare buttons move into More and the sidebar becomes a rail.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
-- `chrome.sidePanel` is our own, from `preload/extensions.ts` and `extensionPanel.ts`: the library and Electron don't have it. That preload must be registered before the library's, which freezes `chrome`. Electron strips `side_panel` from the manifest it returns, so it's read from `manifest.json`. A panel stays open across tabs rather than belonging to one, and `onOpened` and `onClosed` never fire. These were tested on small fixtures, not real store extensions.
+- `chrome.sidePanel` is our own, from `preload/extensions.ts` and `extensionPanel.ts`: the library and Electron don't have it. That preload must be registered before the library's, which freezes `chrome`. Electron strips `side_panel` from the manifest it returns, so it's read from `manifest.json`. A panel stays open across tabs rather than belonging to one, and `onOpened` and `onClosed` never fire. The automated tests use small fixtures, not real store extensions.
 - In the main process, `URL` gives `chrome-extension://` addresses an origin of `null`. Compare hosts instead.
 - A new tab page from an extension (`chrome_url_overrides.newtab`) keeps `sc://newtab` as the tab's address, so it still counts as a new tab everywhere. `chrome.windows.create` opens a real small window for `popup` and `panel` types; other types open as tabs, and `windows.remove` ignores the main window.
 - VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is a real request through each connection, so free lists mostly show Not working. That's accurate.
