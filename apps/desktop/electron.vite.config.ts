@@ -58,7 +58,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           overlay: resolve(__dirname, 'src/preload/overlay.ts'),
-          internal: resolve(__dirname, 'src/preload/internal.ts')
+          internal: resolve(__dirname, 'src/preload/internal.ts'),
+          extensions: resolve(__dirname, 'src/preload/extensions.ts')
         }
       }
     }

@@ -1,4 +1,4 @@
-import type { WebContents } from 'electron'
+import type { MenuItemConstructorOptions, WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
 import type { AssistantPrompt } from '@scbrowser/shared'
 import type { TabManager } from './tabs/TabManager'
@@ -25,4 +25,5 @@ export interface BrowserActions {
   quit: () => void
   openPrivateWindow: () => void
   installUpdate: () => void
+  extensionMenu: () => MenuItemConstructorOptions[]
 }

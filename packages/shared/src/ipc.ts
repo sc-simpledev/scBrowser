@@ -1,5 +1,5 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
-import type { ExtensionInfo, ImportResult, ImportSource } from './containers'
+import type { ExtensionInfo, ExtensionPanelState, ExtensionSummary, ImportResult, ImportSource } from './containers'
 import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision } from './library'
 import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
@@ -75,6 +75,12 @@ export interface ChromeCommands {
   'passwords:menu': (x: number, y: number) => void
   /** The native page view steps aside while a sidebar is dragged, so it can't swallow the pointer. */
   'layout:resizing': (resizing: boolean) => void
+  'extensions:summary': () => ExtensionSummary
+  'extensions:menu': (x: number, y: number) => void
+  'extensions:panel-state': () => ExtensionPanelState | null
+  'extensions:panel-rect': (rect: PageRect) => void
+  'extensions:panel-toggle': (id: string) => void
+  'extensions:panel-close': () => void
   'browser:is-private': () => boolean
   'vpn:menu': (x: number, y: number) => void
   'tabs:cleanup': () => void
@@ -105,6 +111,10 @@ export interface ChromeEvents {
   'ui:assistant-prompt': AssistantPrompt
   'privacy:changed': string[]
   'vpn:changed': VpnSummary
+  'extensions:changed': ExtensionSummary
+  'extensions:panel': ExtensionPanelState | null
+  /** Do what clicking this extension's toolbar button would. */
+  'extensions:activate': string
   'passwords:changed': PasswordState
   /** The colour the active page asks for. Only sent with the Site colours flag on. */
   'ui:site-colour': string | null
@@ -201,6 +211,12 @@ export const COMMAND_CHANNELS = [
   'flags:get',
   'passwords:menu',
   'layout:resizing',
+  'extensions:summary',
+  'extensions:menu',
+  'extensions:panel-state',
+  'extensions:panel-rect',
+  'extensions:panel-toggle',
+  'extensions:panel-close',
   'browser:is-private',
   'vpn:menu',
   'tabs:cleanup',
@@ -228,6 +244,9 @@ export const EVENT_CHANNELS = [
   'ui:assistant-prompt',
   'privacy:changed',
   'vpn:changed',
+  'extensions:changed',
+  'extensions:panel',
+  'extensions:activate',
   'passwords:changed',
   'ui:site-colour',
   'updates:changed',

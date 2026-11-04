@@ -68,6 +68,8 @@ interface TabManagerOptions {
   zoomFor: (url: string) => number
   onZoom: (url: string, factor: number) => void
   onWorkspaceChange: (next: Workspace, previous: Workspace | undefined) => void
+  /** The page an extension shows in place of the new tab page, if one does. */
+  newTabPage: (session: Session) => string | null
 }
 
 const PAGE_RADIUS = 0
@@ -79,7 +81,7 @@ const BLOCKED_BY_CLIENT = -20
 const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
 const isInternal = (url: string) => url.startsWith('sc:')
-const isSavable = (url: string) => /^(https?|sc|file):/i.test(url)
+const isSavable = (url: string) => /^(https?|sc|file|chrome-extension):/i.test(url)
 const remembersZoom = (url: string) => /^(https?|file):/i.test(url)
 /** The first-run intro plays again if it was closed partway through, rather than coming back as a tab. */
 const isIntro = (url: string) => url.startsWith('sc://welcome')
@@ -362,7 +364,7 @@ export class TabManager {
     if (!tab) return
     this.wake(tab)
     const contents = tab.view!.webContents
-    void contents.loadURL(resolveOmniboxInput(input, this.options.engine()))
+    void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine())))
     contents.focus()
   }
 
@@ -504,6 +506,23 @@ export class TabManager {
     }
   }
 
+  /** The container a session belongs to, going by the tabs using it. */
+  containerIn(target: Session): string | null {
+    for (const tab of this.tabs.values()) if (tab.view?.webContents.session === target) return tab.state.container
+    return null
+  }
+
+  /** Extensions load after tabs are restored, so tabs that needed one try again now it's here. */
+  extensionReady(id: string, newTabPage: string | null): void {
+    for (const { state, view } of this.tabs.values()) {
+      if (!view) continue
+      const contents = view.webContents
+      if (isNewTabUrl(state.url) && isNewTabUrl(contents.getURL()) && newTabPage) void contents.loadURL(newTabPage).catch(() => undefined)
+      const url = effectiveUrl(state.url)
+      if (url.startsWith(`chrome-extension://${id}/`) && contents.getURL() !== url) void contents.loadURL(url).catch(() => undefined)
+    }
+  }
+
   owns(contents: WebContents): boolean {
     return [...this.tabs.values()].some((tab) => tab.view?.webContents === contents)
   }
@@ -555,6 +574,16 @@ export class TabManager {
     for (const tab of this.tabs.values()) this.destroyView(tab)
     this.tabs.clear()
     this.order = []
+  }
+
+  /** The new tab page may be an extension's. Tabs still say `sc://newtab`, so they're treated as new tabs. */
+  private pageFor(contents: WebContents, url: string): string {
+    return isNewTabUrl(url) ? (this.options.newTabPage(contents.session) ?? url) : url
+  }
+
+  private shownUrl(contents: WebContents, url: string): string {
+    const page = this.options.newTabPage(contents.session)
+    return page && url.split(/[?#]/)[0] === page ? NEW_TAB_URL : url
   }
 
   private contents(id: TabId): WebContents | undefined {
@@ -638,12 +667,13 @@ export class TabManager {
     }
     // Chromium is already loading a window it made for a page.
     if (adopted) return
-    if (saved && saved.entries.length > 0) {
+    const page = this.pageFor(contents, tab.state.url)
+    if (saved && saved.entries.length > 0 && page === tab.state.url) {
       contents.navigationHistory
         .restore({ index: saved.entryIndex, entries: saved.entries })
         .catch(() => contents.loadURL(saved.url).catch(() => undefined))
     } else {
-      contents.loadURL(tab.state.url).catch(() => undefined)
+      contents.loadURL(page).catch(() => undefined)
     }
   }
 
@@ -682,7 +712,7 @@ export class TabManager {
     const sync = (patch: Partial<TabState> = {}) => {
       if (contents.isDestroyed()) return
       Object.assign(state, patch, {
-        url: patch.url || contents.getURL() || state.url,
+        url: this.shownUrl(contents, patch.url || contents.getURL() || state.url),
         canGoBack: contents.navigationHistory.canGoBack(),
         canGoForward: contents.navigationHistory.canGoForward()
       })
@@ -758,15 +788,19 @@ export class TabManager {
 
     // Links with target=_blank and window.open land in a new tab next to their opener.
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      const fromSite = /^https?:/i.test(contents.getURL())
+      const opener = contents.getURL()
+      const fromPage = /^(https?|chrome-extension):/i.test(opener)
       // Sign-in popups often start blank, and are sent on their way once they're open.
       const blank = url === '' || url === 'about:blank'
-      if (fromSite && disposition !== 'background-tab' && (blank || /^https?:/i.test(url))) {
+      // Chromium itself stops a site from opening extension pages that aren't meant for it.
+      if (fromPage && disposition !== 'background-tab' && (blank || /^(https?|chrome-extension):/i.test(url))) {
         // The real window, rather than a fresh tab at the same address: sign-in popups report
         // back through window.opener, and have to be able to close themselves.
         return { action: 'allow', createWindow: (options) => this.adoptPopup(url || 'about:blank', state, options) }
       }
-      const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(contents.getURL()))
+      // Addresses like these have no `origin` to compare, as far as `URL` is concerned.
+      const sameExtension = /^chrome-extension:/i.test(url) && /^chrome-extension:/i.test(opener) && URL.canParse(url) && URL.canParse(opener) && new URL(url).host === new URL(opener).host
+      const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(opener)) || sameExtension
       if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id, container: state.container })
       return { action: 'deny' }
     })

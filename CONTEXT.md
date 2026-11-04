@@ -66,7 +66,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 
 | Path | Contents |
 |---|---|
-| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `systemProxy.ts`, `tun.ts`, `passwords.ts` (vault), `passwordFill.ts` (fill and save-offer scripts), `reportExport.ts`, `reportDocx.ts`, `updater.ts`, `httpAuth.ts`, `private.ts`, `siteIcons.ts`, `internal/pdf.ts`, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
+| `apps/desktop/src/main` | Main process: `window.ts` wires everything, `systemProxy.ts`, `tun.ts`, `passwords.ts` (vault), `passwordFill.ts` (fill and save-offer scripts), `reportExport.ts`, `reportDocx.ts`, `updater.ts`, `httpAuth.ts`, `private.ts`, `siteIcons.ts`, `internal/pdf.ts`, `tabs/TabManager.ts`, `ipc.ts`, `internalIpc.ts`, `overlay.ts`, `ai/`, `privacy/`, `storage/`, `import/`, `extensions.ts`, `extensionPanel.ts`, `blocker.ts`, `vpn.ts`, `sync.ts`, `reporter.ts`, `profiles.ts`, `flags.ts` |
 | `apps/desktop/src/preload` | Bridges: `index.ts` (browser UI), `overlay.ts`, `internal.ts` (sc:// pages only) |
 | `apps/desktop/src/renderer/src` | Browser UI in `components/`, overlay UI in `overlay/`, sc:// pages in `internal/` (the intro is `internal/welcome/`), shared between both in `shared/`: `ReplyContent.tsx`, `ReportPane.tsx` (the side page), `ResizeHandle.tsx` |
 | `packages/shared` | IPC contracts, settings, omnibox logic, reports, privacy helpers |
@@ -178,6 +178,9 @@ Open items:
 - DRM: see above. The Widevine build couldn't be run here: the permission system blocks running downloaded binaries.
 - Assistant, Profiles and More are fixed at the end of the toolbar. Below 760 pixels wide (`compact`), spare buttons move into More and the sidebar becomes a rail.
 - Extensions are a supported subset of Chrome's APIs. Bitwarden's install, background worker and popup were tested live; its sign-in and autofill weren't. Firefox extensions can't run.
+- `chrome.sidePanel` is our own, from `preload/extensions.ts` and `extensionPanel.ts`: the library and Electron don't have it. That preload must be registered before the library's, which freezes `chrome`. Electron strips `side_panel` from the manifest it returns, so it's read from `manifest.json`. A panel stays open across tabs rather than belonging to one, and `onOpened` and `onClosed` never fire. These were tested on small fixtures, not real store extensions.
+- In the main process, `URL` gives `chrome-extension://` addresses an origin of `null`. Compare hosts instead.
+- A new tab page from an extension (`chrome_url_overrides.newtab`) keeps `sc://newtab` as the tab's address, so it still counts as a new tab everywhere. `chrome.windows.create` opens a real small window for `popup` and `panel` types; other types open as tabs, and `windows.remove` ignores the main window.
 - VPN checked live against the FastNodes list: real TLS and Reality nodes carried traffic, but most public nodes are dead, and Xray itself refuses VLESS and Trojan without TLS to public addresses. Ping is a real request through each connection, so free lists mostly show Not working. That's accurate.
 - Sync goes through a folder, not a server, and was tested between two simulated devices, not two computers.
 - The server's `/v1/reports` route needs deploying before reports go anywhere. Native crash dumps aren't collected.

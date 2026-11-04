@@ -188,6 +188,119 @@ test('extensions get a toolbar button with a working popup, and their APIs reach
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
 })
 
+const addExtension = (fixture: string) =>
+  h.app.evaluate((_, path) => (globalThis as unknown as { scbExtensions: { add(p: string): Promise<string> } }).scbExtensions.add(path), resolve(__dirname, 'fixtures', fixture))
+
+test('the toolbar has a button for the extensions menu, and unpinned extensions leave the bar', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  await expect(h.chrome.getByRole('button', { name: 'Extensions' })).toBeVisible()
+  const id = await addExtension('action-extension')
+  const button = h.chrome.locator(`browser-action-list [id="${id}"]`)
+  await expect(button).toBeVisible()
+  await h.app.evaluate((_, extension) => {
+    const { scbExtensions } = globalThis as unknown as { scbExtensions: { menu(): { label: string; submenu?: { label: string; click?: () => void }[] }[] } }
+    scbExtensions.menu().find((row) => row.label === 'Action extension')?.submenu?.find((row) => row.label === 'Pin to toolbar')?.click?.()
+    return extension
+  }, id)
+  await expect(button).toBeHidden()
+})
+
+test('pages an extension opens from its popup land in tabs or their own small window', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  const id = await addExtension('action-extension')
+  await go(h, site.url('/alpha'))
+  await h.chrome.locator(`browser-action-list [id="${id}"]`).click()
+  const popup = await h.page(`chrome-extension://${id}/popup.html`)
+  await expect(popup.getByRole('link', { name: 'Open page' })).toBeAttached()
+  // The popup's window doesn't draw under test, so the click can't come from Playwright's pointer.
+  await h.app.evaluate(({ webContents }, address) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === address)
+    return contents?.executeJavaScript("document.querySelector('a').click()", true)
+  }, `chrome-extension://${id}/popup.html`)
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+  await expect.poll(async () => (await h.page(`chrome-extension://${id}/page.html`)).title()).toBe('Extension page')
+
+  const page = await h.page(`chrome-extension://${id}/page.html`)
+  // Links in an extension's own tab open as tabs too.
+  await page.getByRole('link', { name: 'Open again' }).click()
+  await expect(h.chrome.getByRole('tab')).toHaveCount(3)
+
+  const windows = () => h.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed()).length)
+  const before = await windows()
+  const created = await page.evaluate(
+    () => (globalThis as unknown as { chrome: { windows: { create(o: object): Promise<{ id: number }> } } }).chrome.windows.create({ url: 'page.html?popup', type: 'popup', width: 400, height: 500 })
+  )
+  await expect.poll(windows).toBe(before + 1)
+  await page.evaluate((windowId) => (globalThis as unknown as { chrome: { windows: { remove(id: number): Promise<void> } } }).chrome.windows.remove(windowId), created.id)
+  await expect.poll(windows).toBe(before)
+  await expect(h.chrome.getByRole('tab')).toHaveCount(3)
+})
+
+test('an extension can open a side panel beside the page, from its button or its own call', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  const id = await addExtension('side-panel-extension')
+  await go(h, site.url('/alpha'))
+  const panelUrl = `chrome-extension://${id}/panel.html`
+  const button = h.chrome.locator(`browser-action-list [id="${id}"]`)
+  const aside = h.chrome.getByRole('complementary', { name: 'Side panel extension side panel' })
+
+  // The background script asks for this as it starts, which would stop it dead without the API.
+  await expect(async () => {
+    await button.click()
+    await expect(aside).toBeVisible({ timeout: 1000 })
+  }).toPass()
+  const panel = await h.page(panelUrl)
+  await expect(panel.getByRole('heading', { name: 'From the side panel' })).toBeVisible()
+
+  // The page makes room for it.
+  const box = await aside.boundingBox()
+  const pageWidth = await h.app.evaluate(() => (globalThis as unknown as { scbTabs: { page: { width: number; x: number } } }).scbTabs.page)
+  expect(pageWidth.x + pageWidth.width).toBeLessThanOrEqual(Math.ceil(box!.x) + 1)
+
+  // Links in the panel open as tabs.
+  await panel.getByRole('link', { name: 'Open site' }).click()
+  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
+
+  await h.chrome.getByRole('button', { name: 'Close side panel' }).click()
+  await expect(aside).toBeHidden()
+
+})
+
+test('an extension can replace the new tab page, which still behaves as one', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  const id = await addExtension('newtab-extension')
+  await shortcut(h, 'T')
+  const page = await h.page(`chrome-extension://${id}/newtab.html`)
+  await expect(page.getByRole('heading', { name: 'From the new tab extension' })).toBeVisible()
+  // The address bar stays empty and ready to type in.
+  await expect(omnibox(h)).toHaveValue('')
+  await expect(omnibox(h)).toBeFocused()
+
+  await h.app.evaluate((_, extension) => (globalThis as unknown as { scbExtensions: { remove(id: string): Promise<void> } }).scbExtensions.remove(extension), id)
+  await shortcut(h, 'T')
+  await expect(h.chrome.getByRole('tab')).toHaveCount(3)
+  await expect.poll(() => h.app.evaluate(() => (globalThis as unknown as { scbTabs: { snapshot(): { tabs: { url: string }[] } } }).scbTabs.snapshot().tabs.at(-1)?.url)).toMatch(/^sc:\/\/newtab/)
+})
+
+test('a tab showing an extension page comes back after a restart', async () => {
+  await h.close()
+  h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  const id = await addExtension('action-extension')
+  await setSetting(h, { startup: 'restore' })
+  await go(h, `chrome-extension://${id}/page.html`)
+  await expect(activeTab(h)).toContainText('Extension page')
+  const { profile } = h
+  await new Promise((r) => setTimeout(r, 1500))
+  await h.close()
+  h = await launch(profile, [], { SCB_E2E_SANDBOX: '1' })
+  const page = await h.page(`chrome-extension://${id}/page.html`)
+  await expect(page.getByRole('heading', { name: 'Extension page' })).toBeVisible()
+})
+
 test('opted-out crash logging stays local and shows in Settings', async () => {
   await h.app.evaluate((_) => {
     const { scbReporter } = globalThis as unknown as { scbReporter: { record(kind: string, reason: string): void } }

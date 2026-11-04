@@ -97,6 +97,7 @@ export interface Settings {
   vpnBypass: string[]
   /** Widths in pixels of what can be dragged wider or narrower. */
   assistantWidth: number
+  extensionPanelWidth: number
   reportWidth: number
   sidebarWidth: number
   /** Minutes unused before passwords lock again, or 0 for only when closed. */
@@ -144,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vpnAutoFastest: false,
   vpnBypass: [],
   assistantWidth: 360,
+  extensionPanelWidth: 360,
   reportWidth: 560,
   sidebarWidth: 240,
   passwordLockMinutes: 15,
@@ -187,6 +189,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
   assistantWidth: isWidth,
+  extensionPanelWidth: isWidth,
   reportWidth: isWidth,
   sidebarWidth: isWidth,
   passwordLockMinutes: (v) => (PASSWORD_LOCK_CHOICES as readonly unknown[]).includes(v),

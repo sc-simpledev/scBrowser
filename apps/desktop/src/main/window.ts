@@ -261,7 +261,11 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       if (!isPrivate && !window.isDestroyed() && needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => storeIcon(pageUrl, icon))
     },
     onFound: (result) => send('find:result', result),
-    onFullscreen: (fullscreen) => window.setFullScreen(fullscreen),
+    onFullscreen: (fullscreen) => {
+      window.setFullScreen(fullscreen)
+      extensions.setPanelHidden(fullscreen)
+    },
+    newTabPage: (target): string | null => extensions.newTabPage(target),
     engine: () => engineById(settings.get().searchEngine),
     errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
     prepareSession: (target) => prepareSession(target),
@@ -346,7 +350,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     quit: () => app.quit(),
     openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list()),
-    installUpdate: () => updates.install()
+    installUpdate: () => updates.install(),
+    extensionMenu: () => extensions.menu()
   }
   const { aiStore } = services
   const ai = new AiService(aiStore, (id) => tabs.contentsFor(id))
@@ -477,8 +482,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
   const extensions = new ExtensionManager(kv, {
     window,
-    createTab: (url, active) => {
-      const id = tabs.create(url, { activate: active, afterId: tabs.active?.id })
+    createTab: (url, active, target) => {
+      const id = tabs.create(url, { activate: active, afterId: tabs.active?.id, container: tabs.containerIn(target) })
       return tabs.contentsFor(id)
     },
     selectTab: (contents) => {
@@ -488,7 +493,18 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     closeTab: (contents) => {
       const id = tabs.tabIdFor(contents)
       if (id !== null) tabs.close(id)
-    }
+    },
+    activeTab: () => (tabs.active ? tabs.contentsFor(tabs.active.id) : undefined),
+    activate: (id) => send('extensions:activate', id),
+    prepareView: (contents) => {
+      attachShortcuts(contents, actions)
+      attachPageMenu(contents, actions, window, () => [])
+    },
+    raiseOverlay: () => overlay.raise(),
+    openSettings: () => actions.openPage('settings'),
+    onSummary: (summary) => send('extensions:changed', summary),
+    onPanel: (state) => send('extensions:panel', state),
+    onLoaded: (id, newTabPage) => tabs.extensionReady(id, newTabPage)
   })
   const blocker = new SiteBlocker(settings, kv, {
     ready: () => aiStore.status().ready,
@@ -804,7 +820,8 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     vpn,
     passwords,
     openVpnMenu,
-    openPasswordMenu
+    openPasswordMenu,
+    extensions
   })
   const disposeInternalIpc = registerInternalIpc({
     window,

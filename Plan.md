@@ -64,7 +64,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; o
 - [x] Agent mode ("Act on page"): looks and scrolls freely, asks before each click, entry and navigation, never touches private fields, stops after 20 steps. Top-level page only, no iframes
 
 **Phase 5 — built.** The rest of shipping (signing, stores, update channels) waits until the product is ready.
-- [x] Extensions: Chrome Web Store installs and unpacked folders, in every container, with toolbar buttons, popups, right-click items and `chrome.tabs`, using `electron-chrome-extensions` and `electron-chrome-web-store`. Firefox extensions can't run on Chromium
+- [x] Extensions: Chrome Web Store installs and unpacked folders, in every container, with a toolbar menu, pinnable buttons, popups, side panels, new tab pages, popup windows, right-click items and `chrome.tabs`, using `electron-chrome-extensions` and `electron-chrome-web-store`. Firefox extensions can't run on Chromium
 - [x] Password managers, through extensions. Bitwarden from the Web Store installs and opens its popup; signing in and autofill need a manual check. There's also a built-in vault (see Passwords)
 - [x] Encrypted sync of bookmarks, history and settings, through a folder the person already syncs (Syncthing, Dropbox and so on). Passphrase-derived key with scrypt, AES-256-GCM. The format can move to a hosted service later
 - [x] Crash reports and usage stats, both off by default. Crashes are always logged locally for Settings. Reports contain no page data and go to `POST /v1/reports` on the hosted server. Native minidumps aren't collected

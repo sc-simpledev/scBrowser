@@ -61,7 +61,24 @@ export interface ExtensionInfo {
   id: string
   name: string
   version: string
+  /** It shows its own page in place of the new tab page. */
+  newTab: boolean
 }
+
+export interface ExtensionSummary {
+  /** Kept in the extensions menu rather than on the toolbar. */
+  unpinned: string[]
+  /** Clicking these extensions' buttons opens their side panel. */
+  panelOnClick: string[]
+}
+
+export interface ExtensionPanelState {
+  extensionId: string
+  name: string
+}
+
+/** How an extension's `chrome.sidePanel` calls reach the main process. */
+export const SIDE_PANEL_CHANNEL = 'scb:side-panel'
 
 export interface ImportSource {
   id: string

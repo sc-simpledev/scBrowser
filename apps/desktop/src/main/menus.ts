@@ -239,7 +239,8 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
         { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
         { label: 'VPN', click: () => actions.openPage('vpn') },
         { label: 'Passwords', accelerator: 'CmdOrCtrl+Shift+L', click: actions.passwordMenu },
-        { label: 'Extensions and profiles', click: () => actions.openPage('settings') },
+        { label: 'Extensions', submenu: actions.extensionMenu() },
+        { label: 'Profiles', click: () => actions.openPage('settings') },
         { type: 'separator' }
       ]
     : []

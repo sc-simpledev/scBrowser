@@ -1,7 +1,7 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { containerPartition, fullToolbarOrder, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
+import { containerPartition, fullToolbarOrder, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab } from '../state/tabs'
@@ -102,6 +102,70 @@ function PasswordsButton() {
     >
       {state.unlocked ? <KeyRound size={15} strokeWidth={1.75} /> : <LockKeyhole size={15} strokeWidth={1.75} />}
     </IconButton>
+  )
+}
+
+const ALIGNMENT = 'bottom left'
+
+/** The menu of all extensions, and the buttons of those pinned to the toolbar. */
+function ExtensionsButtons({ container }: { container: string | null | undefined }) {
+  const [summary, setSummary] = useState<ExtensionSummary>({ unpinned: [], panelOnClick: [] })
+  const list = useRef<HTMLElement>(null)
+  const menuButton = useRef<HTMLSpanElement>(null)
+  const partition = container ? containerPartition(container) : undefined
+
+  useEffect(() => {
+    void window.scb.invoke('extensions:summary').then(setSummary)
+    return window.scb.on('extensions:changed', setSummary)
+  }, [])
+
+  // The library draws every button in its own shadow root, with no way of asking for only some.
+  useEffect(() => {
+    const root = list.current?.shadowRoot
+    if (!root) return
+    let style = root.querySelector('style[data-unpinned]')
+    if (!style) {
+      style = root.appendChild(document.createElement('style'))
+      style.setAttribute('data-unpinned', '')
+    }
+    const ids = summary.unpinned.filter((id) => /^[a-p]{32}$/.test(id))
+    style.textContent = ids.length > 0 ? `${ids.map((id) => `#${id}`).join(',')}{display:none}` : ''
+  }, [summary])
+
+  useEffect(
+    () =>
+      window.scb.on('extensions:activate', (extensionId) => {
+        if (summary.panelOnClick.includes(extensionId)) return void window.scb.invoke('extensions:panel-toggle', extensionId)
+        const { x, y, width, height } = menuButton.current?.getBoundingClientRect() ?? new DOMRect(innerWidth - 40, 0, 32, 40)
+        void window.browserAction.activate(partition ?? '_self', { eventType: 'click', extensionId, tabId: -1, alignment: ALIGNMENT, anchorRect: { x, y, width, height } })
+      }),
+    [summary, partition]
+  )
+
+  return (
+    <div
+      className="flex items-center gap-1"
+      // Caught on the way down, before the button itself would open a popup or tell the extension.
+      onClickCapture={(e) => {
+        const { id } = e.nativeEvent.composedPath()[0] as HTMLElement
+        if (!summary.panelOnClick.includes(id)) return
+        e.stopPropagation()
+        void window.scb.invoke('extensions:panel-toggle', id)
+      }}
+    >
+      <browser-action-list ref={list} class="sc-no-drag" partition={partition} alignment={ALIGNMENT} />
+      <span ref={menuButton} className="flex">
+        <IconButton
+          label="Extensions"
+          onClick={(e) => {
+            const { left, bottom } = e.currentTarget.getBoundingClientRect()
+            void window.scb.invoke('extensions:menu', left, bottom)
+          }}
+        >
+          <Puzzle size={15} strokeWidth={1.75} />
+        </IconButton>
+      </span>
+    </div>
   )
 }
 
@@ -206,8 +270,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
     omnibox: <Omnibox />,
     downloads: <DownloadsButton />,
     passwords: <PasswordsButton />,
-    /* Drawn by the extensions library in its own shadow root. */
-    extensions: <browser-action-list class="sc-no-drag" partition={tab?.container ? containerPartition(tab.container) : undefined} alignment="bottom left" />
+    extensions: <ExtensionsButtons container={tab?.container} />
   }
 
   const drop = () => {

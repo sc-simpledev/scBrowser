@@ -571,7 +571,7 @@ export function SettingsPage() {
         </Row>
         {extensionError && <Row label={extensionError}>{null}</Row>}
         {extensions.map((extension) => (
-          <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}`}>
+          <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}${extension.newTab ? '. Shows its own new tab page' : ''}`}>
             <Button
               variant="ghost"
               onClick={() => {

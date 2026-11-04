@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { TooltipProvider } from '@scbrowser/ui'
 import { AssistantPanel, AssistantReport } from './components/AssistantPanel'
 import { BookmarksBar } from './components/BookmarksBar'
+import { ExtensionPanel } from './components/ExtensionPanel'
 import { FindBar } from './components/FindBar'
 import { PageSlot } from './components/PageSlot'
 import { TabStrip } from './components/TabStrip'
@@ -31,6 +32,7 @@ export function App() {
           <PageSlot />
           <AssistantReport />
           <AssistantPanel />
+          <ExtensionPanel />
         </div>
       </div>
     </TooltipProvider>

@@ -21,6 +21,7 @@ import { readFlags } from './flags'
 import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
+import type { ExtensionManager } from './extensions'
 import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
@@ -153,6 +154,12 @@ const validators: Validators = {
   'flags:get': noArgs,
   'passwords:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
   'layout:resizing': (args): args is [boolean] => args.length === 1 && typeof args[0] === 'boolean',
+  'extensions:summary': noArgs,
+  'extensions:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'extensions:panel-state': noArgs,
+  'extensions:panel-rect': (args): args is [PageRect] => args.length === 1 && isRect(args[0]),
+  'extensions:panel-toggle': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
+  'extensions:panel-close': noArgs,
   'bookmarks:move-group': (args): args is [number, number | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isId(args[1])),
   'vpn:menu': (args): args is [number, number] => args.length === 2 && typeof args[0] === 'number' && typeof args[1] === 'number',
   'bookmarks:arrange': (args): args is [BarItem[]] =>
@@ -228,6 +235,7 @@ interface IpcServices {
   vpn: VpnService
   openVpnMenu: (x: number, y: number) => void
   openPasswordMenu: (x?: number, y?: number) => void
+  extensions: ExtensionManager
   passwords: PasswordVault
   updates: UpdateService
   editWorkspace: (id: string | null, x: number, y: number) => void
@@ -242,7 +250,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace } = services
+  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace, extensions } = services
   const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
@@ -289,7 +297,17 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'passwords:summary': () => passwords.state(),
     'flags:get': () => readFlags(),
     'passwords:menu': (x, y) => openPasswordMenu(x, y),
-    'layout:resizing': (resizing) => tabs.setResizing(resizing),
+    'layout:resizing': (resizing) => {
+      tabs.setResizing(resizing)
+      extensions.setPanelHidden(resizing)
+    },
+    'extensions:summary': () => extensions.summary(),
+    'extensions:menu': (x, y) => extensions.popupMenu(x, y),
+    'extensions:panel-state': () => extensions.panelState(),
+    'extensions:panel-rect': ({ x, y, width, height }) =>
+      extensions.setPanelBounds({ x: Math.round(x), y: Math.round(y), width: Math.max(0, Math.round(width)), height: Math.max(0, Math.round(height)) }),
+    'extensions:panel-toggle': (id) => extensions.togglePanel(id),
+    'extensions:panel-close': () => extensions.closePanel(),
     'bookmarks:move-group': (id, parentId) => {
       bookmarks.moveGroup(id, parentId)
       onBookmarksChanged()
