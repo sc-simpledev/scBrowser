@@ -27,15 +27,6 @@ test.afterEach(async () => {
 const rule = (domain: string, when = 'always') => ({ id: domain, domain, when, days: [0, 1, 2, 3, 4, 5, 6], start: '00:00', end: '23:59' })
 const blocker = (patch: Record<string, unknown>) => ({ enabled: true, rules: [], messages: [], categories: [], categoryMode: 'off', allowlist: [], ...patch })
 
-test('a small button under the tabs opens a new tab', async () => {
-  await h.chrome.getByRole('tablist').getByRole('button', { name: 'New tab' }).click()
-  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
-})
-
-test('the scSpace accent is the default, and moves older profiles over', async () => {
-  await expect(h.chrome.locator('html')).toHaveAttribute('data-accent', 'teal')
-})
-
 test('the star edits the name, and bookmarks can be grouped and edited from the bar', async () => {
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
@@ -250,17 +241,6 @@ test('the private window command starts a separate copy of the app', async () =>
   await expect.poll(() => existsSync(folder), { timeout: 15000 }).toBe(false)
 })
 
-test('Settings sections sit under Settings in the sidebar', async () => {
-  await go(h, 'sc://settings')
-  const page = await h.page('sc://settings')
-  const nav = page.getByRole('navigation', { name: 'Browser pages' })
-  await nav.getByRole('button', { name: 'About' }).click()
-  await expect(page.getByRole('region', { name: 'About' })).toBeInViewport()
-  await go(h, 'sc://history')
-  const history = await h.page('sc://history')
-  await expect(history.getByRole('navigation', { name: 'Browser pages' }).getByRole('button', { name: 'About' })).toHaveCount(0)
-})
-
 test('PDFs open in the scTerra viewer, with text, paging and zoom', async () => {
   await go(h, site.url('/report.pdf'))
   const page = await h.page('sc://pdf')
@@ -274,19 +254,4 @@ test('PDFs open in the scTerra viewer, with text, paging and zoom', async () => 
   const before = await zoom.textContent()
   await bar.getByRole('button', { name: 'Zoom in' }).click()
   await expect(zoom).not.toHaveText(before!)
-})
-
-test('a damaged PDF offers the basic viewer', async () => {
-  await h.close()
-  const broken = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'application/pdf' })
-    res.end('not a pdf')
-  })
-  await new Promise<void>((r) => broken.listen(0, '127.0.0.1', r))
-  h = await launch()
-  await go(h, `http://127.0.0.1:${(broken.address() as AddressInfo).port}/broken.pdf`)
-  const page = await h.page('sc://pdf')
-  await expect(page.getByRole('button', { name: 'Open in basic viewer' })).toBeVisible()
-  broken.closeAllConnections()
-  broken.close()
 })

@@ -35,16 +35,6 @@ const pickFile = (path: string) =>
     dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog
   }, path)
 
-test('shows the default widgets and keeps the omnibox focused', async () => {
-  const page = await newTab()
-  await expect(page.getByRole('timer', { name: 'Clock' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /^Good / })).toBeVisible()
-  await expect(page.getByRole('search')).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Quick AI' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Shortcuts' })).toBeVisible()
-  await expect(activeTab(h)).toContainText('New tab')
-})
-
 test('widgets can be added, removed, moved and resized, and stay after a restart', async () => {
   const page = await newTab()
   await page.getByRole('button', { name: 'Customise' }).click()

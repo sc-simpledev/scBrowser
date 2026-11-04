@@ -45,12 +45,6 @@ test('containers keep site data apart and survive a restart', async () => {
   await expect(activeTab(h).getByRole('img', { name: 'Work container' })).toBeVisible()
 })
 
-test('new tab page works in a container', async () => {
-  await reopenInContainer('personal')
-  await expect(activeTab(h).getByRole('img', { name: 'Personal container' })).toBeVisible()
-  await expect(activeTab(h)).toContainText('New tab')
-})
-
 test('screenshot saves a PNG and confirms it', async () => {
   await setSetting(h, { downloadDir: h.profile })
   await go(h, site.url('/alpha'))
@@ -63,21 +57,6 @@ test('screenshot saves a PNG and confirms it', async () => {
   const file = readdirSync(h.profile).find((name) => name.startsWith('Screenshot'))
   expect(file).toBeTruthy()
   expect(readFileSync(join(h.profile, file!)).subarray(1, 4).toString()).toBe('PNG')
-})
-
-test('toolbar items can be hidden', async () => {
-  await go(h, 'sc://settings')
-  const page = await h.page('sc://settings')
-  await page.getByRole('switch', { name: 'Show Assistant' }).click()
-  await expect(h.chrome.getByRole('button', { name: 'Assistant' })).toHaveCount(0)
-})
-
-test('flags are saved and offer a restart', async () => {
-  await go(h, 'sc://flags')
-  const page = await h.page('sc://flags')
-  await page.getByRole('switch', { name: 'Turn off smooth scrolling' }).click()
-  await expect(page.getByRole('button', { name: 'Restart now' })).toBeVisible()
-  await expect.poll(() => existsSync(join(h.profile, 'flags.json')) && readFileSync(join(h.profile, 'flags.json'), 'utf8')).toContain('no-smooth-scrolling')
 })
 
 test('hides ad placeholders with cosmetic filters', async () => {

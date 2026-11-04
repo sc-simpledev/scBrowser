@@ -68,3 +68,6 @@ export function displayUrl(url: string): string {
   const shown = effectiveUrl(url)
   return isNewTabUrl(shown) || shown === 'about:blank' ? '' : shown
 }
+
+/** Google's sign-in pages, which are shown a different identity: see `googleSignIn.ts`. */
+export const SIGN_IN_HOSTS = ['accounts.google.com', 'accounts.youtube.com'] as const

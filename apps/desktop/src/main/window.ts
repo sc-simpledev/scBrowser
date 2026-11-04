@@ -61,7 +61,7 @@ import { SyncService, type KeyVault } from './sync'
 import { systemProxyFor } from './systemProxy'
 import { tunnelFor } from './tun'
 import { readFlags } from './flags'
-import { attachGoogleSignIn, followGoogleSignIn } from './googleSignIn'
+import { attachGoogleSignIn } from './googleSignIn'
 import { copySecret, fillLogin, watchForSignIn } from './passwordFill'
 import { PasswordVault } from './passwords'
 import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
@@ -223,7 +223,6 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       contents.on('did-finish-load', () => watchTab(contents))
-      followGoogleSignIn(contents)
       if (siteColours) {
         contents.on('did-change-theme-color', (_event, color) => {
           pageColours.set(contents, color)

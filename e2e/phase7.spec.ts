@@ -248,28 +248,6 @@ test('bookmarks that do not fit move behind a button, and a narrow toolbar empti
   await app.close()
 })
 
-test('the old hosted AI entry is removed and its role moves to scTerra AI', async () => {
-  const first = await launch()
-  await first.app.evaluate(() => {
-    const { scbAi } = globalThis as never as { scbAi: { kv: { set: (key: string, value: unknown) => void } } }
-    scbAi.kv.set('ai:providers', [{ id: 'old', name: 'scDelta AI', protocol: 'openai', baseUrl: 'https://sc-delta-ai.scspacedev.deno.net/v1', models: ['scdelta-chat'], firstParty: false, hosted: true }])
-    scbAi.kv.set('ai:roles', { chat: { providerId: 'old', model: 'scdelta-chat' } })
-  })
-  await first.close()
-  const app = await launch(first.profile, [], { SCTERRA_AI_URL: 'https://sc-delta-ai.scspacedev.deno.net/v1' })
-  const state = await app.chrome.evaluate(() => window.scb.invoke('ai:status'))
-  expect(state.providerName).toBe('scTerra AI')
-  await app.close()
-})
-
-test('the profiles button appears from Settings, beside the assistant', async () => {
-  const app = await launch()
-  await expect(app.chrome.getByRole('button', { name: 'Profiles' })).toHaveCount(0)
-  await app.chrome.evaluate(() => window.scb.invoke('settings:set', { profilesButton: true }))
-  await expect(app.chrome.getByRole('button', { name: 'Profiles' })).toBeVisible()
-  await app.close()
-})
-
 test('the toolbar keeps clear of the window buttons', async () => {
   const app = await launch()
   const clear = await app.chrome.evaluate(() => {

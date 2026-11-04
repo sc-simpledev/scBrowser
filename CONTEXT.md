@@ -4,20 +4,20 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 
 ## Where things stand right now
 
-Written on 2026-11-05. Version 0.3.3 is committed and tagged. The owner was leaving, and asked for the release before confirming the popup fix. So ask them first:
-
-1. **Does signing in to an app work now?** On `beta.scspace.app/flow` (Firebase), Google let them through, then it returned to the same page and said `auth/popup-blocked`. The popup fix below should cure that, but it has only been tested with a local sign-in-style popup, not real Firebase. If it still fails, ask whether a sign-in tab opened, whether the same error appeared, and whether it works with tracking protection off for that site. It may be a redirect sign-in flow, or tracking protection blocking something Firebase needs.
-2. **Did a copy on an older version update itself?** No update from one published version to another has been confirmed yet.
+Written on 2026-11-05. Version 0.3.3 was committed and tagged after the owner tested the AppImage and said it works, including the Chrome Web Store and signing in. Check `gh release list --repo sc-simpledev/scTerra` to confirm it published.
 
 What 0.3.3 changed:
 
-- **Google sign-in uses Electron's own identity** (see "Google sign-in" below). The owner confirmed Google now lets them through. Only the step they reached is confirmed.
-- **Popups keep their link to the page that opened them.** `window.open` used to be cancelled and replaced with a new tab, which lost `window.opener` and refused blank starter popups. `TabManager.adoptPopup` now shows the real window as a tab, closes it on `window.close()`, and returns to the opener. Tabs in a popup pair don't sleep.
-- **Screenshots** retry when Chromium's capture rejects with `UnknownVizError` just after a page loads. That error used to be dropped, so a screenshot could silently do nothing. It also saves before touching the clipboard, and says so if it fails.
-- **Tracker blocking** holds requests for up to 5 seconds while the filter engine loads, so restored tabs' trackers can't slip out first. The blocked count now resets when navigation starts, as resetting when the page commits could wipe it.
-- **End-to-end tests run in parallel:** 3 workers locally, 2 on CI. The local run went from 186 to about 105 seconds, with every test kept.
+- **Google sign-in uses Electron's own identity** (see "Google sign-in" below).
+- **Pages that pass through sign-in open.** Calling `setUserAgent` during a navigation made Chromium reload the page and drop the navigation, which broke the Chrome Web Store for signed-in people. The identity is now set per request in `googleSignIn.ts`, and `preload/internal.ts` gives scripts on those pages the matching value before they run.
+- **Popups keep their link to the page that opened them.** `TabManager.adoptPopup` shows the real window as a tab, closes it on `window.close()`, and returns to the opener. Tabs in a popup pair don't sleep.
+- **Screenshots** retry when Chromium's capture rejects with `UnknownVizError`, save before touching the clipboard, and say so if they fail.
+- **Tracker blocking** holds requests for up to 5 seconds while the filter engine loads, and the blocked count resets when navigation starts.
+- **End-to-end tests:** 123 down to 101, removing those that overlap most with others. Only the vless and ss kinds still make real Xray connections. They run in parallel: 3 workers locally, 2 on Linux CI, 1 on Windows CI, where two at once timed out starting apps. `e2e/app.ts` passes `--no-proxy-server`, as the owner's VPN had been catching test traffic.
 
-Known flakes: `privacy.spec.ts:21` still fails about 1 run in 75 under parallel load, showing 1 blocked instead of 2. The cause isn't known, and CI's retries cover it. The private window test also failed once on Windows CI and passed on retry.
+Still to ask the owner: has a copy on an older version updated itself? No update between published versions has been confirmed.
+
+Known flakes: `privacy.spec.ts:21` fails about 1 run in 75 under parallel load, showing 1 blocked instead of 2. `assistant.spec.ts:142` failed once in a full run. The cause of each isn't known. CI retries cover them.
 
 ## How to work with the owner
 
@@ -44,7 +44,7 @@ npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
 ```
 
-Build first, because E2E tests run the built app. The suite has 123 tests and takes under 2 minutes locally, and there are 201 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+Build first, because E2E tests run the built app. The suite has 101 tests and takes under 2 minutes locally, and there are 201 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
 
 ```bash
 node apps/desktop/scripts/fetch-xray.mjs
@@ -98,7 +98,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Workspaces: `TabManager.snapshot()` only returns the open workspace's tabs, so the UI needs no filtering. Use `allContents()` for anything that must reach every tab.
 - The password vault is sealed with a key derived from the master password, which is never stored; the key and logins only exist in memory while unlocked. Passwords reach a renderer only through `passwords:reveal` on the `sc://passwords` bridge, never the browser UI or overlay. Filling is only ever by request, top frame only, with the exact origin rechecked at that moment. Save offers watch pages only while unlocked, count only real clicks and keys, and hold the login in the main process for a minute at most. It never syncs and isn't in private windows.
 - A native page view swallows mouse events over itself, so `layout:resizing` hides it while a sidebar is dragged.
-- Google sign-in pages (`accounts.google.com`, `accounts.youtube.com`) see Electron's own user agent, in the header and to scripts. Every other site sees the clean Chrome one. `googleSignIn.ts` sets the header per request, because a tab's identity changes too late for the first request of a navigation. Electron keeps only one listener per `webRequest` event per session, so anything else needing `onBeforeSendHeaders` has to share this one.
+- Google sign-in pages (`accounts.google.com`, `accounts.youtube.com`) see Electron's own user agent, without the app's name, in the header and to scripts, along with whatever they load. Every other site sees the clean Chrome one. Never call `setUserAgent` on a tab during a navigation, as Chromium reloads the page and drops the navigation: `googleSignIn.ts` sets the header per request, and `preload/internal.ts` sets what scripts read. Electron keeps only one listener per `webRequest` event per session, so anything else needing `onBeforeSendHeaders` has to share this one.
 - Links and `window.open` from websites become tabs. Unless they ask for `noopener` or open in the background, the tab holds the real popup, and `window.opener` works. `window.close()` shows up as the `close` event on its `WebContents`, not `destroyed`. `sc://` stays unreachable from them.
 - Tooltips on `sc://` pages are Radix, in the document. They must keep `pointer-events: none`, or they take the clicks of whatever's under them. The browser UI's tooltips are in the overlay and clear when the pointer moves.
 - Word files are rebuilt in the main process from the report's blocks through `toReport`, so only plain text reaches them. There's no docx dependency: `reportDocx.ts` writes the zip itself.
@@ -125,7 +125,7 @@ Routes come from `API_KEY_n`, `MODEL_n`, `REASONING_n`, `BASE_URL_n`, `WEIGHTING
 
 ## Google sign-in
 
-Published 0.3.2 told Google's pages it was Firefox, and the owner still got "This browser or app may not be secure". With Electron's own identity Google lets them through.
+Published 0.3.2 told Google's pages it was Firefox, and the owner still got "This browser or app may not be secure". With Electron's own identity (0.3.3), the owner confirmed signing in works.
 
 Why that failed, from two other Electron browsers that measured this against the live site in October 2026 ([Mise PR 19](https://github.com/Rakosn1cek/Mise-browser/pull/19), [Orca PR 36519](https://github.com/stablyai/orca/pull/36519)):
 
@@ -191,7 +191,9 @@ Open items:
 
 ## Test pitfalls
 
-- Tests run in parallel, each with its own app and profile, but the system clipboard is shared.
+- The owner may have whole-computer VPN on while you work. Then this machine's system proxy is set and `HTTP_PROXY` is in the environment. Check before blaming the code, and never turn it off for them. `ProxyType` in `kioslaverc` shows it, and `/opt/scTerra` means their .deb is running.
+- When comparing against earlier code, run the last packaged build with `SCB_E2E_EXECUTABLE` rather than stashing.
+- Tests run in parallel, each with its own app and profile, but the system clipboard is shared. CI on Windows runs one at a time.
 - `accounts.google.com` is preloaded as HTTPS-only in Chromium, so a local HTTP test can't reach it. Use `SCB_SIGN_IN_HOST` with `--host-resolver-rules`, as `e2e/phase9.spec.ts` does, and turn `httpsOnly` off.
 - `--repeat-each=25 --retries=0` finds flakes quickly. Trace each step before believing a cause: the screenshot flake looked like the clipboard and wasn't, and the tracker flake looked like slow filter loading but was mostly the count being reset.
 - Don't rely on hover in tests: on CI's display, stray pointer moves can dismiss a tooltip before it opens. Send `pointermove` straight to the element with `dispatchEvent`. `focus()` doesn't work either, as Playwright's page view doesn't have real focus.

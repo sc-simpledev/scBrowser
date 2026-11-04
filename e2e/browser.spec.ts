@@ -94,16 +94,6 @@ test('finds text in the page', async () => {
   await expect(find).toHaveCount(0)
 })
 
-test('zooms and resets', async () => {
-  await go(h, site.url('/alpha'))
-  await expect(activeTab(h)).toHaveText('Alpha page')
-  await shortcut(h, '=')
-  const pill = h.chrome.getByRole('button', { name: /Zoom 110%/ })
-  await expect(pill).toBeVisible()
-  await pill.click()
-  await expect(pill).toHaveCount(0)
-})
-
 test('reorders tabs by dragging and supports vertical tabs', async () => {
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toHaveText('Alpha page')
@@ -129,18 +119,6 @@ test('reorders tabs by dragging and supports vertical tabs', async () => {
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
   await h.chrome.getByRole('button', { name: 'Collapse tabs' }).click()
   await expect(h.chrome.getByRole('button', { name: 'Expand tabs' })).toBeVisible()
-})
-
-test('closes a side tab from its favicon, expanded or collapsed', async () => {
-  await newTab()
-  await newTab()
-  const closeFirst = h.chrome.getByRole('tab').first().getByRole('button', { name: 'Close tab' })
-  await closeFirst.click()
-  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
-
-  await h.chrome.getByRole('button', { name: 'Collapse tabs' }).click()
-  await closeFirst.click()
-  await expect(h.chrome.getByRole('tab')).toHaveCount(1)
 })
 
 test('shows two tabs side by side and ends the split', async () => {

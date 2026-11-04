@@ -148,3 +148,28 @@ test('a noopener link and a popup sent to an sc:// page stay safe', async () => 
   expect(await h.app.evaluate(({ webContents }) => webContents.getAllWebContents().filter((c) => c.getURL().startsWith('sc://settings')).length)).toBe(0)
   site.server.close()
 })
+
+test('a site that passes through sign-in on the way still opens, rather than reloading the page before', async () => {
+  const titles: Record<string, string> = { '/start': 'Start', '/end': 'Arrived' }
+  const server: Server = createServer((req, res) => {
+    const host = req.headers.host!
+    const port = host.split(':')[1]
+    if (req.url === '/through-sign-in') return void res.writeHead(302, { location: `http://signin.test:${port}/pass` }).end()
+    if (req.url === '/pass') return void res.writeHead(302, { location: `http://other.test:${port}/end` }).end()
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end(`<!doctype html><title>${titles[req.url!] ?? 'Page'}</title><a id="go" href="http://other.test:${port}/through-sign-in">Go</a>`)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  h = await launch(undefined, ['--host-resolver-rules=MAP signin.test 127.0.0.1, MAP other.test 127.0.0.1'], { SCB_SIGN_IN_HOST: 'signin.test' })
+  await setSetting(h, { httpsOnly: false })
+  await go(h, `http://other.test:${port}/start`)
+  const page = await h.page('/start')
+  await expect(page).toHaveTitle('Start')
+  await page.locator('#go').click()
+  await expect(h.chrome.getByRole('tab', { selected: true })).toContainText('Arrived')
+  await expect(h.chrome.getByRole('combobox', { name: 'Search or enter address' })).toHaveValue(`http://other.test:${port}/end`)
+  server.closeAllConnections()
+  server.close()
+})
+

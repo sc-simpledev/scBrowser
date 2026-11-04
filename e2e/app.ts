@@ -21,8 +21,10 @@ export const newProfile = () => mkdtempSync(join(tmpdir(), 'scb-e2e-'))
 export async function launch(profile = newProfile(), switches: string[] = [], extraEnv: Record<string, string> = {}): Promise<Harness> {
   // SCB_E2E_EXECUTABLE points the suite at a packaged build instead of the dev output.
   const executablePath = process.env.SCB_E2E_EXECUTABLE
+  // Tests stay off any system proxy on this computer, such as the owner's own VPN.
+  const args = ['--no-proxy-server', ...switches]
   const app = await electron.launch({
-    ...(executablePath ? { executablePath, args: switches } : { args: [...switches, resolve(__dirname, '../apps/desktop')] }),
+    ...(executablePath ? { executablePath, args } : { args: [...args, resolve(__dirname, '../apps/desktop')] }),
     env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js\n##.ad-slot', SCTERRA_AI_URL: process.env.SCTERRA_AI_URL ?? 'off', ...extraEnv }
   })
   app.process().stderr?.on('data', (data: Buffer) => {

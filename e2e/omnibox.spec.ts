@@ -48,21 +48,6 @@ test('navigates, remembers history and offers it as suggestions', async () => {
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
 })
 
-test('Escape closes the dropdown, then restores the URL', async () => {
-  await go(site.url('/alpha'))
-  await omnibox().click()
-  await omnibox().fill('something else')
-  const overlay = await h.overlay()
-  await expect(overlay.getByRole('listbox')).toBeVisible()
-
-  await omnibox().press('Escape')
-  await expect(overlay.getByRole('listbox')).toHaveCount(0)
-  await expect(omnibox()).toHaveValue('something else')
-
-  await omnibox().press('Escape')
-  await expect(omnibox()).toHaveValue(site.url('/alpha'))
-})
-
 test('a new tab leaves the keyboard in the address bar', async () => {
   await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)

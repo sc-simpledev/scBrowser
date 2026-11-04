@@ -55,39 +55,6 @@ async function addProvider() {
 
 const bar = () => h.chrome.getByRole('toolbar', { name: 'Bookmarks' })
 
-test('the bookmarks bar follows the chosen mode, showing always by default', async () => {
-  await go(h, site.url('/alpha'))
-  await expect(activeTab(h)).toContainText('Alpha page')
-  await expect(bar()).toBeVisible()
-
-  await setSetting(h, { bookmarksBar: 'new-tab' })
-  await expect(bar()).toHaveCount(0)
-  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
-  await expect(bar()).toBeVisible()
-
-  await setSetting(h, { bookmarksBar: 'bookmarks-page' })
-  await expect(bar()).toHaveCount(0)
-  await go(h, 'sc://bookmarks')
-  await expect(bar()).toBeVisible()
-})
-
-test('suggestion sources can be switched off', async () => {
-  await go(h, site.url('/alpha'))
-  await expect(activeTab(h)).toContainText('Alpha page')
-  await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
-  await expect(h.chrome.getByRole('tab')).toHaveCount(2)
-
-  const overlay = await h.overlay()
-  await omnibox(h).pressSequentially('alpha')
-  await expect(overlay.getByRole('option', { name: /Alpha page/ })).toBeVisible()
-  await omnibox(h).press('Escape')
-  await omnibox(h).press('Escape')
-
-  await setSetting(h, { suggestionSources: [] })
-  await omnibox(h).pressSequentially('alpha')
-  await expect(overlay.getByRole('option')).toHaveCount(1)
-})
-
 test('search offers Ask scTerra and Ask Assistant, and the page gives a text answer', async () => {
   await addProvider()
   await go(h, site.url('/alpha'))

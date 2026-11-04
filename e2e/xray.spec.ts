@@ -67,7 +67,8 @@ const links: Record<keyof typeof ports, () => string> = {
   ss: () => `ss://${btoa(`aes-256-gcm:${PASSWORD}`)}@127.0.0.1:${ports.ss}#Node`
 }
 
-for (const name of Object.keys(links) as (keyof typeof ports)[]) {
+// The other two kinds are checked as configurations in the unit tests.
+for (const name of ['vless', 'ss'] as const) {
   test(`loads a page through a real ${name} connection`, async () => {
     await go(h, 'sc://vpn')
     const page = await h.page('sc://vpn')

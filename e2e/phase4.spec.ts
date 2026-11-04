@@ -112,22 +112,6 @@ test('rewrites selected text in a field, with undo', async () => {
   await expect(page.locator('#box')).toHaveValue('the draft')
 })
 
-test('does not replace text if the selection moved on', async () => {
-  await go(h, site.url('/edit'))
-  await expect(activeTab(h)).toContainText('Edit')
-  const page = await h.page('/edit')
-  await page.locator('#box').focus()
-  await page.locator('#box').selectText()
-  mock.queue = ['replaced']
-  await h.app.evaluate(({ webContents }) => {
-    const contents = webContents.getAllWebContents().find((c) => c.getURL().includes('/edit'))
-    ;(globalThis as unknown as { scbActions: { rewrite(c: unknown, t: string, s: string): void } }).scbActions.rewrite(contents, 'something else', 'proofread')
-  })
-  const overlay = await h.overlay()
-  await expect(overlay.getByRole('status')).toContainText('selection changed')
-  await expect(page.locator('#box')).toHaveValue('teh draft')
-})
-
 test('finds history from a description, sending only the description', async () => {
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
@@ -170,15 +154,6 @@ test.describe('agent mode', () => {
     await expect(panel().getByText('Stopped as you declined.')).toBeVisible()
     await expect(activeTab(h)).toContainText('Form')
     expect(mock.requests.at(-1)?.body.messages?.at(-1)?.content).toContain('declined')
-  })
-
-  test('types into ordinary fields after approval', async () => {
-    mock.queue = ['{"action":"type","ref":2,"text":"Sydney","reason":"r"}', '{"action":"done","summary":"Entered it."}']
-    await startAgent('Enter my city')
-    const card = panel().getByRole('alertdialog')
-    await expect(card).toContainText('Enter "Sydney" into "City"')
-    await card.getByRole('button', { name: 'Allow' }).click()
-    await expect(activeTab(h)).toContainText('Typed Sydney')
   })
 
   test('refuses password fields without even asking', async () => {

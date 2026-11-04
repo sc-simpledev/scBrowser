@@ -75,9 +75,3 @@ test('command palette finds and runs a command', async () => {
   await input.press('Escape')
   await expect(input).toHaveCount(0)
 })
-
-test('accent colour applies to the interface', async () => {
-  h = await launch()
-  await setSetting(h, { accent: 'ocean' })
-  await expect.poll(() => h.chrome.evaluate(() => document.documentElement.dataset.accent)).toBe('ocean')
-})

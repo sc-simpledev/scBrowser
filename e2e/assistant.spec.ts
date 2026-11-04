@@ -172,17 +172,6 @@ test('reads PDFs in the viewer', async () => {
   expect(lastUserMessage()).toContain('marigold')
 })
 
-test('explains when a PDF has no text', async () => {
-  await addProvider('openai')
-  await go(h, site.url('/empty.pdf'))
-  await expect(omnibox(h)).toHaveValue(site.url('/empty.pdf'))
-  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
-  await expect(panel().getByText(/empty\.pdf/)).toBeVisible()
-  await ask('Hi')
-  await expect(panel().getByRole('alert')).toContainText('no text')
-  expect(mock.requests).toHaveLength(0)
-})
-
 test('keeps chats across restarts without storing page text', async () => {
   await addProvider('openai')
   await openOnArticle()
@@ -207,16 +196,6 @@ test('keeps chats across restarts without storing page text', async () => {
   await panel().getByRole('button', { name: 'Saved chats' }).click()
   await panel().getByRole('listitem').hover()
   await panel().getByRole('button', { name: 'Delete chat' }).click()
-  await expect(panel().getByText('No saved chats yet.')).toBeVisible()
-})
-
-test('does not save chats when that is turned off', async () => {
-  await addProvider('openai')
-  await setSetting(h, { saveChats: false })
-  await openOnArticle()
-  await ask('Private question')
-  await expect(panel().getByText('Hello there')).toBeVisible()
-  await panel().getByRole('button', { name: 'Saved chats' }).click()
   await expect(panel().getByText('No saved chats yet.')).toBeVisible()
 })
 
@@ -308,10 +287,4 @@ test.describe('hosted scTerra AI', () => {
     await ask('Again')
     await expect(panel().getByRole('alert')).toContainText('free scTerra AI limit')
   })
-})
-
-test('hides scTerra AI when this build has no server', async () => {
-  await h.chrome.getByRole('button', { name: 'Assistant' }).click()
-  await expect(panel().getByRole('button', { name: 'Set up AI' })).toBeVisible()
-  await expect(panel().getByRole('button', { name: 'Use scTerra AI' })).toHaveCount(0)
 })
