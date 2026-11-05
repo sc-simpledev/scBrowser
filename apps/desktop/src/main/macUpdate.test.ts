@@ -44,7 +44,8 @@ describe('canReplaceApp', () => {
   })
 })
 
-describe('the swap script', () => {
+// It only ever runs on a Mac, and Windows has no `/bin/sh` to try it with.
+describe.skipIf(process.platform === 'win32')('the swap script', () => {
   /** Runs it for a process that's already gone, with `open` recorded rather than run. */
   const swap = (current: string, next: string, reopen = '1') => {
     const bin = join(dir, 'bin')
