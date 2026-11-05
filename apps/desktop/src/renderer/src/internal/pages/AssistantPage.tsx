@@ -1,9 +1,12 @@
-import { ArrowUp, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowUp, Code2, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { reportVersions, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { conversationFiles, presetPrompt, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
 import { CopyReply, latestReport, ReplyContent, Thinking } from '../../shared/ReplyContent'
 import { ReportPane, type SaveReport } from '../../shared/ReportPane'
+import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
+import { PresetChip, PresetGallery } from '../../shared/PresetGallery'
+import { newestFile } from '../../state/files'
 import { api } from '../api'
 
 interface Turn extends SavedTurn {
@@ -13,6 +16,8 @@ interface Turn extends SavedTurn {
 const openLink = (href: string) => void api().invoke('browser:open', href)
 
 const saveReport: SaveReport = (title, format, content) => api().invoke('report:save', title, format, content)
+const previewFile: PreviewFile = (name, content) => api().invoke('files:preview', name, content)
+const saveFile: SaveFile = (name, content) => api().invoke('files:save', name, content)
 
 /** Below this, a report and the chat list don't both leave room for the conversation. */
 const ROOM_FOR_ALL = 1180
@@ -72,6 +77,9 @@ export function AssistantPage() {
   const [streamId, setStreamId] = useState<string | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [report, setReport] = useState<Report | null>(null)
+  const [file, setFile] = useState<FileVersion | null>(null)
+  const [preset, setPreset] = useState<ReportPreset | null>(null)
+  const [gallery, setGallery] = useState(false)
   const [listOpen, setListOpen] = useState(true)
   const [reportWidth, setReportWidth] = useState(REPORT_START_WIDTH)
   useEffect(() => {
@@ -101,8 +109,16 @@ export function AssistantPage() {
 
   const showReport = useCallback((next: Report | null) => {
     setReport(next)
+    if (next) setFile(null)
     if (next && innerWidth < ROOM_FOR_ALL) setListOpen(false)
   }, [])
+  const showFile = useCallback((next: FileVersion | null) => {
+    setFile(next)
+    if (next) setReport(null)
+    if (next && innerWidth < ROOM_FOR_ALL) setListOpen(false)
+  }, [])
+  // Files only count once their reply has finished.
+  const { files, changes } = useMemo(() => conversationFiles(streamId ? turns.slice(0, -1) : turns), [turns, streamId])
 
   const refreshChats = useCallback(() => void api().invoke('chats:list').then(setChats), [])
   useEffect(refreshChats, [refreshChats])
@@ -130,13 +146,15 @@ export function AssistantPage() {
           const saved = current.filter((t) => t.content && !t.error).map(({ role, content }) => ({ role, content }))
           if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
           const written = latestReport(current.slice(-1))
-          if (written) showReport(written)
+          const made = newestFile(current)
+          if (made.file) showFile(made.file)
+          else if (written) showReport(written)
           return current
         })
       }
     }
     return api().onAssistantEvent(onEvent)
-  }, [refreshChats, showReport])
+  }, [refreshChats, showReport, showFile])
 
   // Loads what this page was opened for, once the status says whether AI is ready.
   useEffect(() => {
@@ -150,7 +168,11 @@ export function AssistantPage() {
           const chat = await api().invoke('chats:get', chatId.current)
           if (chat && !cancelled) {
             setTurns(chat.turns)
-            showReport(latestReport(chat.turns))
+            const newest = conversationFiles(chat.turns).files
+            const lastFile = [...newest.values()].map((versions) => versions.at(-1)!).sort((a, b) => a.turn - b.turn).at(-1)
+            const lastReport = latestReport(chat.turns)
+            if (lastFile && !lastReport) showFile(lastFile)
+            else showReport(lastReport)
           }
           return
         }
@@ -160,7 +182,7 @@ export function AssistantPage() {
     return () => {
       cancelled = true
     }
-  }, [send, showReport])
+  }, [send, showReport, showFile])
 
   useLayoutEffect(() => {
     const log = logRef.current
@@ -169,7 +191,8 @@ export function AssistantPage() {
 
   const submit = () => {
     if (streamId || !draft.trim()) return
-    send(draft)
+    send(preset ? presetPrompt(preset, draft, false) : draft)
+    setPreset(null)
     setDraft('')
   }
 
@@ -190,14 +213,25 @@ export function AssistantPage() {
 
   const empty = turns.length === 0
   const composer = (
-    <div className="mx-auto w-full max-w-180 shrink-0 px-8 pb-6" hidden={!status?.ready}>
+    <div className="mx-auto flex w-full max-w-180 shrink-0 flex-col gap-2 px-8 pb-6" hidden={!status?.ready}>
+      {gallery && (
+        <PresetGallery
+          wide
+          onClose={() => setGallery(false)}
+          onPick={(picked) => {
+            setPreset(picked)
+            setGallery(false)
+          }}
+        />
+      )}
+      {preset && <PresetChip preset={preset} onRemove={() => setPreset(null)} />}
       <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
         <textarea
           autoFocus
           rows={2}
           value={draft}
           aria-label="Message the assistant"
-          placeholder="Ask anything"
+          placeholder={preset ? `What should the ${preset.name.toLowerCase()} be about?` : 'Ask anything'}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -208,7 +242,16 @@ export function AssistantPage() {
           className="max-h-60 min-h-14 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
         />
         <div className="flex items-center justify-between gap-2 p-2">
-          <span className="min-w-0 truncate text-xs text-text-faint">{status?.model}</span>
+          <button
+            type="button"
+            aria-pressed={gallery || !!preset}
+            onClick={() => setGallery(!gallery)}
+            className={cx('flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 text-xs transition-colors hover:bg-surface-hover', gallery || preset ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text')}
+          >
+            <LayoutTemplate aria-hidden size={12} strokeWidth={1.75} />
+            Report
+          </button>
+          <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{status?.model}</span>
           {streamId ? (
             <IconButton size="sm" label="Stop" onClick={() => void api().invoke('ai:cancel', streamId)}>
               <Square size={12} strokeWidth={2} />
@@ -234,6 +277,18 @@ export function AssistantPage() {
           <div className="flex min-h-0 flex-1 flex-col justify-center pb-16">
             <h1 className="mx-auto w-full max-w-180 px-8 pb-5 text-xl font-semibold tracking-[-0.03em]">What can I help with?</h1>
             {composer}
+            {status?.ready && !gallery && (
+              <div className="mx-auto flex w-full max-w-180 gap-2 px-8">
+                <Button onClick={() => setGallery(true)}>
+                  <LayoutTemplate aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  Make a report
+                </Button>
+                <Button onClick={() => setDraft('Make a web page that ')}>
+                  <Code2 aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  Build something
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -247,7 +302,18 @@ export function AssistantPage() {
                     </div>
                   ) : (
                     <div key={index} className="group/reply flex flex-col gap-1.5">
-                      {turn.content && <ReplyContent text={turn.content} onOpenLink={openLink} onOpenReport={showReport} openReport={report} streaming={streaming} />}
+                      {turn.content && (
+                        <ReplyContent
+                          text={turn.content}
+                          onOpenLink={openLink}
+                          onOpenReport={showReport}
+                          openReport={report}
+                          streaming={streaming}
+                          fileChanges={changes.get(index)}
+                          onOpenFile={(change) => change.version && showFile(change.version)}
+                          openFile={file}
+                        />
+                      )}
                       {!turn.content && !turn.error && <Thinking />}
                       {turn.error && (
                         <p role="alert" className="text-danger">
@@ -277,6 +343,21 @@ export function AssistantPage() {
           busy={streamId !== null}
           save={saveReport}
           onClose={() => setReport(null)}
+          width={reportWidth}
+          onWidth={setReportWidth}
+          onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}
+        />
+      )}
+      {file && (
+        <CodePane
+          files={files}
+          file={file}
+          onSelect={setFile}
+          onRevise={status?.ready ? (change) => send(reviseFilePrompt(file.name, file.content, change)) : undefined}
+          busy={streamId !== null}
+          preview={previewFile}
+          save={saveFile}
+          onClose={() => setFile(null)}
           width={reportWidth}
           onWidth={setReportWidth}
           onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}

@@ -1,3 +1,4 @@
+import { presetById, presetPrompt } from '@scbrowser/shared'
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BookmarksRepo } from './bookmarks'
@@ -26,6 +27,12 @@ describe('BookmarksRepo', () => {
 })
 
 describe('ChatsRepo', () => {
+  it('titles a preset chat by its topic, not its instructions', () => {
+    const chats = new ChatsRepo(db)
+    chats.save('p', [{ role: 'user', content: presetPrompt(presetById('swot')!, 'Our bakery', false) }])
+    expect(chats.list()[0]!.title).toBe('SWOT analysis: Our bakery')
+  })
+
   const turns = [
     { role: 'user' as const, content: 'A very long first question '.repeat(10) },
     { role: 'assistant' as const, content: 'Answer' }

@@ -434,6 +434,10 @@ export interface InternalCommands {
   /** Asks where to save, and returns false if the person cancelled. */
   /** `content` is HTML for PDF and HTML, and Markdown for Markdown. */
   'report:save': (name: string, format: ReportFormat, content: string) => Promise<boolean>
+  /** Serves a file the assistant wrote to a sandboxed preview frame, and returns its address. */
+  'files:preview': (name: string, content: string) => string
+  /** Asks where to save, and returns false if the person cancelled. */
+  'files:save': (name: string, content: string) => Promise<boolean>
   'updates:state': () => UpdateState
   'updates:check': () => UpdateState
   'updates:install': () => void
@@ -559,6 +563,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'vpn:ping-stop',
   'vpn:ping-progress',
   'report:save',
+  'files:preview',
+  'files:save',
   'updates:state',
   'updates:check',
   'updates:install',

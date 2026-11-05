@@ -24,6 +24,7 @@ import {
   type TabsSnapshot,
   type Workspace
 } from '@scbrowser/shared'
+import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
 
 /** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
 export interface SavedTab {
@@ -226,7 +227,8 @@ export class TabManager {
       return this.activeId!
     }
     // Only the browser's own controls may run a script, through `openAddress` in window.ts.
-    const tab = this.addTab(isJavascriptUrl(url) ? NEW_TAB_URL : url, null, afterId)
+    // Previews only ever run inside the assistant's frame, never as a page of their own.
+    const tab = this.addTab(isJavascriptUrl(url) || isPreviewUrl(url) ? NEW_TAB_URL : url, null, afterId)
     tab.state.container = container
     tab.state.workspace = this.workspaceId
     this.wake(tab)
@@ -473,7 +475,7 @@ export class TabManager {
     const tab = this.tabs.get(id)
     if (!tab) return
     // Only the browser's own controls may run a script, through `openAddress` in window.ts.
-    if (isJavascriptUrl(input)) return
+    if (isJavascriptUrl(input) || isPreviewUrl(input.trim())) return
     this.wake(tab)
     const contents = tab.view!.webContents
     void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine())))
@@ -1003,13 +1005,16 @@ export class TabManager {
 
     // Web pages must never reach sc:// pages, which have extra privileges.
     contents.on('will-navigate', (event) => {
-      if (isInternal(event.url) && !isInternal(contents.getURL())) event.preventDefault()
+      if ((isInternal(event.url) && !isInternal(contents.getURL())) || isPreviewUrl(event.url)) event.preventDefault()
     })
     contents.on('will-redirect', (event) => {
-      if (isInternal(event.url)) event.preventDefault()
+      if (isInternal(event.url) || isPreviewUrl(event.url)) event.preventDefault()
     })
     contents.on('will-frame-navigate', (event) => {
       if (!event.isMainFrame && isInternal(event.url)) event.preventDefault()
+      // Only scTerra's own pages may show a preview, and the preview can't leave.
+      else if (!event.isMainFrame && isPreviewUrl(event.url) && !isInternal(contents.getURL())) event.preventDefault()
+      else guardPreviewFrames(event)
     })
 
     // Links with target=_blank and window.open land in a new tab next to their opener.

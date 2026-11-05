@@ -4,9 +4,17 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 
 ## Where things stand right now
 
-Version 0.4.1 is committed on `main`; see the end of this paragraph for what's left. It adds Performance Mode (Settings, the More menu and the command palette), moves the licence to All Rights Reserved, and gives `docs/index.html` animated guides for trusting the app on a Mac and adding a VPN connection. It also fixes: sleeping tabs losing pin, mute, group and workspace changes on restart, Reload on a sleeping tab doing nothing, Reload in the page menu staying on the error page, a subscription refresh losing the chosen VPN connection, a dead page keeping its spinner, Reader view failing silently, and picture in picture picking the page's first video. VPN now has a row in the More menu, and its page leads with adding connections. Whether a `v0.4.1` tag has gone out is the owner's call: check `gh release list --repo sc-simpledev/scTerra`. The Mac walkthrough on the website is drawn from Apple's documentation, not from running our build on a Mac, so check its wording the first time someone tries one.
+Version 0.4.1 is published (2026-11-05). It adds Performance Mode (Settings, the More menu and the command palette), moves the licence to All Rights Reserved, and gives `docs/index.html` animated guides for trusting the app on a Mac and adding a VPN connection. It also fixes: sleeping tabs losing pin, mute, group and workspace changes on restart, Reload on a sleeping tab doing nothing, Reload in the page menu staying on the error page, a subscription refresh losing the chosen VPN connection, a dead page keeping its spinner, Reader view failing silently, and picture in picture picking the page's first video. VPN now has a row in the More menu, and its page leads with adding connections. The Mac walkthrough on the website is drawn from Apple's documentation, not from running our build on a Mac, so check its wording the first time someone tries one.
 
 Performance Mode is `performanceMode`, kept per device. `sleepMinutes` makes background tabs sleep within 5 minutes, `data-performance` (tokens.css) removes animations, blur and glass except spinners, and `quietMedia` in `TabManager` sets the autoplay policy on views created after it's on, so tabs already open keep their old policy until they sleep and wake. It needs no restart and changes no Chromium switches.
+
+
+**Version 0.4.2 is committed on `main` (2026-11-06) but not tagged, so it isn't published:** report presets and AI-written files, on sc://assistant only. The owner asked for these on the full-page assistant, not the sidebar or sc://ai, so the sidebar is unchanged. The beta is in `apps/desktop/release/0.4.2/`. One real request through scTerra AI wrote a working tap counter page that previewed correctly. Presets, the new report blocks and edits have only run against the mock AI.
+
+- **Presets:** `REPORT_PRESETS` in `packages/shared/src/reportPresets.ts` (16 kinds). Each one adds layout instructions to the message, `shownPresetMessage` shows it back as "SWOT analysis: topic", and saved chats are titled the same way.
+- **Report blocks and designs:** reports gained `stats`, `timeline`, `proscons`, `cards` and `steps` blocks, an optional `kind` label, and four designs (Modern, Magazine, Academic, Notebook) in `content.css`. These work in the sidebar too, as any report can use them. Word export turns the new blocks into tables and lists. There's a `--sc-success` token now, for pros and code strings.
+- **Files:** `packages/shared/src/files.ts`. A reply writes a file in a ```` ````scterra-file name="x" ```` block, and changes it with ```` ````scterra-edit ```` FIND/REPLACE pairs. A FIND must match once (indentation is forgiven), or the edit fails and the file stays as it was. `conversationFiles` replays the conversation into versions. `FILE_INSTRUCTIONS` only goes to the model through `WORKSPACE_PROMPT`, which the main process picks when the request comes from sc://assistant. A page can't ask for it.
+- **Previews:** `main/filePreview.ts` serves files on the `sc-preview:` scheme inside a sandboxed frame. They're stopped from reaching out by `PREVIEW_CSP`, which blocks every request, and by sc://assistant's own `frame-src sc-preview:`, which makes the frame fail with ERR_BLOCKED_BY_CSP if it tries to leave. `guardPreviewFrames` is a second line behind those, and on its own it hasn't been shown to stop anything. Plain http inside the frame is also stopped by Chromium as mixed content. Tabs refuse to open `sc-preview:` addresses. `e2e/aifiles.spec.ts` checks all this with a real https server, turning off HTTPS-only, which would otherwise hide whether the preview is what stopped it. A frame that tries to leave is left on Chromium's error page until Run again.
 
 Version 0.4.0 is published (2026-11-05, tag on `1b27e29`), for Linux, Windows and both kinds of Mac, and `latest-mac.yml` lists both Macs. It was asked for in the same message as its last fixes, so the owner tested everything but those fixes first: the row alignment, Google translation and the extensions panel. Ask how those went. It adds pinned tabs, tab mute and sound icons, tab search, a split view divider, a fuller page menu, view source, spell check, Open file, `javascript:` addresses, app links, several windows, installed sites, the Task Manager, docked developer tools, save offers while locked, address autofill, turning extensions off, a translate language menu, internal page icons, an update screen, an extensions list and panel, and self-updating on Macs. Nothing has run on Windows or a Mac, and Mac self-updating has never been tried for real, so check it the first time a Mac updates to the next version.
 
@@ -59,7 +67,7 @@ npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
 ```
 
-Build first, because E2E tests run the built app. The suite has 160 tests and takes about 3 minutes locally, and there are 244 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+Build first, because E2E tests run the built app. The suite has 166 tests and takes about 3 minutes locally, and there are 260 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
 
 ```bash
 node apps/desktop/scripts/fetch-xray.mjs
@@ -70,7 +78,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.4.1/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.4.2/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests, on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).

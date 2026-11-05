@@ -1,6 +1,6 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
+import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
 import { effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import type { AiStore } from './store'
@@ -104,7 +104,8 @@ export class AiService {
     this.running.get(streamId)?.abort()
   }
 
-  async send(streamId: string, request: AssistantRequest, emit: (event: AssistantEvent) => void): Promise<void> {
+  /** `files` is set by the main process, for sc://assistant only, never by what the page sends. */
+  async send(streamId: string, request: AssistantRequest, emit: (event: AssistantEvent) => void, { files = false }: { files?: boolean } = {}): Promise<void> {
     const controller = new AbortController()
     this.running.set(streamId, controller)
     try {
@@ -120,7 +121,7 @@ export class AiService {
       let stopReason: string | null = null
       const stream = provider.chat({
         model: chat.model,
-        system: SYSTEM_PROMPT,
+        system: files ? WORKSPACE_PROMPT : SYSTEM_PROMPT,
         messages: withContext(request.messages, pages, request.selection),
         maxTokens: MAX_OUTPUT_TOKENS,
         signal: controller.signal

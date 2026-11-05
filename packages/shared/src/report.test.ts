@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { reportHtml, reportMarkdown, reportVersions, reviseReportPrompt, shownMessage, type Report, repairJson, splitReply, toReport } from './report'
+import { REPORT_THEMES, reportHtml, reportMarkdown, reportVersions, reviseReportPrompt, shownMessage, type Report, repairJson, splitReply, toReport } from './report'
+import { presetById, presetPrompt, REPORT_PRESETS } from './reportPresets'
 
 const block = (json: string) => '```scterra-report\n' + json + '\n```'
 const valid = '{"title":"Plan","summary":"S","theme":"brief","blocks":[{"type":"heading","text":"One"},{"type":"paragraph","text":"Two"}]}'
@@ -201,5 +202,49 @@ describe('reportMarkdown', () => {
       ]
     })
     expect(text).toBe('# Plan\n\nShort.\n\n### Steps\n\n1. One\n2. Two\n\n| A\\|B |\n| --- |\n| line break |\n\n> Careful\n\n---\n')
+  })
+})
+
+describe('richer report blocks', () => {
+  it('reads stats, timelines, pros and cons, cards and steps in the shapes models write', () => {
+    const report = toReport(
+      JSON.stringify({
+        kind: 'SWOT analysis',
+        title: 'T',
+        theme: 'modern',
+        blocks: [
+          { type: 'stats', items: [{ value: '42%', label: 'share' }, ['3', 'stores']] },
+          { type: 'milestones', items: [{ date: '2024', event: 'Launch' }] },
+          { type: 'pros_cons', pros: ['Fast'], cons: [{ text: 'Pricey' }] },
+          { type: 'swot', items: [{ title: 'Strengths', text: 'Brand' }] },
+          { type: 'steps', items: ['Just text'] },
+          { type: 'stats', items: [] }
+        ]
+      })
+    )
+    expect(report?.kind).toBe('SWOT analysis')
+    expect(report?.theme).toBe('modern')
+    expect(report?.blocks).toEqual([
+      { type: 'stats', items: [{ value: '42%', label: 'share' }, { value: '3', label: 'stores' }] },
+      { type: 'timeline', items: [{ when: '2024', text: 'Launch' }] },
+      { type: 'proscons', pros: ['Fast'], cons: ['Pricey'] },
+      { type: 'cards', items: [{ title: 'Strengths', text: 'Brand' }] },
+      { type: 'steps', items: [{ title: '', text: 'Just text' }] }
+    ])
+  })
+
+  it('escapes the new blocks when saved as a page', () => {
+    const html = reportHtml({ kind: '<b>', title: 'T', summary: '', theme: 'clean', blocks: [{ type: 'cards', items: [{ title: '<script>', text: 'x' }] }] }, '')
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+})
+
+describe('report presets', () => {
+  it('reads back as the kind and topic, not the instructions', () => {
+    const swot = presetById('swot')!
+    expect(shownMessage(presetPrompt(swot, 'Our bakery', false))).toBe('SWOT analysis: Our bakery')
+    expect(shownMessage(presetPrompt(swot, '', true))).toBe('SWOT analysis: this page')
+    expect(REPORT_PRESETS.every((preset) => REPORT_THEMES.some((theme) => theme.id === preset.theme))).toBe(true)
   })
 })

@@ -18,6 +18,7 @@ import { isPrivate } from './private'
 import type { PrivacyService } from './privacy/service'
 import type { PasswordEntry } from '@scbrowser/shared'
 import { isReportSave, saveReport } from './reportExport'
+import { isFileSave, isPreviewRequest, saveFile, storePreview } from './filePreview'
 import type { Reporter } from './reporter'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -222,9 +223,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'ai:send': (streamId, request) => {
       if (!isAssistantRequest(request)) throw new Error('Invalid request')
       const sender = caller
-      void ai.send(text(streamId, 64), request, (event) => {
-        if (sender && !sender.isDestroyed()) sender.send('ai:event', event)
-      })
+      void ai.send(
+        text(streamId, 64),
+        request,
+        (event) => {
+          if (sender && !sender.isDestroyed()) sender.send('ai:event', event)
+        },
+        { files: !!sender && sender.getURL().startsWith('sc://assistant') }
+      )
     },
     'ai:cancel': (streamId) => ai.cancel(text(streamId, 64)),
     'ai:take-prompt': () => ai.takePendingPrompt(),
@@ -374,6 +380,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'vpn:ping-stop': () => vpn.stopPing(),
     'vpn:ping-progress': () => vpn.pingProgress(),
+    'files:preview': (...args) => {
+      if (!isPreviewRequest(args)) throw new Error('Invalid file')
+      return storePreview(...args)
+    },
+    'files:save': (...args) => {
+      if (!isFileSave(args)) throw new Error('Invalid file')
+      return saveFile(window, ...args)
+    },
     'report:save': (...args) => {
       if (!isReportSave(args)) throw new Error('Invalid report')
       return saveReport(window, ...args)

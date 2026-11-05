@@ -22,6 +22,7 @@
   --color-on-accent: var(--sc-on-accent);
   --color-focus-ring: var(--sc-focus-ring);
   --color-danger: var(--sc-danger);
+  --color-success: var(--sc-success);
   --color-transparent: transparent;
 
   --font-sans: var(--sc-font-sans);

@@ -2,6 +2,7 @@ import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { net, protocol, session } from 'electron'
 import { INTERNAL_PAGES } from '@scbrowser/shared'
+import { handlePreviews, PREVIEW_SCHEME } from '../filePreview'
 import { errorPage } from './error'
 import { READER_CSP, readerPage } from './reader'
 
@@ -10,7 +11,9 @@ export const INTERNAL_SCHEME = 'sc'
 /** Must run before `app.whenReady()`. */
 export function registerInternalScheme(): void {
   protocol.registerSchemesAsPrivileged([
-    { scheme: INTERNAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
+    { scheme: INTERNAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    // Nothing more than an address of its own: no fetch, no bypassing its policy.
+    { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true } }
   ])
 }
 
@@ -43,6 +46,7 @@ async function serveAppPage(url: URL): Promise<Response> {
 
 /** Serves `sc://<page>` internal pages to tabs in the default session. */
 export function handleInternalPages(target = session.defaultSession): void {
+  handlePreviews(target)
   target.protocol.handle(INTERNAL_SCHEME, (request) => {
     const url = new URL(request.url)
     if (isAppPage(url.host)) return serveAppPage(url)

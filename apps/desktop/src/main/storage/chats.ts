@@ -1,5 +1,5 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import type { ChatSummary, SavedChat, SavedTurn } from '@scbrowser/shared'
+import { shownMessage, type ChatSummary, type SavedChat, type SavedTurn } from '@scbrowser/shared'
 
 const TITLE_LENGTH = 80
 
@@ -26,7 +26,9 @@ export class ChatsRepo {
   }
 
   save(id: string, turns: SavedTurn[], now = Date.now()): void {
-    const first = turns.find((t) => t.role === 'user')?.content.replace(/\s+/g, ' ').trim() ?? 'Chat'
+    // A preset or change request is titled by what the person asked, not its instructions.
+    const asked = turns.find((t) => t.role === 'user')?.content
+    const first = asked ? shownMessage(asked).replace(/\s+/g, ' ').trim() : 'Chat'
     this.upsert.run(id, first.slice(0, TITLE_LENGTH), JSON.stringify(turns), now)
   }
 

@@ -31,6 +31,7 @@
   --sc-on-accent: oklch(0.99 0 0);
   --sc-focus-ring: oklch(0.65 var(--sc-chroma) var(--sc-hue) / 0.55);
   --sc-danger: #c8473b;
+  --sc-success: oklch(0.56 0.12 155);
   /* Text placed directly on a picture or colour the person chose. */
   --sc-on-image: oklch(0.98 0 0);
   --sc-on-image-dark: oklch(0.2 0 0);
@@ -141,6 +142,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --sc-bg: #171717;
+    --sc-success: oklch(0.72 0.13 155);
     --sc-surface: #121212;
     --sc-surface-hover: #232323;
     --sc-surface-active: #2a2a2a;

@@ -47,9 +47,22 @@ function body(report: Report): { xml: string; numbered: number } {
         return '<w:p/>'
       case 'divider':
         return `<w:p><w:pPr><w:pBdr><w:bottom ${BORDER}/></w:pBdr></w:pPr></w:p>`
+      // Word has no tiles or timelines, so these become the nearest plain shapes.
+      case 'stats':
+        return table({ type: 'table', headers: block.items.map((item) => item.value), rows: [block.items.map((item) => item.label)] })
+      case 'timeline':
+        return table({ type: 'table', headers: ['When', 'What'], rows: block.items.map((item) => [item.when, item.text]) })
+      case 'proscons':
+        return table({ type: 'table', headers: ['Pros', 'Cons'], rows: Array.from({ length: Math.max(block.pros.length, block.cons.length) }, (_, i) => [block.pros[i] ?? '', block.cons[i] ?? '']) })
+      case 'cards':
+        return block.items.map((item) => para(item.title, 'Heading2') + para(item.text)).join('')
+      case 'steps': {
+        const id = ++numbered + 1
+        return block.items.map((item) => para(`${item.title}: ${item.text}`, 'ListParagraph', `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${id}"/></w:numPr>`)).join('')
+      }
     }
   })
-  return { xml: [para(report.title, 'Title'), ...(report.summary ? [para(report.summary, 'Subtitle')] : []), ...blocks].join(''), numbered }
+  return { xml: [...(report.kind ? [para(report.kind, 'Subtitle')] : []), para(report.title, 'Title'), ...(report.summary ? [para(report.summary, 'Subtitle')] : []), ...blocks].join(''), numbered }
 }
 
 const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'

@@ -324,3 +324,396 @@
   padding-top: calc(var(--sc-space) * 3);
   font-size: var(--sc-text-md);
 }
+
+/* The kind of report, set small above its title. */
+.sc-report .kind {
+  margin-bottom: calc(var(--sc-space) * -2);
+  color: var(--sc-accent);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Key figures, as a row of tiles. */
+.sc-report .stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: calc(var(--sc-space) * 2.5);
+}
+
+.sc-report .stat {
+  padding: calc(var(--sc-space) * 3.5) calc(var(--sc-space) * 4);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-lg);
+}
+
+.sc-report .stat-value {
+  color: var(--sc-accent);
+  font-size: var(--sc-text-xl);
+  font-weight: var(--sc-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-report .stat-label {
+  margin-top: var(--sc-space);
+  color: var(--sc-text-muted);
+  font-size: var(--sc-text-xs);
+  line-height: var(--sc-leading-normal);
+}
+
+/* Dates in order, on a thin line with a dot for each. */
+.sc-report .timeline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sc-space) * 4);
+  margin-left: calc(var(--sc-space) * 1.5);
+  padding: 0 0 0 calc(var(--sc-space) * 6);
+  border-left: 1px solid var(--sc-border-strong);
+  list-style: none;
+}
+
+.sc-report .timeline li {
+  position: relative;
+}
+
+.sc-report .timeline li::before {
+  content: '';
+  position: absolute;
+  top: 0.45em;
+  left: calc(var(--sc-space) * -6 - 4.5px);
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--sc-surface);
+  border-radius: 50%;
+  background: var(--sc-accent);
+  box-sizing: content-box;
+  transform: translateX(-2px);
+}
+
+.sc-report .timeline .when,
+.sc-report .steps .step-title,
+.sc-report .card-title {
+  font-weight: var(--sc-weight-semibold);
+}
+
+.sc-report .timeline .when {
+  color: var(--sc-accent);
+  font-size: var(--sc-text-xs);
+  letter-spacing: 0.02em;
+}
+
+/* Two columns, marked by colour as well as their labels. */
+.sc-report .proscons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: calc(var(--sc-space) * 2.5);
+}
+
+.sc-report .pros,
+.sc-report .cons {
+  padding: calc(var(--sc-space) * 3.5) calc(var(--sc-space) * 4);
+  border: 1px solid var(--sc-border);
+  border-top: 2px solid var(--side);
+  border-radius: var(--sc-radius-md);
+}
+
+.sc-report .pros {
+  --side: var(--sc-success);
+}
+
+.sc-report .cons {
+  --side: var(--sc-danger);
+}
+
+.sc-report .side {
+  margin-bottom: calc(var(--sc-space) * 2);
+  color: var(--side);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sc-report .pros ul,
+.sc-report .cons ul {
+  padding-left: calc(var(--sc-space) * 4);
+}
+
+.sc-report .pros li::marker,
+.sc-report .cons li::marker {
+  color: var(--side);
+}
+
+/* A grid of short titled notes. */
+.sc-report .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: calc(var(--sc-space) * 2.5);
+}
+
+.sc-report .card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sc-space);
+  padding: calc(var(--sc-space) * 3.5) calc(var(--sc-space) * 4);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-lg);
+  background: var(--sc-surface);
+}
+
+.sc-report .card > :last-child {
+  color: var(--sc-text-muted);
+}
+
+/* Numbered instructions, the number in a ring. */
+.sc-report .steps {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sc-space) * 3);
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.sc-report .steps li {
+  position: relative;
+  min-height: 28px;
+  padding-left: calc(var(--sc-space) * 11);
+  counter-increment: step;
+}
+
+.sc-report .steps li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--sc-accent);
+  border-radius: 50%;
+  color: var(--sc-accent);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-report .steps li > :last-child {
+  color: var(--sc-text-muted);
+}
+
+@media print {
+  .sc-report .stat,
+  .sc-report .card,
+  .sc-report .pros,
+  .sc-report .cons,
+  .sc-report .timeline li,
+  .sc-report .steps li {
+    break-inside: avoid;
+  }
+}
+
+/* Modern: bold and roomy, headings marked by a bar of the accent. */
+.sc-report[data-theme='modern'] h1 {
+  font-size: calc(var(--sc-text-xl) * 1.15);
+  font-weight: var(--sc-weight-semibold);
+  letter-spacing: -0.035em;
+}
+
+.sc-report[data-theme='modern'] h2 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sc-space) * 2.5);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.sc-report[data-theme='modern'] h2::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 0.9em;
+  border-radius: var(--sc-radius-sm);
+  background: var(--sc-accent);
+}
+
+.sc-report[data-theme='modern'] .stat,
+.sc-report[data-theme='modern'] .card {
+  border-color: transparent;
+  background: var(--sc-accent-soft);
+}
+
+.sc-report[data-theme='modern'] .callout {
+  border-left: 0;
+  border-radius: var(--sc-radius-lg);
+}
+
+/* Magazine: a feature, with a big headline and a rule above each section. */
+.sc-report[data-theme='magazine'] {
+  --report-gap: calc(var(--sc-space) * 4.5);
+  font-size: var(--sc-text-md);
+}
+
+.sc-report[data-theme='magazine'] h1 {
+  padding-bottom: calc(var(--sc-space) * 4);
+  border-bottom: 1px solid var(--sc-text);
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: calc(var(--sc-text-xl) * 1.5);
+  font-weight: var(--sc-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.sc-report[data-theme='magazine'] .summary {
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: var(--sc-text-lg);
+  font-style: italic;
+  line-height: var(--sc-leading-tight);
+}
+
+.sc-report[data-theme='magazine'] h2 {
+  padding-top: calc(var(--sc-space) * 3);
+  border-top: 3px solid var(--sc-text);
+  font-size: var(--sc-text-sm);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sc-report[data-theme='magazine'] blockquote {
+  padding: calc(var(--sc-space) * 2) 0;
+  border-left: 0;
+  border-block: 1px solid var(--sc-border);
+  color: var(--sc-text);
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: var(--sc-text-lg);
+  line-height: var(--sc-leading-tight);
+  text-align: center;
+}
+
+.sc-report[data-theme='magazine'] .stat-value {
+  color: var(--sc-text);
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+}
+
+/* Academic: formal, serif, with numbered sections. */
+.sc-report[data-theme='academic'] {
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: var(--sc-text-md);
+  line-height: 1.65;
+  counter-reset: section;
+}
+
+.sc-report[data-theme='academic'] h1,
+.sc-report[data-theme='academic'] .summary,
+.sc-report[data-theme='academic'] .kind {
+  text-align: center;
+}
+
+.sc-report[data-theme='academic'] h1 {
+  font-weight: var(--sc-weight-medium);
+  letter-spacing: -0.01em;
+}
+
+.sc-report[data-theme='academic'] .summary {
+  padding-bottom: calc(var(--sc-space) * 4);
+  border-bottom: 1px solid var(--sc-border);
+  font-size: var(--sc-text-sm);
+  font-style: italic;
+}
+
+.sc-report[data-theme='academic'] h2 {
+  padding-top: 0;
+  border-top: 0;
+  font-size: var(--sc-text-md);
+  font-weight: var(--sc-weight-semibold);
+  counter-increment: section;
+}
+
+.sc-report[data-theme='academic'] h2::before {
+  content: counter(section) '. ';
+  color: var(--sc-text-faint);
+}
+
+.sc-report[data-theme='academic'] p {
+  text-align: justify;
+  hyphens: auto;
+}
+
+.sc-report[data-theme='academic'] .callout {
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-sm);
+  background: transparent;
+}
+
+.sc-report[data-theme='academic'] .stat-value,
+.sc-report[data-theme='academic'] .timeline .when,
+.sc-report[data-theme='academic'] .kind {
+  color: var(--sc-text);
+}
+
+/* Notebook: study notes on faintly ruled paper, with highlighted headings. */
+.sc-report[data-theme='notebook'] {
+  --report-gap: calc(var(--sc-space) * 3);
+  line-height: 1.75;
+}
+
+.sc-report[data-theme='notebook'] h1 {
+  font-size: var(--sc-text-xl);
+  letter-spacing: -0.02em;
+}
+
+.sc-report[data-theme='notebook'] h2 {
+  align-self: flex-start;
+  padding: 0 calc(var(--sc-space) * 1.5);
+  border-top: 0;
+  background: linear-gradient(transparent 55%, var(--sc-accent-soft) 55%);
+  font-size: var(--sc-text-md);
+}
+
+.sc-report[data-theme='notebook'] .card {
+  border-style: dashed;
+}
+
+.sc-report[data-theme='notebook'] .callout {
+  border-left: 0;
+  border-radius: var(--sc-radius-md);
+  background: repeating-linear-gradient(var(--sc-accent-soft) 0 calc(1.75em - 1px), color-mix(in oklab, var(--sc-accent) 22%, transparent) calc(1.75em - 1px) 1.75em);
+}
+
+.sc-report[data-theme='notebook'] table {
+  font-size: var(--sc-text-xs);
+}
+
+/* Code the assistant wrote, drawn from tokens only. */
+.sc-code pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.sc-code .tok-comment {
+  color: var(--sc-text-faint);
+  font-style: italic;
+}
+
+.sc-code .tok-string {
+  color: var(--sc-success);
+}
+
+.sc-code .tok-number {
+  color: var(--sc-danger);
+}
+
+.sc-code .tok-keyword,
+.sc-code .tok-tag {
+  color: var(--sc-accent);
+}
+
+.sc-code .tok-attr {
+  color: var(--sc-text-muted);
+}

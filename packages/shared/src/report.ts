@@ -1,7 +1,14 @@
+import { shownFileMessage } from './files'
+import { shownPresetMessage } from './reportPresets'
+
 export const REPORT_THEMES = [
   { id: 'clean', name: 'Clean' },
   { id: 'editorial', name: 'Editorial' },
-  { id: 'brief', name: 'Brief' }
+  { id: 'brief', name: 'Brief' },
+  { id: 'modern', name: 'Modern' },
+  { id: 'magazine', name: 'Magazine' },
+  { id: 'academic', name: 'Academic' },
+  { id: 'notebook', name: 'Notebook' }
 ] as const
 
 export type ReportThemeId = (typeof REPORT_THEMES)[number]['id']
@@ -15,8 +22,17 @@ export type ReportBlock =
   | { type: 'table'; headers: string[]; rows: string[][] }
   | { type: 'spacer' }
   | { type: 'divider' }
+  /** Big figures, like "42%" over "of visitors". */
+  | { type: 'stats'; items: { value: string; label: string }[] }
+  | { type: 'timeline'; items: { when: string; text: string }[] }
+  | { type: 'proscons'; pros: string[]; cons: string[] }
+  /** A grid of short titled notes, such as the four parts of a SWOT. */
+  | { type: 'cards'; items: { title: string; text: string }[] }
+  | { type: 'steps'; items: { title: string; text: string }[] }
 
 export interface Report {
+  /** What kind of report it is, like "SWOT analysis", shown small above the title. */
+  kind?: string
   title: string
   summary: string
   theme: ReportThemeId
@@ -37,6 +53,7 @@ const FENCE = 'scterra-report'
 const FENCES = '(?:scterra|scdelta)-report'
 const MAX_BLOCKS = 300
 const MAX_TEXT = 8000
+const MAX_ITEMS = 24
 
 /** Models add Markdown despite being told not to, and reports show text literally. */
 const plain = (text: string) => text.replace(/\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`/g, (_, a, b, c) => a ?? b ?? c).replace(/^#{1,6}\s+/, '')
@@ -58,8 +75,36 @@ const BLOCK_NAMES: Record<string, string> = {
   ul: 'list', ol: 'list', bullets: 'list', bullet_list: 'list', bulleted_list: 'list', numbered_list: 'list', ordered_list: 'list',
   blockquote: 'quote',
   note: 'callout', tip: 'callout', warning: 'callout', info: 'callout', important: 'callout',
-  hr: 'divider', separator: 'divider', rule: 'divider'
+  hr: 'divider', separator: 'divider', rule: 'divider',
+  stat: 'stats', metrics: 'stats', kpis: 'stats', figures: 'stats',
+  events: 'timeline', milestones: 'timeline', chronology: 'timeline',
+  pros_cons: 'proscons', 'pros-cons': 'proscons', procon: 'proscons', proandcon: 'proscons',
+  grid: 'cards', swot: 'cards', card: 'cards', boxes: 'cards',
+  howto: 'steps', procedure: 'steps', instructions: 'steps'
 }
+
+/** Pairs like `{"value": "42%", "label": "share"}`, which models also write as two-item arrays. */
+function pairs<A extends string, B extends string>(value: unknown, first: A, second: B, firstNames: string[], secondNames: string[]): ({ [K in A | B]: string })[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, MAX_ITEMS).flatMap((item) => {
+    if (Array.isArray(item)) {
+      const [a, b] = item.map((part) => itemText(part) ?? '')
+      return a || b ? [{ [first]: a ?? '', [second]: b ?? '' } as { [K in A | B]: string }] : []
+    }
+    const record = item as Record<string, unknown> | null
+    if (typeof record !== 'object' || record === null) {
+      const text = itemText(item)
+      return text ? [{ [first]: '', [second]: text } as { [K in A | B]: string }] : []
+    }
+    const pick = (names: string[]) => names.map((name) => string(record[name])).find((text) => text !== null) ?? ''
+    const a = pick([first, ...firstNames])
+    const b = pick([second, ...secondNames])
+    return a || b ? [{ [first]: a, [second]: b } as { [K in A | B]: string }] : []
+  })
+}
+
+const TITLE_NAMES = ['heading', 'name', 'label', 'step']
+const BODY_NAMES = ['body', 'description', 'content', 'detail', 'value']
 
 function tableRows(value: unknown, headers: string[]): string[][] {
   if (!Array.isArray(value)) return []
@@ -99,6 +144,24 @@ function toBlock(value: unknown): ReportBlock | null {
       return { type: 'spacer' }
     case 'divider':
       return { type: 'divider' }
+    case 'stats': {
+      const items = pairs(block!.items ?? block!.stats, 'value', 'label', ['number', 'figure', 'stat'], ['text', 'caption', 'description', 'name'])
+      return items.length > 0 ? { type: 'stats', items } : null
+    }
+    case 'timeline': {
+      const items = pairs(block!.items ?? block!.events, 'when', 'text', ['date', 'time', 'year', 'period', 'label'], ['event', 'description', 'title', 'body'])
+      return items.length > 0 ? { type: 'timeline', items } : null
+    }
+    case 'proscons': {
+      const pros = strings(block!.pros ?? block!.advantages ?? block!.for).slice(0, MAX_ITEMS)
+      const cons = strings(block!.cons ?? block!.disadvantages ?? block!.against).slice(0, MAX_ITEMS)
+      return pros.length + cons.length > 0 ? { type: 'proscons', pros, cons } : null
+    }
+    case 'cards':
+    case 'steps': {
+      const items = pairs(block!.items ?? block!.cards ?? block!.steps, 'title', 'text', TITLE_NAMES, BODY_NAMES)
+      return items.length > 0 ? { type, items } : null
+    }
     default:
       return null
   }
@@ -171,7 +234,9 @@ export function toReport(json: string): Report | null {
   const list = Array.isArray(data) ? data : data?.blocks
   const blocks = Array.isArray(list) ? list.slice(0, MAX_BLOCKS).flatMap((b) => toBlock(b) ?? []) : []
   if (!data || blocks.length === 0) return null
+  const kind = string(data.kind)
   return {
+    ...(kind ? { kind: kind.slice(0, 60) } : {}),
     title: string(data.title) ?? 'Report',
     summary: string(data.summary) ?? '',
     theme: REPORT_THEMES.some((theme) => theme.id === data.theme) ? (data.theme as ReportThemeId) : 'clean',
@@ -209,8 +274,8 @@ function jsonEnd(text: string, start: number): number {
  */
 function findOpening(text: string): { index: number; start: number; fence: string } | null {
   const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCES + '[^\\n{]*', 'i').exec(text)
-  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:title|summary|theme|blocks)")', 'i').exec(text)
-  const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:title|summary|theme|blocks)")/.exec(text)
+  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:kind|title|summary|theme|blocks)")', 'i').exec(text)
+  const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:kind|title|summary|theme|blocks)")/.exec(text)
   const match = tagged ?? named ?? bare
   if (!match) return null
   return { index: match.index, start: match.index + match[0].length, fence: match[1] ?? '' }
@@ -250,12 +315,19 @@ export const REPORT_INSTRUCTIONS = `Usually answer in normal text. When the answ
 {"type":"table","headers":["A","B"],"rows":[["1","2"]]},
 {"type":"callout","text":"Something important."},
 {"type":"quote","text":"A quotation."},
+{"type":"stats","items":[{"value":"42%","label":"What it measures"}]},
+{"type":"timeline","items":[{"when":"2024","text":"What happened"}]},
+{"type":"proscons","pros":["A strength"],"cons":["A weakness"]},
+{"type":"cards","items":[{"title":"Short title","text":"A sentence or two."}]},
+{"type":"steps","items":[{"title":"Do this","text":"How, briefly."}]},
 {"type":"spacer"},
 {"type":"divider"}
 ]}
 \`\`\`
 
-Theme is clean for general use, editorial for long reading, or brief for short decisions. Heading levels are 2 or 3. All text is plain: never write HTML, CSS, Markdown or styling, because the design is applied for you.
+Use stats for a few key figures, timeline for dates in order, proscons for trade-offs, cards for a grid of 2 to 6 short notes, and steps for instructions. Only use them where they fit, and never invent figures. "kind" is optional: a short label for what sort of report it is.
+
+Theme is clean for general use, editorial for long reading, brief for short decisions, modern for bold overviews, magazine for features and stories, academic for formal or scholarly writing, or notebook for study notes. Heading levels are 2 or 3. All text is plain: never write HTML, CSS, Markdown or styling, because the design is applied for you.
 
 The block must be valid JSON. Use straight double quotes, escape any double quote inside text as \\", write line breaks as \\n, and leave no trailing commas. Don't put backticks or code fences inside text. Stay under about 1,500 words so the report isn't cut off, and write the whole block before any closing remarks.`
 
@@ -284,6 +356,16 @@ function blockHtml(block: ReportBlock): string {
       return '<div class="spacer"></div>'
     case 'divider':
       return '<hr>'
+    case 'stats':
+      return `<div class="stats">${block.items.map((item) => `<div class="stat"><div class="stat-value">${e(item.value)}</div><div class="stat-label">${e(item.label)}</div></div>`).join('')}</div>`
+    case 'timeline':
+      return `<ol class="timeline">${block.items.map((item) => `<li><div class="when">${e(item.when)}</div><div>${e(item.text)}</div></li>`).join('')}</ol>`
+    case 'proscons':
+      return `<div class="proscons"><div class="pros"><div class="side">Pros</div><ul>${block.pros.map((item) => `<li>${e(item)}</li>`).join('')}</ul></div><div class="cons"><div class="side">Cons</div><ul>${block.cons.map((item) => `<li>${e(item)}</li>`).join('')}</ul></div></div>`
+    case 'cards':
+      return `<div class="cards">${block.items.map((item) => `<div class="card"><div class="card-title">${e(item.title)}</div><div>${e(item.text)}</div></div>`).join('')}</div>`
+    case 'steps':
+      return `<ol class="steps">${block.items.map((item) => `<li><div class="step-title">${e(item.title)}</div><div>${e(item.text)}</div></li>`).join('')}</ol>`
   }
 }
 
@@ -306,6 +388,7 @@ body { margin: 0; padding: 40px 24px; background: var(--sc-surface); color: var(
 </head>
 <body>
 <article class="sc-report" data-theme="${e(report.theme)}">
+${report.kind ? `<p class="kind">${e(report.kind)}</p>` : ''}
 <h1>${e(report.title)}</h1>
 ${report.summary ? `<p class="summary">${e(report.summary)}</p>` : ''}
 ${report.blocks.map(blockHtml).join('\n')}
@@ -340,12 +423,22 @@ function blockMarkdown(block: ReportBlock): string {
       return ''
     case 'divider':
       return '---'
+    case 'stats':
+      return block.items.map((item) => `- **${item.value}** ${item.label}`).join('\n')
+    case 'timeline':
+      return block.items.map((item) => `- **${item.when}**: ${item.text}`).join('\n')
+    case 'proscons':
+      return [`**Pros**`, ...block.pros.map((item) => `- ${item}`), '', `**Cons**`, ...block.cons.map((item) => `- ${item}`)].join('\n')
+    case 'cards':
+      return block.items.map((item) => `**${item.title}**\n${item.text}`).join('\n\n')
+    case 'steps':
+      return block.items.map((item, index) => `${index + 1}. **${item.title}** ${item.text}`).join('\n')
   }
 }
 
 /** A report as Markdown, for pasting into other tools. */
 export function reportMarkdown(report: Report): string {
-  const parts = [`# ${report.title}`, report.summary, ...report.blocks.map(blockMarkdown)]
+  const parts = [...(report.kind ? [`*${report.kind}*`] : []), `# ${report.title}`, report.summary, ...report.blocks.map(blockMarkdown)]
   return `${parts.filter(Boolean).join('\n\n')}\n`
 }
 
@@ -368,7 +461,8 @@ const REVISE_ASK = /^Rewrite the report titled "(.*)" with this change: ([\s\S]*
 /** What to show for a message in the conversation: a change request reads as what the person asked for. */
 export function shownMessage(content: string): string {
   const asked = REVISE_ASK.exec(content)
-  return asked ? `Change to “${asked[1]}”: ${asked[2]}` : content
+  if (asked) return `Change to “${asked[1]}”: ${asked[2]}`
+  return shownPresetMessage(content) ?? shownFileMessage(content) ?? content
 }
 
 /** Asks for a whole new draft, so each version stands alone. */
