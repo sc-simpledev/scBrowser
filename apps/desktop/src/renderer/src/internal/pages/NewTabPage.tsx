@@ -18,7 +18,7 @@ import {
   type SuggestionKind
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
-import { api, applyTint } from '../api'
+import { api, applyPerformance, applyTint } from '../api'
 import { ColorPicker } from '../ColorPicker'
 
 const NOTES_SAVE_DELAY_MS = 500
@@ -694,6 +694,7 @@ export function NewTabPage() {
         latest.current = { ...DEFAULT_NEW_TAB, ...loaded.newTab }
         document.documentElement.dataset.accent = loaded.accent
         applyTint(loaded.accentTint)
+        applyPerformance(loaded.performanceMode)
         setSettings(loaded)
       })
   }, [])

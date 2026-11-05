@@ -65,7 +65,7 @@ export class UpdateService {
   }
 
   async check(): Promise<UpdateState> {
-    if (!this.current.supported || ['checking', 'downloading', 'ready', 'installing'].includes(this.current.phase)) return this.current
+    if (!this.current.supported || ['checking', 'available', 'downloading', 'ready', 'installing'].includes(this.current.phase)) return this.current
     this.wire()
     autoUpdater.autoDownload = installsItself()
     this.set({ phase: 'checking', error: null })

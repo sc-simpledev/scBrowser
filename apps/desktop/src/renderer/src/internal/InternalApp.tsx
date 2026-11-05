@@ -2,7 +2,7 @@ import { Activity, Bookmark, Bot, Download, FlaskConical, Globe, History, KeyRou
 import { Fragment, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
-import { applyTint } from './api'
+import { applyPerformance, applyTint } from './api'
 import { AiPage } from './pages/AiPage'
 import { AssistantPage } from './pages/AssistantPage'
 import { BookmarksPage } from './pages/BookmarksPage'
@@ -94,9 +94,10 @@ function PageFrame() {
   }, [title])
 
   useEffect(() => {
-    void window.scbInternal.invoke('settings:get').then(({ accent, accentTint }) => {
+    void window.scbInternal.invoke('settings:get').then(({ accent, accentTint, performanceMode }) => {
       document.documentElement.dataset.accent = accent
       applyTint(accentTint)
+      applyPerformance(performanceMode)
     })
   }, [])
 

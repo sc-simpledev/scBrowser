@@ -151,6 +151,7 @@ export interface OverlayView extends OverlayState {
   /** The border and shadow of an extension's panel, whose page is a native view above this. */
   extensionFrame: PageRect | null
   accent: AccentId
+  performance: boolean
   /** Brief confirmation near the top right of the page. */
   toast: { text: string; x: number; y: number } | null
   bookmarkEditor: BookmarkEditorState | null

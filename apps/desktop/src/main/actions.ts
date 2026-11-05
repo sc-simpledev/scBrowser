@@ -38,6 +38,7 @@ export interface BrowserActions {
   viewSource: () => void
   searchWeb: (text: string) => void
   spellCheck: { enabled: () => boolean; toggle: () => void }
+  performanceMode: { enabled: () => boolean; toggle: () => void }
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void
   openPrivateWindow: () => void

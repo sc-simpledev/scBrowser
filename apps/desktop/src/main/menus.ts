@@ -87,7 +87,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
             {
               label: 'Picture in picture',
               // Browsers only allow this from a user gesture, which the second argument vouches for.
-              click: () => void contents.executeJavaScript('document.querySelector("video")?.requestPictureInPicture()', true).catch(() => undefined)
+              click: () => void contents.executeJavaScript(`(document.elementFromPoint(${Math.round(params.x)}, ${Math.round(params.y)})?.closest('video') ?? document.querySelector('video'))?.requestPictureInPicture()`, true).catch(() => undefined)
             }
           ]
         : [])
@@ -138,7 +138,15 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     groups.push([
       { label: 'Back', enabled: history.canGoBack(), click: () => history.goBack() },
       { label: 'Forward', enabled: history.canGoForward(), click: () => history.goForward() },
-      { label: 'Reload', click: () => contents.reload() }
+      // Through the tab where there is one, as a failed page reloads the address that failed.
+      {
+        label: 'Reload',
+        click: () => {
+          const id = tabs.tabIdFor(contents)
+          if (id === null) contents.reload()
+          else tabs.reload(id)
+        }
+      }
     ])
     groups.push([
       ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', click: () => contents.downloadURL(params.pageURL) }] : []),
@@ -308,7 +316,6 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
   const spareRows: MenuItemConstructorOptions[] = compact
     ? [
         { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
-        { label: 'VPN', click: () => actions.openPage('vpn') },
         { label: 'Passwords', accelerator: 'CmdOrCtrl+Shift+L', click: actions.passwordMenu },
         { label: 'Extensions', submenu: actions.extensionMenu() },
         { label: 'Profiles', click: () => actions.openPage('settings') },
@@ -328,6 +335,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
     { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
+    { label: 'VPN', click: () => actions.openPage('vpn') },
     { type: 'separator' },
     { label: 'Bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
     { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
@@ -350,6 +358,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { label: 'View page source', accelerator: 'CmdOrCtrl+U', enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
     { label: 'Translate page', enabled: !!active && /^https?:/i.test(active.url), submenu: translateRows(actions) },
     { label: 'Install this site as an app…', enabled: !!active && /^https?:/i.test(effectiveUrl(active.url)), click: actions.installApp },
+    { type: 'checkbox', label: 'Performance Mode', checked: actions.performanceMode.enabled(), click: actions.performanceMode.toggle },
     { label: 'Task Manager', accelerator: 'Shift+Esc', click: () => actions.openPage('tasks') },
     { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) },
     { type: 'separator' },

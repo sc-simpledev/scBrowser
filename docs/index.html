@@ -177,6 +177,390 @@
             color: #aaa;
         }
 
+        /* Guides */
+
+        button.download {
+            font: inherit;
+        }
+
+        #setup li.now {
+            color: #fff;
+        }
+
+        #setup li.now::marker {
+            color: #4fc4ba;
+            font-weight: 600;
+        }
+
+        #setup li[data-step] {
+            cursor: pointer;
+            color: #aaa;
+            transition: color .15s;
+        }
+
+        #setup li[data-step]:hover,
+        #setup li.now {
+            color: #fff;
+        }
+
+        code {
+            padding: 2px 6px;
+            border-radius: 5px;
+            background: #101114;
+            font-size: .85em;
+            overflow-wrap: anywhere;
+        }
+
+        #demo {
+            display: none;
+            margin-top: 16px;
+        }
+
+        #demo.on {
+            display: block;
+        }
+
+        .stage {
+            position: relative;
+            overflow: hidden;
+            aspect-ratio: 16 / 10;
+            border: 1px solid #303239;
+            border-radius: 10px;
+            background: #101114;
+            font-size: clamp(9px, 2.5vw, 13px);
+            user-select: none;
+        }
+
+        @media (max-width: 480px) {
+            .stage { aspect-ratio: 4 / 3; }
+        }
+
+        .scene {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5%;
+            animation: appear .25s ease;
+        }
+
+        .pointer {
+            position: absolute;
+            z-index: 5;
+            width: 1.5em;
+            height: 1.5em;
+            margin: -.1em 0 0 -.1em;
+            pointer-events: none;
+            filter: drop-shadow(0 1px 2px #0009);
+            transition: left .85s cubic-bezier(.65, 0, .35, 1), top .85s cubic-bezier(.65, 0, .35, 1), transform .12s;
+        }
+
+        .pointer.down {
+            transform: scale(.82);
+        }
+
+        .ripple {
+            position: absolute;
+            z-index: 4;
+            width: 2.6em;
+            height: 2.6em;
+            margin: -1.3em 0 0 -1.3em;
+            border-radius: 50%;
+            background: #4fc4ba66;
+            pointer-events: none;
+            animation: ripple .5s ease-out forwards;
+        }
+
+        @keyframes ripple {
+            from { transform: scale(.2); opacity: 1; }
+            to { transform: scale(1.3); opacity: 0; }
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            color: #999;
+            font-size: .85rem;
+        }
+
+        .controls button {
+            padding: 6px 11px;
+            border: 0;
+            border-radius: 7px;
+            background: #303239;
+            color: #ddd;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background: #41434b;
+        }
+
+        .controls span {
+            margin-left: auto;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* What's drawn in the walkthroughs */
+
+        .win {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            border: 1px solid #393c45;
+            border-radius: .7em;
+            background: #1b1d22;
+        }
+
+        .win-bar {
+            display: flex;
+            align-items: center;
+            gap: .4em;
+            flex: none;
+            padding: .55em .8em;
+            border-bottom: 1px solid #303239;
+            color: #aaa;
+        }
+
+        .win-bar i {
+            width: .7em;
+            height: .7em;
+            border-radius: 50%;
+            background: #41434b;
+        }
+
+        .win-bar b {
+            margin-left: .6em;
+            font-weight: 500;
+        }
+
+        .app-icon {
+            display: grid;
+            place-items: center;
+            width: 4em;
+            height: 4em;
+            border-radius: 22%;
+            background: linear-gradient(145deg, #4fc4ba, #236f69);
+            color: #fff;
+            font-weight: 700;
+            font-size: 1em;
+            transition: transform .85s cubic-bezier(.65, 0, .35, 1), opacity .3s .7s;
+        }
+
+        .folder {
+            display: grid;
+            place-items: center;
+            width: 4em;
+            height: 3.4em;
+            border-radius: .5em;
+            background: #3c6d9e;
+            font-size: 1em;
+        }
+
+        .file-label {
+            margin-top: .5em;
+            color: #ccc;
+            text-align: center;
+            font-size: .92em;
+        }
+
+        .row-center {
+            display: flex;
+            flex: 1;
+            align-items: center;
+            justify-content: space-around;
+        }
+
+        .col-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .pick { padding: .6em .9em; border-radius: .6em; transition: background .15s; }
+        .clicked .pick { background: #2b5a72; }
+
+        .drag .app-icon { transform: none; }
+        .clicked.drag .app-icon { opacity: 0; transition: opacity .25s; }
+
+        .dialog {
+            width: min(70%, 24em);
+            padding: 1.2em;
+            border: 1px solid #393c45;
+            border-radius: .9em;
+            background: #24262c;
+            box-shadow: 0 1em 3em #000a;
+            text-align: center;
+        }
+
+        .dialog .app-icon { width: 3em; height: 3em; margin: 0 auto .7em; }
+        .dialog strong { display: block; margin-bottom: .4em; }
+        .dialog p { margin: 0 0 .9em; color: #aaa; line-height: 1.4; }
+
+        .mock-btn {
+            display: inline-block;
+            padding: .4em .9em;
+            border-radius: .5em;
+            background: #393c45;
+            color: #eee;
+            white-space: nowrap;
+        }
+
+        .mock-btn.go { background: #2f8f87; color: #fff; }
+        .clicked .mock-btn.go { background: #236f69; }
+        .mock-btns { display: flex; flex-direction: column; gap: .4em; }
+
+        .settings {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .settings aside {
+            flex: none;
+            width: 34%;
+            padding: .7em;
+            border-right: 1px solid #303239;
+            color: #999;
+            line-height: 2;
+        }
+
+        .settings aside b {
+            display: block;
+            margin: 0 -.3em;
+            padding: 0 .3em;
+            border-radius: .4em;
+            background: #2f8f87;
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .settings section {
+            flex: 1;
+            padding: 1em;
+            color: #ccc;
+        }
+
+        .settings section h4 { margin: 0 0 .7em; font-size: 1.1em; }
+        .settings section p { margin: 0 0 .7em; line-height: 1.4; }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: .5em;
+            flex: none;
+            padding: .5em .7em;
+            border-bottom: 1px solid #303239;
+            color: #888;
+        }
+
+        .toolbar .address {
+            flex: 1;
+            padding: .3em .7em;
+            border: 1px solid #393c45;
+            border-radius: .5em;
+            background: #101114;
+            color: #bbb;
+        }
+
+        .toolbar .globe { position: relative; opacity: .35; transition: opacity .2s; }
+        .toolbar .globe::after {
+            content: "";
+            position: absolute;
+            right: -.1em;
+            bottom: 0;
+            width: .45em;
+            height: .45em;
+            border-radius: 50%;
+            background: transparent;
+        }
+
+        .clicked.connects .toolbar .globe { opacity: 1; color: #4fc4ba; }
+        .clicked.connects .toolbar .globe::after { background: #4fc4ba; }
+
+        .menu {
+            position: absolute;
+            top: 3em;
+            right: 5%;
+            width: 40%;
+            padding: .35em;
+            border: 1px solid #393c45;
+            border-radius: .6em;
+            background: #24262c;
+            color: #ccc;
+            line-height: 1.9;
+        }
+
+        .menu div { padding: 0 .6em; border-radius: .35em; }
+        .clicked .menu .hit { background: #2f8f87; color: #fff; }
+
+        .page {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            gap: .7em;
+            min-height: 0;
+            padding: .8em 1em;
+        }
+
+        .card {
+            padding: .7em .8em;
+            border: 1px solid #303239;
+            border-radius: .6em;
+            color: #ccc;
+        }
+
+        .card small { display: block; margin-bottom: .4em; color: #888; font-size: .85em; letter-spacing: .05em; text-transform: uppercase; }
+
+        .paste {
+            height: 3em;
+            margin-bottom: .5em;
+            padding: .4em .6em;
+            overflow: hidden;
+            border: 1px solid #393c45;
+            border-radius: .4em;
+            background: #101114;
+            color: #8fd8d2;
+            font-family: ui-monospace, monospace;
+            white-space: nowrap;
+        }
+
+        .paste span { display: inline-block; overflow: hidden; vertical-align: bottom; max-width: 100%; }
+        .typing span { width: 0; animation: typing 1.5s steps(26) .5s forwards; }
+        @keyframes typing { to { width: 100%; } }
+
+        .conn { display: flex; align-items: center; gap: .6em; }
+        .conn .dot { flex: none; width: .8em; height: .8em; border: .22em solid #4fc4ba; border-radius: 50%; }
+        .conn div { flex: 1; min-width: 0; }
+        .conn em { display: block; color: #888; font-style: normal; font-size: .9em; }
+        .conn .ms { opacity: 0; color: #4fc4ba; transition: opacity .2s; }
+        .clicked .conn .ms { opacity: 1; }
+        .clicked .no-ms .ms { opacity: 0; }
+
+        .reveal { opacity: 0; transition: opacity .25s; }
+        .clicked .reveal { opacity: 1; }
+        .hide-after { transition: opacity .15s; }
+        .clicked .hide-after { display: none; }
+
+        .status { display: flex; align-items: center; justify-content: space-between; gap: 1em; }
+        .switch { flex: none; position: relative; width: 2.4em; height: 1.3em; border-radius: 1em; background: #41434b; transition: background .2s; }
+        .switch::after { content: ""; position: absolute; top: .15em; left: .15em; width: 1em; height: 1em; border-radius: 50%; background: #ddd; transition: left .2s; }
+        .clicked .switch { background: #2f8f87; }
+        .clicked .switch::after { left: 1.25em; }
+
+        .welcome-text { margin-top: .7em; color: #ccc; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .pointer, .app-icon, .switch, .switch::after, .scene { transition: none; animation: none; }
+            .typing span { width: 100%; animation: none; }
+        }
+
         @keyframes appear {
             from {
                 opacity: 0;
@@ -204,7 +588,7 @@
         <div class="platform">
             <h2>Linux</h2>
 
-            <a class="download" id="linux-deb" href="#" target="_blank">
+            <a class="download" id="linux-deb" href="#" target="_blank" rel="noopener">
                 <span>
                     <strong>Debian / Ubuntu</strong>
                     <small>.deb · x86_64</small>
@@ -212,7 +596,7 @@
                 <span class="arrow">↓</span>
             </a>
 
-            <a class="download" id="linux-appimage" href="#" target="_blank">
+            <a class="download" id="linux-appimage" href="#" target="_blank" rel="noopener">
                 <span>
                     <strong>AppImage</strong>
                     <small>Universal Linux · x86_64</small>
@@ -224,7 +608,7 @@
         <div class="platform">
             <h2>macOS</h2>
 
-            <a class="download" id="mac-arm" href="#" target="_blank">
+            <a class="download" id="mac-arm" href="#" target="_blank" rel="noopener">
                 <span>
                     <strong>Apple Silicon</strong>
                     <small>.dmg · ARM64</small>
@@ -232,7 +616,7 @@
                 <span class="arrow">↓</span>
             </a>
 
-            <a class="download" id="mac-intel" href="#" target="_blank">
+            <a class="download" id="mac-intel" href="#" target="_blank" rel="noopener">
                 <span>
                     <strong>Intel</strong>
                     <small>.dmg · x86_64</small>
@@ -244,13 +628,33 @@
         <div class="platform">
             <h2>Windows</h2>
 
-            <a class="download" id="windows" href="#" target="_blank">
+            <a class="download" id="windows" href="#" target="_blank" rel="noopener">
                 <span>
                     <strong>Windows Installer</strong>
                     <small>.exe · x64</small>
                 </span>
                 <span class="arrow">↓</span>
             </a>
+        </div>
+
+        <div class="platform">
+            <h2>Guides</h2>
+
+            <button class="download" type="button" id="guide-mac">
+                <span>
+                    <strong>Open scTerra on a Mac</strong>
+                    <small>Get past the first-launch warning, step by step</small>
+                </span>
+                <span class="arrow">→</span>
+            </button>
+
+            <button class="download" type="button" id="guide-vpn">
+                <span>
+                    <strong>Add a VPN connection</strong>
+                    <small>Paste a link, check it works, switch it on</small>
+                </span>
+                <span class="arrow">→</span>
+            </button>
         </div>
 
     </section>
@@ -260,18 +664,29 @@
     <section id="setup">
         <h2 id="setup-title">Installation instructions</h2>
         <p id="setup-description"></p>
+
+        <div id="demo">
+            <div class="stage" id="stage" aria-hidden="true"></div>
+            <div class="controls">
+                <button type="button" id="demo-back">Back</button>
+                <button type="button" id="demo-play">Pause</button>
+                <button type="button" id="demo-next">Next</button>
+                <span id="demo-count"></span>
+            </div>
+        </div>
+
         <ol id="setup-steps"></ol>
         <div class="notice" id="setup-notice"></div>
 
-        <button class="close" onclick="closeSetup()">
+        <button class="close" type="button" onclick="closeSetup()">
             Close instructions
         </button>
     </section>
 
     <footer>
-        Source code:
-        <a href="https://github.com/sc-simpledev/scTerra" target="_blank">
-            GitHub
+        © 2026 sc-simpledev. All Rights Reserved.
+        <a href="https://github.com/sc-simpledev/scTerra/releases" target="_blank" rel="noopener">
+            All releases
         </a>
     </footer>
 
@@ -279,10 +694,40 @@
 
 <script>
     const API =
-        "https://api.github.com/repos/sc-simpledev/scTerra/tags?per_page=100";
+        "https://api.github.com/repos/sc-simpledev/scTerra/releases/latest";
 
-    const base =
-        "https://github.com/sc-simpledev/scTerra/releases/download/";
+    const RELEASES =
+        "https://github.com/sc-simpledev/scTerra/releases";
+
+    /* Pictures for the walkthroughs. They're drawings, so wording on a real Mac can differ a little. */
+    const ICON = '<div class="app-icon">sc</div>';
+    const win = (title, body) =>
+        `<div class="win"><div class="win-bar"><i></i><i></i><i></i><b>${title}</b></div>${body}</div>`;
+    const browser = (address, body) =>
+        `<div class="win"><div class="toolbar"><span>←</span><span>→</span><div class="address">${address}</div><span class="globe">◍</span><span>⋮</span></div>${body}</div>`;
+    const dialog = (title, text, buttons) =>
+        `<div class="dialog">${ICON}<strong>${title}</strong><p>${text}</p><div class="mock-btns">${buttons}</div></div>`;
+    const addCard = (typing, filled) =>
+        `<div class="card"><small>Add connections</small><div class="paste ${typing ? "typing" : ""}"><span>${filled ? "vless://your-server…#My VPN" : ""}</span></div><span class="mock-btn go">Add links</span> <span class="reveal">&nbsp;Added 1.</span></div>`;
+    const connection =
+        '<div class="card conn"><span class="dot"></span><div>My VPN<em>vless · your-server:443</em></div><span class="ms">48 ms</span><span class="mock-btn go">Ping</span></div>';
+
+    const macDemo = [
+        { scene: win("Downloads", `<div class="row-center"><div class="col-center pick">${ICON}<div class="file-label">scTerra.dmg</div></div></div>`), from: [80, 85], target: ".pick" },
+        { scene: win("scTerra", `<div class="row-center"><div class="col-center">${ICON}<div class="file-label">scTerra</div></div><div style="color:#777">→</div><div class="col-center"><div class="folder">▤</div><div class="file-label">Applications</div></div></div>`), extra: "drag", grab: ".app-icon", target: ".folder" },
+        { scene: dialog("“scTerra” Not Opened", "Apple could not verify “scTerra” is free of malware.", '<span class="mock-btn go">Done</span><span class="mock-btn">Move to Trash</span>'), from: [85, 20], target: ".mock-btn.go" },
+        { scene: win("Privacy &amp; Security", '<div class="settings"><aside>General<br>Appearance<b>Privacy &amp; Security</b>Desktop &amp; Dock<br>Displays</aside><section><h4>Security</h4><p>“scTerra” was blocked to protect your Mac.</p><span class="mock-btn go">Open Anyway</span></section></div>'), from: [20, 45], target: ".mock-btn.go" },
+        { scene: dialog("Open “scTerra”?", "Only do this if you downloaded it from this page. You'll be asked for your Mac password.", '<span class="mock-btn go">Open Anyway</span><span class="mock-btn">Done</span>'), from: [20, 25], target: ".mock-btn.go" },
+        { scene: win("scTerra", `<div class="row-center"><div class="col-center">${ICON}<div class="welcome-text">Browse the World</div></div></div>`) }
+    ];
+
+    const vpnDemo = [
+        { scene: browser("Search or enter address", '<div class="menu"><div>New tab</div><div>History</div><div class="hit">VPN</div><div>Settings</div></div><div class="page"></div>'), from: [50, 80], target: ".hit" },
+        { scene: browser("sc://vpn", `<div class="page">${addCard(true, true)}</div>`), from: [75, 40], target: ".paste", press: false },
+        { scene: browser("sc://vpn", `<div class="page">${addCard(false, true)}<div class="reveal no-ms">${connection}</div></div>`), from: [40, 42], target: ".mock-btn.go" },
+        { scene: browser("sc://vpn", `<div class="page">${connection}</div>`), from: [50, 70], target: ".conn .mock-btn.go" },
+        { scene: browser("sc://vpn", '<div class="page"><div class="card status"><div><span class="hide-after">Off</span><span class="reveal">Connected</span></div><div class="switch"></div></div></div>'), extra: "connects", from: [50, 70], target: ".switch" }
+    ];
 
     const setupInstructions = {
 
@@ -317,41 +762,35 @@
         },
 
         mac: {
-            title: "Install on macOS",
-            description: "Installing scTerra from a DMG disk image.",
+            title: "Install and trust scTerra on a Mac",
+            description: "scTerra doesn't have an Apple certificate yet, so macOS stops it the first time. You only have to do this once.",
+            demo: macDemo,
             steps: [
-                "Download the correct DMG for your Mac (Apple Silicon or Intel).",
-                "Open the downloaded .dmg file.",
-                "Drag scTerra into the Applications folder if the installer window provides that option.",
-                "Eject the mounted scTerra disk image.",
-                "Open Applications and try launching scTerra."
+                "Open the DMG you downloaded. Pick Apple Silicon for an M-series Mac, and Intel otherwise: Apple menu → About This Mac tells you which.",
+                "Drag scTerra onto Applications, then eject the disk image.",
+                "Open scTerra from Applications. macOS refuses the first time, so press Done, not Move to Trash.",
+                "Open System Settings → Privacy & Security, scroll down to Security, and press Open Anyway beside scTerra.",
+                "Press Open Anyway again, and enter your Mac password or use Touch ID.",
+                "scTerra opens. macOS remembers your choice from now on."
             ],
             notice: `
-                <strong>macOS Gatekeeper warning</strong><br><br>
+                <strong>Only trust a copy from this page.</strong>
+                This tells your Mac to run one app that Apple hasn't
+                checked, so make sure the DMG came from here. Stop and
+                delete it if macOS says it contains malware.<br><br>
 
-                macOS may display a message such as
-                "Apple cannot check scTerra for malicious software"
-                or "The developer cannot be verified".<br><br>
+                <strong>On macOS 14 or older:</strong> you can also
+                Control-click scTerra in Applications, choose Open, then
+                press Open.<br><br>
 
-                Gatekeeper is a macOS security feature. A warning does
-                not prove an app is malicious, but it also does not prove
-                it is safe.<br><br>
-
-                Only continue if you have verified that the DMG came
-                from the official scTerra GitHub repository and you
-                trust the software.<br><br>
-
-                If you decide to proceed, Apple's documented process is:
-                after attempting to open the app, go to
-                <strong>System Settings → Privacy & Security</strong>,
-                find the security message and select
-                <strong>Open Anyway</strong> if that option is available.
-                You will need to confirm your choice.<br><br>
+                <strong>If macOS says scTerra "is damaged":</strong>
+                that's usually the download's quarantine mark on an
+                uncertified app. Move scTerra to Applications, open
+                Terminal, and run<br>
+                <code>xattr -dr com.apple.quarantine /Applications/scTerra.app</code><br><br>
 
                 <a href="https://support.apple.com/en-au/102445"
-                   target="_blank">Apple's official instructions</a>.
-                Do not proceed if macOS says the app contains malware
-                or will damage your computer.
+                   target="_blank" rel="noopener">Apple's own instructions</a>.
             `
         },
 
@@ -380,31 +819,129 @@
                 that it is trustworthy, do not run it.<br><br>
 
                 <a href="https://learn.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-smartscreen/microsoft-defender-smartscreen-overview"
-                   target="_blank">Microsoft's SmartScreen explanation</a>.
+                   target="_blank" rel="noopener">Microsoft's SmartScreen explanation</a>.
+            `
+        },
+
+        vpn: {
+            title: "Add a VPN connection",
+            description: "scTerra has a VPN built in, but no servers of its own. You bring a link from a VPN provider or your own server.",
+            demo: vpnDemo,
+            steps: [
+                "In scTerra, press the ⋮ menu at the top right and choose VPN. You can also type sc://vpn in the address bar.",
+                "Copy the connection link from your provider, and paste it under Add connections.",
+                "Press Add links. Your connection appears, and the first one you add is chosen for you.",
+                "Press Ping to check it works. A time in milliseconds means it's working, and Not working means it isn't. With several, pick one with the button beside it.",
+                "Turn on the switch at the top of the page. When it says Connected, scTerra is using the VPN."
+            ],
+            notice: `
+                <strong>Links it understands:</strong> vless://, vmess://,
+                trojan://, ss://, socks5:// and http://, one per line. If
+                you were given a subscription address, paste it into
+                Subscription address and press Subscribe.<br><br>
+
+                <strong>Afterwards:</strong> a globe button appears in the
+                toolbar, for switching it on and off or changing connection.
+                The VPN covers just scTerra until you choose This whole
+                computer on the same page.<br><br>
+
+                <strong>Choose servers you trust.</strong> Whoever runs a
+                server can see your unencrypted traffic and which sites you
+                visit, so avoid signing in to anything on free servers.
             `
         }
     };
 
-    function compareVersions(a, b) {
-        const parse = tag => {
-            const match = tag.match(/^v?(\d+(?:\.\d+)*)/);
-            return match
-                ? match[1].split(".").map(Number)
-                : [0];
-        };
+    const STEP_MS = 3400;
+    const PRESS_MS = 1000;
+    const stage = document.getElementById("stage");
+    const stillMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let demo = null;
+    let demoStep = 0;
+    let playing = false;
+    let timers = [];
 
-        const av = parse(a);
-        const bv = parse(b);
+    function clearTimers() {
+        timers.forEach(clearTimeout);
+        timers = [];
+    }
 
-        for (let i = 0; i < Math.max(av.length, bv.length); i++) {
-            const x = av[i] || 0;
-            const y = bv[i] || 0;
+    function pointerAt(pointer, [x, y]) {
+        pointer.style.left = x + "%";
+        pointer.style.top = y + "%";
+    }
 
-            if (x !== y) return y - x;
+    /* The middle of something in the scene, as a position on the stage. */
+    function spot(element) {
+        const box = stage.getBoundingClientRect();
+        const { left, top, width, height } = element.getBoundingClientRect();
+        return [(left + width / 2 - box.left) / box.width * 100, (top + height / 2 - box.top) / box.height * 100];
+    }
+
+    function showStep(index) {
+        clearTimers();
+        demoStep = (index + demo.length) % demo.length;
+        const { scene, extra, from, grab, target, press = true } = demo[demoStep];
+
+        stage.innerHTML = `<div class="scene ${extra || ""}">${scene}</div>`;
+        const root = stage.firstElementChild;
+
+        document.querySelectorAll("#setup-steps li").forEach((li, i) => {
+            li.classList.toggle("now", i === demoStep);
+        });
+        document.getElementById("demo-count").textContent =
+            `Step ${demoStep + 1} of ${demo.length}`;
+
+        if (target && stillMotion) {
+            if (press) root.classList.add("clicked");
+        } else if (target) {
+            const at = spot(root.querySelector(target));
+            const start = grab ? spot(root.querySelector(grab)) : from;
+            if (grab) {
+                const box = stage.getBoundingClientRect();
+                root.style.setProperty("--drag", ((at[0] - start[0]) / 100 * box.width) + "px");
+            }
+            const pointer = document.createElement("div");
+            pointer.className = "pointer";
+            pointer.innerHTML = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#fff" stroke="#111" stroke-width="1.5" d="M5 3l14 9-6 1.5L10 20z"/></svg>';
+            pointerAt(pointer, start);
+            stage.appendChild(pointer);
+
+            timers.push(setTimeout(() => {
+                pointerAt(pointer, at);
+                if (grab) root.querySelector(grab).style.transform = "translateX(var(--drag))";
+            }, 80));
+            if (press) timers.push(setTimeout(() => {
+                pointer.classList.add("down");
+                const ripple = document.createElement("div");
+                ripple.className = "ripple";
+                pointerAt(ripple, at);
+                stage.appendChild(ripple);
+                root.classList.add("clicked");
+            }, PRESS_MS));
+            timers.push(setTimeout(() => pointer.classList.remove("down"), PRESS_MS + 160));
         }
 
-        return 0;
+        if (playing) {
+            timers.push(setTimeout(() => showStep(demoStep + 1), STEP_MS));
+        }
     }
+
+    function setPlaying(next) {
+        playing = next;
+        document.getElementById("demo-play").textContent = playing ? "Pause" : "Play";
+        showStep(demoStep);
+    }
+
+    function step(by) {
+        playing = false;
+        document.getElementById("demo-play").textContent = "Play";
+        showStep(demoStep + by);
+    }
+
+    document.getElementById("demo-back").addEventListener("click", () => step(-1));
+    document.getElementById("demo-next").addEventListener("click", () => step(1));
+    document.getElementById("demo-play").addEventListener("click", () => setPlaying(!playing));
 
     function showSetup(type) {
         const info = setupInstructions[type];
@@ -418,33 +955,67 @@
         const steps = document.getElementById("setup-steps");
         steps.innerHTML = "";
 
-        info.steps.forEach(step => {
+        info.steps.forEach((text, i) => {
             const li = document.createElement("li");
-            li.textContent = step;
+            li.textContent = text;
+            if (info.demo) {
+                li.dataset.step = i;
+                li.addEventListener("click", () => {
+                    playing = false;
+                    document.getElementById("demo-play").textContent = "Play";
+                    showStep(i);
+                });
+            }
             steps.appendChild(li);
         });
 
         document.getElementById("setup-notice").innerHTML =
             info.notice;
 
+        clearTimers();
+        demo = info.demo || null;
+        document.getElementById("demo").classList.toggle("on", !!demo);
+        if (demo) {
+            demoStep = 0;
+            setPlaying(!stillMotion);
+        }
+
         const section = document.getElementById("setup");
         section.style.display = "block";
 
         section.scrollIntoView({
-            behavior: "smooth",
+            behavior: stillMotion ? "auto" : "smooth",
             block: "start"
         });
     }
 
     function closeSetup() {
+        clearTimers();
+        demo = null;
         document.getElementById("setup").style.display = "none";
     }
 
-    function attachDownload(id, type) {
-        document.getElementById(id).addEventListener("click", () => {
-            showSetup(type);
-        });
+    const DOWNLOADS = {
+        "linux-deb": { match: /_amd64\.deb$/, type: "linuxDeb" },
+        "linux-appimage": { match: /\.AppImage$/, type: "linuxAppImage" },
+        "mac-arm": { match: /-arm64-mac\.dmg$/, type: "mac" },
+        "mac-intel": { match: /-x64-mac\.dmg$/, type: "mac" },
+        "windows": { match: /Setup-.*\.exe$/, type: "windows" }
+    };
+
+    /* Always usable, even before the version arrives or if GitHub won't answer. */
+    for (const [id, item] of Object.entries(DOWNLOADS)) {
+        const link = document.getElementById(id);
+        link.href = RELEASES + "/latest";
+        link.addEventListener("click", () => showSetup(item.type));
     }
+
+    document.getElementById("guide-mac").addEventListener("click", () => showSetup("mac"));
+    document.getElementById("guide-vpn").addEventListener("click", () => showSetup("vpn"));
+
+    /* Links straight to a guide: index.html#mac or index.html#vpn */
+    const opened = location.hash.slice(1);
+    if (opened === "mac" || opened === "vpn") showSetup(opened);
 
     async function loadDownloads() {
         const status = document.getElementById("status");
@@ -456,56 +1027,22 @@
                 throw new Error(`GitHub API error: ${response.status}`);
             }
 
-            const tags = await response.json();
+            const release = await response.json();
 
-            if (!Array.isArray(tags) || tags.length === 0) {
-                throw new Error("No tags found.");
-            }
-
-            // Sort tags by semantic version.
-            const sortedTags = [...tags].sort((a, b) =>
-                compareVersions(a.name, b.name)
-            );
-
-            const tag = sortedTags[0].name;
-            const version = tag.replace(/^v/, "");
-
-            const downloads = {
-                "linux-deb": {
-                    file: `scterra_${version}_amd64.deb`,
-                    type: "linuxDeb"
-                },
-
-                "linux-appimage": {
-                    file: `scTerra-${version}.AppImage`,
-                    type: "linuxAppImage"
-                },
-
-                "mac-arm": {
-                    file: `scTerra-${version}-arm64-mac.dmg`,
-                    type: "mac"
-                },
-
-                "mac-intel": {
-                    file: `scTerra-${version}-x64-mac.dmg`,
-                    type: "mac"
-                },
-
-                "windows": {
-                    file: `scTerra-Setup-${version}.exe`,
-                    type: "windows"
-                }
-            };
-
-            for (const [id, item] of Object.entries(downloads)) {
+            for (const [id, item] of Object.entries(DOWNLOADS)) {
+                const asset = (release.assets || []).find(({ name }) => item.match.test(name));
                 const link = document.getElementById(id);
 
-                link.href = base + tag + "/" + item.file;
-
-                attachDownload(id, item.type);
+                if (asset) {
+                    link.href = asset.browser_download_url;
+                } else {
+                    /* Some releases went out without every build. */
+                    link.href = RELEASES;
+                    link.querySelector("small").textContent += " · not in this release, see all releases";
+                }
             }
 
-            document.getElementById("version").textContent = tag;
+            document.getElementById("version").textContent = release.tag_name;
             status.textContent = "Latest downloads are ready.";
 
         } catch (error) {
@@ -515,7 +1052,7 @@
                 "Unavailable";
 
             status.textContent =
-                "Could not load downloads. Please try again later.";
+                "Couldn't reach GitHub for the version. The buttons go to the latest release page instead.";
 
             status.classList.add("error");
         }

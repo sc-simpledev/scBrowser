@@ -82,7 +82,6 @@ function VpnButton() {
   )
 }
 
-/** Moved into the More menu when the window is narrow. */
 /** Appears once there's a vault, as there's nothing to fill before that. */
 function PasswordsButton() {
   const [state, setState] = useState<PasswordState | null>(null)
@@ -113,6 +112,7 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
   const list = useRef<HTMLElement>(null)
   const menuButton = useRef<HTMLSpanElement>(null)
   const partition = container ? containerPartition(container) : undefined
+  const reported = useRef('')
 
   useEffect(() => {
     void window.scb.invoke('extensions:summary').then(setSummary)
@@ -138,6 +138,10 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
       const button = menuButton.current
       if (!button) return
       const { x, y, width, height } = button.getBoundingClientRect()
+      // This runs on every render of the toolbar, and it rarely moves.
+      const place = `${x},${y},${width},${height}`
+      if (place === reported.current) return
+      reported.current = place
       void window.scb.invoke('extensions:anchor', { x, y, width, height })
     }
     report()

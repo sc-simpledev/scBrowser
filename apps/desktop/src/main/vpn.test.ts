@@ -66,6 +66,17 @@ describe('VpnService', () => {
     expect(proxies.at(-1)).toBeNull()
   })
 
+  it('keeps the chosen connection when a subscription refreshes while off', async () => {
+    const list = 'trojan://a@one.example:443#One\ntrojan://b@two.example:443#Two'
+    const { vpn } = setup(async () => list)
+    await vpn.subscribe('https://list.example/sub', 'List')
+    const second = vpn.state().connections.find(({ name }) => name === 'Two')!
+    await vpn.select(second.id)
+    await vpn.refresh(vpn.state().groups[0]!.id)
+    const { activeId, connections } = vpn.state()
+    expect(connections.find(({ id }) => id === activeId)?.name).toBe('Two')
+  })
+
   it('makes a group from a subscription and refreshes it', async () => {
     let list = 'trojan://a@one.example:443#One\ntrojan://b@two.example:443#Two'
     const { vpn } = setup(async () => btoa(list))

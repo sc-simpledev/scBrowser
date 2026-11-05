@@ -284,53 +284,10 @@ export function VpnPage() {
       <section aria-label="Status" className="flex items-center justify-between gap-4 rounded-lg bg-surface p-3 shadow-1">
         <div className="min-w-0">
           <div className="font-medium">{state.enabled ? 'Connected' : state.connecting ? (usesTun ? 'Waiting for your password…' : 'Connecting…') : 'Off'}</div>
-          <div className="text-xs text-text-muted">{active ? active.name : 'Add a connection below'}. {ROUTE_NOTES[state.scope === 'browser' ? 'browser' : state.method]}</div>
+          <div className="text-xs text-text-muted">{active ? active.name : 'Paste a connection below to get started'}. {ROUTE_NOTES[state.scope === 'browser' ? 'browser' : state.method]}</div>
           {state.error && <p role="alert" className="pt-1 text-xs text-danger">{state.error}</p>}
         </div>
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
-      </section>
-
-      <RouteChoice state={state} setState={setState} reload={reload} />
-      <Conveniences usesTun={usesTun} computerWide={state.scope === 'computer'} />
-
-      <section aria-label="Ping" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface p-3 shadow-1">
-        <div className="min-w-0">
-          <div>Ping time limit</div>
-          <div className="text-xs text-text-faint">Each ping loads a small page through the connection. Past this limit, it counts as not working and the next one starts.</div>
-        </div>
-        <label className="flex items-center gap-2 text-text-muted">
-          <Input
-            type="number"
-            aria-label="Ping time limit"
-            className="w-24 text-right tabular-nums"
-            min={MIN_PING_TIMEOUT}
-            max={MAX_PING_TIMEOUT}
-            step={100}
-            value={pingTimeout}
-            onChange={(e) => setPingTimeout(e.target.value)}
-            onBlur={savePingTimeout}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') savePingTimeout()
-            }}
-          />
-          ms
-        </label>
-        {progress.running && (
-          <div className="flex w-full items-center gap-3">
-            <div role="status" aria-label="Ping progress" className="min-w-0 flex-1 text-xs text-text-muted tabular-nums">
-              Pinging {progress.done} of {progress.total}
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void api().invoke('vpn:ping-stop')
-                setProgress({ ...progress, running: false })
-              }}
-            >
-              Stop
-            </Button>
-          </div>
-        )}
       </section>
 
       <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
@@ -410,6 +367,22 @@ export function VpnPage() {
         <p className="text-xs text-text-faint">Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>
       </section>
 
+      {progress.running && (
+        <section aria-label="Pinging" className="flex items-center gap-3 rounded-lg bg-surface p-3 shadow-1">
+          <div role="status" aria-label="Ping progress" className="min-w-0 flex-1 text-xs text-text-muted tabular-nums">
+            Pinging {progress.done} of {progress.total}
+          </div>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void api().invoke('vpn:ping-stop')
+              setProgress({ ...progress, running: false })
+            }}
+          >
+            Stop
+          </Button>
+        </section>
+      )}
       {state.groups.map((group) => (
         <ConnectionList
           key={group.id}
@@ -435,6 +408,32 @@ export function VpnPage() {
           reload={reload}
         />
       )}
+      <RouteChoice state={state} setState={setState} reload={reload} />
+      <Conveniences usesTun={usesTun} computerWide={state.scope === 'computer'} />
+
+      <section aria-label="Ping" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface p-3 shadow-1">
+        <div className="min-w-0">
+          <div>Ping time limit</div>
+          <div className="text-xs text-text-faint">Each ping loads a small page through the connection. Past this limit, it counts as not working and the next one starts.</div>
+        </div>
+        <label className="flex items-center gap-2 text-text-muted">
+          <Input
+            type="number"
+            aria-label="Ping time limit"
+            className="w-24 text-right tabular-nums"
+            min={MIN_PING_TIMEOUT}
+            max={MAX_PING_TIMEOUT}
+            step={100}
+            value={pingTimeout}
+            onChange={(e) => setPingTimeout(e.target.value)}
+            onBlur={savePingTimeout}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') savePingTimeout()
+            }}
+          />
+          ms
+        </label>
+      </section>
     </>
   )
 }

@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { Button, Input, Select, Switch } from '@scbrowser/ui'
 import {
   ACCENTS,
+  PERFORMANCE_SLEEP_MINUTES,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
   SUGGESTION_SOURCES,
@@ -21,7 +22,8 @@ import {
   type UpdateState,
   type WebApp
 } from '@scbrowser/shared'
-import { api, applyTint } from '../api'
+import { api, applyPerformance, applyTint } from '../api'
+import { ConfirmButton } from '../ConfirmButton'
 
 function languageName(code: string): string {
   try {
@@ -109,14 +111,19 @@ function UpdatesSection({ settings, update }: { settings: Settings; update: (pat
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-6 border-b border-border px-3 py-2 last:border-b-0">
-      <div className="min-w-0">
+    <div className="flex min-h-12 items-center justify-between gap-6 border-b border-border px-3 py-2 last:border-b-0 [&>*:last-child:not(:first-child)]:shrink-0">
+      <div className="min-w-0 [overflow-wrap:anywhere]">
         <div>{label}</div>
-        {hint && <div className="truncate text-xs text-text-faint">{hint}</div>}
+        {hint && <div className="text-xs text-text-faint">{hint}</div>}
       </div>
       {children}
     </div>
   )
+}
+
+/** The same width everywhere, so the choices line up in a column down the page. */
+function RowSelect(props: ComponentProps<typeof Select>) {
+  return <Select {...props} className="w-60 shrink-0" />
 }
 
 export function SettingsPage() {
@@ -171,7 +178,7 @@ export function SettingsPage() {
       <Group id="Look" title="Look and feel">
       <Section title="Appearance">
         <Row label="Theme">
-          <Select
+          <RowSelect
             aria-label="Theme"
             value={settings.theme}
             onChange={(e) => update({ theme: e.target.value as Settings['theme'] })}
@@ -179,10 +186,10 @@ export function SettingsPage() {
             <option value="system">Match system</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="Accent colour">
-          <Select
+          <RowSelect
             aria-label="Accent colour"
             value={settings.accent}
             onChange={(e) => {
@@ -196,7 +203,7 @@ export function SettingsPage() {
                 {option.name}
               </option>
             ))}
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="Accent tint" hint="A faint wash of colour behind the toolbar and scTerra's pages.">
           <Switch
@@ -209,20 +216,20 @@ export function SettingsPage() {
           />
         </Row>
         <Row label="Tab layout">
-          <Select
+          <RowSelect
             aria-label="Tab layout"
             value={settings.tabLayout}
             onChange={(e) => update({ tabLayout: e.target.value as Settings['tabLayout'] })}
           >
             <option value="horizontal">Across the top</option>
             <option value="vertical">Down the side</option>
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="New tab page" hint="Widgets, background and layout">
           <Button onClick={() => void api().invoke('browser:open', 'sc://newtab/?customise=1')}>Customise</Button>
         </Row>
         <Row label="Show bookmarks bar">
-          <Select
+          <RowSelect
             aria-label="Show bookmarks bar"
             value={settings.bookmarksBar}
             onChange={(e) => update({ bookmarksBar: e.target.value as Settings['bookmarksBar'] })}
@@ -230,7 +237,7 @@ export function SettingsPage() {
             <option value="always">Always</option>
             <option value="new-tab">On new tabs</option>
             <option value="bookmarks-page">Only on the bookmarks page</option>
-          </Select>
+          </RowSelect>
         </Row>
       </Section>
       <Section title="Toolbar">
@@ -254,7 +261,7 @@ export function SettingsPage() {
       <Group id="Browsing" title="Browsing">
       <Section title="Search">
         <Row label="Search engine">
-          <Select
+          <RowSelect
             aria-label="Search engine"
             value={settings.searchEngine}
             onChange={(e) => update({ searchEngine: e.target.value })}
@@ -264,7 +271,7 @@ export function SettingsPage() {
                 {option.name}
               </option>
             ))}
-          </Select>
+          </RowSelect>
         </Row>
         <Row
           label="Search suggestions"
@@ -300,17 +307,17 @@ export function SettingsPage() {
       </Section>
       <Section title="Startup and performance">
         <Row label="When scTerra starts">
-          <Select
+          <RowSelect
             aria-label="When scTerra starts"
             value={settings.startup}
             onChange={(e) => update({ startup: e.target.value as Settings['startup'] })}
           >
             <option value="restore">Reopen previous tabs</option>
             <option value="new-tab">Open a new tab</option>
-          </Select>
+          </RowSelect>
         </Row>
-        <Row label="Sleep background tabs" hint="Frees memory. Tabs reload when you open them.">
-          <Select
+        <Row label="Sleep background tabs" hint={settings.performanceMode ? `Performance Mode sleeps tabs within ${PERFORMANCE_SLEEP_MINUTES} minutes while it's on.` : 'Frees memory. Tabs reload when you open them.'}>
+          <RowSelect
             aria-label="Sleep background tabs"
             value={settings.sleepAfterMinutes}
             onChange={(e) => update({ sleepAfterMinutes: Number(e.target.value) })}
@@ -320,7 +327,17 @@ export function SettingsPage() {
             <option value={30}>After 30 minutes</option>
             <option value={60}>After 1 hour</option>
             <option value={120}>After 2 hours</option>
-          </Select>
+          </RowSelect>
+        </Row>
+        <Row label="Performance Mode" hint={`Background tabs sleep after ${PERFORMANCE_SLEEP_MINUTES} minutes, newly opened pages wait for a press before playing sound or video, and scTerra drops its animations and blur.`}>
+          <Switch
+            label="Performance Mode"
+            checked={settings.performanceMode}
+            onChange={(performanceMode) => {
+              applyPerformance(performanceMode)
+              update({ performanceMode })
+            }}
+          />
         </Row>
       </Section>
       <Section title="Downloads">
@@ -349,14 +366,14 @@ export function SettingsPage() {
         </Row>
         {spellLanguages.length > 0 && (
           <Row label="Language">
-            <Select aria-label="Spelling language" value={settings.spellLanguage} onChange={(e) => update({ spellLanguage: e.target.value })}>
+            <RowSelect aria-label="Spelling language" value={settings.spellLanguage} onChange={(e) => update({ spellLanguage: e.target.value })}>
               <option value="">Same as this computer</option>
               {spellLanguages.map((code) => (
                 <option key={code} value={code}>
                   {languageName(code)}
                 </option>
               ))}
-            </Select>
+            </RowSelect>
           </Row>
         )}
       </Section>
@@ -365,7 +382,7 @@ export function SettingsPage() {
       <Group id="Privacy" title="Privacy">
       <Section title="Privacy">
         <Row label="Tracking protection" hint="Blocks ads and trackers. Filter lists download once and refresh when needed.">
-          <Select
+          <RowSelect
             aria-label="Tracking protection"
             value={settings.trackingProtection}
             onChange={(e) => update({ trackingProtection: e.target.value as Settings['trackingProtection'] })}
@@ -373,7 +390,7 @@ export function SettingsPage() {
             <option value="off">Off</option>
             <option value="standard">Standard</option>
             <option value="strict">Strict, also hides annoyances</option>
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one.">
           <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
@@ -566,13 +583,13 @@ export function SettingsPage() {
           <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
         </Row>
         <Row label="Translate with" hint={settings.translateEngine === 'google' ? 'Free, with no key. The page\'s text goes to Google when you translate.' : 'Uses your AI model and its credit, and only covers the start of long pages.'}>
-          <Select aria-label="Translate with" value={settings.translateEngine} onChange={(e) => update({ translateEngine: e.target.value as Settings['translateEngine'] })}>
+          <RowSelect aria-label="Translate with" value={settings.translateEngine} onChange={(e) => update({ translateEngine: e.target.value as Settings['translateEngine'] })}>
             <option value="google">Google Translate</option>
             <option value="ai">Your AI model</option>
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="Translate pages into">
-          <Select
+          <RowSelect
             aria-label="Translate pages into"
             value={settings.translateTo}
             onChange={(e) => update({ translateTo: e.target.value as Settings['translateTo'] })}
@@ -580,20 +597,20 @@ export function SettingsPage() {
             {TRANSLATE_LANGUAGES.map((language) => (
               <option key={language}>{language}</option>
             ))}
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="Saved chats">
-          <Button variant="ghost" onClick={() => void api().invoke('chats:clear')}>
+          <ConfirmButton variant="ghost" onConfirm={() => void api().invoke('chats:clear')}>
             Delete all
-          </Button>
+          </ConfirmButton>
         </Row>
       </Section>
       <Section title="Extensions">
         <Row label="Open extensions in" hint={settings.extensionDisplay === 'panel' ? 'Popups, side panels and small windows all open under the Extensions button.' : 'The older way: side panels beside the page, and small windows of their own.'}>
-          <Select aria-label="Open extensions in" value={settings.extensionDisplay} onChange={(e) => update({ extensionDisplay: e.target.value as Settings['extensionDisplay'] })}>
+          <RowSelect aria-label="Open extensions in" value={settings.extensionDisplay} onChange={(e) => update({ extensionDisplay: e.target.value as Settings['extensionDisplay'] })}>
             <option value="panel">A panel under the toolbar button</option>
             <option value="window">Their own windows and side panels</option>
-          </Select>
+          </RowSelect>
         </Row>
         <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">
           <Button onClick={() => void api().invoke('extensions:open-store')}>Open</Button>
@@ -676,6 +693,9 @@ export function SettingsPage() {
           )}
         </Row>
         {version && <Row label={`scTerra ${version.app}`} hint={`Chromium ${version.chromium}, Electron ${version.electron}`}>{null}</Row>}
+        <Row label="Copyright" hint="All Rights Reserved. Bundled open source parts keep their own licences.">
+          <span className="text-xs text-text-muted">© 2026 sc-simpledev</span>
+        </Row>
         <Row label="Welcome intro" hint="Browse the World.">
           <Button variant="ghost" onClick={() => void api().invoke('welcome:replay')}>
             Play again

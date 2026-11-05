@@ -315,6 +315,10 @@ export class VpnService {
     // The one in use stays, so that a refresh doesn't pull it out from under the browser.
     this.store.connections = this.store.connections.filter((connection) => connection.groupId !== groupId || (connection === active && this.enabled))
     const result = this.addLinks(lines, groupId)
+    // Connections get new ids here, so the chosen one is found again by its link.
+    if (!this.store.connections.some((connection) => connection.id === this.store.activeId)) {
+      this.store.activeId = (this.store.connections.find((connection) => connection.link === active?.link) ?? this.store.connections[0])?.id ?? null
+    }
     await this.save()
     return result
   }

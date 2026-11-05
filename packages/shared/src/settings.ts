@@ -70,6 +70,8 @@ export interface Settings {
   startup: 'restore' | 'new-tab'
   /** Background tabs are unloaded after this many minutes; 0 disables it. */
   sleepAfterMinutes: number
+  /** Trades polish for speed: see `sleepMinutes`, `data-performance` in tokens.css and `quietMedia` in TabManager. */
+  performanceMode: boolean
   /** Empty means the system Downloads folder. */
   downloadDir: string
   askWhereToSave: boolean
@@ -137,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bookmarksBar: 'always',
   startup: 'restore',
   sleepAfterMinutes: 30,
+  performanceMode: false,
   downloadDir: '',
   askWhereToSave: false,
   saveChats: true,
@@ -175,6 +178,15 @@ export const DEFAULT_SETTINGS: Settings = {
   autoUpdate: true
 }
 
+/** How soon Performance Mode sleeps background tabs. */
+export const PERFORMANCE_SLEEP_MINUTES = 5
+
+/** Minutes before a background tab sleeps, or 0 for never. Performance Mode only ever makes it sooner. */
+export function sleepMinutes({ performanceMode, sleepAfterMinutes }: Pick<Settings, 'performanceMode' | 'sleepAfterMinutes'>): number {
+  if (!performanceMode) return sleepAfterMinutes
+  return sleepAfterMinutes > 0 ? Math.min(sleepAfterMinutes, PERFORMANCE_SLEEP_MINUTES) : PERFORMANCE_SLEEP_MINUTES
+}
+
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => options.includes(value as T)
 
 const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
@@ -187,6 +199,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   suggestionSources: (v) => Array.isArray(v) && v.every((id) => SUGGESTION_SOURCES.some((source) => source.id === id)),
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
+  performanceMode: (v) => typeof v === 'boolean',
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,
   askWhereToSave: (v) => typeof v === 'boolean',
   saveChats: (v) => typeof v === 'boolean',

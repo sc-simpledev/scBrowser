@@ -1,5 +1,6 @@
 appId: app.scterra.desktop
 productName: scTerra
+copyright: Copyright © 2026 sc-simpledev. All Rights Reserved.
 directories:
   output: release/${version}
   buildResources: build

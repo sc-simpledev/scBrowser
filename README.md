@@ -61,9 +61,9 @@ pnpm dist         # build installers into apps/desktop/release
 | F11 | Full screen |
 | Ctrl Q | Quit |
 
-## License
+## Copyright
 
-Copyright © 2026 sc-simpledev. All Rights Reserved
+Copyright © 2026 sc-simpledev. All Rights Reserved. See [LICENSE](LICENSE).
 
 Installers include the [Xray core](https://github.com/XTLS/Xray-core), which is under the Mozilla Public License 2.0, with its own license file beside it. Other bundled libraries keep their own licenses.
 

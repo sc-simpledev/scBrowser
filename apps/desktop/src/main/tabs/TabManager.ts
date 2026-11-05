@@ -60,6 +60,8 @@ interface TabManagerOptions {
   /** Whether the window goes when its last tab does, rather than opening a new one. */
   closeWhenEmpty: () => boolean
   devToolsWidth: () => number
+  /** Performance Mode: pages opened from now on wait for a press before playing sound or video. */
+  quietMedia: () => boolean
   onDevToolsWidth: (width: number) => void
   /** The side bar's own contents, for shortcuts and for keeping popups above it. */
   onDevToolsCreated: (contents: WebContents) => void
@@ -495,6 +497,13 @@ export class TabManager {
   }
 
   reload(id: TabId, ignoreCache = false): void {
+    // A sleeping tab has nothing to reload, so its menu's Reload wakes it instead.
+    const sleeping = this.tabs.get(id)
+    if (sleeping && !sleeping.view) {
+      this.wake(sleeping)
+      this.emitChange()
+      return
+    }
     const contents = this.contents(id)
     const url = contents?.getURL() ?? ''
     if (url.startsWith(ERROR_PAGE_URL)) void contents?.loadURL(effectiveUrl(url))
@@ -849,7 +858,8 @@ export class TabManager {
         nodeIntegration: false,
         webviewTag: false,
         // Enables Chromium's built-in PDF viewer.
-        plugins: true
+        plugins: true,
+        ...(this.options.quietMedia() ? { autoplayPolicy: 'document-user-activation-required' as const } : {})
       }
     })
     view.setBorderRadius(PAGE_RADIUS)
@@ -893,7 +903,11 @@ export class TabManager {
   }
 
   private toSaved(tab: Tab): SavedTab {
-    if (tab.saved) return tab.saved
+    // What was saved when it fell asleep has the page, but a tab can be pinned or moved in its sleep.
+    if (tab.saved) {
+      const { container, group, workspace, pinned, muted } = tab.state
+      return { ...tab.saved, container, group, workspace, pinned, muted, lastActiveAt: tab.lastActiveAt }
+    }
     const { url, title, faviconUrl } = tab.state
     const contents = tab.view?.webContents
     const history = contents?.navigationHistory
@@ -974,6 +988,8 @@ export class TabManager {
     })
     contents.on('render-process-gone', (_e, { reason }) => {
       if (reason === 'clean-exit') return
+      // A page that died sends no more news, and would keep its spinner and sound icon.
+      sync({ isLoading: false, audible: false })
       void contents.loadURL(this.options.errorUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
     })
 

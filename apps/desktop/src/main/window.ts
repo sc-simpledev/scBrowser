@@ -28,6 +28,7 @@ import {
   isReaderUrl,
   SUMMARISE_PROMPT,
   isNewTabUrl,
+  sleepMinutes,
   type Bookmark,
   type PermissionPrompt,
   type Workspace,
@@ -57,7 +58,7 @@ import { copySecret, fillDetails, fillLogin, watchForSignIn } from './passwordFi
 import { TabManager } from './tabs/TabManager'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
-const SLEEP_CHECK_MS = 60_000
+const SLEEP_CHECK_MS = Number(process.env.SCB_E2E && process.env.SCB_SLEEP_CHECK_MS) || 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
 const ZOOM_KEY = 'site-zoom'
@@ -136,6 +137,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
     closeWhenEmpty: () => isApp || core.otherBrowserWindowsOpen(),
     devToolsWidth: () => settings.get().devToolsWidth,
+    quietMedia: () => settings.get().performanceMode,
     onDevToolsWidth: (devToolsWidth) => settings.set({ devToolsWidth }),
     onDevToolsCreated: (contents) => {
       attachShortcuts(contents, actions)
@@ -258,9 +260,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       }
       const contents = tabs.contentsFor(active.id)
       if (!contents || !/^https?:/i.test(active.url)) return
-      void extractArticle(contents).then((article) => {
-        if (article) void contents.loadURL(storeArticle(article))
-      })
+      void extractArticle(contents)
+        .then((article) => {
+          if (contents.isDestroyed()) return
+          if (article) void contents.loadURL(storeArticle(article))
+          else notify("Reader view can't find an article on this page")
+        })
+        .catch(() => notify("Reader view can't open this page"))
     },
     togglePalette: () => overlay.togglePalette(),
     searchTabs: () => overlay.toggleTabSearch(tabs.searchRows()),
@@ -304,6 +310,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     spellCheck: {
       enabled: () => settings.get().spellCheck,
       toggle: () => settings.set({ spellCheck: !settings.get().spellCheck })
+    },
+    performanceMode: {
+      enabled: () => settings.get().performanceMode,
+      toggle: () => {
+        const performanceMode = !settings.get().performanceMode
+        settings.set({ performanceMode })
+        notify(performanceMode ? 'Performance Mode is on' : 'Performance Mode is off')
+      }
     },
     organiseTabs: () => void runTask('Organising tabs…', async () => {
       const candidates = tabs
@@ -388,6 +402,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       onTabSearchPick: (id) => tabs.reveal(id),
       onTabSearchRemove: (id) => tabs.close(id),
       accent: () => settings.get().accent,
+      performance: () => settings.get().performanceMode,
       onBookmarkSave: ({ id, title, url, groupId }) => {
         if (!URL.canParse(url) || !/^(https?|file|javascript):/i.test(url)) return 'Enter a full web address.'
         try {
@@ -511,6 +526,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       settings.set({ focusMode })
       notify(focusMode ? 'Focus Mode is on' : 'Focus Mode is off')
     },
+    'performance-mode': () => actions.performanceMode.toggle(),
     'site-blocker': () => actions.openPage('blocker'),
     vpn: () => actions.openPage('vpn'),
     passwords: () => actions.openPage('passwords'),
@@ -832,7 +848,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   nativeTheme.on('updated', syncTheme)
 
   const sleepTimer = setInterval(() => {
-    const minutes = settings.get().sleepAfterMinutes
+    const minutes = sleepMinutes(settings.get())
     if (minutes > 0) tabs.sleepIdle(minutes * 60_000)
   }, SLEEP_CHECK_MS)
 

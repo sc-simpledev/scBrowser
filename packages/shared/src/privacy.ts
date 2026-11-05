@@ -44,6 +44,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', shortcut: 'Ctrl Shift B' },
   { id: 'reader', label: 'Reader view', shortcut: 'F9' },
   { id: 'focus-mode', label: 'Turn Focus Mode on or off' },
+  { id: 'performance-mode', label: 'Turn Performance Mode on or off' },
   { id: 'site-blocker', label: 'Site blocker' },
   { id: 'vpn', label: 'VPN' },
   { id: 'passwords', label: 'Passwords' },

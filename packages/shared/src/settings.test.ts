@@ -1,7 +1,7 @@
 import { parseGoogleTranslation } from './ai'
 import { describe, expect, it } from 'vitest'
 import { estimateCost } from './ai'
-import { engineById, sanitizeSettings } from './settings'
+import { engineById, sanitizeSettings, sleepMinutes } from './settings'
 
 describe('sanitizeSettings', () => {
   it('keeps valid values', () => {
@@ -12,6 +12,19 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ theme: 'neon', sleepAfterMinutes: -1, searchEngine: 'x', evil: true })).toEqual({})
     expect(sanitizeSettings({ toString: 'x', constructor: 1 })).toEqual({})
     expect(sanitizeSettings(null)).toEqual({})
+  })
+})
+
+describe('sleepMinutes', () => {
+  it('follows the setting until Performance Mode is on', () => {
+    expect(sleepMinutes({ performanceMode: false, sleepAfterMinutes: 30 })).toBe(30)
+    expect(sleepMinutes({ performanceMode: false, sleepAfterMinutes: 0 })).toBe(0)
+  })
+
+  it('only ever makes tabs sleep sooner in Performance Mode', () => {
+    expect(sleepMinutes({ performanceMode: true, sleepAfterMinutes: 30 })).toBe(5)
+    expect(sleepMinutes({ performanceMode: true, sleepAfterMinutes: 0 })).toBe(5)
+    expect(sleepMinutes({ performanceMode: true, sleepAfterMinutes: 2 })).toBe(2)
   })
 })
 

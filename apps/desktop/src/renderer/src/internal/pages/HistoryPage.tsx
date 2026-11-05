@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input } from '@scbrowser/ui'
 import type { HistoryEntry } from '@scbrowser/shared'
 import { api } from '../api'
+import { ConfirmButton } from '../ConfirmButton'
 
 const PAGE_SIZE = 200
 
@@ -49,12 +50,9 @@ export function HistoryPage() {
         >
           {asking ? 'Searching…' : 'Ask AI'}
         </Button>
-        <Button
-          disabled={entries.length === 0}
-          onClick={() => void api().invoke('history:clear').then(load)}
-        >
+        <ConfirmButton disabled={entries.length === 0} confirmLabel="Clear everything?" onConfirm={() => void api().invoke('history:clear').then(load)}>
           Clear all
-        </Button>
+        </ConfirmButton>
       </div>
       {note && (
         <p role="alert" className="text-danger">

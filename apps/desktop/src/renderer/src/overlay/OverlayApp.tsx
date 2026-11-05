@@ -27,7 +27,7 @@ import { WorkspaceEditor } from './WorkspaceEditor'
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
@@ -38,11 +38,14 @@ export function OverlayApp() {
     return () => window.removeEventListener('pointermove', clear)
   }, [])
 
-  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor } = state
+  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, performance, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
   }, [accent])
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-performance', performance)
+  }, [performance])
   return (
     <>
       {omnibox && (omnibox.answer || omnibox.suggestions.length > 0) && (

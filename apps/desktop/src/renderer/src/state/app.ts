@@ -31,6 +31,7 @@ export function connectApp(): () => void {
   const setSettings = (settings: Settings) => {
     document.documentElement.dataset.accent = settings.accent
     document.documentElement.toggleAttribute('data-tint', settings.accentTint)
+    document.documentElement.toggleAttribute('data-performance', settings.performanceMode)
     useApp.setState({ settings })
   }
   const setBookmarks = (bookmarks: Bookmark[]) => useApp.setState({ bookmarks })

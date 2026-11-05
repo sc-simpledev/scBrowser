@@ -14,3 +14,6 @@ export const formatBytes = (bytes: number) => {
 
 /** Shows or hides the accent wash behind the page. */
 export const applyTint = (on: boolean) => document.documentElement.toggleAttribute('data-tint', on)
+
+/** Performance Mode's plainer drawing: see tokens.css. */
+export const applyPerformance = (on: boolean) => document.documentElement.toggleAttribute('data-performance', on)

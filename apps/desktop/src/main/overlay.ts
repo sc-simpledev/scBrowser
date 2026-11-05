@@ -69,6 +69,7 @@ export class Overlay {
       onTabSearchPick: (id: TabId) => void
       onTabSearchRemove: (id: TabId) => void
       accent: () => AccentId
+      performance: () => boolean
       onBookmarkSave: (edit: BookmarkEdit) => string | null
       onBookmarkRemove: (id: number) => void
       onBookmarkClose: () => void
@@ -370,7 +371,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
   }
 
   private render(): void {

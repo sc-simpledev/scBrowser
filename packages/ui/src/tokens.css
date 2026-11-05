@@ -88,6 +88,30 @@
     radial-gradient(60% 50% at 96% 108%, color-mix(in oklab, var(--sc-accent) 8%, transparent), transparent 70%);
 }
 
+/*
+ * Performance Mode draws less: no fades or blur, and solid popups. Spinners keep turning, as a
+ * still one looks stuck and they cost next to nothing. The first-run intro never sets this.
+ */
+:root[data-performance] {
+  --sc-glass: var(--sc-surface);
+  --sc-glass-strong: var(--sc-surface);
+  --sc-duration-fast: 0ms;
+  --sc-duration-base: 0ms;
+  --sc-duration-slow: 0ms;
+}
+
+:root[data-performance] *:not(.animate-spin),
+:root[data-performance] *::before,
+:root[data-performance] *::after {
+  animation: none !important;
+  backdrop-filter: none !important;
+  transition: none !important;
+}
+
+:root[data-performance] .sc-aurora {
+  display: none;
+}
+
 /* The accent is one hue swapped across every shade above. */
 :root[data-accent='ember'] {
   --sc-hue: 38;
