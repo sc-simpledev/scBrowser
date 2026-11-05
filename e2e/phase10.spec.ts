@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type Page } from '@playwright/test'
@@ -618,12 +618,16 @@ test.describe('windows and tools', () => {
       dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as never
     })
     await main((g) => g.scbActions.installApp())
-    const folder = join(dataHome, 'applications')
-    await expect.poll(() => existsSync(folder) && readdirSync(folder).length).toBe(1)
-    const entry = readFileSync(join(folder, readdirSync(folder)[0]!), 'utf8')
-    expect(entry).toContain('Name=Alpha page')
-    expect(entry).toContain(`--sc-app=${site.url('/alpha')}`)
+    // Whatever this system's shortcut is: a desktop entry, or a Windows or Mac one.
+    const shortcuts = () => main((g) => g.scbCore.webApps.all().flatMap((app: { files: string[] }) => app.files).filter((file: string) => !file.endsWith('.png'))) as Promise<string[]>
+    await expect.poll(async () => (await shortcuts()).length).toBe(1)
+    const [shortcut] = await shortcuts()
+    expect(existsSync(shortcut!)).toBe(true)
     if (process.platform === 'linux') {
+      expect(shortcut!.startsWith(join(dataHome, 'applications'))).toBe(true)
+      const entry = readFileSync(shortcut!, 'utf8')
+      expect(entry).toContain('Name=Alpha page')
+      expect(entry).toContain(`--sc-app=${site.url('/alpha')}`)
       // What the desktop itself would read: the app that runs, and its quoted arguments.
       expect(spawnableExec(entry).length).toBeGreaterThan(1)
     }
@@ -633,7 +637,7 @@ test.describe('windows and tools', () => {
     const row = settings.getByRole('region', { name: 'Installed apps' })
     await expect(row).toContainText('Alpha page')
     await row.getByRole('button', { name: 'Remove' }).click()
-    await expect.poll(() => readdirSync(folder).length).toBe(0)
+    await expect.poll(() => existsSync(shortcut!)).toBe(false)
     await expect(row).toContainText('No sites installed yet')
   })
 
@@ -1090,9 +1094,10 @@ test.describe('extensions in a panel', () => {
     await expect(activeTab(h)).toContainText('Alpha page')
     const before = await windowCount()
     const button = h.chrome.locator(`browser-action-list [id="${id}"]`)
+    // The extension asks for this as it starts, and the button toggles, so it's only pressed while closed.
     await expect(async () => {
-      await button.click()
-      expect((await panel())?.url).toContain('/panel.html')
+      if (!(await panel())) await button.click()
+      await expect.poll(async () => (await panel())?.url, { timeout: 3000 }).toContain('/panel.html')
     }).toPass()
     await expect.poll(async () => (await panel())?.visible).toBe(true)
     expect(await windowCount()).toBe(before)
