@@ -270,7 +270,18 @@ export interface WholeComputerConfig {
   /** For apps following the system proxy, many of which only speak HTTP. */
   httpPort?: number
   /** Takes every app's traffic from a virtual network device. */
-  tun?: { device: string; mark: number; serverAddress: string }
+  tun?: TunDevice
+}
+
+/**
+ * Linux marks the core's own traffic so policy routing lets it out. Macs have no marks, so Xray
+ * adds the routes itself and binds its own connections to the real network interface instead.
+ */
+export interface TunDevice {
+  device: string
+  serverAddress: string
+  mark?: number
+  autoRoute?: boolean
 }
 
 /**
@@ -286,12 +297,25 @@ export function xrayComputerConfig(link: ParsedLink, { socksPort, httpPort, tun 
     inbounds: [
       { ...local, port: socksPort, protocol: 'socks', settings: { auth: 'noauth', udp: false } },
       ...(httpPort ? [{ ...local, port: httpPort, protocol: 'http' }] : []),
-      ...(tun ? [{ tag: 'tun', protocol: 'tun', settings: { name: tun.device, MTU: 1500 }, sniffing: { enabled: true, destOverride: ['http', 'tls'] } }] : [])
+      ...(tun
+        ? [
+            {
+              tag: 'tun',
+              protocol: 'tun',
+              settings: {
+                name: tun.device,
+                mtu: 1500,
+                ...(tun.autoRoute ? { autoSystemRoutingTable: ['0.0.0.0/0', '::/0'], autoOutboundsInterface: 'auto' } : {})
+              },
+              sniffing: { enabled: true, destOverride: ['http', 'tls'] }
+            }
+          ]
+        : [])
     ],
     outbounds: tun
       ? [
-          { ...out, streamSettings: { ...(out.streamSettings as object | undefined), sockopt: { mark: tun.mark } } },
-          { protocol: 'dns', tag: 'dns-out', streamSettings: { sockopt: { mark: tun.mark } } }
+          tun.mark === undefined ? out : { ...out, streamSettings: { ...(out.streamSettings as object | undefined), sockopt: { mark: tun.mark } } },
+          tun.mark === undefined ? { protocol: 'dns', tag: 'dns-out' } : { protocol: 'dns', tag: 'dns-out', streamSettings: { sockopt: { mark: tun.mark } } }
         ]
       : [out],
     ...(tun

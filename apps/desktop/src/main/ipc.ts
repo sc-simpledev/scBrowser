@@ -1,4 +1,4 @@
-import type { BaseWindow, WebContents } from 'electron'
+import { Menu, type BaseWindow, type WebContents } from 'electron'
 import {
   engineById,
   MAX_MENTIONED_TABS,
@@ -35,7 +35,7 @@ import type { HistoryRepo } from './storage/history'
 import type { TabManager } from './tabs/TabManager'
 import type { VpnService } from './vpn'
 
-type Handlers = { [C in CommandChannel]: (...args: Parameters<ChromeCommands[C]>) => ReturnType<ChromeCommands[C]> }
+type Handlers = { [C in CommandChannel]: (...args: Parameters<ChromeCommands[C]>) => ReturnType<ChromeCommands[C]> | Promise<ReturnType<ChromeCommands[C]>> }
 type Validators = { [C in CommandChannel]: (args: unknown[]) => args is Parameters<ChromeCommands[C]> }
 
 const isId = (value: unknown): value is number => Number.isInteger(value)
@@ -149,6 +149,10 @@ const validators: Validators = {
   'tabs:split-toggle': noArgs,
   'tabs:split-ratio': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
   'tabs:context-menu': idArg,
+  'tabs:sleep': idArg,
+  'tabs:set-group': (args): args is [number, string | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isShortString(args[1], 60)),
+  'tabs:rename-group': (args): args is [string, string] => args.length === 2 && isShortString(args[0], 60) && isShortString(args[1], 60),
+  'tabs:group-menu': (args): args is [string] => args.length === 1 && isShortString(args[0], 60),
   'tabs:open-in-background': (args): args is [string] =>
     args.length === 1 && typeof args[0] === 'string' && /^https?:/i.test(args[0]) && args[0].length <= 8192,
   'bookmarks:list': noArgs,
@@ -295,6 +299,37 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:split-toggle': () => tabs.toggleSplit(),
     'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),
+    'tabs:sleep': (id) => tabs.sleep(id),
+    'tabs:set-group': (id, name) => tabs.setGroup([id], name === '' ? tabs.freshGroupName() : name),
+    'tabs:rename-group': (from, to) => {
+      tabs.renameGroup(from, to)
+      // Keeps it folded if it was.
+      const { collapsedTabGroups } = settings.get()
+      if (collapsedTabGroups.includes(from)) settings.set({ collapsedTabGroups: collapsedTabGroups.map((name) => (name === from ? to.trim().slice(0, 60) : name)) })
+    },
+    'tabs:group-menu': (name) =>
+      new Promise<'rename' | null>((resolve) => {
+        let picked: 'rename' | null = null
+        const collapsed = settings.get().collapsedTabGroups.includes(name)
+        const fold = (on: boolean) => {
+          const others = settings.get().collapsedTabGroups.filter((other) => other !== name)
+          settings.set({ collapsedTabGroups: on ? [...others, name] : others })
+        }
+        Menu.buildFromTemplate([
+          { label: 'Rename group', click: () => (picked = 'rename') },
+          { label: collapsed ? 'Expand group' : 'Collapse group', click: () => fold(!collapsed) },
+          {
+            label: 'New tab in group',
+            click: () => {
+              const id = tabs.create()
+              if (id !== null && id !== undefined) tabs.setGroup([id], name)
+            }
+          },
+          { type: 'separator' },
+          { label: 'Ungroup', click: () => tabs.ungroup(name) },
+          { label: 'Close group', click: () => tabs.closeGroup(name) }
+        ]).popup({ window, callback: () => setTimeout(() => resolve(picked), 0) })
+      }),
     'tabs:open-in-background': (url) => {
       tabs.create(url, { activate: false, afterId: tabs.active?.id })
     },

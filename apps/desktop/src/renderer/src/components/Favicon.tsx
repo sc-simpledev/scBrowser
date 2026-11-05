@@ -36,7 +36,7 @@ export function Favicon({ url, pageUrl, isLoading }: FaviconProps) {
     return (
       <span
         aria-hidden
-        className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent"
+        className="sc-tab-spinner size-3.5 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent"
       />
     )
   }

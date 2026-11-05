@@ -1088,7 +1088,8 @@ test.describe('extensions in a panel', () => {
     await expect.poll(panel).toBeNull()
   })
 
-  test('a side panel extension opens in the panel, from its button and its own call', async () => {
+  test('a side panel extension opens in the panel when asked to, from its button and its own call', async () => {
+    await setSetting(h, { extensionSidePanels: 'popover' })
     const id = await addExtension('side-panel-extension')
     await go(h, site.url('/alpha'))
     await expect(activeTab(h)).toContainText('Alpha page')

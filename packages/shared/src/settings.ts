@@ -90,6 +90,14 @@ export interface Settings {
   translateEngine: 'google' | 'ai'
   /** A small panel under the toolbar's button, or the extension's own side panel and windows. */
   extensionDisplay: 'panel' | 'window'
+  /** Side panels dock beside the page, so they stay open while the page is used, or open under the button. */
+  extensionSidePanels: 'beside' | 'popover'
+  /** A row under the toolbar, or a column of icons and folders down the side, like Arc and Dia. */
+  bookmarksLayout: 'horizontal' | 'vertical'
+  /** A moon button beside each tab's close button, to put it to sleep and free its memory. */
+  tabSleepButton: boolean
+  /** Tab groups folded down to their name. */
+  collapsedTabGroups: string[]
   spellCheck: boolean
   /** A language code, or empty to follow the system. */
   spellLanguage: string
@@ -152,6 +160,10 @@ export const DEFAULT_SETTINGS: Settings = {
   translateTo: 'English',
   translateEngine: 'google',
   extensionDisplay: 'panel',
+  extensionSidePanels: 'beside',
+  bookmarksLayout: 'horizontal',
+  tabSleepButton: false,
+  collapsedTabGroups: [],
   spellCheck: true,
   spellLanguage: '',
   newTab: DEFAULT_NEW_TAB,
@@ -210,6 +222,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
   translateEngine: (v) => v === 'google' || v === 'ai',
   extensionDisplay: (v) => v === 'panel' || v === 'window',
+  extensionSidePanels: (v) => v === 'beside' || v === 'popover',
+  bookmarksLayout: (v) => v === 'horizontal' || v === 'vertical',
+  tabSleepButton: (v) => typeof v === 'boolean',
+  collapsedTabGroups: (v) => Array.isArray(v) && v.length <= 200 && v.every((name) => typeof name === 'string' && name.length <= 60),
   spellCheck: (v) => typeof v === 'boolean',
   spellLanguage: (v) => typeof v === 'string' && /^([a-zA-Z-]{2,16})?$/.test(v),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),

@@ -144,6 +144,7 @@ export class BrowserCore {
     this.extensions = new ExtensionManager(kv, {
       window: () => this.focused()?.window ?? this.browser().window,
       display: () => settings.get().extensionDisplay,
+      sidePanelsBeside: () => settings.get().extensionSidePanels === 'beside',
       setFrame: (window, rect, view) => this.windows.find((handle) => handle.window === window)?.setExtensionFrame(rect, view),
       openPopup: (window, popup, refresh) => this.windows.find((handle) => handle.window === window)?.openExtensionsPopup(popup, refresh),
       ownerWindow: (contents) => this.ownerOf(contents)?.window ?? this.browser().window,
@@ -270,6 +271,7 @@ export class BrowserCore {
     this.passwords = new PasswordVault({
       kv,
       available: !isPrivate,
+      device: isPrivate ? undefined : vault,
       lockMinutes: () => settings.get().passwordLockMinutes,
       onChange: () => {
         this.broadcast('passwords:changed', this.passwords.state())

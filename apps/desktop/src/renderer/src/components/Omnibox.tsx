@@ -262,7 +262,7 @@ export function Omnibox() {
       }}
     >
       <SecurityIcon url={url} editing={focused && draft !== null} />
-      <div className="relative min-w-0 flex-1">
+      <div className="sc-address relative min-w-0 flex-1">
         <input
           ref={inputRef}
           value={value}

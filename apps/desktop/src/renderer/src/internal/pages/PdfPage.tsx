@@ -8,6 +8,8 @@ import { Button, cx, IconButton, Input, TooltipProvider } from '@scbrowser/ui'
 import { effectiveUrl } from '@scbrowser/shared'
 import { api } from '../api'
 import { readScan, type ScanWord } from '../scan'
+import { PrintDialog } from './PrintDialog'
+import type { PrintChoice } from '@scbrowser/shared'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -140,6 +142,7 @@ export function PdfPage() {
   const [pageInput, setPageInput] = useState('1')
   const [thumbnails, setThumbnails] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [printBox, setPrintBox] = useState(false)
   const [observer, setObserver] = useState<IntersectionObserver | null>(null)
   const [isScan, setIsScan] = useState(false)
   const [scanProgress, setScanProgress] = useState<string | null>(null)
@@ -258,13 +261,35 @@ export function PdfPage() {
     setScale((current) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, current * factor)))
   }
 
-  const print = async () => {
+  /** With no choice, it's the system's own print box. */
+  const print = async (choice?: PrintChoice): Promise<string | null> => {
+    setPrintBox(false)
     setPrinting(true)
-    // Long enough for every page to finish drawing.
-    await new Promise((resolve) => setTimeout(resolve, 300 + (doc?.numPages ?? 0) * 60))
-    await api().invoke('pdf:print')
-    setPrinting(false)
+    try {
+      // Long enough for every page to finish drawing.
+      await new Promise((resolve) => setTimeout(resolve, 300 + (doc?.numPages ?? 0) * 60))
+      return await api().invoke('pdf:print', choice, doc?.numPages ?? 1)
+    } finally {
+      setPrinting(false)
+    }
   }
+
+  // Ctrl P opens this box rather than the system's.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'p' && doc) {
+        e.preventDefault()
+        setPrintBox(true)
+      }
+    }
+    const fromBrowser = () => doc && setPrintBox(true)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scb-print', fromBrowser)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scb-print', fromBrowser)
+    }
+  }, [doc])
 
   if (failed) {
     return (
@@ -324,7 +349,7 @@ export function PdfPage() {
           <IconButton label="Download" onClick={() => void api().invoke('pdf:save')}>
             <Download size={15} strokeWidth={1.75} />
           </IconButton>
-          <IconButton label="Print" onClick={() => void print()}>
+          <IconButton label="Print" disabled={!doc} onClick={() => setPrintBox(true)}>
             <Printer size={15} strokeWidth={1.75} />
           </IconButton>
         </header>
@@ -351,6 +376,7 @@ export function PdfPage() {
           </div>
         </div>
       </div>
+      {printBox && doc && <PrintDialog doc={doc} onClose={() => setPrintBox(false)} onPrint={(choice) => print(choice)} onSystem={() => void print()} />}
     </TooltipProvider>
   )
 }

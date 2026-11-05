@@ -667,14 +667,35 @@ function useBackgroundImage(version: number, wanted: boolean): { url: string | n
   return state
 }
 
+/** Only drawn when their flags are on. */
+const Weather = () => (
+  <>
+    <div aria-hidden className="sc-stars" />
+    <div aria-hidden className="sc-snow" />
+  </>
+)
+
 function Backdrop({ config, image }: { config: NewTabConfig; image: string | null }) {
-  if (config.background === 'color') return <div aria-hidden className="fixed inset-0 -z-10" style={{ background: config.color }} />
-  if (config.background !== 'image' || !image) return <div aria-hidden className="sc-aurora" />
+  if (config.background === 'color')
+    return (
+      <>
+        <div aria-hidden className="fixed inset-0 -z-10" style={{ background: config.color }} />
+        <Weather />
+      </>
+    )
+  if (config.background !== 'image' || !image)
+    return (
+      <>
+        <div aria-hidden className="sc-aurora" />
+        <Weather />
+      </>
+    )
   const blur = config.blur > 0 ? { filter: `blur(${config.blur}px)`, scale: '1.05' } : {}
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
       <img src={image} alt="" className="size-full object-cover" style={blur} />
       <div className="absolute inset-0" style={{ background: 'var(--sc-on-image-dark)', opacity: config.dim / 100 }} />
+      <div aria-hidden className="sc-snow" />
     </div>
   )
 }

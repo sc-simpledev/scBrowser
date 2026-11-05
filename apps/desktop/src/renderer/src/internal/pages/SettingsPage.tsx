@@ -225,6 +225,9 @@ export function SettingsPage() {
             <option value="vertical">Down the side</option>
           </RowSelect>
         </Row>
+        <Row label="Sleep button on tabs" hint="A moon beside each tab's close button puts it to sleep, freeing its memory until you open it again.">
+          <Switch label="Sleep button on tabs" checked={settings.tabSleepButton} onChange={(tabSleepButton) => update({ tabSleepButton })} />
+        </Row>
         <Row label="New tab page" hint="Widgets, background and layout">
           <Button onClick={() => void api().invoke('browser:open', 'sc://newtab/?customise=1')}>Customise</Button>
         </Row>
@@ -237,6 +240,12 @@ export function SettingsPage() {
             <option value="always">Always</option>
             <option value="new-tab">On new tabs</option>
             <option value="bookmarks-page">Only on the bookmarks page</option>
+          </RowSelect>
+        </Row>
+        <Row label="Bookmarks layout" hint={settings.bookmarksLayout === 'vertical' ? 'Icons and folders down the side, like Arc and Dia.' : 'A row under the toolbar.'}>
+          <RowSelect aria-label="Bookmarks layout" value={settings.bookmarksLayout} onChange={(e) => update({ bookmarksLayout: e.target.value as Settings['bookmarksLayout'] })}>
+            <option value="horizontal">Along the top</option>
+            <option value="vertical">Down the side</option>
           </RowSelect>
         </Row>
       </Section>
@@ -610,6 +619,12 @@ export function SettingsPage() {
           <RowSelect aria-label="Open extensions in" value={settings.extensionDisplay} onChange={(e) => update({ extensionDisplay: e.target.value as Settings['extensionDisplay'] })}>
             <option value="panel">A panel under the toolbar button</option>
             <option value="window">Their own windows and side panels</option>
+          </RowSelect>
+        </Row>
+        <Row label="Side panels" hint={settings.extensionSidePanels === 'beside' ? 'Side panels, like Sider’s, stay open beside the page while you use it.' : 'Side panels open under the Extensions button, and close when you click the page.'}>
+          <RowSelect aria-label="Side panels" value={settings.extensionSidePanels} onChange={(e) => update({ extensionSidePanels: e.target.value as Settings['extensionSidePanels'] })}>
+            <option value="beside">Beside the page</option>
+            <option value="popover">Under the toolbar button</option>
           </RowSelect>
         </Row>
         <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">

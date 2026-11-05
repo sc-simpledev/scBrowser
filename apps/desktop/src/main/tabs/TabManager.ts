@@ -22,8 +22,7 @@ import {
   type TabSearchRow,
   type TabState,
   type TabsSnapshot,
-  type Workspace
-} from '@scbrowser/shared'
+  type Workspace, PDF_PAGE_URL } from '@scbrowser/shared'
 import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
 
 /** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
@@ -79,6 +78,8 @@ interface TabManagerOptions {
   onTitle: (url: string, title: string) => void
   onFavicon: (contents: WebContents, pageUrl: string, iconUrl: string) => void
   onPageLoaded: (contents: WebContents) => void
+  /** As soon as the page's document is ready, before its pictures have loaded. */
+  onDomReady?: (contents: WebContents) => void
   onFound: (result: { active: number; total: number }) => void
   onFullscreen: (fullscreen: boolean) => void
   engine: () => SearchEngine
@@ -304,6 +305,101 @@ export class TabManager {
   clearGroups(): void {
     for (const tab of this.tabs.values()) tab.state.group = null
     this.emitChange()
+  }
+
+  /** Group names in this workspace, in the order they appear. */
+  groupNames(): string[] {
+    return [...new Set(this.visible.map((id) => this.tabs.get(id)?.state.group).filter((name): name is string => !!name))]
+  }
+
+  /** A name not already taken, like "Group 2". */
+  freshGroupName(): string {
+    const taken = new Set(this.groupNames())
+    let number = 1
+    while (taken.has(`Group ${number}`)) number++
+    return `Group ${number}`
+  }
+
+  /**
+   * Puts tabs in a group, or takes them out with null. Joining a group that already has tabs
+   * moves them to its end, so a group's tabs always sit together.
+   */
+  setGroup(ids: TabId[], name: string | null): void {
+    const clean = name?.trim().slice(0, 60) || null
+    const moving = ids.filter((id) => {
+      const tab = this.tabs.get(id)
+      return !!tab && !tab.state.pinned
+    })
+    if (moving.length === 0) return
+    for (const id of moving) this.tabs.get(id)!.state.group = clean
+    if (clean) {
+      const rest = this.order.filter((id) => !moving.includes(id))
+      const last = rest.findLastIndex((id) => this.tabs.get(id)?.state.group === clean)
+      // A new group starts where its first tab was; an existing one takes them at its end.
+      const first = Math.min(...moving.map((id) => this.order.indexOf(id)))
+      const at = last === -1 ? this.order.slice(0, first).filter((id) => !moving.includes(id)).length : last + 1
+      rest.splice(at, 0, ...moving)
+      this.order = rest
+    } else {
+      // Leaving a group puts the tab just after it, so the group stays together.
+      for (const id of moving) {
+        const index = this.order.indexOf(id)
+        const groupName = this.tabs.get(this.order[index - 1] ?? -1)?.state.group
+        if (!groupName) continue
+        this.order.splice(index, 1)
+        const end = this.order.findLastIndex((other) => this.tabs.get(other)?.state.group === groupName)
+        this.order.splice(end + 1, 0, id)
+      }
+    }
+    this.settlePinned()
+    this.emitChange()
+  }
+
+  renameGroup(from: string, to: string): void {
+    const name = to.trim().slice(0, 60)
+    if (!name || name === from) return
+    for (const id of this.visible) {
+      const tab = this.tabs.get(id)!
+      if (tab.state.group === from) tab.state.group = name
+    }
+    this.emitChange()
+  }
+
+  ungroup(name: string): void {
+    for (const id of this.visible) {
+      const tab = this.tabs.get(id)!
+      if (tab.state.group === name) tab.state.group = null
+    }
+    this.emitChange()
+  }
+
+  closeGroup(name: string): void {
+    for (const id of this.visible.filter((other) => this.tabs.get(other)?.state.group === name)) this.close(id)
+  }
+
+  /**
+   * Puts one tab to sleep now, freeing its memory. The open tab hands over to a neighbour first,
+   * and the last tab left can't sleep.
+   */
+  sleep(id: TabId): boolean {
+    const tab = this.tabs.get(id)
+    if (!tab?.view || tab.devTools) return false
+    if (this.activeId === id || this.split?.includes(id)) {
+      const visible = this.visible
+      const index = visible.indexOf(id)
+      const next = visible[index + 1] ?? visible[index - 1]
+      if (next === undefined) return false
+      if (this.split) this.endSplit()
+      this.activate(next)
+    }
+    tab.lastActiveAt = Date.now()
+    tab.saved = this.toSaved(tab)
+    this.destroyView(tab)
+    tab.state.isSleeping = true
+    tab.state.isLoading = false
+    tab.state.audible = false
+    this.emitChange()
+    return true
   }
 
   /** Pinned tabs stay, as they're the ones someone chose to keep. */
@@ -600,8 +696,12 @@ export class TabManager {
     return Math.max(MIN_DOCKED, Math.min(this.options.devToolsWidth(), this.pageRect.width - MIN_DOCKED - SPLIT_GAP))
   }
 
+  /** The PDF viewer opens its own print box; everything else gets the system's. */
   print(id: TabId): void {
-    this.contents(id)?.print()
+    const contents = this.contents(id)
+    if (!contents) return
+    if (contents.getURL().startsWith(PDF_PAGE_URL)) void contents.executeJavaScript("window.dispatchEvent(new Event('scb-print'))").catch(() => undefined)
+    else contents.print()
   }
 
   zoomBy(id: TabId, direction: 1 | -1): void {
@@ -984,6 +1084,7 @@ export class TabManager {
     contents.on('audio-state-changed', ({ audible }) => sync({ audible }))
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 
+    contents.on('dom-ready', () => this.options.onDomReady?.(contents))
     contents.on('did-finish-load', () => this.options.onPageLoaded(contents))
     contents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
       if (isMainFrame && code !== ABORTED && code !== BLOCKED_BY_CLIENT && !isInternal(url)) void contents.loadURL(this.options.errorUrl(url, description))

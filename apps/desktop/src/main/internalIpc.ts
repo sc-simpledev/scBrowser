@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { buildSuggestions, DEFAULT_SETTINGS, engineById, IDENTITY_FIELDS, isHttpUrl, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { buildSuggestions, DEFAULT_SETTINGS, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
@@ -11,6 +11,7 @@ import { readBackground, removeBackground, saveBackground } from './internal/bac
 import { isAssistantRequest, isTurns } from './ipc'
 import { allowBasicPdf, fetchPdf, pdfSource } from './internal/pdf'
 import { readFlags, setFlag } from './flags'
+import { listPrinters, printWith } from './printing'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import { listProfiles, openProfile } from './profiles'
 import { availableSources, readSource } from './import/browsers'
@@ -335,6 +336,8 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'autofill:remove': (id) => passwords.removeIdentity(text(id, 64)),
     'passwords:create': (master) => passwords.create(text(master, 1024)),
+    'passwords:set-master': (next) => passwords.setMaster(text(next, 1024)),
+    'passwords:remove-master': (current) => passwords.removeMaster(text(current, 1024)),
     'passwords:unlock': (master) => passwords.unlock(text(master, 1024)),
     'passwords:lock': () => passwords.lock(),
     'passwords:change-master': (current, next) => passwords.changeMaster(text(current, 1024), text(next, 1024)),
@@ -414,10 +417,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const address = caller && pdfSource(caller)
       if (address) caller!.downloadURL(address)
     },
-    'pdf:print': () => {
-      const id = caller && tabs.tabIdFor(caller)
-      if (id) tabs.print(id)
+    'pdf:print': async (choice, pageCount) => {
+      const contents = caller
+      if (!contents || !tabs.tabIdFor(contents)) return null
+      if (choice !== undefined && !isPrintChoice(choice)) throw new Error('Not a print choice')
+      const pages = typeof pageCount === 'number' && Number.isInteger(pageCount) && pageCount > 0 && pageCount < 100_000 ? pageCount : 1
+      return printWith(contents, window, pages, choice)
     },
+    'pdf:printers': () => (caller ? listPrinters(caller) : []),
     'pdf:basic': () => {
       const address = caller && pdfSource(caller)
       if (address) {

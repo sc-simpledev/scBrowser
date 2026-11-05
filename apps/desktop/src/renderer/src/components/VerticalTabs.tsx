@@ -5,6 +5,8 @@ import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
 import { Tab } from './Tab'
+import { TabGroupHeader } from './TabGroupHeader'
+import { VerticalBookmarks, useVerticalBookmarks } from './VerticalBookmarks'
 import { WorkspaceBar } from './WorkspaceBar'
 
 const MIN_SIDEBAR = 180
@@ -24,6 +26,9 @@ export function VerticalTabs() {
   const searchTabs = () => void window.scb.invoke('tabs:search')
   const pinnedCount = tabs.filter((tab) => tab.pinned).length
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
+  const sideBookmarks = useVerticalBookmarks()
+  const folded = useApp((s) => s.settings.collapsedTabGroups)
+  const groupSize = (name: string) => tabs.filter((tab) => tab.group === name).length
 
   return (
     <aside
@@ -49,6 +54,7 @@ export function VerticalTabs() {
           onDragging={(dragging) => void window.scb.invoke('layout:resizing', dragging)}
         />
       )}
+      {sideBookmarks && <VerticalBookmarks rail={collapsed} />}
       <div
         role="tablist"
         aria-label="Tabs"
@@ -81,12 +87,15 @@ export function VerticalTabs() {
             {tab.group !== (tabs[index - 1]?.group ?? null) &&
               (collapsed ? (
                 <div aria-hidden className="mx-3 my-1 shrink-0 border-t border-border-strong" />
+              ) : tab.group ? (
+                <TabGroupHeader name={tab.group} count={groupSize(tab.group)} layout="vertical" />
               ) : (
                 <div role="presentation" className="mt-2 shrink-0 truncate px-2 pb-0.5 text-2xs font-medium text-text-faint">
-                  {tab.group ?? 'Other'}
+                  Other
                 </div>
               ))}
-            <Tab
+            {/* A folded group still shows its open tab, so the page in view is never hidden. */}
+            {!(tab.group && folded.includes(tab.group) && tab.id !== activeId && !collapsed) && <Tab
               tab={tab}
               index={index}
               active={tab.id === activeId}
@@ -94,7 +103,7 @@ export function VerticalTabs() {
               layout={collapsed ? 'rail' : 'vertical'}
               draggingId={draggingId}
               onDragState={setDraggingId}
-            />
+            />}
           </Fragment>
         ))}
         {collapsed ? (

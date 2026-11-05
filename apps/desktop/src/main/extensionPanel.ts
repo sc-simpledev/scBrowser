@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ipcMain, WebContentsView, type BaseWindow, type IpcMainInvokeEvent, type IpcMainServiceWorkerInvokeEvent, type Session, type WebContents } from 'electron'
-import { SIDE_PANEL_CHANNEL, type ExtensionPanelState, type PageRect } from '@scbrowser/shared'
+import { ipcMain, webContents as allContents, WebContentsView, type BaseWindow, type IpcMainInvokeEvent, type IpcMainServiceWorkerInvokeEvent, type Session, type WebContents } from 'electron'
+import { SIDE_PANEL_CHANNEL, SIDE_PANEL_EVENT, type ExtensionPanelState, type PageRect } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'extensions:side-panels'
@@ -50,6 +50,8 @@ export class SidePanels {
   private hidden = false
   private readonly tabOptions = new Map<string, Map<number, PanelOptions>>()
   private readonly workers = new WeakSet<object>()
+  /** Running extension workers, to tell about panels opening and closing. */
+  private readonly running = new Set<{ scope: string; send: (channel: string, ...args: unknown[]) => void; isDestroyed: () => boolean }>()
 
   constructor(
     private readonly kv: KeyValueRepo,
@@ -70,12 +72,35 @@ export class SidePanels {
       const worker = session.serviceWorkers.getWorkerFromVersionID(versionId)
       if (!worker?.scope.startsWith('chrome-extension://') || this.workers.has(worker)) return
       this.workers.add(worker)
+      this.running.add(worker)
       worker.ipc.handle(SIDE_PANEL_CHANNEL, (_event: IpcMainServiceWorkerInvokeEvent, method: string, ...args: unknown[]) => {
         const id = idFromUrl(worker.scope)
         if (!id) throw new Error('Only extensions can use the side panel')
         return this.call(id, session, method, args[0] as Record<string, unknown> | undefined)
       })
     })
+  }
+
+  /** `chrome.sidePanel.onOpened` and `onClosed`, to the extension's pages and its worker. */
+  private announce(id: string, name: 'opened' | 'closed', window: BaseWindow | null): void {
+    const tab = this.host.activeTab(window)
+    const info = { path: this.url ? new URL(this.url).pathname.slice(1) : undefined, windowId: window?.id, ...(tab ? { tabId: tab.id } : {}) }
+    const root = `chrome-extension://${id}/`
+    for (const contents of allContents.getAllWebContents()) {
+      if (!contents.isDestroyed() && contents.getURL().startsWith(root)) contents.send(SIDE_PANEL_EVENT, name, info)
+    }
+    for (const worker of this.running) {
+      if (worker.isDestroyed()) {
+        this.running.delete(worker)
+        continue
+      }
+      if (!worker.scope.startsWith(root)) continue
+      try {
+        worker.send(SIDE_PANEL_EVENT, name, info)
+      } catch {
+        this.running.delete(worker)
+      }
+    }
   }
 
   private call(id: string, session: Session, method: string, details: Record<string, unknown> = {}): unknown {
@@ -182,6 +207,7 @@ export class SidePanels {
     if (changed) this.host.prepare(this.view.webContents, id)
     if (url !== this.url) this.load(url)
     this.host.onPanel(this.state(session), window)
+    if (changed) setTimeout(() => this.announce(id, 'opened', window), 0)
   }
 
   toggle(id: string, session: Session): void {
@@ -190,8 +216,9 @@ export class SidePanels {
   }
 
   close(): void {
-    const { view, owner } = this
+    const { view, owner, extensionId } = this
     if (!view || !owner) return
+    if (extensionId) this.announce(extensionId, 'closed', owner)
     if (!owner.isDestroyed()) owner.contentView.removeChildView(view)
     if (!view.webContents.isDestroyed()) view.webContents.close()
     this.view = null

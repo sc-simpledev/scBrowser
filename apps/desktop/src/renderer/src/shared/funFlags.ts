@@ -32,10 +32,21 @@ function followTheDay() {
   setInterval(paint, DAY_REFRESH_MS)
 }
 
+/** A full turn of the colour wheel every two minutes, unless motion is turned down. */
+function disco() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const root = document.documentElement.style
+  root.setProperty('--sc-chroma', '0.15')
+  const paint = () => root.setProperty('--sc-hue', String(Math.round(((Date.now() / 120_000) % 1) * 360)))
+  paint()
+  setInterval(paint, 1000)
+}
+
 /** Each flag is a mark on the page's root element, which the styles and a few features look for. */
 export function applyFunFlags(flags: string[]): void {
   for (const flag of flags) document.documentElement.setAttribute(`data-flag-${flag}`, '')
-  if (flags.includes('day-cycle')) followTheDay()
+  if (flags.includes('disco-accent')) disco()
+  else if (flags.includes('day-cycle')) followTheDay()
 }
 
 let sound: AudioContext | undefined

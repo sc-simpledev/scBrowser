@@ -1,46 +1,82 @@
-import { Copy, Eye, EyeOff, Globe, Pencil, RefreshCw, X } from 'lucide-react'
+import { Copy, Eye, EyeOff, Globe, KeyRound, Pencil, RefreshCw, ShieldAlert, User, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { EMPTY_IDENTITY, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { EMPTY_IDENTITY, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, passwordStrength, STRENGTH_LABELS, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
 import { api } from '../api'
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
-const strongPassword = () => generatePassword((values) => void crypto.getRandomValues(values as Uint32Array<ArrayBuffer>))
+const random = (values: Uint32Array) => void crypto.getRandomValues(values as Uint32Array<ArrayBuffer>)
+const strongPassword = (length = 20, options: { symbols?: boolean; digits?: boolean } = {}) => generatePassword(random, length, options)
 const siteName = (origin: string) => origin.replace(/^https:\/\//, '')
 
 const CARD = 'flex flex-col gap-3 rounded-lg bg-surface p-4 shadow-1'
 
-/** The first time here, and the promise about what forgetting it means. */
+/** The first time here: with a master password, or sealed by this computer's keychain alone. */
 function CreateVault({ reload }: { reload: () => void }) {
+  const [useMaster, setUseMaster] = useState(true)
   const [master, setMaster] = useState('')
   const [again, setAgain] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (master !== again) return setProblem("Those passwords don't match.")
+    if (useMaster && master !== again) return setProblem("Those passwords don't match.")
     setBusy(true)
     void api()
-      .invoke('passwords:create', master)
+      .invoke('passwords:create', useMaster ? master : '')
       .then(reload)
       .catch((error: Error) => setProblem(cleanError(error)))
       .finally(() => setBusy(false))
   }
+  const choice = (value: boolean, title: string, note: string) => (
+    <label className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 ${useMaster === value ? 'border-(--sc-accent)' : 'border-border'}`}>
+      <input type="radio" name="vault-kind" className="mt-1 accent-(--sc-accent)" checked={useMaster === value} onChange={() => setUseMaster(value)} />
+      <span>
+        <span className="block font-medium">{title}</span>
+        <span className="block text-xs text-text-muted">{note}</span>
+      </span>
+    </label>
+  )
   return (
-    <form aria-label="Set a master password" onSubmit={submit} className={CARD}>
+    <form aria-label="Set up passwords" onSubmit={submit} className={CARD}>
       <div>
-        <h2 className="font-semibold">Set a master password</h2>
-        <p className="text-xs text-text-muted">It seals your saved logins on this computer. scTerra doesn't keep it, so if you forget it, your saved logins can't be recovered.</p>
+        <h2 className="font-semibold">Set up saved passwords</h2>
+        <p className="text-xs text-text-muted">Choose how your logins are sealed on this computer. You can change this later.</p>
       </div>
-      <Input type="password" autoFocus aria-label="Master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={master} onChange={(e) => setMaster(e.target.value)} />
-      <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        {choice(true, 'Use a master password', "Asks for it to unlock. scTerra doesn't keep it, so if you forget it your logins can't be recovered.")}
+        {choice(false, 'No master password', "Opens by itself, sealed by this computer's keychain, like Chrome. Anyone using your account can see them.")}
+      </div>
+      {useMaster && (
+        <>
+          <Input type="password" autoFocus aria-label="Master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={master} onChange={(e) => setMaster(e.target.value)} />
+          <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+          {master && <StrengthMeter password={master} />}
+        </>
+      )}
       {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
       <div>
-        <Button type="submit" variant="primary" disabled={busy || !master}>
+        <Button type="submit" variant="primary" disabled={busy || (useMaster && !master)}>
           {busy ? 'Setting up…' : 'Create vault'}
         </Button>
       </div>
     </form>
+  )
+}
+
+/** Four thin bars and a word, coloured from danger to success. */
+function StrengthMeter({ password }: { password: string }) {
+  const score = passwordStrength(password)
+  const colour = score < 2 ? 'bg-danger' : score < 3 ? 'bg-(--sc-accent)' : 'bg-success'
+  return (
+    <div className="flex items-center gap-2" aria-label={`Strength: ${STRENGTH_LABELS[score]}`}>
+      <div className="flex flex-1 gap-1">
+        {[1, 2, 3, 4].map((bar) => (
+          <span key={bar} className={`h-1 flex-1 rounded-full ${bar <= Math.max(1, score) ? colour : 'bg-border'}`} />
+        ))}
+      </div>
+      <span className="w-16 text-right text-2xs text-text-muted">{STRENGTH_LABELS[score]}</span>
+    </div>
   )
 }
 
@@ -90,7 +126,15 @@ function EntryForm({ initial, onDone }: { initial: PasswordEntry; onDone: (saved
   const [entry, setEntry] = useState(initial)
   const [show, setShow] = useState(!initial.id)
   const [problem, setProblem] = useState<string | null>(null)
+  const [generator, setGenerator] = useState(false)
+  const [length, setLength] = useState(20)
+  const [symbols, setSymbols] = useState(true)
+  const [digits, setDigits] = useState(true)
   const set = (patch: Partial<PasswordEntry>) => setEntry({ ...entry, ...patch })
+  const regenerate = (next: { length?: number; symbols?: boolean; digits?: boolean } = {}) => {
+    set({ password: strongPassword(next.length ?? length, { symbols: next.symbols ?? symbols, digits: next.digits ?? digits }) })
+    setShow(true)
+  }
   return (
     <form
       aria-label={initial.id ? 'Edit login' : 'New login'}
@@ -113,13 +157,41 @@ function EntryForm({ initial, onDone }: { initial: PasswordEntry; onDone: (saved
         <IconButton
           label="Make a strong password"
           onClick={() => {
-            set({ password: strongPassword() })
-            setShow(true)
+            regenerate()
+            setGenerator(true)
           }}
         >
           <RefreshCw size={14} strokeWidth={1.75} />
         </IconButton>
       </div>
+      {entry.password && <StrengthMeter password={entry.password} />}
+      {generator && (
+        <div aria-label="Password generator" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-muted">
+          <label className="flex items-center gap-2">
+            Length {length}
+            <input
+              type="range"
+              min={8}
+              max={64}
+              value={length}
+              aria-label="Password length"
+              className="w-32 accent-(--sc-accent)"
+              onChange={(e) => {
+                setLength(Number(e.target.value))
+                regenerate({ length: Number(e.target.value) })
+              }}
+            />
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" className="accent-(--sc-accent)" checked={digits} onChange={(e) => { setDigits(e.target.checked); regenerate({ digits: e.target.checked }) }} />
+            Numbers
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" className="accent-(--sc-accent)" checked={symbols} onChange={(e) => { setSymbols(e.target.checked); regenerate({ symbols: e.target.checked }) }} />
+            Symbols
+          </label>
+        </div>
+      )}
       <Input aria-label="Note" placeholder="Note (optional)" value={entry.note} onChange={(e) => set({ note: e.target.value })} />
       {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
       <div className="flex gap-2">
@@ -157,7 +229,11 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
       <Globe aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
       <div className="min-w-0 flex-1">
         <div className="truncate">{siteName(login.origin)}</div>
-        <div className="truncate text-xs text-text-muted">{login.username || 'No username'}{login.note && ` · ${login.note}`}</div>
+        <div className="flex items-center gap-1.5 truncate text-xs text-text-muted">
+          <span className="truncate">{login.username || 'No username'}{login.note && ` · ${login.note}`}</span>
+          {login.weak && <span className="shrink-0 rounded-sm border border-border px-1 text-2xs text-danger">Weak</span>}
+          {login.reused && <span className="shrink-0 rounded-sm border border-border px-1 text-2xs text-danger">Reused</span>}
+        </div>
       </div>
       <span className="max-w-52 truncate font-mono text-xs text-text-muted select-text">{shown ?? '••••••••'}</span>
       <IconButton
@@ -167,6 +243,11 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
       >
         {shown === null ? <Eye size={12} strokeWidth={1.75} /> : <EyeOff size={12} strokeWidth={1.75} />}
       </IconButton>
+      {login.username && (
+        <IconButton size="sm" label="Copy username" onClick={() => void navigator.clipboard.writeText(login.username)}>
+          <User size={12} strokeWidth={1.75} />
+        </IconButton>
+      )}
       <IconButton
         size="sm"
         label={copied ? 'Copied. Cleared in 30 seconds' : 'Copy password'}
@@ -289,12 +370,71 @@ function Details() {
   )
 }
 
-function Options({ reload }: { reload: () => void }) {
+/** Adds a master password to a vault that opens by itself. */
+function AddMaster({ onDone }: { onDone: () => void }) {
+  const [next, setNext] = useState('')
+  const [again, setAgain] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  return (
+    <form
+      aria-label="Add a master password"
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (next !== again) return setProblem("Those passwords don't match.")
+        void api()
+          .invoke('passwords:set-master', next)
+          .then(onDone)
+          .catch((error: Error) => setProblem(cleanError(error)))
+      }}
+    >
+      <Input type="password" autoFocus aria-label="New master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={next} onChange={(e) => setNext(e.target.value)} />
+      <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+      {next && <StrengthMeter password={next} />}
+      {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
+      <div>
+        <Button type="submit" disabled={!next}>
+          Add it
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+/** Goes back to the keychain alone, after checking the current password. */
+function RemoveMaster({ onDone }: { onDone: () => void }) {
+  const [current, setCurrent] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  return (
+    <form
+      aria-label="Remove master password"
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void api()
+          .invoke('passwords:remove-master', current)
+          .then((removed) => (removed ? onDone() : setProblem("That isn't your current master password.")))
+          .catch((error: Error) => setProblem(cleanError(error)))
+      }}
+    >
+      <p className="text-xs text-text-muted">Your logins will open by themselves, sealed by this computer's keychain. Anyone using your account will be able to see them.</p>
+      <Input type="password" autoFocus aria-label="Current master password" placeholder="Current master password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+      {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
+      <div>
+        <Button type="submit" className="text-danger" disabled={!current}>
+          Remove it
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function Options({ reload, master }: { reload: () => void; master: boolean }) {
   const [minutes, setMinutes] = useState<number | null>(null)
   const [offer, setOffer] = useState(true)
   const [offerLocked, setOfferLocked] = useState(true)
   const [note, setNote] = useState<string | null>(null)
-  const [changing, setChanging] = useState(false)
+  const [changing, setChanging] = useState<'change' | 'add' | 'remove' | null>(null)
   const [exporting, setExporting] = useState(false)
   useEffect(() => {
     void api().invoke('settings:get').then(({ passwordLockMinutes, passwordOfferSave, passwordOfferLocked }) => {
@@ -307,7 +447,7 @@ function Options({ reload }: { reload: () => void }) {
   return (
     <section aria-label="Password options" className={CARD}>
       <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Options</h2>
-      <label className="flex items-center justify-between gap-3">
+      {master && <label className="flex items-center justify-between gap-3">
         Lock after
         <Select
           aria-label="Lock after"
@@ -325,7 +465,7 @@ function Options({ reload }: { reload: () => void }) {
             </option>
           ))}
         </Select>
-      </label>
+      </label>}
       <label className="flex items-center justify-between gap-3">
         Offer to save when you sign in
         <input
@@ -338,7 +478,7 @@ function Options({ reload }: { reload: () => void }) {
           }}
         />
       </label>
-      <label className="flex items-center justify-between gap-3">
+      {master && <label className="flex items-center justify-between gap-3">
         <span>
           Also offer while locked
           <span className="block text-xs text-text-muted">It can't check what's saved until you unlock, so it may ask about logins you already have. The login stays in memory for a minute at most.</span>
@@ -353,7 +493,7 @@ function Options({ reload }: { reload: () => void }) {
             void api().invoke('settings:set', { passwordOfferLocked: e.target.checked })
           }}
         />
-      </label>
+      </label>}
       <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {
@@ -368,7 +508,14 @@ function Options({ reload }: { reload: () => void }) {
           Import from CSV
         </Button>
         <Button onClick={() => setExporting(!exporting)}>Export to CSV</Button>
-        <Button onClick={() => setChanging(!changing)}>Change master password</Button>
+        {master ? (
+          <>
+            <Button onClick={() => setChanging(changing === 'change' ? null : 'change')}>Change master password</Button>
+            <Button onClick={() => setChanging(changing === 'remove' ? null : 'remove')}>Remove master password</Button>
+          </>
+        ) : (
+          <Button onClick={() => setChanging(changing === 'add' ? null : 'add')}>Add a master password</Button>
+        )}
       </div>
       {exporting && (
         <div role="alert" className="flex items-center justify-between gap-3 border-t border-border pt-3 text-xs text-text-muted">
@@ -384,7 +531,9 @@ function Options({ reload }: { reload: () => void }) {
           </Button>
         </div>
       )}
-      {changing && <ChangeMaster onDone={() => { setChanging(false); setNote('Master password changed.') }} />}
+      {changing === 'change' && <ChangeMaster onDone={() => { setChanging(null); setNote('Master password changed.') }} />}
+      {changing === 'add' && <AddMaster onDone={() => { setChanging(null); setNote('Master password added.'); reload() }} />}
+      {changing === 'remove' && <RemoveMaster onDone={() => { setChanging(null); setNote('Master password removed.'); reload() }} />}
       {note && <p role="status" className="text-xs text-text-muted">{note}</p>}
     </section>
   )
@@ -395,6 +544,7 @@ export function PasswordsPage() {
   const [logins, setLogins] = useState<PasswordSummary[]>([])
   const [filter, setFilter] = useState('')
   const [adding, setAdding] = useState(false)
+  const [health, setHealth] = useState<'all' | 'weak' | 'reused'>('all')
 
   const reload = useCallback(() => {
     void api().invoke('passwords:state').then((next) => {
@@ -412,8 +562,10 @@ export function PasswordsPage() {
 
   const shown = useMemo(() => {
     const needle = filter.toLowerCase()
-    return logins.filter(({ origin, username }) => `${origin} ${username}`.toLowerCase().includes(needle))
-  }, [logins, filter])
+    return logins.filter(({ origin, username, note, weak, reused }) => `${origin} ${username} ${note}`.toLowerCase().includes(needle) && (health === 'all' || (health === 'weak' ? weak : reused)))
+  }, [logins, filter, health])
+  const weakCount = logins.filter((login) => login.weak).length
+  const reusedCount = logins.filter((login) => login.reused).length
 
   if (!state) return null
   if (!state.available) return <p className="text-text-muted">Private windows don't use saved passwords.</p>
@@ -426,10 +578,40 @@ export function PasswordsPage() {
         <div className="flex items-center gap-2">
           <Input aria-label="Find a login" placeholder="Find a login" className="min-w-0 flex-1" value={filter} onChange={(e) => setFilter(e.target.value)} />
           <Button onClick={() => setAdding(true)}>Add login</Button>
-          <Button variant="ghost" onClick={() => void api().invoke('passwords:lock').then(reload)}>
-            Lock
-          </Button>
+          {state.master && (
+            <Button variant="ghost" onClick={() => void api().invoke('passwords:lock').then(reload)}>
+              Lock
+            </Button>
+          )}
         </div>
+        {logins.length > 0 && (
+          <div role="group" aria-label="Password health" className="flex flex-wrap items-center gap-1.5 text-xs">
+            {(
+              [
+                ['all', `All ${logins.length}`, null],
+                ['weak', `Weak ${weakCount}`, weakCount],
+                ['reused', `Reused ${reusedCount}`, reusedCount]
+              ] as const
+            ).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={health === value}
+                onClick={() => setHealth(value)}
+                className={`flex h-6 items-center gap-1 rounded-sm border px-2 ${health === value ? 'border-(--sc-accent) text-text' : 'border-border text-text-muted hover:bg-surface-hover'}`}
+              >
+                {count !== null && count > 0 && <ShieldAlert aria-hidden size={11} strokeWidth={1.75} className="text-danger" />}
+                {label}
+              </button>
+            ))}
+            {weakCount + reusedCount === 0 && (
+              <span className="ml-1 flex items-center gap-1 text-text-muted">
+                <KeyRound aria-hidden size={11} strokeWidth={1.75} />
+                No weak or reused passwords.
+              </span>
+            )}
+          </div>
+        )}
         {adding && (
           <EntryForm
             initial={{ url: '', username: '', password: strongPassword(), note: '' }}
@@ -447,8 +629,8 @@ export function PasswordsPage() {
         </ul>
       </section>
       <Details />
-      <Options reload={reload} />
-      <p className="text-xs text-text-faint">Logins and details stay on this computer, sealed with your master password, and aren't synced. To fill them in, use the key button in the toolbar or Ctrl Shift L.</p>
+      <Options reload={reload} master={state.master} />
+      <p className="text-xs text-text-faint">Logins and details stay on this computer, sealed with {state.master ? 'your master password' : "this computer's keychain"}, and aren't synced. To fill them in, use the key button in the toolbar or Ctrl Shift L.</p>
     </>
   )
 }

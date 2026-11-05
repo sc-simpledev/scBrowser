@@ -5,6 +5,10 @@ export interface PasswordSummary {
   username: string
   note: string
   updatedAt: number
+  /** Short, simple or common, from `passwordStrength`. */
+  weak?: boolean
+  /** The same password is saved for another site. */
+  reused?: boolean
 }
 
 export interface PasswordEntry {
@@ -19,9 +23,11 @@ export interface PasswordEntry {
 export interface PasswordState {
   /** Private windows have no vault. */
   available: boolean
-  /** A master password has been set. */
+  /** A vault has been set up, with or without a master password. */
   exists: boolean
   unlocked: boolean
+  /** False when the vault is sealed by this computer's keychain alone, and opens by itself. */
+  master: boolean
 }
 
 /** Details for filling in forms. Sealed in the vault with the logins, and never synced. */
@@ -76,8 +82,8 @@ const DIGITS = '23456789'
 const SYMBOLS = '!@#$%^&*-_=+?'
 
 /** A strong password. `random` fills an array with secure random values, so each process brings its own. */
-export function generatePassword(random: (values: Uint32Array) => void, length = 20): string {
-  const alphabet = LETTERS + DIGITS + SYMBOLS
+export function generatePassword(random: (values: Uint32Array) => void, length = 20, { symbols = true, digits = true }: { symbols?: boolean; digits?: boolean } = {}): string {
+  const alphabet = LETTERS + (digits ? DIGITS : '') + (symbols ? SYMBOLS : '')
   // Values past the last whole multiple would favour the start of the alphabet.
   const limit = Math.floor(2 ** 32 / alphabet.length) * alphabet.length
   let result = ''
@@ -140,3 +146,22 @@ export function passwordCsv(entries: Omit<PasswordEntry, 'id'>[]): string {
   const rows = entries.map(({ url, username, password, note }) => [url, username, password, note].map(csvCell).join(','))
   return ['url,username,password,note', ...rows].join('\n') + '\n'
 }
+
+const COMMON = new Set(['password', 'passw0rd', '123456', '12345678', '123456789', 'qwerty', 'letmein', 'iloveyou', 'admin', 'welcome', 'monkey', 'dragon', 'abc123', 'football', 'baseball', 'sunshine', 'princess', 'master', 'trustno1', '111111', '000000'])
+
+/** A rough score from 0 (very weak) to 4 (strong), from length and the kinds of character used. */
+export function passwordStrength(password: string): 0 | 1 | 2 | 3 | 4 {
+  if (!password) return 0
+  const lower = password.toLowerCase()
+  if (COMMON.has(lower) || COMMON.has(lower.replace(/[^a-z0-9]/g, ''))) return 0
+  if (/^(.)\1+$/.test(password)) return 0
+  const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter((pattern) => pattern.test(password)).length
+  const bits = password.length * Math.log2([0, 26, 52, 62, 90][kinds] ?? 26)
+  if (bits < 28) return 0
+  if (bits < 40) return 1
+  if (bits < 60) return 2
+  if (bits < 80) return 3
+  return 4
+}
+
+export const STRENGTH_LABELS = ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'] as const

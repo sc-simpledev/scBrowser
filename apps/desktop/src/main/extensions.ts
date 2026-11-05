@@ -19,6 +19,8 @@ interface ExtensionHost {
   window: () => BaseWindow
   /** How extensions show themselves: a panel under the toolbar, or their own windows and side panels. */
   display: () => 'panel' | 'window'
+  /** Whether side panels dock beside the page, which they do unless asked to open under the button. */
+  sidePanelsBeside: () => boolean
   /** Draws a panel's border in the overlay, and keeps its view above that. */
   setFrame: (window: BaseWindow, rect: PageRect | null, view: WebContentsView | null) => void
   /** Shows the list, or takes it away if it's open, unless this is only to `refresh` what it says. */
@@ -110,7 +112,7 @@ export class ExtensionManager {
       onSettings: () => host.onSummary(this.summary()),
       prepare,
       showInPopover: (id, url, session) => {
-        if (host.display() !== 'panel') return false
+        if (host.display() !== 'panel' || host.sidePanelsBeside()) return false
         this.popover.open({ extensionId: id, url, session, window: host.window(), kind: 'tall' })
         return true
       },

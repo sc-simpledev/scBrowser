@@ -26,5 +26,4 @@ export function applyFlags(): void {
   const flags = readFlags()
   if (flags.includes('no-gpu')) app.disableHardwareAcceleration()
   if (flags.includes('no-smooth-scrolling')) app.commandLine.appendSwitch('disable-smooth-scrolling')
-  if (flags.includes('force-dark-pages')) app.commandLine.appendSwitch('enable-features', 'WebContentsForceDark')
 }

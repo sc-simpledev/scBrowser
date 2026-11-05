@@ -150,7 +150,14 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     ])
     groups.push([
       ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', click: () => contents.downloadURL(params.pageURL) }] : []),
-      { label: 'Print…', click: () => contents.print() },
+      {
+        label: 'Print…',
+        click: () => {
+          const id = tabs.tabIdFor(contents)
+          if (id === null) contents.print()
+          else tabs.print(id)
+        }
+      },
       { label: 'Screenshot', click: actions.screenshot },
       { label: 'Bookmark this page', click: actions.toggleBookmark },
       { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) }
@@ -195,6 +202,15 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
         { label: 'No container', click: () => tabs.reopenInContainer(id, null) }
       ]
     },
+    { label: 'Sleep tab', enabled: !tab?.isSleeping && open.length > 1, click: () => tabs.sleep(id) },
+    { type: 'separator' },
+    { label: 'Add to new group', enabled: !tab?.pinned, click: () => tabs.setGroup([id], tabs.freshGroupName()) },
+    {
+      label: 'Add to group',
+      enabled: !tab?.pinned && tabs.groupNames().some((name) => name !== tab?.group),
+      submenu: tabs.groupNames().filter((name) => name !== tab?.group).map((name) => ({ label: name, click: () => tabs.setGroup([id], name) }))
+    },
+    ...(tab?.group ? [{ label: 'Remove from group', click: () => tabs.setGroup([id], null) }] : []),
     { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },

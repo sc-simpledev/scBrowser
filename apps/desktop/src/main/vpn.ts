@@ -236,7 +236,7 @@ export class VpnService {
   private unavailable(): VpnState['unavailable'] {
     return {
       proxy: this.deps.systemProxy ? null : "scTerra can't set the system proxy on this desktop.",
-      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux for now.'
+      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux and macOS for now.'
     }
   }
 
@@ -590,7 +590,7 @@ export class VpnService {
     const serverAddress = await tun.resolve(link.host)
     const handle = await tun.start({
       corePath: this.deps.corePath(),
-      config: (device, mark) => xrayComputerConfig(link, { socksPort, tun: { device, mark, serverAddress } }),
+      config: (device) => xrayComputerConfig(link, { socksPort, tun: { ...device, serverAddress } }),
       onExit: () => {
         if (this.tunnel !== handle) return
         this.tunnel = null

@@ -15,6 +15,58 @@ function setup() {
   return { kv, make, vault: make() }
 }
 
+/** Stands in for the system keychain. */
+const keychain = {
+  encrypt: async (value: string) => `sealed:${Buffer.from(value).toString('base64')}`,
+  decrypt: async (value: string) => Buffer.from(value.replace(/^sealed:/, ''), 'base64').toString()
+}
+
+describe('PasswordVault without a master password', () => {
+  it('opens by itself, stays open, and can gain and lose a master password', async () => {
+    const db = new DatabaseSync(':memory:')
+    migrate(db)
+    const kv = new KeyValueRepo(db)
+    const make = () => new PasswordVault({ kv, available: true, device: keychain, lockMinutes: () => 1, onChange: () => undefined })
+    const vault = make()
+    await vault.create('')
+    expect(vault.state()).toMatchObject({ exists: true, unlocked: true, master: false })
+    const id = vault.saveEntry({ url: 'https://example.com', username: 'sam', password: 'hunter2-secret', note: '' })
+    expect(String(kv.get('passwords:vault'))).not.toContain('hunter2')
+    vault.lock()
+    expect(vault.reveal(id)).toBe('hunter2-secret')
+
+    const reopened = make()
+    await reopened.ready
+    expect(reopened.state()).toMatchObject({ unlocked: true, master: false })
+    expect(reopened.reveal(id)).toBe('hunter2-secret')
+
+    await reopened.setMaster(MASTER)
+    expect(reopened.state().master).toBe(true)
+    const locked = make()
+    await locked.ready
+    expect(locked.state().unlocked).toBe(false)
+    expect(await locked.unlock(MASTER)).toBe(true)
+    expect(await locked.removeMaster('not the password')).toBe(false)
+    expect(await locked.removeMaster(MASTER)).toBe(true)
+    const again = make()
+    await again.ready
+    expect(again.state()).toMatchObject({ unlocked: true, master: false })
+    expect(again.reveal(id)).toBe('hunter2-secret')
+  }, 60_000)
+
+  it('marks weak and reused passwords', async () => {
+    const db = new DatabaseSync(':memory:')
+    migrate(db)
+    const vault = new PasswordVault({ kv: new KeyValueRepo(db), available: true, device: keychain, lockMinutes: () => 0, onChange: () => undefined })
+    await vault.create('')
+    vault.saveEntry({ url: 'https://a.example', username: 'a', password: 'password', note: '' })
+    vault.saveEntry({ url: 'https://b.example', username: 'b', password: 'password', note: '' })
+    vault.saveEntry({ url: 'https://c.example', username: 'c', password: 'T7#kq9!vLm2@xPz4', note: '' })
+    const list = vault.list()
+    expect(list.map(({ weak, reused }) => [weak, reused])).toEqual([[true, true], [true, true], [false, false]])
+  })
+})
+
 describe('PasswordVault', () => {
   it('keeps nothing readable on disk, and only opens with the right password', async () => {
     const { kv, vault, make } = setup()

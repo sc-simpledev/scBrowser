@@ -1,6 +1,7 @@
-import { Volume2, VolumeX, X } from 'lucide-react'
+import { Moon, Volume2, VolumeX, X } from 'lucide-react'
 import { cx } from '@scbrowser/ui'
 import { CONTAINERS, isNewTabUrl, type TabState } from '@scbrowser/shared'
+import { useApp } from '../state/app'
 import { Favicon } from './Favicon'
 
 const tabTitle = (tab: TabState) => tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
@@ -64,6 +65,7 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
   const side = layout !== 'horizontal'
   const iconOnly = tab.pinned || layout === 'rail'
   const container = CONTAINERS.find((c) => c.id === tab.container)
+  const sleepButton = useApp((s) => s.settings.tabSleepButton) && !iconOnly && !tab.isSleeping
 
   return (
     <div
@@ -140,6 +142,21 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
         />
       )}
       <AudioButton tab={tab} corner={iconOnly} />
+      {sleepButton && (
+        <button
+          type="button"
+          aria-label="Sleep tab"
+          title="Sleep tab, to free its memory"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => void window.scb.invoke('tabs:sleep', tab.id)}
+          className={cx(
+            'flex size-5 shrink-0 items-center justify-center rounded-sm text-text-faint hover:bg-surface-active hover:text-text @max-[96px]:hidden',
+            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          )}
+        >
+          <Moon size={11} strokeWidth={2} />
+        </button>
+      )}
       {!iconOnly && (
         <button
           type="button"

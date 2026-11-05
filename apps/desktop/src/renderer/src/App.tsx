@@ -9,6 +9,7 @@ import { PageSlot } from './components/PageSlot'
 import { TabStrip } from './components/TabStrip'
 import { Toolbar } from './components/Toolbar'
 import { UpdatingScreen } from './components/UpdatingScreen'
+import { BookmarksSidebar, useVerticalBookmarks } from './components/VerticalBookmarks'
 import { VerticalTabs } from './components/VerticalTabs'
 import { connectApp, useApp } from './state/app'
 import { connectAssistant } from './state/assistant'
@@ -24,6 +25,8 @@ export function App() {
   useEffect(connectOverlay, [])
   useEffect(connectAssistant, [])
   const vertical = useApp((s) => s.settings.tabLayout === 'vertical')
+  const sideBookmarks = useVerticalBookmarks()
+  const bookmarksDown = useApp((s) => s.settings.bookmarksLayout === 'vertical')
 
   if (isAppWindow) {
     return (
@@ -46,10 +49,11 @@ export function App() {
       <div className="flex h-full flex-col">
         {!vertical && <TabStrip />}
         <Toolbar titleBar={vertical} />
-        <BookmarksBar />
+        {!bookmarksDown && <BookmarksBar />}
         <FindBar />
         <div className="flex min-h-0 flex-1">
           {vertical && <VerticalTabs />}
+          {!vertical && sideBookmarks && <BookmarksSidebar />}
           <PageSlot />
           <AssistantReport />
           <AssistantPanel />

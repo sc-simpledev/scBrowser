@@ -7,6 +7,7 @@ import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
 import type { PasswordEntry, PasswordState, PasswordSummary, Identity } from './passwords'
+import type { PrintChoice, PrinterChoice } from './print'
 import type { ReportFormat } from './report'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
@@ -41,6 +42,13 @@ export interface ChromeCommands {
   'tabs:split-toggle': () => void
   'tabs:split-ratio': (ratio: number) => void
   'tabs:context-menu': (id: TabId) => void
+  /** False if it couldn't sleep, such as the last tab left. */
+  'tabs:sleep': (id: TabId) => boolean
+  /** Null takes the tab out of its group. An empty name starts a new group. */
+  'tabs:set-group': (id: TabId, name: string | null) => void
+  'tabs:rename-group': (from: string, to: string) => void
+  /** Resolves with 'rename' when that's picked, so the name can be edited where it is. */
+  'tabs:group-menu': (name: string) => 'rename' | null
   'tabs:open-in-background': (url: string) => void
   'bookmarks:list': () => Bookmark[]
   'bookmarks:toggle': (url: string, title: string) => void
@@ -197,6 +205,10 @@ export const COMMAND_CHANNELS = [
   'tabs:split-toggle',
   'tabs:split-ratio',
   'tabs:context-menu',
+  'tabs:sleep',
+  'tabs:set-group',
+  'tabs:rename-group',
+  'tabs:group-menu',
   'tabs:open-in-background',
   'bookmarks:list',
   'bookmarks:toggle',
@@ -397,11 +409,16 @@ export interface InternalCommands {
   /** The PDF in this tab, or null if it can't be fetched. */
   'pdf:load': () => Uint8Array | null
   'pdf:save': () => void
-  'pdf:print': () => void
+  /** With no choice, the system's own print dialog. Says why if it couldn't print. */
+  'pdf:print': (choice?: PrintChoice, pageCount?: number) => string | null
+  'pdf:printers': () => PrinterChoice[]
   /** Reopens this PDF in Chromium's own viewer. */
   'pdf:basic': () => void
   'passwords:state': () => PasswordState
+  /** An empty master password means sealed by the computer's keychain alone. */
   'passwords:create': (master: string) => void
+  'passwords:set-master': (next: string) => void
+  'passwords:remove-master': (current: string) => boolean
   'passwords:unlock': (master: string) => boolean
   'passwords:lock': () => void
   'passwords:change-master': (current: string, next: string) => boolean
@@ -533,9 +550,12 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'pdf:load',
   'pdf:save',
   'pdf:print',
+  'pdf:printers',
   'pdf:basic',
   'passwords:state',
   'passwords:create',
+  'passwords:set-master',
+  'passwords:remove-master',
   'passwords:unlock',
   'passwords:lock',
   'passwords:change-master',

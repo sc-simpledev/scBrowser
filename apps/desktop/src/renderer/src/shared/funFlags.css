@@ -1,6 +1,8 @@
 /* The fun switches on sc://flags. Each only does anything when its mark is on the root element. */
 .sc-aurora,
-.sc-sparkles {
+.sc-sparkles,
+.sc-snow,
+.sc-stars {
   display: none;
 }
 
@@ -86,9 +88,83 @@ html[data-flag-download-sparkles] .sc-sparkles {
   }
 }
 
+/* Three layers of flakes, each a field of dots drifting down at its own speed. */
+html[data-flag-snowfall] .sc-snow {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: -5;
+  pointer-events: none;
+  background-image:
+    radial-gradient(2px 2px at 20px 30px, oklch(1 0 0 / 0.8), transparent),
+    radial-gradient(2px 2px at 120px 80px, oklch(1 0 0 / 0.7), transparent),
+    radial-gradient(3px 3px at 200px 160px, oklch(1 0 0 / 0.6), transparent),
+    radial-gradient(2px 2px at 60px 200px, oklch(1 0 0 / 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 260px 40px, oklch(1 0 0 / 0.8), transparent),
+    radial-gradient(2.5px 2.5px at 160px 260px, oklch(1 0 0 / 0.5), transparent);
+  background-size: 300px 300px;
+  filter: drop-shadow(0 0 1px oklch(0.6 0.02 250 / 0.6));
+  animation: sc-snow 18s linear infinite;
+}
+
+@keyframes sc-snow {
+  to {
+    background-position: 60px 300px, -40px 300px, 30px 300px, -20px 300px, 50px 300px, -30px 300px;
+  }
+}
+
+html[data-flag-starry-night] .sc-stars {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: -6;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, var(--sc-text), transparent),
+    radial-gradient(1px 1px at 30% 70%, var(--sc-text), transparent),
+    radial-gradient(1.5px 1.5px at 55% 15%, var(--sc-text), transparent),
+    radial-gradient(1px 1px at 70% 55%, var(--sc-text), transparent),
+    radial-gradient(1.5px 1.5px at 85% 30%, var(--sc-text), transparent),
+    radial-gradient(1px 1px at 45% 85%, var(--sc-text), transparent),
+    radial-gradient(1px 1px at 90% 80%, var(--sc-text), transparent),
+    radial-gradient(1px 1px at 20% 50%, var(--sc-text), transparent);
+  background-size: 420px 420px;
+  opacity: 0.35;
+  animation: sc-twinkle 4s var(--sc-ease-in-out) infinite alternate;
+}
+
+@keyframes sc-twinkle {
+  to {
+    opacity: 0.7;
+  }
+}
+
+html[data-flag-rainbow-loading] .sc-tab-spinner {
+  border-color: oklch(0.7 0.18 20) oklch(0.75 0.16 90) oklch(0.7 0.15 160) oklch(0.65 0.18 260);
+}
+
+html[data-flag-neon-address-bar] .sc-address:focus-within {
+  border-radius: var(--sc-radius-md, 6px);
+  box-shadow:
+    0 0 0 1px var(--sc-accent),
+    0 0 14px color-mix(in oklab, var(--sc-accent) 55%, transparent);
+  transition: box-shadow var(--sc-duration-slow) var(--sc-ease-out);
+}
+
+html[data-flag-squishy-buttons] button:active:not(:disabled) {
+  scale: 0.93;
+  transition: scale 80ms var(--sc-ease-out);
+}
+
+html[data-flag-typewriter] {
+  --sc-font-sans: var(--sc-font-mono);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html[data-flag-wobbly-tabs] [role='tab']:hover,
   html[data-flag-aurora] .sc-aurora,
+  html[data-flag-snowfall] .sc-snow,
+  html[data-flag-starry-night] .sc-stars,
   .sc-sparkles i {
     animation: none;
   }

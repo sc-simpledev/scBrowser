@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto'
-import { IDENTITY_FIELDS, MIN_MASTER_LENGTH, originOf, parsePasswordCsv, passwordCsv, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { IDENTITY_FIELDS, MIN_MASTER_LENGTH, originOf, passwordStrength, parsePasswordCsv, passwordCsv, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'passwords:vault'
@@ -30,6 +30,8 @@ interface Contents {
 }
 
 interface Sealed {
+  /** With no master password: the vault's random key, sealed by the system keychain. */
+  device?: string
   salt: string
   iv: string
   tag: string
@@ -58,9 +60,24 @@ function open(sealed: Sealed, key: Buffer): Contents {
 
 const summary = ({ id, origin, username, note, updatedAt }: Login): PasswordSummary => ({ id, origin, username, note, updatedAt })
 
+/** Adds health to each summary: weak, and reused on another site. */
+function withHealth(logins: Login[]): PasswordSummary[] {
+  const sites = new Map<string, Set<string>>()
+  for (const login of logins) sites.set(login.password, (sites.get(login.password) ?? new Set()).add(login.origin))
+  return logins.map((login) => ({ ...summary(login), weak: passwordStrength(login.password) < 2, reused: (sites.get(login.password)?.size ?? 0) > 1 }))
+}
+
+/** The system keychain, through `safeStorage`. */
+export interface DeviceSealer {
+  encrypt: (value: string) => Promise<string>
+  decrypt: (value: string) => Promise<string>
+}
+
 interface VaultDeps {
   kv: KeyValueRepo
   available: boolean
+  /** Seals the key of a vault with no master password. */
+  device?: DeviceSealer
   /** Minutes unused before locking itself, or 0 for never. */
   lockMinutes: () => number
   onChange: () => void
@@ -69,6 +86,10 @@ interface VaultDeps {
 /**
  * Logins sealed with a key derived from a master password, which is never stored. While
  * locked, nothing here can be read; the key and logins only exist in memory once unlocked.
+ *
+ * A master password is optional. Without one, the key is random and kept sealed by the system
+ * keychain, like Chrome's own passwords: it opens by itself when scTerra starts, and anyone using
+ * this account can see the logins, but a copy of the profile on its own can't be read.
  */
 export class PasswordVault {
   private key: Buffer | null = null
@@ -77,7 +98,36 @@ export class PasswordVault {
   private lockTimer: NodeJS.Timeout | undefined
   private failures = 0
 
-  constructor(private readonly deps: VaultDeps) {}
+  /** Settles once a vault without a master password has opened by itself. */
+  readonly ready: Promise<void>
+
+  constructor(private readonly deps: VaultDeps) {
+    this.ready = this.openWithDevice().then(() => undefined, () => undefined)
+  }
+
+  private get usesDevice(): boolean {
+    return this.stored()?.device !== undefined
+  }
+
+  private async openWithDevice(): Promise<boolean> {
+    const sealed = this.stored()
+    if (!sealed?.device || !this.deps.device) return false
+    const key = Buffer.from(await this.deps.device.decrypt(sealed.device), 'base64')
+    this.contents = open(sealed, key)
+    this.key = key
+    this.salt = Buffer.from(sealed.salt, 'base64')
+    this.deps.onChange()
+    return true
+  }
+
+  /** A fresh random key, sealed by the keychain, for a vault with no master password. */
+  private async deviceKey(): Promise<string> {
+    if (!this.deps.device) throw new Error("This computer's keychain isn't available, so a master password is needed.")
+    this.key?.fill(0)
+    this.key = randomBytes(32)
+    this.salt = randomBytes(SALT_BYTES)
+    return this.deps.device.encrypt(this.key.toString('base64'))
+  }
 
   private stored(): Sealed | null {
     const saved = this.deps.kv.get(KEY)
@@ -85,15 +135,16 @@ export class PasswordVault {
   }
 
   state(): PasswordState {
-    return { available: this.deps.available, exists: this.stored() !== null, unlocked: this.contents !== null }
+    const stored = this.stored()
+    return { available: this.deps.available, exists: stored !== null, unlocked: this.contents !== null, master: stored !== null && stored.device === undefined }
   }
 
   get unlocked(): boolean {
     return this.contents !== null
   }
 
-  private save(): void {
-    this.deps.kv.set(KEY, JSON.stringify(seal(this.contents!, this.key!, this.salt!)))
+  private save(device = this.stored()?.device): void {
+    this.deps.kv.set(KEY, JSON.stringify({ ...seal(this.contents!, this.key!, this.salt!), ...(device ? { device } : {}) }))
     this.deps.onChange()
   }
 
@@ -101,7 +152,7 @@ export class PasswordVault {
   private touch(): Contents {
     if (!this.contents) throw new Error('Unlock your passwords first.')
     clearTimeout(this.lockTimer)
-    const minutes = this.deps.lockMinutes()
+    const minutes = this.usesDevice ? 0 : this.deps.lockMinutes()
     if (minutes > 0) {
       this.lockTimer = setTimeout(() => this.lock(), minutes * 60_000)
       this.lockTimer.unref?.()
@@ -109,9 +160,17 @@ export class PasswordVault {
     return this.contents
   }
 
+  /** An empty master password means none: the keychain seals it instead. */
   async create(master: string): Promise<void> {
     if (!this.deps.available) throw new Error('Private windows have no saved passwords.')
-    if (this.stored()) throw new Error('You already have a master password.')
+    if (this.stored()) throw new Error('You already have a password vault.')
+    if (!master) {
+      const device = await this.deviceKey()
+      this.contents = { logins: [], never: [] }
+      this.save(device)
+      this.touch()
+      return
+    }
     if (master.length < MIN_MASTER_LENGTH) throw new Error(`Use at least ${MIN_MASTER_LENGTH} characters.`)
     this.salt = randomBytes(SALT_BYTES)
     this.key = await deriveKey(master, this.salt)
@@ -120,10 +179,42 @@ export class PasswordVault {
     this.touch()
   }
 
+  /** Adds a master password to a vault that didn't have one. */
+  async setMaster(next: string): Promise<void> {
+    if (!this.usesDevice) throw new Error('You already have a master password.')
+    if (next.length < MIN_MASTER_LENGTH) throw new Error(`Use at least ${MIN_MASTER_LENGTH} characters.`)
+    const contents = this.touch()
+    this.key?.fill(0)
+    this.salt = randomBytes(SALT_BYTES)
+    this.key = await deriveKey(next, this.salt)
+    this.contents = contents
+    this.deps.kv.set(KEY, JSON.stringify(seal(contents, this.key, this.salt)))
+    this.deps.onChange()
+    this.touch()
+  }
+
+  /** Takes the master password away after checking it, leaving the keychain to seal the vault. */
+  async removeMaster(current: string): Promise<boolean> {
+    const sealed = this.stored()
+    if (!sealed || sealed.device) return false
+    let contents: Contents
+    try {
+      contents = open(sealed, await deriveKey(current, Buffer.from(sealed.salt, 'base64')))
+    } catch {
+      return false
+    }
+    const device = await this.deviceKey()
+    this.contents = contents
+    this.save(device)
+    this.touch()
+    return true
+  }
+
   /** False for a wrong password. Repeated wrong guesses take longer each time. */
   async unlock(master: string): Promise<boolean> {
     const sealed = this.stored()
     if (!sealed) return false
+    if (sealed.device) return this.openWithDevice().catch(() => false)
     if (this.failures > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(MAX_FAILED_DELAY_MS, this.failures * FAILED_DELAY_MS)))
     const salt = Buffer.from(sealed.salt, 'base64')
     const key = await deriveKey(master, salt)
@@ -141,7 +232,9 @@ export class PasswordVault {
     return true
   }
 
+  /** A vault with no master password has nothing to unlock with, so it stays open. */
   lock(): void {
+    if (this.usesDevice && this.contents) return
     clearTimeout(this.lockTimer)
     this.key?.fill(0)
     this.key = null
@@ -153,7 +246,7 @@ export class PasswordVault {
   async changeMaster(current: string, next: string): Promise<boolean> {
     if (next.length < MIN_MASTER_LENGTH) throw new Error(`Use at least ${MIN_MASTER_LENGTH} characters.`)
     const sealed = this.stored()
-    if (!sealed) return false
+    if (!sealed || sealed.device) return false
     let contents: Contents
     try {
       contents = open(sealed, await deriveKey(current, Buffer.from(sealed.salt, 'base64')))
@@ -171,14 +264,17 @@ export class PasswordVault {
 
   /** For a forgotten master password: without it the logins can't be recovered, so they go. */
   reset(): void {
-    this.lock()
+    clearTimeout(this.lockTimer)
+    this.key?.fill(0)
+    this.key = null
+    this.contents = null
     this.deps.kv.delete(KEY)
     this.failures = 0
     this.deps.onChange()
   }
 
   list(): PasswordSummary[] {
-    return [...this.touch().logins].sort((a, b) => a.origin.localeCompare(b.origin) || a.username.localeCompare(b.username)).map(summary)
+    return withHealth([...this.touch().logins].sort((a, b) => a.origin.localeCompare(b.origin) || a.username.localeCompare(b.username)))
   }
 
   /** Only logins for this exact site, so a lookalike or a subdomain never matches. */

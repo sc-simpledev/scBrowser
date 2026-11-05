@@ -54,6 +54,7 @@ import { attachShortcuts } from './shortcuts'
 import { fetchIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
 import { readFlags } from './flags'
+import { darkenPage } from './forceDark'
 import { copySecret, fillDetails, fillLogin, watchForSignIn } from './passwordFill'
 import { TabManager } from './tabs/TabManager'
 
@@ -120,6 +121,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   }
   const publishBookmarks = () => core.publishBookmarks()
   const siteColours = readFlags().includes('site-colours')
+  const forceDark = readFlags().includes('force-dark-pages')
   const pageColours = new WeakMap<Electron.WebContents, string | null>()
   const translatedInto = new WeakMap<Electron.WebContents, string>()
   const publishSiteColour = () => {
@@ -193,6 +195,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!window.isDestroyed() && !isPrivate) history.recordVisit(url)
     },
     onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
+    onDomReady: (contents) => {
+      if (forceDark) void darkenPage(contents)
+    },
     onTitle: (url, title) => {
       if (!window.isDestroyed() && !isPrivate) history.updateTitle(url, title)
     },
