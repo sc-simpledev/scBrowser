@@ -3,6 +3,7 @@
   "productName": "scTerra",
   "version": "0.3.4",
   "private": true,
+  "license": "MIT",
   "description": "A modern, AI-native browser for Linux, Windows and macOS.",
   "author": "sc-simpledev <sc-simpledev@users.noreply.github.com>",
   "homepage": "https://github.com/sc-simpledev/scBrowser",

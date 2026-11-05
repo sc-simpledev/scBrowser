@@ -61,6 +61,11 @@ pnpm dist         # build installers into apps/desktop/release
 | F11 | Full screen |
 | Ctrl Q | Quit |
 
+## License
+
+scTerra is released under the [MIT License](LICENSE).
+
+Installers include the [Xray core](https://github.com/XTLS/Xray-core), which is under the Mozilla Public License 2.0, with its own license file beside it. Other bundled libraries keep their own licenses.
 
 ## Important
 Only work on your own branch; do not merge branches without both approval of Alex and Nathan.
