@@ -219,6 +219,63 @@ describe('system proxy commands', () => {
     expect(commands[0]?.join(' ')).toContain('ProxyServer /t REG_SZ /d old:1')
     expect(commands[1]?.join(' ')).toContain('ProxyEnable /t REG_DWORD /d 0')
   })
+
+  /** Behaves like networksetup: a setter stores the address, and the state command turns it on. */
+  function fakeMac({ refuse = () => undefined, quietlyIgnored = false }: { refuse?: (command: string[]) => string | undefined; quietlyIgnored?: boolean } = {}) {
+    const state: Record<string, { on: boolean; server: string; port: string }> = {}
+    const entry = (flag: string, service: string) => (state[`${service}/${flag.replace(/^-(get|set)/, '').replace(/state$/, '')}`] ??= { on: false, server: '', port: '0' })
+    const run = (command: string[]) => {
+      const refused = refuse(command)
+      if (refused) throw new Error(`Command failed: ${command.join(' ')}\n${refused}`)
+      const [, flag, service, ...rest] = command as [string, string, string, ...string[]]
+      if (flag === '-listallnetworkservices') return 'An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Old Ethernet\nOther VPN\n'
+      if (flag.startsWith('-get')) {
+        const { on, server, port } = entry(flag, service)
+        return `Enabled: ${on ? 'Yes' : 'No'}\nServer: ${server}\nPort: ${port}\nAuthenticated Proxy Enabled: 0\n`
+      }
+      if (quietlyIgnored) return '** Error: Command requires admin privileges.\n'
+      if (flag.endsWith('state')) entry(flag, service).on = rest[0] === 'on'
+      else Object.assign(entry(flag, service), { server: rest[0], port: rest[1] })
+      return ''
+    }
+    return { state, run: run as never }
+  }
+
+  it('turns on all three Mac proxies, and puts back what was there', () => {
+    const { state, run } = fakeMac()
+    state['Wi-Fi/socksfirewallproxy'] = { on: false, server: 'old.example', port: '9' }
+    const proxy = makeSystemProxy(detectBackends('darwin', '', run), run)!
+    const before = proxy.read()
+    proxy.apply(PORTS)
+    expect(state['Wi-Fi/webproxy']).toEqual({ on: true, server: '127.0.0.1', port: '1111' })
+    expect(state['Wi-Fi/securewebproxy']).toEqual({ on: true, server: '127.0.0.1', port: '1111' })
+    expect(state['Wi-Fi/socksfirewallproxy']).toEqual({ on: true, server: '127.0.0.1', port: '2222' })
+    expect(Object.keys(state).some((key) => key.startsWith('Old Ethernet'))).toBe(false)
+    proxy.restore(before)
+    expect(state['Wi-Fi/webproxy']?.on).toBe(false)
+    expect(state['Wi-Fi/socksfirewallproxy']).toEqual({ on: false, server: 'old.example', port: '9' })
+  })
+
+  it('carries on past a Mac network service that refuses', () => {
+    const { state, run } = fakeMac({ refuse: (command) => (command[2] === 'Other VPN' ? '** Error: The parameters were not valid.' : undefined) })
+    const proxy = makeSystemProxy(detectBackends('darwin', '', run), run)!
+    const before = proxy.read()
+    expect(JSON.parse(before)[0]).not.toHaveProperty('Other VPN')
+    proxy.apply(PORTS)
+    expect(state['Wi-Fi/webproxy']?.on).toBe(true)
+  })
+
+  it('says so when a Mac refuses the change, in its own words', () => {
+    const { run } = fakeMac({ refuse: (command) => (command[1]?.startsWith('-set') ? 'Command requires admin privileges.' : undefined) })
+    const proxy = makeSystemProxy(detectBackends('darwin', '', run), run)!
+    expect(() => proxy.apply(PORTS)).toThrow(/couldn't be turned on.*Command requires admin privileges/)
+  })
+
+  it('notices a Mac ignoring the change while reporting success', () => {
+    const { run } = fakeMac({ quietlyIgnored: true })
+    const proxy = makeSystemProxy(detectBackends('darwin', '', run), run)!
+    expect(() => proxy.apply(PORTS)).toThrow(/couldn't be turned on.*admin privileges/)
+  })
 })
 
 describe('VPN conveniences', () => {

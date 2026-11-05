@@ -14,6 +14,8 @@ interface Backend {
   read: () => unknown
   apply: (ports: ProxyPorts) => Command[]
   restore: (saved: never) => Command[]
+  /** Where a tool can fail quietly or for one network only: did the change really take effect? */
+  confirm?: (ports: ProxyPorts) => boolean
 }
 
 export interface SystemProxy {
@@ -118,21 +120,39 @@ function mac(run: Run): Backend {
   // The first line is a notice, and a leading * marks a service that's turned off.
   const services = () => run(['networksetup', '-listallnetworkservices']).split('\n').slice(1).filter((line) => line && !line.startsWith('*'))
   const field = (text: string, name: string) => new RegExp(`^${name}: (.*)$`, 'm').exec(text)?.[1] ?? ''
+  const current = (service: string) =>
+    MAC_KINDS.map(([kind, get]) => {
+      const text = run(['networksetup', get, service])
+      return { kind, on: field(text, 'Enabled') === 'Yes', server: field(text, 'Server'), port: field(text, 'Port') }
+    })
+  const portFor = (kind: string, { httpPort, socksPort }: ProxyPorts) => String(kind === 'socks' ? socksPort : httpPort)
   return {
+    // Some services, such as a VPN from another app, have no proxy settings to read. They're left alone.
     read: () =>
       Object.fromEntries(
-        services().map((service) => [
-          service,
-          MAC_KINDS.map(([kind, get]) => {
-            const text = run(['networksetup', get, service])
-            return { kind, on: field(text, 'Enabled') === 'Yes', server: field(text, 'Server'), port: field(text, 'Port') }
-          })
+        services().flatMap((service) => {
+          try {
+            return [[service, current(service)]]
+          } catch {
+            return []
+          }
+        })
+      ),
+    apply: (ports) =>
+      services().flatMap((service) =>
+        MAC_KINDS.flatMap(([kind, , setter, stater]): Command[] => [
+          ['networksetup', setter, service, ports.host, portFor(kind, ports)],
+          ['networksetup', stater, service, 'on']
         ])
       ),
-    apply: ({ host, httpPort, socksPort }) =>
-      services().flatMap((service) =>
-        MAC_KINDS.map(([kind, , setter]): Command => ['networksetup', setter, service, host, String(kind === 'socks' ? socksPort : httpPort)])
-      ),
+    confirm: (ports) =>
+      services().some((service) => {
+        try {
+          return current(service).every(({ kind, on, server, port }) => on && server === ports.host && port === portFor(kind, ports))
+        } catch {
+          return false
+        }
+      }),
     restore: (saved: Record<string, { kind: string; on: boolean; server: string; port: string }[]>) =>
       Object.entries(saved).flatMap(([service, kinds]) =>
         kinds.flatMap(({ kind, on, server, port }): Command[] => {
@@ -149,7 +169,8 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-const execRun: Run = ([command, ...args]) => execFileSync(command, args, { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: cleanEnv() })
+// Errors are kept, so that a refusal can be passed on in the tool's own words.
+const execRun: Run = ([command, ...args]) => execFileSync(command, args, { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'], env: cleanEnv() })
 
 const works = (run: Run, command: Command) => {
   try {
@@ -190,22 +211,44 @@ setInterval(() => {
 
 const NOTIFIERS = ['dbus-send', 'powershell']
 
+/** A failed command's message starts with its whole command line, which only says what was tried. */
+const toolSaid = (error: unknown) => (error instanceof Error ? error.message : String(error)).split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('Command failed')).at(-1) ?? ''
+
 export function makeSystemProxy(backends: Backend[], run: Run): SystemProxy | null {
   if (backends.length === 0) return null
   const restoring = (saved: string) => backends.flatMap((backend, index) => backend.restore((JSON.parse(saved) as never[])[index]!))
-  const runAll = (commands: Command[]) => {
+  /** Keeps going after a failure, so one network that refuses doesn't leave the others unchanged. */
+  const attempt = (commands: Command[]) => {
+    const failures: unknown[] = []
+    const said: string[] = []
     for (const command of commands) {
       try {
-        run(command)
+        said.push(run(command))
       } catch (error) {
         // Telling running apps is a courtesy: the setting itself has already changed.
-        if (!NOTIFIERS.includes(command[0])) throw error
+        if (!NOTIFIERS.includes(command[0])) failures.push(error)
       }
     }
+    return { failures, said }
+  }
+  const runAll = (commands: Command[]) => {
+    const { failures } = attempt(commands)
+    if (failures.length > 0) throw failures[0]
   }
   return {
     read: () => JSON.stringify(backends.map((backend) => backend.read())),
-    apply: (ports) => runAll(backends.flatMap((backend) => backend.apply(ports))),
+    apply: (ports) => {
+      for (const backend of backends) {
+        if (!backend.confirm) {
+          runAll(backend.apply(ports))
+          continue
+        }
+        const { failures, said } = attempt(backend.apply(ports))
+        if (backend.confirm(ports)) continue
+        const reason = [...failures.map(toolSaid), ...said.map(toolSaid)].find(Boolean)
+        throw new Error(`The system proxy couldn't be turned on${reason ? `. Your computer said: ${reason}` : ''}. This may need an administrator account. You can still use the VPN with just scTerra.`)
+      }
+    },
     restore: (saved) => runAll(restoring(saved)),
     watchForCrash: (saved) => {
       const watcher = spawn(process.execPath, ['-e', WATCHER, String(process.pid), JSON.stringify(restoring(saved))], {
