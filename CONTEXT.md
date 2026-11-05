@@ -31,7 +31,7 @@ Known flakes: `privacy.spec.ts:21` fails about 1 run in 75 under parallel load, 
 
 - Never commit, push or tag on your own. The owner tests the AppImage first, then tells you to commit and rebuild, even if an earlier message in the chat asked for a release. An instruction to commit only covers that round. Work directly on `main`. A coworker also commits there, so pull first. `theme.html` in the root is the owner's scSpace style reference: don't commit it.
 - Commits need `git -c user.name=... -c user.email=...` using the last commit's author, as no git identity is set on this machine.
-- CI stays manual: `ci.yml` only starts from the Actions tab, because running on every commit used up the owner's GitHub Actions minutes. Don't put back automatic triggers (`push`, `pull_request`), and don't start it, until there's a really major update and the owner agrees. Run the tests locally instead. Tag pushes still run `release.yml`, so each release costs minutes too, mostly for the Mac builds.
+- The owner plans to make this repo public. Until it is, CI's minutes count against their GitHub Actions allowance, so avoid needless pushes. `macos.yml` stays manual, and each release uses minutes too, mostly for the Mac builds.
 - Don't spend their AI credit without asking. Live requests to the hosted server use real keys.
 - They want it modern but not "vibe coded": follow the design rules in Plan.md and use tokens, not raw colours or sizes. They've pulled back glass, pills and big shadows once already: flat surfaces with thin borders, 4/6/10 radii, glass only on popups and new tab cards.
 - Report honestly what was and wasn't tested. Say so when something only ran against mocks.
@@ -67,7 +67,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.4/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
-The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) only starts by hand, and runs on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
+The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests, on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
 
 Deno isn't installed. To run server tests locally, use the npm package `deno`, then `deno test --allow-env` inside `server/`.
 
@@ -120,7 +120,7 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 Installers and update files go to the public `sc-simpledev/scTerra` repo (renamed from scDelta on 2026-11-03). The source never goes there. Details are in [docs/auto-update.md](docs/auto-update.md).
 
 1. Set `version` in `apps/desktop/package.json`, commit and push.
-2. Run the full tests locally, as CI no longer runs by itself and a release only runs typecheck and unit tests. Then tag to match and push the tag, with the `git -c user.name=... -c user.email=...` identity: `git tag -a v0.3.4 -m "scTerra 0.3.4"`, then `git push origin v0.3.4`. Only a tag publishes. Pushes to `main` just run CI.
+2. Wait for CI to pass on `main`, as a release doesn't wait for it. Then tag to match and push the tag, with the `git -c user.name=... -c user.email=...` identity: `git tag -a v0.3.4 -m "scTerra 0.3.4"`, then `git push origin v0.3.4`. Only a tag publishes. Pushes to `main` just run CI.
 3. `.github/workflows/release.yml` checks the tag against the version, builds Linux, Windows and both kinds of Mac into a draft release using the `RELEASE_TOKEN` secret (already set), and publishes the draft only once every build succeeds.
 4. Watch it with `gh run list --workflow release.yml`, and check the release appeared with `gh release list --repo sc-simpledev/scTerra`.
 
