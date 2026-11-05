@@ -17,14 +17,18 @@ interface SavedPanel extends PanelOptions {
 }
 
 interface PanelHost {
-  window: BaseWindow
-  activeTab: () => WebContents | undefined
+  /** The browser window in use, where a panel opens. */
+  window: () => BaseWindow
+  activeTab: (window?: BaseWindow | null) => WebContents | undefined
   /** The panel's page, for shortcuts, the right-click menu and links. */
   prepare: (contents: WebContents, extensionId: string) => void
   /** Anything drawn over pages has to stay above the panel. */
-  raiseOverlay: () => void
-  onPanel: (state: ExtensionPanelState | null) => void
+  raiseOverlay: (window: BaseWindow) => void
+  onPanel: (state: ExtensionPanelState | null, window: BaseWindow) => void
   onSettings: () => void
+  /** Shows it in the panel under the toolbar, if that's how extensions are set to open. */
+  showInPopover: (id: string, url: string, session: Session) => boolean
+  closePopover: (id: string) => void
 }
 
 const idFromUrl = (url: string | undefined): string | null => {
@@ -39,6 +43,7 @@ const idFromUrl = (url: string | undefined): string | null => {
  */
 export class SidePanels {
   private view: WebContentsView | null = null
+  private owner: BaseWindow | null = null
   private extensionId: string | null = null
   private url: string | null = null
   private rect: PageRect = { x: 0, y: 0, width: 0, height: 0 }
@@ -79,6 +84,7 @@ export class SidePanels {
         return void this.open(id, session)
       case 'close':
         if (this.extensionId === id) this.close()
+        this.host.closePopover(id)
         return undefined
       case 'setPanelBehavior':
         this.save(id, { openOnClick: details.openPanelOnActionClick === true })
@@ -144,7 +150,7 @@ export class SidePanels {
   }
 
   has(id: string, session: Session): boolean {
-    return this.urlFor(id, session, this.host.activeTab()) !== null
+    return this.urlFor(id, session, this.host.activeTab(this.owner)) !== null
   }
 
   opensOnClick(): string[] {
@@ -158,21 +164,24 @@ export class SidePanels {
   }
 
   open(id: string, session: Session): void {
-    const url = this.urlFor(id, session, this.host.activeTab())
+    const window = this.host.window()
+    const url = this.urlFor(id, session, this.host.activeTab(window))
     if (!url) throw new Error('This extension has no side panel here')
-    if (this.view && this.view.webContents.session !== session) this.close()
+    if (this.host.showInPopover(id, url, session)) return
+    if (this.view && (this.view.webContents.session !== session || this.owner !== window)) this.close()
     if (!this.view) {
+      this.owner = window
       this.view = new WebContentsView({ webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false } })
       this.view.setVisible(!this.hidden)
       this.view.setBounds(this.rect)
-      this.host.window.contentView.addChildView(this.view)
-      this.host.raiseOverlay()
+      window.contentView.addChildView(this.view)
+      this.host.raiseOverlay(window)
     }
     const changed = this.extensionId !== id
     this.extensionId = id
     if (changed) this.host.prepare(this.view.webContents, id)
     if (url !== this.url) this.load(url)
-    this.host.onPanel(this.state(session))
+    this.host.onPanel(this.state(session), window)
   }
 
   toggle(id: string, session: Session): void {
@@ -181,13 +190,15 @@ export class SidePanels {
   }
 
   close(): void {
-    if (!this.view) return
-    if (!this.host.window.isDestroyed()) this.host.window.contentView.removeChildView(this.view)
-    if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
+    const { view, owner } = this
+    if (!view || !owner) return
+    if (!owner.isDestroyed()) owner.contentView.removeChildView(view)
+    if (!view.webContents.isDestroyed()) view.webContents.close()
     this.view = null
+    this.owner = null
     this.extensionId = null
     this.url = null
-    this.host.onPanel(null)
+    if (!owner.isDestroyed()) this.host.onPanel(null, owner)
   }
 
   private load(url: string): void {
@@ -198,11 +209,15 @@ export class SidePanels {
   /** Each tab can have its own panel page, or none, and tabs in a container have their own session. */
   followActiveTab(): void {
     if (!this.view || !this.extensionId) return
-    const tab = this.host.activeTab()
+    const tab = this.host.activeTab(this.owner)
     const session = this.view.webContents.session
     const url = tab?.session === session ? this.urlFor(this.extensionId, session, tab) : null
     if (!url) this.close()
     else if (url !== this.url) this.load(url)
+  }
+
+  ownedBy(window: BaseWindow): boolean {
+    return this.owner === window
   }
 
   setBounds(rect: PageRect): void {

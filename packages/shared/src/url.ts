@@ -17,6 +17,41 @@ const LOCALHOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i
 const HOST_LIKE = /^[^\s/?#]+\.[a-z]{2,}(:\d+)?([/?#]|$)/i
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]|$)/
 
+/** Schemes that are the browser's own, or that have been used to attack the apps behind them. */
+const NOT_APP_SCHEMES = new Set([
+  'http', 'https', 'ws', 'wss', 'ftp', 'ftps', 'sftp', 'file', 'sc', 'about', 'view-source', 'chrome', 'chrome-extension', 'chrome-untrusted', 'devtools',
+  'javascript', 'vbscript', 'data', 'blob', 'filesystem', 'jar', 'res', 'mhtml', 'shell', 'hcp', 'smb', 'cifs', 'nfs', 'afp', 'dav', 'ssh', 'telnet',
+  'ms-msdt', 'ms-search', 'search-ms', 'search', 'ms-officecmd', 'ms-cxh', 'ms-cxh-full', 'ms-excel', 'ms-word', 'ms-powerpoint'
+])
+/** Common ones that have no `//`, which typed text otherwise needs before it counts as a link. */
+const BARE_APP_SCHEMES = new Set(['mailto', 'tel', 'sms', 'magnet'])
+const APP_URL = /^([a-z][a-z0-9+.-]{0,39}):(\/\/)?\S*$/i
+
+/** The scheme of a link that belongs to another app, like `claude://`, or null if it doesn't. */
+export function appScheme(url: string): string | null {
+  const scheme = APP_URL.exec(url)?.[1]?.toLowerCase()
+  return scheme && !NOT_APP_SCHEMES.has(scheme) ? scheme : null
+}
+
+/** Whether typed text means an app link. `localhost:3000` and `note:milk` don't. */
+export function isTypedAppUrl(input: string): boolean {
+  const scheme = appScheme(input)
+  return !!scheme && (BARE_APP_SCHEMES.has(scheme) || input.slice(scheme.length, scheme.length + 3) === '://')
+}
+
+/** A script to run on the open page. A space straight after the colon reads as a search, not code. */
+export const isJavascriptUrl = (input: string) => /^javascript:\S/i.test(input.trim())
+
+/** The script inside a `javascript:` address. */
+export function javascriptUrlCode(input: string): string {
+  const code = input.trim().slice('javascript:'.length)
+  try {
+    return decodeURIComponent(code)
+  } catch {
+    return code
+  }
+}
+
 /**
  * Turns whatever the user typed in the omnibox into a URL to load:
  * a URL with a known scheme, a bare host ("example.com/path"), or a search.
@@ -24,6 +59,7 @@ const IPV4 = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]|$)/
 export function resolveOmniboxInput(raw: string, engine: SearchEngine = DEFAULT_SEARCH_ENGINE): string {
   const input = raw.trim()
   if (!input) return NEW_TAB_URL
+  if (isJavascriptUrl(input) || isTypedAppUrl(input)) return input
 
   if (SCHEME.test(input) && !input.includes(' ')) {
     const scheme = input.slice(0, input.indexOf(':') + 1).toLowerCase()

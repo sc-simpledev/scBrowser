@@ -1,24 +1,31 @@
 import { join } from 'node:path'
-import { ipcMain, WebContentsView, type BaseWindow } from 'electron'
+import { WebContentsView, type BaseWindow } from 'electron'
 import {
   EMPTY_OVERLAY,
   overlayRegions,
   unionRect,
   type AccentId,
+  type AppLinkPromptState,
   type AuthPopupState,
   type PasswordPromptState,
   type BookmarkEdit,
   type BookmarkEditorState,
   type ChromeEvents,
   type CleanupPopupState,
+  type ExtensionsPopupState,
+  type PageRect,
   type OverlayState,
   type OverlayView,
   type PermissionPopupState,
   type TabId,
+  type TabSearchRow,
+  type TabSearchState,
   type WorkspaceEdit,
   type WorkspaceEditorState,
   PALETTE_POPUP
 } from '@scbrowser/shared'
+
+import { route, unroute } from './ipcRouter'
 
 const TOAST_MS = 3000
 
@@ -31,6 +38,13 @@ export class Overlay {
   private state: OverlayState = EMPTY_OVERLAY
   private permission: PermissionPopupState | null = null
   private palette: { x: number; y: number } | null = null
+  private tabSearch: TabSearchState | null = null
+  private appLink: AppLinkPromptState | null = null
+  private extensionsPopup: ExtensionsPopupState | null = null
+  private extensionsPopupClosedAt = 0
+  private extensionFrame: PageRect | null = null
+  /** An extension's panel, kept above this view so that its frame can draw behind it. */
+  private above: WebContentsView | null = null
   private toast: OverlayView['toast'] = null
   private bookmarkEditor: BookmarkEditorState | null = null
   private auth: AuthPopupState | null = null
@@ -40,6 +54,8 @@ export class Overlay {
   private toastTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
   private readonly channels: string[] = []
+  /** Kept for tearing down: by then the view's own may be gone. */
+  private readonly routed: Electron.WebContents
 
   constructor(
     private readonly window: BaseWindow,
@@ -48,6 +64,10 @@ export class Overlay {
     private readonly hooks: {
       onPaletteRun: (id: string) => void
       onPaletteClose: () => void
+      onAppLinkAnswer: (choice: 'open' | 'always' | 'cancel') => void
+      onExtensionsAction: (action: 'open' | 'pin' | 'menu' | 'store' | 'manage', id: string, x: number, y: number) => void
+      onTabSearchPick: (id: TabId) => void
+      onTabSearchRemove: (id: TabId) => void
       accent: () => AccentId
       onBookmarkSave: (edit: BookmarkEdit) => string | null
       onBookmarkRemove: (id: number) => void
@@ -76,14 +96,15 @@ export class Overlay {
     window.contentView.addChildView(this.view)
 
     const contents = this.view.webContents
+    this.routed = contents
     contents.on('will-navigate', (event) => event.preventDefault())
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    ipcMain.handle('overlay:pick', (event, index: unknown) => {
+    route(contents, 'overlay:pick', (event, index: unknown) => {
       if (event.sender !== contents) throw new Error('Rejected overlay:pick from untrusted sender')
       if (!Number.isInteger(index)) throw new Error('Invalid arguments for overlay:pick')
       onPick(index as number)
     })
-    ipcMain.handle('overlay:permission', (event, requestId: unknown, allow: unknown) => {
+    route(contents, 'overlay:permission', (event, requestId: unknown, allow: unknown) => {
       if (event.sender !== contents) throw new Error('Rejected overlay:permission from untrusted sender')
       if (!Number.isInteger(requestId) || typeof allow !== 'boolean') throw new Error('Invalid arguments')
       onPermission(requestId as number, allow)
@@ -91,7 +112,7 @@ export class Overlay {
     const fromOverlay = (event: Electron.IpcMainInvokeEvent) => {
       if (event.sender !== contents) throw new Error('Rejected bookmark edit from untrusted sender')
     }
-    ipcMain.handle('overlay:bookmark-save', (event, edit: unknown) => {
+    route(contents, 'overlay:bookmark-save', (event, edit: unknown) => {
       fromOverlay(event)
       const { id, title, url, groupId } = (edit ?? {}) as BookmarkEdit
       if (!Number.isInteger(id) || typeof title !== 'string' || title.length > 1024 || typeof url !== 'string' || url.length > 8192) throw new Error('Invalid bookmark')
@@ -100,32 +121,29 @@ export class Overlay {
       if (!problem) this.closeBookmarkEditor()
       return problem
     })
-    ipcMain.handle('overlay:bookmark-remove', (event, id: unknown) => {
+    route(contents, 'overlay:bookmark-remove', (event, id: unknown) => {
       fromOverlay(event)
       if (!Number.isInteger(id)) throw new Error('Invalid bookmark')
       this.hooks.onBookmarkRemove(id as number)
       this.closeBookmarkEditor()
     })
-    ipcMain.handle('overlay:bookmark-close', (event) => {
+    route(contents, 'overlay:bookmark-close', (event) => {
       fromOverlay(event)
       this.closeBookmarkEditor()
     })
-    ipcMain.handle('overlay:palette-run', (event, id: unknown) => {
+    route(contents, 'overlay:palette-run', (event, id: unknown) => {
       if (event.sender !== contents) throw new Error('Rejected overlay:palette-run from untrusted sender')
       if (typeof id !== 'string') throw new Error('Invalid arguments')
       this.closePalette()
       hooks.onPaletteRun(id)
     })
-    ipcMain.handle('overlay:palette-close', (event) => {
+    route(contents, 'overlay:palette-close', (event) => {
       if (event.sender !== contents) throw new Error('Rejected overlay:palette-close from untrusted sender')
       this.closePalette()
     })
     const handle = (channel: string, listener: (...args: unknown[]) => void) => {
       this.channels.push(channel)
-      ipcMain.handle(channel, (event, ...args: unknown[]) => {
-        if (event.sender !== contents) throw new Error(`Rejected ${channel} from untrusted sender`)
-        listener(...args)
-      })
+      route(contents, channel, (_event, ...args: unknown[]) => listener(...args))
     }
     handle('overlay:answer-action', (action) => {
       if (action === 'close' || action === 'continue' || action === 'stop') this.hooks.onAnswerAction(action)
@@ -164,6 +182,30 @@ export class Overlay {
     })
     handle('overlay:workspace-close', () => this.closeWorkspaceEditor())
     handle('overlay:tooltip-clear', () => this.clearTooltip())
+    handle('overlay:app-link-answer', (choice) => {
+      if (choice !== 'open' && choice !== 'always' && choice !== 'cancel') throw new Error('Invalid arguments')
+      this.hooks.onAppLinkAnswer(choice)
+      this.hooks.onPopupClosed()
+    })
+    handle('overlay:extensions-action', (action, id, x, y) => {
+      if (action !== 'open' && action !== 'pin' && action !== 'menu' && action !== 'store' && action !== 'manage') throw new Error('Invalid arguments')
+      if (typeof id !== 'string' || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Invalid arguments')
+      if (action !== 'pin') this.closeExtensionsPopup()
+      this.hooks.onExtensionsAction(action, id, x as number, y as number)
+    })
+    handle('overlay:extensions-close', () => this.closeExtensionsPopup())
+    const tabArg = (id: unknown) => {
+      if (!Number.isInteger(id)) throw new Error('Invalid tab')
+      return id as TabId
+    }
+    handle('overlay:tab-search-pick', (id) => {
+      const tab = tabArg(id)
+      this.tabSearch = null
+      this.render()
+      this.hooks.onTabSearchPick(tab)
+    })
+    handle('overlay:tab-search-remove', (id) => this.hooks.onTabSearchRemove(tabArg(id)))
+    handle('overlay:tab-search-close', () => this.closeTabSearch())
     // A crashed overlay shouldn't take popups down for the rest of the session.
     contents.on('render-process-gone', () => contents.reload())
 
@@ -195,6 +237,38 @@ export class Overlay {
     this.render()
   }
 
+  setAppLink(prompt: AppLinkPromptState | null): void {
+    this.appLink = prompt
+    this.render()
+  }
+
+  /** Pressing the button again closes it: the list has just gone, as the press took its focus. */
+  openExtensionsPopup(popup: ExtensionsPopupState, refresh = false): void {
+    if (refresh) {
+      if (this.extensionsPopup) this.extensionsPopup = popup
+      return this.render()
+    }
+    if (this.extensionsPopup) return this.closeExtensionsPopup()
+    if (Date.now() - this.extensionsPopupClosedAt < 250) return
+    this.extensionsPopup = popup
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  private closeExtensionsPopup(): void {
+    if (!this.extensionsPopup) return
+    this.extensionsPopup = null
+    this.extensionsPopupClosedAt = Date.now()
+    this.render()
+  }
+
+  setExtensionFrame(rect: PageRect | null, view: WebContentsView | null): void {
+    this.extensionFrame = rect
+    this.above = view
+    this.render()
+    if (view) this.raise()
+  }
+
   openCleanup(cleanup: CleanupPopupState): void {
     this.cleanup = cleanup
     this.render()
@@ -224,6 +298,7 @@ export class Overlay {
   /** Re-stacks the overlay on top; call after adding tab views. */
   raise(): void {
     this.window.contentView.addChildView(this.view)
+    if (this.above) this.window.contentView.addChildView(this.above)
   }
 
   set(state: OverlayState): void {
@@ -246,15 +321,45 @@ export class Overlay {
     }, TOAST_MS)
   }
 
+  private centred(): { x: number; y: number } {
+    const { width } = this.window.getContentBounds()
+    return { x: Math.max(0, Math.round((width - PALETTE_POPUP.width) / 2)), y: PALETTE_POPUP.top }
+  }
+
   togglePalette(): void {
     if (this.palette) {
       this.closePalette()
       return
     }
-    const { width } = this.window.getContentBounds()
-    this.palette = { x: Math.max(0, Math.round((width - PALETTE_POPUP.width) / 2)), y: PALETTE_POPUP.top }
+    this.tabSearch = null
+    this.palette = this.centred()
     this.render()
     this.view.webContents.focus()
+  }
+
+  toggleTabSearch(rows: TabSearchRow[]): void {
+    if (this.tabSearch) {
+      this.closeTabSearch()
+      return
+    }
+    this.palette = null
+    this.tabSearch = { rows, ...this.centred() }
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  /** Keeps an open list true to the tabs, as rows can be closed from it. */
+  updateTabSearch(rows: TabSearchRow[]): void {
+    if (!this.tabSearch) return
+    this.tabSearch = { ...this.tabSearch, rows }
+    this.render()
+  }
+
+  private closeTabSearch(): void {
+    if (!this.tabSearch) return
+    this.tabSearch = null
+    this.render()
+    this.hooks.onPopupClosed()
   }
 
   private closePalette(): void {
@@ -265,7 +370,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
   }
 
   private render(): void {
@@ -292,14 +397,7 @@ export class Overlay {
   destroy(): void {
     this.destroyed = true
     clearTimeout(this.toastTimer)
-    ipcMain.removeHandler('overlay:pick')
-    ipcMain.removeHandler('overlay:permission')
-    ipcMain.removeHandler('overlay:palette-run')
-    ipcMain.removeHandler('overlay:palette-close')
-    ipcMain.removeHandler('overlay:bookmark-save')
-    ipcMain.removeHandler('overlay:bookmark-remove')
-    ipcMain.removeHandler('overlay:bookmark-close')
-    this.channels.forEach((channel) => ipcMain.removeHandler(channel))
+    unroute(this.routed)
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 

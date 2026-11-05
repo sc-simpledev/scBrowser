@@ -18,7 +18,9 @@ import { DownloadsRepo } from './storage/downloads'
 import { HistoryRepo } from './storage/history'
 import { KeyValueRepo } from './storage/kv'
 import { PermissionsRepo } from './storage/permissions'
-import { createBrowserWindow, type BrowserWindowHandle } from './window'
+import { BrowserCore } from './browserCore'
+import { webAppUrlFromArgv } from './webApps'
+import { createBrowserWindow } from './window'
 
 /** The app used to be called scDelta, and scBrowser before that. Copy that profile on first launch, leaving the original. */
 function moveLegacyProfile(): void {
@@ -73,15 +75,16 @@ function urlsFromArgv(argv: string[]): string[] {
   })
 }
 
-let main: BrowserWindowHandle | null = null
+let core: BrowserCore | null = null
 
 /** On a Mac, links from other apps arrive as events, and can come before the window exists. */
 const earlyUrls: string[] = []
 const openFromSystem = (event: Electron.Event, url: string) => {
   event.preventDefault()
-  if (main) {
-    main.tabs.create(url)
-    main.window.focus()
+  if (core) {
+    const { tabs, window } = core.browser()
+    tabs.create(url)
+    window.focus()
   } else earlyUrls.push(url)
 }
 app.on('open-url', openFromSystem)
@@ -107,10 +110,16 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
-    if (!main) return
-    urlsFromArgv(argv).forEach((url) => main!.tabs.create(url))
-    if (main.window.isMinimized()) main.window.restore()
-    main.window.focus()
+    if (!core) return
+    const webApp = webAppUrlFromArgv(argv)
+    if (webApp) {
+      core.openWindow({ kind: 'app', urls: [webApp] })
+      return
+    }
+    const { tabs, window } = core.browser()
+    urlsFromArgv(argv).forEach((url) => tabs.create(url))
+    if (window.isMinimized()) window.restore()
+    window.focus()
   })
 
   void app.whenReady().then(() => {
@@ -142,7 +151,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     const aiStore = new AiStore(kv)
     if (process.env.SCB_E2E) Object.assign(globalThis, { scbAi: { kv } })
-    main = createBrowserWindow(
+    core = new BrowserCore(
       {
         kv,
         settings,
@@ -154,10 +163,12 @@ if (!app.requestSingleInstanceLock()) {
         chats: new ChatsRepo(db),
         reporter
       },
-      [...urlsFromArgv(process.argv), ...earlyUrls]
+      createBrowserWindow
     )
-    main.window.on('closed', () => (main = null))
-    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: main.tabs, scbActions: main.actions, scbExtensions: main.extensions, scbSync: main.sync, scbVpn: main.vpn, scbReporter: reporter, scbUpdates: main.updates })
+    // A shortcut to an installed site opens just that, leaving the browser for when it's asked for.
+    const webApp = webAppUrlFromArgv(process.argv)
+    const first = webApp ? core.openWindow({ kind: 'app', urls: [webApp] }) : core.openWindow({ urls: [...urlsFromArgv(process.argv), ...earlyUrls] })
+    if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: first.tabs, scbActions: first.actions, scbExtensions: core.extensions, scbSync: core.sync, scbVpn: core.vpn, scbReporter: reporter, scbUpdates: core.updates, scbCore: core })
   })
 
   app.on('window-all-closed', () => app.quit())

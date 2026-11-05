@@ -86,7 +86,7 @@ test('translates a page in place and restores it', async () => {
   const page = await h.page('/hello')
 
   mock.queue = ['["Buenos días","Hasta pronto"]']
-  await setSetting(h, { translateTo: 'Spanish' })
+  await setSetting(h, { translateTo: 'Spanish', translateEngine: 'ai' })
   const overlay = await palette('translate')
   await expect(page.locator('h1')).toHaveText('Buenos días')
   await expect(page.locator('p')).toHaveText('Hasta pronto')

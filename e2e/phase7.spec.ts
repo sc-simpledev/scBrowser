@@ -113,7 +113,7 @@ test('toolbar buttons can be moved, and reset', async () => {
   const { chrome } = app
   const slots = () => chrome.locator('[data-toolbar-slot]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-toolbar-slot')))
   await chrome.locator('[data-toolbar-slot="reload"]').dragTo(chrome.locator('[data-toolbar-slot="omnibox"]'), { targetPosition: { x: 600, y: 12 } })
-  await expect.poll(slots).toEqual(['back', 'forward', 'vpn', 'omnibox', 'reload', 'downloads', 'passwords', 'extensions'])
+  await expect.poll(slots).toEqual(['back', 'forward', 'vpn', 'omnibox', 'reload', 'split', 'downloads', 'passwords', 'extensions'])
   const assistant = await chrome.getByRole('button', { name: 'Assistant' }).boundingBox()
   const menu = await chrome.getByRole('button', { name: 'Menu' }).boundingBox()
   const box = await chrome.getByRole('combobox', { name: 'Search or enter address' }).boundingBox()

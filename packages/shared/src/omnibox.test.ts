@@ -15,7 +15,7 @@ const tab = (id: number, url: string, title = ''): TabState => ({
   blockedCount: 0,
   container: null,
   group: null,
-  workspace: 'main'
+  workspace: 'main', pinned: false, audible: false, muted: false
 })
 
 const visit = (url: string, title = ''): HistoryEntry => ({ url, title, visitCount: 1, lastVisit: 0 })

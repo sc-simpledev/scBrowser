@@ -84,6 +84,13 @@ export interface Settings {
   hiddenToolbarItems: ToolbarItemId[]
   toolbarOrder: ToolbarSlot[]
   translateTo: TranslateLanguage
+  /** Google is quick and free, and sees the page's text. The AI uses the person's own model and credit. */
+  translateEngine: 'google' | 'ai'
+  /** A small panel under the toolbar's button, or the extension's own side panel and windows. */
+  extensionDisplay: 'panel' | 'window'
+  spellCheck: boolean
+  /** A language code, or empty to follow the system. */
+  spellLanguage: string
   newTab: NewTabConfig
   /** How long a VPN ping waits before moving to the next connection. */
   vpnPingTimeout: number
@@ -100,9 +107,12 @@ export interface Settings {
   extensionPanelWidth: number
   reportWidth: number
   sidebarWidth: number
+  devToolsWidth: number
   /** Minutes unused before passwords lock again, or 0 for only when closed. */
   passwordLockMinutes: number
   passwordOfferSave: boolean
+  /** Also offers while the vault is locked or hasn't been set up, which keeps the login in memory for a minute. */
+  passwordOfferLocked: boolean
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -137,6 +147,10 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenToolbarItems: [],
   toolbarOrder: [...TOOLBAR_SLOTS],
   translateTo: 'English',
+  translateEngine: 'google',
+  extensionDisplay: 'panel',
+  spellCheck: true,
+  spellLanguage: '',
   newTab: DEFAULT_NEW_TAB,
   vpnPingTimeout: 3000,
   vpnScope: 'browser',
@@ -148,8 +162,10 @@ export const DEFAULT_SETTINGS: Settings = {
   extensionPanelWidth: 360,
   reportWidth: 560,
   sidebarWidth: 240,
+  devToolsWidth: 460,
   passwordLockMinutes: 15,
   passwordOfferSave: true,
+  passwordOfferLocked: true,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   syncHistory: true,
@@ -179,6 +195,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   accent: (v) => ACCENTS.some((accent) => accent.id === v),
   accentTint: (v) => typeof v === 'boolean',
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
+  translateEngine: (v) => v === 'google' || v === 'ai',
+  extensionDisplay: (v) => v === 'panel' || v === 'window',
+  spellCheck: (v) => typeof v === 'boolean',
+  spellLanguage: (v) => typeof v === 'string' && /^([a-zA-Z-]{2,16})?$/.test(v),
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
   toolbarOrder: isToolbarOrder,
   newTab: isNewTabConfig,
@@ -192,8 +212,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   extensionPanelWidth: isWidth,
   reportWidth: isWidth,
   sidebarWidth: isWidth,
+  devToolsWidth: isWidth,
   passwordLockMinutes: (v) => (PASSWORD_LOCK_CHOICES as readonly unknown[]).includes(v),
   passwordOfferSave: (v) => typeof v === 'boolean',
+  passwordOfferLocked: (v) => typeof v === 'boolean',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',

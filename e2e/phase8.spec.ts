@@ -118,8 +118,9 @@ test('the vault offers to save a sign-in, fills it back, and keeps it sealed', a
   }
 })
 
-test('nothing is offered or watched while the vault is locked', async () => {
+test('nothing is offered or watched while locked, if that option is off', async () => {
   const passwords = await createVault()
+  await passwords.getByRole('checkbox', { name: 'Also offer while locked' }).uncheck()
   await passwords.getByRole('button', { name: 'Lock', exact: true }).click()
   await go(h, site.url('/login'))
   const login = await h.page('/login')

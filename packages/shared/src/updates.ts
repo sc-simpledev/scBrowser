@@ -8,6 +8,8 @@ export type UpdatePhase =
   | 'downloading'
   /** Downloaded, and waiting for a restart. */
   | 'ready'
+  /** Restarting into the new version. */
+  | 'installing'
   /** A newer version exists, but it has to be installed by hand. */
   | 'manual'
   | 'error'

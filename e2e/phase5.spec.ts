@@ -170,6 +170,7 @@ test('reports that were cut off still appear', async () => {
 test('extensions get a toolbar button with a working popup, and their APIs reach our tabs', async () => {
   await h.close()
   h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  await setSetting(h, { extensionDisplay: 'window' })
   const fixture = resolve(__dirname, 'fixtures/action-extension')
   const id = await h.app.evaluate(
     (_, path) => (globalThis as unknown as { scbExtensions: { add(p: string): Promise<string> } }).scbExtensions.add(path),
@@ -209,6 +210,7 @@ test('the toolbar has a button for the extensions menu, and unpinned extensions 
 test('pages an extension opens from its popup land in tabs or their own small window', async () => {
   await h.close()
   h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  await setSetting(h, { extensionDisplay: 'window' })
   const id = await addExtension('action-extension')
   await go(h, site.url('/alpha'))
   await h.chrome.locator(`browser-action-list [id="${id}"]`).click()
@@ -241,6 +243,7 @@ test('pages an extension opens from its popup land in tabs or their own small wi
 test('an extension can open a side panel beside the page, from its button or its own call', async () => {
   await h.close()
   h = await launch(undefined, [], { SCB_E2E_SANDBOX: '1' })
+  await setSetting(h, { extensionDisplay: 'window' })
   const id = await addExtension('side-panel-extension')
   await go(h, site.url('/alpha'))
   const panelUrl = `chrome-extension://${id}/panel.html`

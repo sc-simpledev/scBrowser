@@ -1,16 +1,20 @@
 import { randomFillSync } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ClipboardItem, Menu, nativeTheme, net, powerMonitor, safeStorage, session, shell, type Rectangle, type Session } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, shell, type Rectangle } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
 import {
   effectiveUrl,
   engineById,
+  isJavascriptUrl,
+  isTypedAppUrl,
+  javascriptUrlCode,
   AUTH_POPUP,
-  bypassRules,
   generatePassword,
+  identityName,
   originOf,
   PASSWORD_POPUP,
   BOOKMARK_POPUP,
@@ -25,121 +29,72 @@ import {
   SUMMARISE_PROMPT,
   isNewTabUrl,
   type Bookmark,
-  type ChromeEvents,
-  type EventChannel,
   type PermissionPrompt,
   type Workspace,
   type WorkspaceEdit
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabGroups, TAB_CLEANUP_PROMPT } from '@scbrowser/ai'
-import { rewriteSelection, togglePageTranslation } from './ai/pageTools'
-import { AI_PARTITION, AiService } from './ai/service'
-import type { AiStore } from './ai/store'
-import { DownloadManager, uniquePath } from './downloads'
-import { ExtensionManager } from './extensions'
+import { rewriteSelection, togglePageGoogleTranslation, togglePageTranslation } from './ai/pageTools'
+import { AiService } from './ai/service'
+import type { BrowserCore, BrowserWindowHandle, Send, WindowOptions } from './browserCore'
+import { uniquePath } from './downloads'
 import { HttpAuthService, type AuthPrompt } from './httpAuth'
-import { handleInternalPages } from './internal/protocol'
-import { pdfPageUrl } from './internal/pdf'
 import { registerInternalIpc } from './internalIpc'
 import { registerIpc } from './ipc'
 import { attachPageMenu } from './menus'
-import { SiteBlocker } from './blocker'
 import { Overlay } from './overlay'
 import { extractArticle } from './ai/pageText'
 import { storeArticle } from './internal/reader'
-import { PrivacyService } from './privacy/service'
-import { PermissionService } from './permissions'
 import { currentProfile, DEFAULT_PROFILE } from './profiles'
-import { loadSession, SessionSaver } from './session'
-import type { SettingsStore } from './settings'
+import { loadExtraSessions, loadSession } from './session'
+import { AppLinks } from './appLinks'
 import { attachShortcuts } from './shortcuts'
-import { fetchIcon, fetchSiteIcon } from './siteIcons'
+import { fetchIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
-import type { Reporter } from './reporter'
-import { SyncService, type KeyVault } from './sync'
-import { systemProxyFor } from './systemProxy'
-import { tunnelFor } from './tun'
 import { readFlags } from './flags'
-import { attachGoogleSignIn } from './googleSignIn'
-import { copySecret, fillLogin, watchForSignIn } from './passwordFill'
-import { PasswordVault } from './passwords'
-import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
-import type { BookmarksRepo } from './storage/bookmarks'
-import type { ChatsRepo } from './storage/chats'
-import type { DownloadsRepo } from './storage/downloads'
-import type { HistoryRepo } from './storage/history'
-import type { KeyValueRepo } from './storage/kv'
-import type { PermissionsRepo } from './storage/permissions'
+import { copySecret, fillDetails, fillLogin, watchForSignIn } from './passwordFill'
 import { TabManager } from './tabs/TabManager'
-import { UpdateService } from './updater'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = 60_000
-const SYNC_FIRST_MS = 20_000
-const SYNC_EVERY_MS = 10 * 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
-const WORKSPACES_KEY = 'workspaces'
 const ZOOM_KEY = 'site-zoom'
 const WELCOME_KEY = 'welcome:done'
 const WELCOME_URL = 'sc://welcome'
 const INTRO_COLORS = { dark: { color: '#000000', symbolColor: '#ffffff' }, light: { color: '#f4f7f8', symbolColor: '#111111' } }
 /** How long a just-used login waits to be saved before it's forgotten. */
-const LOGIN_PROMPT_MS = 60_000
+const LOGIN_PROMPT_MS = Number(process.env.SCB_E2E && process.env.SCB_LOGIN_HOLD_MS) || 60_000
 const CLIPBOARD_WAIT_MS = 2000
 const CAPTURE_RETRY_MS = 200
 const CAPTURE_ATTEMPTS = 15
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
-const isWorkspace = (value: unknown): value is Workspace => {
-  const { id, name, focus } = (value ?? {}) as Workspace
-  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean'
-}
+const APP_WINDOW_SIZE = { width: 1100, height: 760 }
+const CASCADE = 32
+/** A new window opens a little down and across, so both can be seen. */
+const cascaded = ({ x, y, width, height }: Rectangle): Rectangle => ({ x: x + CASCADE, y: y + CASCADE, width, height })
 
 const zoomSite = (url: string) => (URL.canParse(url) ? new URL(url).host || url : url)
 
 const nativeColors = () => (nativeTheme.shouldUseDarkColors ? NATIVE_THEME.dark : NATIVE_THEME.light)
-
-/** Tests point pings at a local page. */
-function probeTarget(): ProbeTarget {
-  const [host, port] = process.env.SCB_VPN_PROBE?.split(':') ?? []
-  return host && port ? { host, port: Number(port) } : DEFAULT_PROBE
-}
-
-export interface Services {
-  kv: KeyValueRepo
-  settings: SettingsStore
-  history: HistoryRepo
-  bookmarks: BookmarksRepo
-  downloads: DownloadsRepo
-  permissions: PermissionsRepo
-  aiStore: AiStore
-  chats: ChatsRepo
-  reporter: Reporter
-}
-
-export interface BrowserWindowHandle {
-  window: BrowserWindow
-  tabs: TabManager
-  actions: BrowserActions
-  extensions: ExtensionManager
-  sync: SyncService
-  vpn: VpnService
-  updates: UpdateService
-}
 
 interface SavedWindow {
   bounds: Rectangle
   maximized: boolean
 }
 
-export function createBrowserWindow(services: Services, initialUrls: string[] = []): BrowserWindowHandle {
-  const { kv, settings, history, bookmarks } = services
+export function createBrowserWindow(core: BrowserCore, options: WindowOptions = {}): BrowserWindowHandle {
+  const { kv, settings, history, bookmarks, aiStore } = core.services
+  const { privacy, downloads, blocker, vpn, sync, passwords, updates, extensions, permissionService } = core
+  const kind = options.kind ?? 'browser'
+  const isApp = kind === 'app'
   const colors = nativeColors()
-  const savedWindow = kv.get(WINDOW_KEY) as SavedWindow | undefined
+  const savedWindow = isApp ? undefined : (kv.get(WINDOW_KEY) as SavedWindow | undefined)
+  const openBrowsers = core.windows.filter((handle) => handle.kind === 'browser')
   const window = new BrowserWindow({
-    ...(savedWindow?.bounds ?? { width: 1320, height: 860 }),
+    ...(options.restore?.bounds ?? (isApp ? APP_WINDOW_SIZE : openBrowsers.length > 0 ? cascaded(openBrowsers.at(-1)!.window.getNormalBounds()) : (savedWindow?.bounds ?? { width: 1320, height: 860 }))),
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -159,11 +114,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   })
   const chromeUi = window.webContents
 
-  const send = <E extends EventChannel>(channel: E, ...payload: ChromeEvents[E] extends void ? [] : [ChromeEvents[E]]) => {
+  const send: Send = (channel, ...payload) => {
     if (!chromeUi.isDestroyed()) chromeUi.send(channel, ...payload)
   }
+  const publishBookmarks = () => core.publishBookmarks()
   const siteColours = readFlags().includes('site-colours')
   const pageColours = new WeakMap<Electron.WebContents, string | null>()
+  const translatedInto = new WeakMap<Electron.WebContents, string>()
   const publishSiteColour = () => {
     if (!siteColours) return
     const contents = tabs.active && tabs.contentsFor(tabs.active.id)
@@ -174,50 +131,29 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     chromeUi.focus()
     send('ui:focus-omnibox')
   }
-  const publishBookmarks = () => {
-    send('bookmarks:changed', bookmarks.list())
-    send('bookmark-groups:changed', bookmarks.groups())
-    void fillMissingIcons()
-  }
-  const triedIcons = new Set<string>()
-  const needsIcon = (url: string) => URL.canParse(url) && bookmarks.list().some((b) => URL.canParse(b.url) && new URL(b.url).host === new URL(url).host && !b.icon)
-  const storeIcon = (url: string, icon: string | null) => {
-    if (!icon || window.isDestroyed()) return
-    bookmarks.setIcon(new URL(url).host, icon)
-    send('bookmarks:changed', bookmarks.list())
-  }
-  /** Bookmarks added from elsewhere have never been visited, so ask each site for its icon once. */
-  const fillMissingIcons = async () => {
-    for (const { url, icon } of bookmarks.list()) {
-      if (icon || !/^https?:/.test(url) || !URL.canParse(url) || triedIcons.has(new URL(url).host)) continue
-      triedIcons.add(new URL(url).host)
-      storeIcon(url, await fetchSiteIcon(session.defaultSession, url))
-    }
-  }
-
-  function savedWorkspaces(): Workspace[] {
-    const saved = kv.get(WORKSPACES_KEY)
-    const list = Array.isArray(saved) ? saved.filter(isWorkspace) : []
-    return list.some(({ id }) => id === DEFAULT_WORKSPACE.id) ? list : [DEFAULT_WORKSPACE, ...list]
-  }
-  const storeWorkspaces = (list: Workspace[]) => {
-    kv.set(WORKSPACES_KEY, list)
-    tabs.setWorkspaces(list)
-  }
-
   const tabs = new TabManager(window, {
+    otherWindow: isApp ? (url, container) => core.browser().tabs.create(url, { container }) : undefined,
+    appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
+    closeWhenEmpty: () => isApp || core.otherBrowserWindowsOpen(),
+    devToolsWidth: () => settings.get().devToolsWidth,
+    onDevToolsWidth: (devToolsWidth) => settings.set({ devToolsWidth }),
+    onDevToolsCreated: (contents) => {
+      attachShortcuts(contents, actions)
+      overlay.raise()
+    },
     onChange: (snapshot) => {
       // Tabs can still report in while the window is being torn down.
       if (window.isDestroyed()) return
       send('tabs:changed', snapshot)
-      saver.schedule()
+      if (!isApp) core.saver.schedule()
+      overlay.updateTabSearch(tabs.searchRows())
       const active = snapshot.tabs.find((t) => t.id === snapshot.activeId)
-      window.setTitle(`${active?.title ? `${active.title} — ` : ''}${APP_TITLE}`)
+      window.setTitle(isApp ? active?.title || APP_TITLE : `${active?.title ? `${active.title} — ` : ''}${APP_TITLE}`)
     },
     onTabCreated: (contents) => {
       attachShortcuts(contents, actions)
       attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
-      extensions.addTab(contents)
+      extensions.addTab(contents, window)
       contents.on('input-event', (_event, input) => {
         if (input.type === 'mouseMove') overlay.clearTooltip()
       })
@@ -239,8 +175,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onNewTabLoaded: () => {
       if (!chromeUi.isDestroyed()) chromeUi.focus()
     },
+    onAppLink: (contents, url, requester) => appLinks.request(url, requester, contents),
     onActivate: (tab) => {
       const contents = tabs.contentsFor(tab.id)
+      appLinks.activeChanged()
       publishSiteColour()
       if (contents) extensions.selectTab(contents)
       if (isNewTabUrl(tab.url)) focusOmnibox()
@@ -258,17 +196,17 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     },
     // Only sites already bookmarked, so this keeps no record of browsing.
     onFavicon: (contents, pageUrl, iconUrl) => {
-      if (!isPrivate && !window.isDestroyed() && needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => storeIcon(pageUrl, icon))
+      if (!isPrivate && !window.isDestroyed() && core.needsIcon(pageUrl)) void fetchIcon(contents.session, iconUrl).then((icon) => core.storeIcon(pageUrl, icon))
     },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => {
       window.setFullScreen(fullscreen)
-      extensions.setPanelHidden(fullscreen)
+      extensions.setPanelHidden(fullscreen, window)
     },
     newTabPage: (target): string | null => extensions.newTabPage(target),
     engine: () => engineById(settings.get().searchEngine),
     errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
-    prepareSession: (target) => prepareSession(target),
+    prepareSession: (target) => core.prepareSession(target),
     onLogin: (contents, details, info, respond) => httpAuth.ask(contents, details, info, respond),
     // Pages can still report in during shutdown, after the database has closed.
     zoomFor: (url) => (window.isDestroyed() ? 1 : ((kv.get(ZOOM_KEY) as Record<string, number> | undefined)?.[zoomSite(url)] ?? 1)),
@@ -280,11 +218,21 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     onWorkspaceChange: (next, previous) => {
       if (next.focus !== previous?.focus) settings.set({ focusMode: next.focus })
     }
-  }, savedWorkspaces())
-  const saver = new SessionSaver(kv, tabs)
+  }, core.savedWorkspaces())
 
   const actions: BrowserActions = {
     tabs,
+    appWindow: isApp,
+    openWindow: (url, container) => void core.openWindow({ urls: url ? [url] : [], container }),
+    installApp: () => void installApp(),
+    openInBrowser: () => {
+      const active = tabs.active
+      if (!active) return
+      const { tabs: other, window: target } = core.browser()
+      other.create(effectiveUrl(active.url), { container: active.container })
+      target.focus()
+      if (isApp) window.close()
+    },
     focusOmnibox,
     openFind: () => {
       chromeUi.focus()
@@ -315,6 +263,48 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       })
     },
     togglePalette: () => overlay.togglePalette(),
+    searchTabs: () => overlay.toggleTabSearch(tabs.searchRows()),
+    openAddress: (id, input) => {
+      const address = input.trim()
+      if (isTypedAppUrl(address)) {
+        appLinks.request(address, null, null)
+      } else if (isJavascriptUrl(address)) {
+        // The person asked for this, so it's their page to change. Never on scTerra's own pages.
+        const contents = tabs.contentsFor(id)
+        if (contents && /^(https?|file):/i.test(contents.getURL())) void contents.executeJavaScript(javascriptUrlCode(address), true).catch(() => undefined)
+        else notify("Scripts can't run on this page")
+      } else {
+        tabs.navigate(id, input)
+      }
+    },
+    openAppLink: (url, requester, contents) => appLinks.request(url, requester, contents),
+    openFile: () => {
+      void dialog
+        .showOpenDialog(window as BrowserWindow, {
+          properties: ['openFile', 'multiSelections'],
+          filters: [
+            { name: 'Pages and documents', extensions: ['html', 'htm', 'xhtml', 'svg', 'pdf', 'txt', 'md', 'json', 'xml', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'] },
+            { name: 'All files', extensions: ['*'] }
+          ]
+        })
+        .then(({ canceled, filePaths }) => {
+          if (canceled || window.isDestroyed()) return
+          for (const path of filePaths) tabs.create(pathToFileURL(path).toString(), { afterId: tabs.active?.id })
+        })
+    },
+    viewSource: () => {
+      const active = tabs.active
+      const url = active ? effectiveUrl(active.url) : ''
+      if (active && /^(https?|file):/i.test(url)) tabs.create(`view-source:${url}`, { afterId: active.id, container: active.container })
+    },
+    searchWeb: (text) => {
+      const address = engineById(settings.get().searchEngine).template.replace('%s', encodeURIComponent(text))
+      tabs.create(address, { afterId: tabs.active?.id, container: tabs.active?.container })
+    },
+    spellCheck: {
+      enabled: () => settings.get().spellCheck,
+      toggle: () => settings.set({ spellCheck: !settings.get().spellCheck })
+    },
     organiseTabs: () => void runTask('Organising tabs…', async () => {
       const candidates = tabs
         .snapshot()
@@ -326,14 +316,34 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       return `Sorted into ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`
     }),
     cleanupTabs: () => void cleanupTabs(),
-    translatePage: () => {
+    autofillRows: (contents) => {
+      const { available, exists, unlocked } = passwords.state()
+      if (!available || !exists || !/^https?:/i.test(contents.getURL())) return []
+      if (!unlocked) return [{ label: 'Fill address or details…', click: () => actions.openPage('passwords') }]
+      const identities = passwords.identities()
+      const fill = (id: string) => {
+        void fillDetails(contents, passwords.identity(id)).then((count) => notify(count > 0 ? `Filled ${count} ${count === 1 ? 'field' : 'fields'}` : 'No empty fields to fill here'))
+      }
+      if (identities.length === 0) return [{ label: 'Add an address to fill…', click: () => actions.openPage('passwords') }]
+      return [{ label: 'Fill address or details', submenu: identities.map((identity) => ({ label: identityName(identity), click: () => fill(identity.id!) })) }]
+    },
+    translateLanguage: () => settings.get().translateTo,
+    translatePage: (language) => {
+      if (language) settings.set({ translateTo: language })
+      const target = language ?? settings.get().translateTo
       const active = tabs.active
       const contents = active && tabs.contentsFor(active.id)
       if (!contents || !/^https?:/.test(active.url)) return
-      if (aiStore.disabledHosts().includes(new URL(active.url).host)) return notify('AI is off for this site')
+      const useAi = settings.get().translateEngine === 'ai'
+      if (useAi && aiStore.disabledHosts().includes(new URL(active.url).host)) return notify('AI is off for this site')
+      const toggle = () => (useAi ? togglePageTranslation(contents, ai, target) : togglePageGoogleTranslation(contents, target))
       void runTask('Translating…', async () => {
-        const outcome = await togglePageTranslation(contents, ai, settings.get().translateTo)
-        return { restored: 'Showing the original', translated: 'Translated', partly: 'Translated the start of this page', failed: "Couldn't translate this page" }[outcome]
+        let outcome = await toggle()
+        // Asking for another language takes the page there, by way of the original.
+        if (outcome === 'restored' && translatedInto.get(contents) !== target) outcome = await toggle()
+        if (outcome === 'translated' || outcome === 'partly') translatedInto.set(contents, target)
+        if (outcome === 'failed') return useAi ? "Couldn't translate this page" : "Google Translate didn't answer. Try again soon"
+        return { restored: 'Showing the original', translated: 'Translated', partly: 'Translated the start of this page' }[outcome]
       })
     },
     rewrite: (contents, text, style) => {
@@ -353,16 +363,10 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     installUpdate: () => updates.install(),
     extensionMenu: () => extensions.menu()
   }
-  const { aiStore } = services
-  const ai = new AiService(aiStore, (id) => tabs.contentsFor(id))
+  const ai = new AiService(aiStore, (id) => core.contentsFor(id))
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
-  const permissionService = new PermissionService(services.permissions, {
-    tabIdFor: (contents) => tabs.tabIdFor(contents),
-    activeTabId: () => tabs.active?.id ?? null,
-    onPromptChanged: showPermission
-  })
   const showAuth = (prompt: AuthPrompt | null) => {
     const { x, y, width } = tabs.page
     overlay.setAuth(prompt && { ...prompt, x: x + Math.max(0, (width - AUTH_POPUP.width) / 2), y: y + 48 })
@@ -379,9 +383,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     {
       onPaletteRun: (id) => paletteActions[id]?.(),
       onPaletteClose: () => tabs.focusActive(),
+      onAppLinkAnswer: (choice) => appLinks.answer(choice),
+      onExtensionsAction: (action, id, x, y) => extensions.listAction(action, id, x, y, window),
+      onTabSearchPick: (id) => tabs.reveal(id),
+      onTabSearchRemove: (id) => tabs.close(id),
       accent: () => settings.get().accent,
       onBookmarkSave: ({ id, title, url, groupId }) => {
-        if (!URL.canParse(url) || !/^(https?|file):/i.test(url)) return 'Enter a full web address.'
+        if (!URL.canParse(url) || !/^(https?|file|javascript):/i.test(url)) return 'Enter a full web address.'
         try {
           bookmarks.edit(id, title, url)
         } catch {
@@ -409,8 +417,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       },
       onWorkspaceSave: saveWorkspace,
       onWorkspaceRemove: (id) => {
-        tabs.removeWorkspace(id)
-        kv.set(WORKSPACES_KEY, tabs.workspaceList())
+        core.removeWorkspace(id)
       },
       onPopupClosed: () => tabs.focusActive(),
       onTooltipCleared: () => send('overlay:clear-tooltip')
@@ -419,16 +426,40 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   const onActive = (action: (id: number) => void) => () => {
     if (tabs.active) action(tabs.active.id)
   }
+  const installApp = async () => {
+    const active = tabs.active
+    const contents = active && tabs.contentsFor(active.id)
+    const url = active ? effectiveUrl(active.url) : ''
+    if (!active || !contents || !/^https?:/i.test(url)) return notify('Only web pages can be installed')
+    if (isPrivate) return notify("Private windows can't install apps")
+    const name = (active.title || new URL(url).host).trim()
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'question',
+      message: `Install ${name}?`,
+      detail: `${url}\n\nIt gets its own window and a shortcut in your apps menu, and uses the same sign-ins as your tabs.`,
+      buttons: ['Install', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    if (response !== 0) return
+    const icon = active.faviconUrl ? await fetchIcon(contents.session, active.faviconUrl).catch(() => null) : null
+    try {
+      core.webApps.install(name, url, icon)
+      notify(`Installed ${name}`)
+    } catch {
+      notify("Couldn't install this app")
+    }
+  }
   function saveWorkspace({ id, name, focus }: WorkspaceEdit) {
     const title = name.trim().slice(0, 40)
     if (!title) return
     if (id) {
-      storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus } : workspace)))
+      core.storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus } : workspace)))
       if (id === tabs.workspace.id && focus !== settings.get().focusMode) settings.set({ focusMode: focus })
       return
     }
     const created = { id: crypto.randomUUID(), name: title, focus }
-    storeWorkspaces([...tabs.workspaceList(), created])
+    core.storeWorkspaces([...tabs.workspaceList(), created])
     tabs.switchWorkspace(created.id)
   }
   const editWorkspace = (id: string | null, x: number, y: number) => {
@@ -445,6 +476,9 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
   const paletteActions: Record<string, () => void> = {
     'new-tab': () => tabs.create(),
+    'new-window': () => actions.openWindow(),
+    'install-app': actions.installApp,
+    'task-manager': () => actions.openPage('tasks'),
     'private-window': actions.openPrivateWindow,
     'reopen-tab': () => tabs.reopenClosed(),
     find: actions.openFind,
@@ -454,8 +488,13 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     assistant: actions.toggleAssistant,
     summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
     split: () => tabs.toggleSplit(),
+    'search-tabs': actions.searchTabs,
+    'open-file': actions.openFile,
+    'view-source': actions.viewSource,
+    'pin-tab': onActive((id) => tabs.setPinned(id, !tabs.active?.pinned)),
+    'mute-tab': onActive((id) => tabs.setMuted(id, !tabs.active?.muted)),
     screenshot: actions.screenshot,
-    translate: actions.translatePage,
+    translate: () => actions.translatePage(),
     'organise-tabs': actions.organiseTabs,
     'cleanup-tabs': actions.cleanupTabs,
     'new-workspace': () => editWorkspace(null, tabs.page.x + 16, tabs.page.y + 16),
@@ -480,177 +519,77 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
   }
-  const extensions = new ExtensionManager(kv, {
-    window,
-    createTab: (url, active, target) => {
-      const id = tabs.create(url, { activate: active, afterId: tabs.active?.id, container: tabs.containerIn(target) })
-      return tabs.contentsFor(id)
-    },
-    selectTab: (contents) => {
-      const id = tabs.tabIdFor(contents)
-      if (id !== null) tabs.activate(id)
-    },
-    closeTab: (contents) => {
-      const id = tabs.tabIdFor(contents)
-      if (id !== null) tabs.close(id)
-    },
-    activeTab: () => (tabs.active ? tabs.contentsFor(tabs.active.id) : undefined),
-    activate: (id) => send('extensions:activate', id),
-    prepareView: (contents) => {
-      attachShortcuts(contents, actions)
-      attachPageMenu(contents, actions, window, () => [])
-    },
-    raiseOverlay: () => overlay.raise(),
-    openSettings: () => actions.openPage('settings'),
-    onSummary: (summary) => send('extensions:changed', summary),
-    onPanel: (state) => send('extensions:panel', state),
-    onLoaded: (id, newTabPage) => tabs.extensionReady(id, newTabPage)
-  })
-  const blocker = new SiteBlocker(settings, kv, {
-    ready: () => aiStore.status().ready,
-    disabled: (host) => aiStore.disabledHosts().includes(host),
-    complete: (system, user) => ai.complete(system, user)
-  })
-  const privacy = new PrivacyService(settings, kv, {
-    onBlocked: (id) => tabs.noteBlocked(id),
-    screen: (url, contents): string | null | Promise<string | null> => (tabs.owns(contents) ? blocker.screen(url) : null),
-    onScreenedOut: (url, reason, contents) => void contents.loadURL(blocker.pageFor(url, reason)).catch(() => undefined),
-    isTab: (contents): boolean => tabs.owns(contents),
-    onPdf: (url, contents) => {
-      if (!isPrivate) history.recordVisit(url)
-      void contents.loadURL(pdfPageUrl(url)).catch(() => undefined)
-    },
-    onChanged: () => send('privacy:changed', privacy.offHosts())
-  })
-  const downloads = new DownloadManager(services.downloads, settings, (progress) =>
-    send('downloads:progress', progress)
-  )
-
-  const prepared = new Set<Session>()
-  let proxyRules: string | null = null
-  const applySessionProxy = (target: Session) => {
-    // Tests serve pages from this computer, which Chromium would otherwise send direct.
-    const proxyBypassRules = [...(process.env.SCB_E2E ? ['<-loopback>'] : []), bypassRules(settings.get().vpnBypass)].filter(Boolean).join(';')
-    return target.setProxy(proxyRules ? { mode: 'fixed_servers', proxyRules, proxyBypassRules } : { mode: 'direct' })
-  }
-  const prepareSession = (target: Session) => {
-    if (prepared.has(target)) return
-    prepared.add(target)
-    attachGoogleSignIn(target)
-    privacy.attach(target)
-    permissionService.attach(target)
-    downloads.attach(target)
-    void extensions.attach(target)
-    // A container opened while the VPN is on joins it straight away.
-    if (proxyRules) void applySessionProxy(target)
-    if (target !== session.defaultSession) handleInternalPages(target)
-  }
-  prepareSession(session.defaultSession)
-
-  const vault: KeyVault = {
-    encrypt: async (value) => {
-      if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This system can't store this securely yet.")
-      return (await safeStorage.encryptStringAsync(value)).toString('base64')
-    },
-    decrypt: async (value) => (await safeStorage.decryptStringAsync(Buffer.from(value, 'base64'))).result
-  }
-  const sync = new SyncService({
-    kv,
-    settings,
-    history,
-    bookmarks,
-    vault,
-    basePath: join(app.getPath('userData'), 'sync-base.json'),
-    onBookmarksChanged: publishBookmarks
-  })
-  const vpn = new VpnService({
-    kv,
-    vault,
-    corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
-    autoFastest: () => settings.get().vpnAutoFastest,
-    route: () => ({ scope: settings.get().vpnScope, method: settings.get().vpnMethod }),
-    systemProxy: systemProxyFor(),
-    tun: tunnelFor(),
-    applyProxy: async (rules) => {
-      // Tests serve pages from this computer, which Chromium would otherwise send direct.
-      proxyRules = rules
-      // The assistant has its own session, and its requests should take the same route as tabs.
-      for (const target of [...prepared, session.fromPartition(AI_PARTITION)]) {
-        await applySessionProxy(target)
-        await target.closeAllConnections()
-      }
-      // WebRTC would otherwise reveal the real address by skipping the proxy.
-      const policy = rules ? 'disable_non_proxied_udp' : 'default'
-      for (const contents of tabs.allContents()) contents.setWebRTCIPHandlingPolicy(policy)
-    },
-    probeTarget: probeTarget(),
-    fetchText: async (url) => {
-      const response = await net.fetch(url)
-      if (!response.ok) throw new Error(`The subscription answered with error ${response.status}.`)
-      return response.text()
-    },
-    onChange: () => send('vpn:changed', vpn.summary())
-  })
-  // Asked to always connect, nothing goes out until it has.
-  if (settings.get().vpnAutoConnect && !isPrivate) {
-    void vpn.holdPages().then(() => vpn.connectAtStart())
-  }
-  let bypassInUse = JSON.stringify(settings.get().vpnBypass)
-  const unsubscribeBypass = settings.subscribe((next) => {
-    const wanted = JSON.stringify(next.vpnBypass)
-    if (wanted === bypassInUse) return
-    bypassInUse = wanted
-    if (!proxyRules) return
-    for (const target of [...prepared, session.fromPartition(AI_PARTITION)]) void applySessionProxy(target).then(() => target.closeAllConnections())
-  })
-
-  /** A login waiting on the person's answer. Only ever held here, and for a minute at most. */
-  let pendingLogin: { origin: string; username: string; password: string; timer: NodeJS.Timeout } | null = null
+  /**
+   * A login waiting on the person's answer. Only ever held here, and for a minute at most. While
+   * the vault is locked or not set up, nothing can say if it's already saved, so it asks anyway.
+   */
+  let pendingLogin: { origin: string; username: string; password: string; heldLocked: boolean; saveOnUnlock: boolean; timer: NodeJS.Timeout } | null = null
+  /** Sites told "Not now" while locked, which has no lasting answer until the vault is open. */
+  const dismissedWhileLocked = new Set<string>()
   const clearPendingLogin = () => {
     if (pendingLogin) clearTimeout(pendingLogin.timer)
     pendingLogin = null
     overlay.setPasswordPrompt(null)
   }
+  const passwordPromptAt = (origin: string, username: string) => {
+    const { x, y, width } = tabs.page
+    return { host: new URL(origin).host, username, x: x + width - PASSWORD_POPUP.width - PASSWORD_POPUP.inset, y: y + PASSWORD_POPUP.inset }
+  }
+  /** What to ask, now the vault can answer. */
+  const offerOpenVault = (login: NonNullable<typeof pendingLogin>) => {
+    const offer = passwords.offerFor(login.origin, login.username, login.password)
+    if (!offer) return clearPendingLogin()
+    if (login.saveOnUnlock) {
+      passwords.saveEntry({ url: login.origin, username: login.username, password: login.password, note: '' })
+      clearPendingLogin()
+      return notify('Password saved')
+    }
+    login.heldLocked = false
+    overlay.setPasswordPrompt({ ...passwordPromptAt(login.origin, login.username), update: offer === 'update', needs: null })
+  }
   const answerPassword = (choice: 'save' | 'never' | 'dismiss') => {
     const login = pendingLogin
+    if (!login) return
+    if (!passwords.unlocked) {
+      if (choice === 'save') {
+        // The minute keeps counting, so it can't wait around for long.
+        login.saveOnUnlock = true
+        overlay.setPasswordPrompt(null)
+        actions.openPage('passwords')
+      } else {
+        dismissedWhileLocked.add(login.origin)
+        clearPendingLogin()
+      }
+      return
+    }
     clearPendingLogin()
-    if (!login || !passwords.unlocked) return
     if (choice === 'save') passwords.saveEntry({ url: login.origin, username: login.username, password: login.password, note: '' })
     if (choice === 'never') passwords.neverFor(login.origin)
   }
   const watchTab = (contents: Electron.WebContents) => {
+    // Pages can still report in during shutdown, after the database has closed.
+    if (window.isDestroyed()) return
     const url = contents.getURL()
     const origin = /^https?:/.test(url) ? originOf(url) : null
-    if (!origin || !passwords.unlocked || !settings.get().passwordOfferSave) return
+    const { passwordOfferSave, passwordOfferLocked } = settings.get()
+    const { available, exists, unlocked } = passwords.state()
+    if (!origin || !available || !passwordOfferSave || (!unlocked && !passwordOfferLocked)) return
     void watchForSignIn(contents).then((login) => {
       if (contents.isDestroyed() || window.isDestroyed()) return
-      if (login && passwords.unlocked) {
-        const offer = passwords.offerFor(origin, login.username, login.password)
-        if (offer) {
+      if (login) {
+        const open = passwords.unlocked
+        const stillOffering = settings.get().passwordOfferSave && (open || settings.get().passwordOfferLocked)
+        if (stillOffering && (open || !dismissedWhileLocked.has(origin))) {
           clearPendingLogin()
-          pendingLogin = { origin, ...login, timer: setTimeout(clearPendingLogin, LOGIN_PROMPT_MS) }
-          const { x, y, width } = tabs.page
-          overlay.setPasswordPrompt({ host: new URL(origin).host, username: login.username, update: offer === 'update', x: x + width - PASSWORD_POPUP.width - PASSWORD_POPUP.inset, y: y + PASSWORD_POPUP.inset })
+          pendingLogin = { origin, ...login, heldLocked: !open, saveOnUnlock: false, timer: setTimeout(clearPendingLogin, LOGIN_PROMPT_MS) }
+          if (open) offerOpenVault(pendingLogin)
+          else overlay.setPasswordPrompt({ ...passwordPromptAt(origin, login.username), update: false, needs: exists || passwords.state().exists ? 'unlock' : 'setup' })
         }
       }
       // Sites that sign in without loading a new page can still be watched for another try.
       if (login) watchTab(contents)
     })
   }
-  const passwords = new PasswordVault({
-    kv,
-    available: !isPrivate,
-    lockMinutes: () => settings.get().passwordLockMinutes,
-    onChange: () => {
-      send('passwords:changed', passwords.state())
-      if (passwords.unlocked) tabs.allContents().forEach(watchTab)
-      else clearPendingLogin()
-    }
-  })
-  const lockPasswords = () => passwords.lock()
-  powerMonitor.on('lock-screen', lockPasswords)
-  powerMonitor.on('suspend', lockPasswords)
-
   const openPasswordMenu = (x = tabs.page.x + tabs.page.width - 240, y = tabs.page.y) => {
     const { available, exists, unlocked } = passwords.state()
     if (!available) return notify("Private windows don't use saved passwords")
@@ -672,6 +611,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       ...(logins.length === 0 ? [{ label: origin ? 'No saved logins for this site' : 'Nothing to fill on this page', enabled: false }] : []),
       ...logins.map((login) => ({ label: login.username || 'No username', click: () => fill(login.id) })),
       ...(logins.length > 0 && origin?.startsWith('http:') ? [{ label: "This page isn't encrypted", enabled: false }] : []),
+      ...(contents ? actions.autofillRows(contents) : []),
       { type: 'separator' },
       {
         label: 'Copy a new strong password',
@@ -710,9 +650,6 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
       { label: 'Manage connections…', click: () => actions.openPage('vpn') }
     ]).popup({ window, x: Math.round(x), y: Math.round(y) })
   }
-  const syncFirst = setTimeout(() => void sync.run(), SYNC_FIRST_MS)
-  const syncTimer = setInterval(() => void sync.run(), SYNC_EVERY_MS)
-
   const notify = (text: string) => {
     const { x, y, width } = tabs.page
     overlay.showToast(text, x + width - TOAST_POPUP.width - TOAST_POPUP.inset, y + TOAST_POPUP.inset)
@@ -791,8 +728,31 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   }
 
   attachShortcuts(chromeUi, actions)
-  const updates = new UpdateService(settings, (state) => send('updates:changed', state))
-  updates.start()
+  const handle: BrowserWindowHandle = {
+    kind,
+    window,
+    tabs,
+    actions,
+    send,
+    showPermission,
+    raiseOverlay: () => overlay.raise(),
+    setExtensionFrame: (rect, view) => overlay.setExtensionFrame(rect, view),
+    openExtensionsPopup: (popup, refresh) => overlay.openExtensionsPopup(popup, refresh),
+    passwordsChanged: () => {
+      if (passwords.unlocked) {
+        tabs.allContents().forEach(watchTab)
+        if (pendingLogin?.heldLocked) offerOpenVault(pendingLogin)
+      } else if (!pendingLogin?.heldLocked) {
+        clearPendingLogin()
+      }
+    },
+    hidePages: (hidden) => {
+      tabs.setResizing(hidden)
+      extensions.setPanelHidden(hidden, window)
+    },
+    saved: () => ({ ...tabs.session(), bounds: window.getNormalBounds() })
+  }
+  core.add(handle)
   /** The intro runs edge to edge, with window controls to match its light or dark scene. */
   function setIntro(tabId: number | null) {
     introActive = tabId !== null
@@ -815,7 +775,7 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     editWorkspace,
     aiStore,
     ai,
-    chats: services.chats,
+    chats: core.services.chats,
     privacy,
     vpn,
     passwords,
@@ -830,24 +790,28 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
     history,
     bookmarks,
     downloads,
-    permissions: services.permissions,
+    permissions: core.services.permissions,
+    core,
     onBookmarksChanged: publishBookmarks,
     aiStore,
     ai,
-    chats: services.chats,
+    chats: core.services.chats,
     privacy,
     extensions,
     sync,
-    reporter: services.reporter,
+    reporter: core.services.reporter,
     blocker,
     vpn,
     passwords,
     updates,
     setIntro
   })
-  const unsubscribeSettings = settings.subscribe((next) => send('settings:changed', next))
+  const appLinks = new AppLinks(core.services.permissions, {
+    show: (prompt) => overlay.setAppLink(prompt && { ...prompt, x: tabs.page.x + 8, y: tabs.page.y + 8 }),
+    notify: (text) => notify(text),
+    activeContents: () => (tabs.active ? tabs.contentsFor(tabs.active.id) : undefined)
+  })
   chromeUi.once('did-finish-load', () => send('privacy:changed', privacy.offHosts()))
-  const unsubscribeAi = aiStore.subscribe(() => send('ai:changed', aiStore.status()))
 
   // The chrome UI itself must never navigate away or open windows.
   chromeUi.on('will-navigate', (event) => event.preventDefault())
@@ -882,51 +846,57 @@ export function createBrowserWindow(services: Services, initialUrls: string[] = 
   window.on('resize', () => tabs.applyBounds())
 
   window.once('ready-to-show', () => {
-    if (savedWindow?.maximized) window.maximize()
+    if (savedWindow?.maximized && openBrowsers.length === 0) window.maximize()
     window.show()
   })
   window.on('close', () => {
-    saver.flush()
-    kv.set(WINDOW_KEY, { bounds: window.getNormalBounds(), maximized: window.isMaximized() } satisfies SavedWindow)
+    core.closing(handle)
+    if (!isApp) kv.set(WINDOW_KEY, { bounds: window.getNormalBounds(), maximized: window.isMaximized() } satisfies SavedWindow)
   })
   window.on('closed', () => {
     clearInterval(sleepTimer)
-    clearTimeout(syncFirst)
-    clearInterval(syncTimer)
-    sync.stop()
-    updates.stop()
-    vpn.stop()
-    unsubscribeBypass()
-    powerMonitor.off('lock-screen', lockPasswords)
-    powerMonitor.off('suspend', lockPasswords)
-    saver.stop()
-    unsubscribeSettings()
-    unsubscribeAi()
     nativeTheme.off('updated', syncTheme)
     disposeIpc()
     disposeInternalIpc()
     overlay.destroy()
-    // After the overlay, which went with the window: locking clears any save offer it was showing.
-    passwords.lock()
+    // After the overlay, which went with the window: this clears any save offer it was showing.
+    if (pendingLogin) clearTimeout(pendingLogin.timer)
     tabs.destroy()
+    core.closed(handle)
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else void window.loadFile(join(__dirname, '../renderer/index.html'))
+  // An installed site's window draws only a slim bar, and asks for it here.
+  if (process.env.ELECTRON_RENDERER_URL) void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}${isApp ? '?window=app' : ''}`)
+  else void window.loadFile(join(__dirname, '../renderer/index.html'), isApp ? { query: { window: 'app' } } : {})
 
   chromeUi.once('did-finish-load', () => {
-    if (!isPrivate) void fillMissingIcons()
+    if (isApp) {
+      options.urls?.forEach((url) => tabs.create(url))
+      return
+    }
+    const urls = options.urls ?? []
+    if (options.restore) {
+      tabs.restore(options.restore.tabs, options.restore.activeIndex, options.restore.split, options.restore.splitRatio)
+      return
+    }
+    if (!options.first) {
+      if (urls.length > 0) urls.forEach((url) => tabs.create(url, { container: options.container ?? null }))
+      else tabs.create()
+      return
+    }
+    if (!isPrivate) void core.fillMissingIcons()
     const saved = settings.get().startup === 'restore' ? loadSession(kv) : null
     const previous = loadSession(kv)
-    if (saved) tabs.restore(saved.tabs, saved.activeIndex, saved.split)
-    initialUrls.forEach((url) => tabs.create(url))
+    if (saved) tabs.restore(saved.tabs, saved.activeIndex, saved.split, saved.splitRatio)
+    urls.forEach((url) => tabs.create(url))
     // Someone already using scTerra has no need of an introduction.
     const seen = kv.get(WELCOME_KEY) === true || !!previous || bookmarks.list().length > 0
-    const eligible = !isPrivate && currentProfile() === DEFAULT_PROFILE && initialUrls.length === 0 && (!process.env.SCB_E2E || !!process.env.SCB_WELCOME)
+    const eligible = !isPrivate && currentProfile() === DEFAULT_PROFILE && urls.length === 0 && (!process.env.SCB_E2E || !!process.env.SCB_WELCOME)
     if (!seen && eligible) setIntro(tabs.create(WELCOME_URL))
-    else if (!saved && initialUrls.length === 0) tabs.create()
+    else if (!saved && urls.length === 0) tabs.create()
     if (seen) kv.set(WELCOME_KEY, true)
+    if (saved) for (const restore of loadExtraSessions(kv)) core.openWindow({ restore })
   })
 
-  return { window, tabs, actions, extensions, sync, vpn, updates }
+  return handle
 }

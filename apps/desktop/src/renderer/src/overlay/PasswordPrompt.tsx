@@ -19,7 +19,7 @@ export function PasswordPrompt({ prompt, x, y }: { prompt: PasswordPromptState; 
         </div>
       </div>
       <div className="mt-auto flex justify-end gap-1.5">
-        {!prompt.update && (
+        {!prompt.update && !prompt.needs && (
           <Button variant="ghost" onClick={() => answer('never')}>
             Never here
           </Button>
@@ -28,7 +28,7 @@ export function PasswordPrompt({ prompt, x, y }: { prompt: PasswordPromptState; 
           Not now
         </Button>
         <Button variant="primary" onClick={() => answer('save')}>
-          {prompt.update ? 'Update' : 'Save'}
+          {prompt.needs === 'unlock' ? 'Unlock and save' : prompt.needs === 'setup' ? 'Set up and save' : prompt.update ? 'Update' : 'Save'}
         </Button>
       </div>
     </div>

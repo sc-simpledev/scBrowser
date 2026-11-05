@@ -44,8 +44,10 @@ const originOf = (url: string) => {
 
 interface PermissionServiceOptions {
   tabIdFor: (contents: WebContents) => TabId | null
-  activeTabId: () => TabId | null
-  onPromptChanged: (prompt: PermissionPrompt | null) => void
+  /** Each window shows the question belonging to its own open tab. */
+  windows: () => { activeTabId: TabId | null; show: (prompt: PermissionPrompt | null) => void }[]
+  /** A page tried to open another app. Refused here, then asked about and opened separately. */
+  onExternal: (contents: WebContents, url: string, requester: string) => void
 }
 
 export class PermissionService {
@@ -62,6 +64,12 @@ export class PermissionService {
     const { repo, options } = this
     session.setPermissionRequestHandler((contents, permission, respond, details) => {
       if (ALWAYS_ALLOWED.has(permission)) return respond(true)
+      if (permission === 'openExternal') {
+        respond(false)
+        const { externalURL } = details as PermissionRequest & { externalURL?: string }
+        if (externalURL) options.onExternal(contents, externalURL, details.requestingUrl)
+        return
+      }
       const mediaTypes = (details as PermissionRequest & { mediaTypes?: string[] }).mediaTypes
       const wanted = toSitePermissions(permission, mediaTypes)
       const origin = originOf(details.requestingUrl)
@@ -102,9 +110,7 @@ export class PermissionService {
 
   /** Re-evaluates which prompt to show, e.g. after switching tabs. */
   refresh(): void {
-    const active = this.options.activeTabId()
-    const entry = this.pending.find((p) => p.tabId === active)
-    this.options.onPromptChanged(entry?.prompt ?? null)
+    for (const { activeTabId, show } of this.options.windows()) show(this.pending.find((p) => p.tabId === activeTabId)?.prompt ?? null)
   }
 
   private drop(entry: Pending): void {

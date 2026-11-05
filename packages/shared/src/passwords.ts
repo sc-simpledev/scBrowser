@@ -24,6 +24,41 @@ export interface PasswordState {
   unlocked: boolean
 }
 
+/** Details for filling in forms. Sealed in the vault with the logins, and never synced. */
+export interface Identity {
+  /** Left out for a new one. */
+  id?: string
+  label: string
+  fullName: string
+  email: string
+  phone: string
+  organization: string
+  address1: string
+  address2: string
+  city: string
+  region: string
+  postalCode: string
+  country: string
+}
+
+export const IDENTITY_FIELDS: { key: Exclude<keyof Identity, 'id'>; label: string }[] = [
+  { key: 'label', label: 'Name for this set, like Home or Work' },
+  { key: 'fullName', label: 'Full name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'organization', label: 'Organisation' },
+  { key: 'address1', label: 'Address' },
+  { key: 'address2', label: 'Address line 2' },
+  { key: 'city', label: 'City or suburb' },
+  { key: 'region', label: 'State or region' },
+  { key: 'postalCode', label: 'Postcode' },
+  { key: 'country', label: 'Country' }
+]
+
+export const EMPTY_IDENTITY: Identity = { label: '', fullName: '', email: '', phone: '', organization: '', address1: '', address2: '', city: '', region: '', postalCode: '', country: '' }
+
+export const identityName = (identity: Identity) => identity.label || identity.fullName || identity.email || 'Unnamed'
+
 export const MIN_MASTER_LENGTH = 10
 export const PASSWORD_LOCK_CHOICES = [5, 15, 60, 0] as const
 

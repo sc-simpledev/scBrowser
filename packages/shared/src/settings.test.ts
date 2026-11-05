@@ -1,3 +1,4 @@
+import { parseGoogleTranslation } from './ai'
 import { describe, expect, it } from 'vitest'
 import { estimateCost } from './ai'
 import { engineById, sanitizeSettings } from './settings'
@@ -30,5 +31,15 @@ describe('engineById', () => {
   it('falls back to the default engine', () => {
     expect(engineById('nope').id).toBe('duckduckgo')
     expect(engineById('google').name).toBe('Google')
+  })
+})
+
+describe('parseGoogleTranslation', () => {
+  it('reads either shape of answer, and refuses anything off', () => {
+    expect(parseGoogleTranslation([['Hola', 'en'], ['Adiós', 'en']], 2)).toEqual(['Hola', 'Adiós'])
+    expect(parseGoogleTranslation(['Hola'], 1)).toEqual(['Hola'])
+    expect(parseGoogleTranslation([['Hola', 'en']], 2)).toBeNull()
+    expect(parseGoogleTranslation([[1, 'en']], 1)).toBeNull()
+    expect(parseGoogleTranslation({ error: 'no' }, 1)).toBeNull()
   })
 })

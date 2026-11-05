@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { CONTAINERS, folderTree, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { appScheme, CONTAINERS, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -22,15 +22,44 @@ export function attachPageMenu(
   })
 }
 
+/** The usual language first, which also takes a translated page back to the original. */
+function translateRows(actions: BrowserActions): MenuItemConstructorOptions[] {
+  const usual = actions.translateLanguage()
+  return [
+    { label: `Into ${usual} (or back to the original)`, click: () => actions.translatePage() },
+    { type: 'separator' },
+    ...TRANSLATE_LANGUAGES.filter((language) => language !== usual).map((language) => ({ label: language, click: () => actions.translatePage(language) }))
+  ]
+}
+
+/** Text from a page, cut to fit a menu row. On Windows and Linux an ampersand would mark a shortcut key. */
+function quoted(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  const short = line.length > 28 ? `${line.slice(0, 28)}…` : line
+  return `“${process.platform === 'darwin' ? short : short.replaceAll('&', '&&')}”`
+}
+
 function pageMenu(contents: WebContents, params: ContextMenuParams, actions: BrowserActions): MenuItemConstructorOptions[] {
   const { tabs } = actions
   const openInTab = (url: string) => tabs.create(url, { activate: false, afterId: tabs.active?.id, container: tabs.active?.container })
   const groups: MenuItemConstructorOptions[][] = []
+  const isWeb = (url: string) => /^https?:/i.test(url)
+  const sourcePage = /^(https?|file):/i.test(params.pageURL)
+  const secret = params.formControlType === 'input-password'
+  const selection = params.selectionText.trim()
 
-  if (params.linkURL && /^https?:/i.test(params.linkURL)) {
+  if (isWeb(params.linkURL)) {
     groups.push([
       { label: 'Open link in new tab', click: () => openInTab(params.linkURL) },
+      { label: 'Open link in new window', click: () => actions.openWindow(params.linkURL, tabs.active?.container) },
+      { label: 'Open link in split view', click: () => tabs.startSplit(openInTab(params.linkURL)) },
       { label: 'Save link as…', click: () => contents.downloadURL(params.linkURL) },
+      { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+      ...(params.linkText.trim() ? [{ label: 'Copy link text', click: () => clipboard.writeText(params.linkText.trim()) }] : [])
+    ])
+  } else if (appScheme(params.linkURL)) {
+    groups.push([
+      { label: 'Open link in app', click: () => actions.openAppLink(params.linkURL, params.pageURL, contents) },
       { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) }
     ])
   }
@@ -38,20 +67,43 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     groups.push([
       { label: 'Open image in new tab', click: () => openInTab(params.srcURL) },
       { label: 'Save image as…', click: () => contents.downloadURL(params.srcURL) },
-      { label: 'Copy image', click: () => contents.copyImageAt(params.x, params.y) }
+      { label: 'Copy image', click: () => contents.copyImageAt(params.x, params.y) },
+      { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) }
     ])
   }
-  if (params.mediaType === 'video') {
+  if (params.mediaType === 'video' || params.mediaType === 'audio') {
+    const kind = params.mediaType
     groups.push([
-      {
-        label: 'Picture in picture',
-        // Browsers only allow this from a user gesture, which the second argument vouches for.
-        click: () => void contents.executeJavaScript('document.querySelector("video")?.requestPictureInPicture()', true).catch(() => undefined)
-      }
+      // Streams play from `blob:` addresses, which mean nothing outside the page.
+      ...(isWeb(params.srcURL)
+        ? [
+            { label: `Open ${kind} in new tab`, click: () => openInTab(params.srcURL) },
+            { label: `Save ${kind} as…`, click: () => contents.downloadURL(params.srcURL) },
+            { label: `Copy ${kind} address`, click: () => clipboard.writeText(params.srcURL) }
+          ]
+        : []),
+      ...(kind === 'video'
+        ? [
+            {
+              label: 'Picture in picture',
+              // Browsers only allow this from a user gesture, which the second argument vouches for.
+              click: () => void contents.executeJavaScript('document.querySelector("video")?.requestPictureInPicture()', true).catch(() => undefined)
+            }
+          ]
+        : [])
+    ])
+  }
+  if (params.misspelledWord) {
+    groups.push([
+      ...(params.dictionarySuggestions.length > 0
+        ? params.dictionarySuggestions.slice(0, 5).map((word) => ({ label: word, click: () => contents.replaceMisspelling(word) }))
+        : [{ label: 'No suggestions', enabled: false }]),
+      { type: 'separator' as const },
+      { label: 'Add to dictionary', click: () => contents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }
     ])
   }
   if (params.isEditable) {
-    if (params.selectionText && params.formControlType !== 'input-password') {
+    if (params.selectionText && !secret) {
       const rewrite = (label: string, style: RewriteStyle) => ({ label, click: () => actions.rewrite(contents, params.selectionText, style) })
       groups.push([
         {
@@ -67,11 +119,14 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { role: 'cut', label: 'Cut', enabled: params.editFlags.canCut },
       { role: 'copy', label: 'Copy', enabled: params.editFlags.canCopy },
       { role: 'paste', label: 'Paste', enabled: params.editFlags.canPaste },
-      { role: 'selectAll', label: 'Select all' }
+      { role: 'pasteAndMatchStyle', label: 'Paste as plain text', enabled: params.editFlags.canPaste },
+      { role: 'selectAll', label: 'Select all' },
+      ...(secret ? [] : [{ type: 'separator' as const }, ...actions.autofillRows(contents), { type: 'checkbox' as const, label: 'Check spelling', checked: actions.spellCheck.enabled(), click: actions.spellCheck.toggle }])
     ])
-  } else if (params.selectionText) {
+  } else if (selection) {
     groups.push([
       { role: 'copy', label: 'Copy' },
+      { label: `Search for ${quoted(selection)}`, click: () => actions.searchWeb(selection) },
       {
         label: 'Ask about selection',
         click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false })
@@ -83,32 +138,44 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     groups.push([
       { label: 'Back', enabled: history.canGoBack(), click: () => history.goBack() },
       { label: 'Forward', enabled: history.canGoForward(), click: () => history.goForward() },
-      { label: 'Reload', click: () => contents.reload() },
-      { type: 'separator' },
-      { label: 'Print…', click: () => contents.print() }
+      { label: 'Reload', click: () => contents.reload() }
     ])
-    if (/^(https?|file):/i.test(params.pageURL)) {
+    groups.push([
+      ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', click: () => contents.downloadURL(params.pageURL) }] : []),
+      { label: 'Print…', click: () => contents.print() },
+      { label: 'Screenshot', click: actions.screenshot },
+      { label: 'Bookmark this page', click: actions.toggleBookmark },
+      { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) }
+    ])
+    if (sourcePage) {
       groups.push([
+        { label: 'Reader view', click: actions.toggleReader },
         {
           label: 'Summarise page',
           click: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true })
         },
-        { label: 'Translate page', click: actions.translatePage }
+        { label: 'Translate page', submenu: translateRows(actions) }
       ])
     }
   }
-  groups.push([{ label: 'Inspect', click: () => contents.inspectElement(params.x, params.y) }])
+  groups.push([
+    ...(sourcePage ? [{ label: 'View page source', accelerator: 'CmdOrCtrl+U', click: () => tabs.create(`view-source:${params.pageURL}`, { afterId: tabs.tabIdFor(contents) ?? undefined, container: tabs.active?.container }) }] : []),
+    { label: 'Inspect', click: () => tabs.inspect(contents, params.x, params.y) }
+  ])
 
   return groups.flatMap((group, i) => (i === 0 ? group : [{ type: 'separator' as const }, ...group]))
 }
 
 export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWindow): void {
   const { tabs } = actions
-  const { splitIds, activeId } = tabs.snapshot()
+  const { splitIds, activeId, tabs: open } = tabs.snapshot()
+  const tab = open.find((other) => other.id === id)
   Menu.buildFromTemplate([
     { label: 'New tab', click: () => tabs.create() },
     { label: 'Reload', click: () => tabs.reload(id) },
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
+    { label: tab?.pinned ? 'Unpin tab' : 'Pin tab', click: () => tabs.setPinned(id, !tab?.pinned) },
+    { label: tab?.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !tab?.muted) },
     splitIds.length > 0
       ? { label: 'End split view', click: () => tabs.endSplit() }
       : { label: 'Open in split view', enabled: id !== activeId, click: () => tabs.startSplit(id) },
@@ -127,6 +194,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Organise tabs into groups', click: actions.organiseTabs },
     { label: 'Remove tab groups', click: () => tabs.clearGroups() },
     { label: 'Clean up tabs', click: actions.cleanupTabs },
+    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     { label: 'Reopen closed tab', click: () => tabs.reopenClosed() }
   ]).popup({ window })
 }
@@ -146,7 +214,9 @@ export function popupBookmarkMenu(bookmark: Bookmark, { repo, onChange, actions,
   }
   const groups = repo.groups()
   Menu.buildFromTemplate([
-    { label: 'Open in new tab', click: () => actions.tabs.create(bookmark.url) },
+    isJavascriptUrl(bookmark.url)
+      ? { label: 'Run on this page', click: () => actions.tabs.active && actions.openAddress(actions.tabs.active.id, bookmark.url) }
+      : { label: 'Open in new tab', click: () => actions.tabs.create(bookmark.url) },
     { label: 'Edit…', click: () => edit(bookmark) },
     { label: 'Copy address', click: () => clipboard.writeText(bookmark.url) },
     { type: 'separator' },
@@ -189,7 +259,8 @@ function folderRows(id: number, bookmarks: Bookmark[], groups: BookmarkGroup[], 
 export function popupBookmarkGroup(group: BookmarkGroup, hooks: BookmarkMenuHooks, open: (url: string) => void, x: number, y: number): void {
   const { repo, actions, window } = hooks
   const bookmarks = repo.list()
-  const items = bookmarks.filter((bookmark) => bookmark.groupId === group.id)
+  // Scripts run on the open page, so opening a whole folder leaves them out.
+  const items = bookmarks.filter((bookmark) => bookmark.groupId === group.id && !isJavascriptUrl(bookmark.url))
   Menu.buildFromTemplate([
     ...folderRows(group.id, bookmarks, repo.groups(), open),
     ...(items.length > 1
@@ -248,7 +319,11 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     ...updateRow,
     ...spareRows,
     { label: 'New tab', accelerator: 'CmdOrCtrl+T', click: () => tabs.create() },
+    { label: 'New window', accelerator: 'CmdOrCtrl+N', click: () => actions.openWindow() },
     { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => tabs.reopenClosed() },
+    { label: 'Open file…', accelerator: 'CmdOrCtrl+O', click: actions.openFile },
+    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
+    { type: 'checkbox', label: 'Split view', checked: tabs.snapshot().splitIds.length > 0, enabled: tabs.snapshot().tabs.length > 1, click: () => tabs.toggleSplit() },
     { type: 'separator' },
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
@@ -272,6 +347,10 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
       ]
     },
     { label: 'Full screen', accelerator: 'F11', click: actions.toggleFullscreen },
+    { label: 'View page source', accelerator: 'CmdOrCtrl+U', enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
+    { label: 'Translate page', enabled: !!active && /^https?:/i.test(active.url), submenu: translateRows(actions) },
+    { label: 'Install this site as an app…', enabled: !!active && /^https?:/i.test(effectiveUrl(active.url)), click: actions.installApp },
+    { label: 'Task Manager', accelerator: 'Shift+Esc', click: () => actions.openPage('tasks') },
     { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) },
     { type: 'separator' },
     { label: 'Settings', click: () => actions.openPage('settings') },

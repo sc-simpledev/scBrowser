@@ -1,4 +1,4 @@
-import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react'
+import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { ResizeHandle } from '../shared/ResizeHandle'
@@ -21,6 +21,8 @@ export function VerticalTabs() {
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const newTab = () => void window.scb.invoke('tabs:create')
+  const searchTabs = () => void window.scb.invoke('tabs:search')
+  const pinnedCount = tabs.filter((tab) => tab.pinned).length
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
 
   return (
@@ -57,7 +59,24 @@ export function VerticalTabs() {
         }}
         className="sc-scroll-quiet flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto"
       >
-        {tabs.map((tab, index) => (
+        {/* Pinned tabs are icons, so with room to spare they fill rows. */}
+        {pinnedCount > 0 && (
+          <div className={cx('flex shrink-0 flex-wrap gap-0.5 border-b border-border pb-1', collapsed && 'flex-col items-center')}>
+            {tabs.slice(0, pinnedCount).map((tab, index) => (
+              <Tab
+                key={tab.id}
+                tab={tab}
+                index={index}
+                active={tab.id === activeId}
+                split={splitIds.includes(tab.id)}
+                layout={collapsed ? 'rail' : 'vertical'}
+                draggingId={draggingId}
+                onDragState={setDraggingId}
+              />
+            ))}
+          </div>
+        )}
+        {tabs.map((tab, index) => index < pinnedCount ? null : (
           <Fragment key={tab.id}>
             {tab.group !== (tabs[index - 1]?.group ?? null) &&
               (collapsed ? (
@@ -100,11 +119,16 @@ export function VerticalTabs() {
         <WorkspaceBar direction={collapsed ? 'column' : 'row'} showAdd />
       </div>
       {collapsed ? (
-        !compact && (
-          <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
-            <PanelLeftOpen size={16} strokeWidth={1.75} />
+        <>
+          <IconButton label="Search tabs" shortcut="Ctrl Shift E" className="size-9 self-center" onClick={searchTabs}>
+            <Search size={15} strokeWidth={1.75} />
           </IconButton>
-        )
+          {!compact && (
+            <IconButton label="Expand tabs" className="size-9 self-center" onClick={toggle}>
+              <PanelLeftOpen size={16} strokeWidth={1.75} />
+            </IconButton>
+          )}
+        </>
       ) : (
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -116,8 +140,11 @@ export function VerticalTabs() {
             <span className="grid size-5 place-items-center">
               <PanelLeftClose aria-hidden size={15} strokeWidth={1.75} />
             </span>
-            Collapse sidebar
+            <span className="truncate">Collapse</span>
           </button>
+          <IconButton label="Search tabs" shortcut="Ctrl Shift E" onClick={searchTabs}>
+            <Search size={15} strokeWidth={1.75} />
+          </IconButton>
           <IconButton label="Clean up tabs" onClick={() => void window.scb.invoke('tabs:cleanup')}>
             <BrushCleaning size={15} strokeWidth={1.75} />
           </IconButton>

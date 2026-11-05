@@ -1,9 +1,9 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import type { PermissionDecision, SitePermission } from '@scbrowser/shared'
+import type { AppLinkPermission, PermissionDecision, SitePermission } from '@scbrowser/shared'
 
 interface Row {
   origin: string
-  permission: SitePermission
+  permission: SitePermission | AppLinkPermission
   allowed: number
 }
 
@@ -20,12 +20,12 @@ export class PermissionsRepo {
     this.revokeQuery = db.prepare(`DELETE FROM permissions WHERE origin = ? AND permission = ?`)
   }
 
-  get(origin: string, permission: SitePermission): boolean | undefined {
+  get(origin: string, permission: SitePermission | AppLinkPermission): boolean | undefined {
     const row = this.getQuery.get(origin, permission) as { allowed: number } | undefined
     return row ? row.allowed === 1 : undefined
   }
 
-  set(origin: string, permission: SitePermission, allowed: boolean): void {
+  set(origin: string, permission: SitePermission | AppLinkPermission, allowed: boolean): void {
     this.setQuery.run(origin, permission, allowed ? 1 : 0)
   }
 

@@ -1,7 +1,8 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { app, dialog, ipcMain, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { buildSuggestions, DEFAULT_SETTINGS, engineById, isHttpUrl, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { buildSuggestions, DEFAULT_SETTINGS, engineById, IDENTITY_FIELDS, isHttpUrl, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
+import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
@@ -30,6 +31,8 @@ import { copySecret } from './passwordFill'
 import type { PasswordVault } from './passwords'
 import type { VpnService } from './vpn'
 
+import { endTask, taskList } from './tasks'
+
 const CHANNEL = 'internal:call'
 const ACTIONS: DownloadAction[] = ['pause', 'resume', 'cancel', 'open', 'show', 'remove']
 
@@ -41,6 +44,7 @@ interface InternalServices {
   bookmarks: BookmarksRepo
   downloads: DownloadManager
   permissions: PermissionsRepo
+  core: BrowserCore
   onBookmarksChanged: () => void
   aiStore: AiStore
   ai: AiService
@@ -99,8 +103,12 @@ function isTrusted(event: IpcMainInvokeEvent, tabs: TabManager): boolean {
   return !!frame && frame === event.sender.mainFrame && frame.url.startsWith('sc:') && tabs.owns(event.sender)
 }
 
+type Dispatch = (event: IpcMainInvokeEvent, channel: unknown, args: unknown[]) => unknown
+/** One per window. A page's calls go to the window holding its tab. */
+const dispatchers = new Map<TabManager, Dispatch>()
+
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
+  const { core, window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
@@ -131,7 +139,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'bookmarks:edit': (id, title, url) => {
       const address = text(url)
-      if (!/^(https?|file):/i.test(address)) throw new Error('Use a web address.')
+      if (!/^(https?|file|javascript):/i.test(address)) throw new Error('Use a web address.')
       bookmarks.edit(int(id), text(title, 1024), address)
       onBookmarksChanged()
     },
@@ -163,8 +171,17 @@ export function registerInternalIpc(services: InternalServices): () => void {
       downloads.act(text(id, 64), action as DownloadAction)
     },
     'downloads:clear': () => downloads.clearFinished(),
+    'tasks:list': () => taskList(core),
+    'tasks:end': (pid) => endTask(core, int(pid)),
+    'apps:list': () => core.webApps.list(),
+    'apps:open': (url) => {
+      const address = text(url)
+      if (/^https?:/i.test(address)) core.openWindow({ kind: 'app', urls: [address] })
+    },
+    'apps:remove': (id) => core.webApps.remove(text(id, 64)),
+    'spelling:languages': () => (process.platform === 'darwin' ? [] : session.defaultSession.availableSpellCheckerLanguages),
     'permissions:list': (): PermissionDecision[] => permissions.list(),
-    'permissions:revoke': (origin, permission) => permissions.revoke(text(origin, 2048), text(permission, 32)),
+    'permissions:revoke': (origin, permission) => permissions.revoke(text(origin, 2048), text(permission, 64)),
     'browser:is-default': () => isDefaultBrowser(),
     'browser:set-default': () => {
       if (!app.isPackaged) return
@@ -218,6 +235,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
       return path ? extensions.add(path) : null
     },
     'extensions:remove': (id) => extensions.remove(text(id, 64)),
+    'extensions:set-enabled': (id, enabled) => {
+      if (typeof enabled !== 'boolean') throw new Error('Expected true or false')
+      return extensions.setEnabled(text(id, 64), enabled)
+    },
     'history:ask': async (query) => {
       const search = await ai.parseHistorySearch(text(query, 500)).catch(() => null)
       return search && history.searchTerms(search.terms, search.after, search.before)
@@ -298,6 +319,15 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (id) tabs.navigate(id, '')
     },
     'passwords:state': () => passwords.state(),
+    'autofill:list': () => passwords.identities(),
+    'autofill:save': (input) => {
+      const given = (input ?? {}) as Record<string, unknown>
+      return passwords.saveIdentity({
+        ...(given.id === undefined ? {} : { id: text(given.id, 64) }),
+        ...(Object.fromEntries(IDENTITY_FIELDS.map(({ key }) => [key, text(given[key], 512)])) as Omit<Identity, 'id'>)
+      })
+    },
+    'autofill:remove': (id) => passwords.removeIdentity(text(id, 64)),
     'passwords:create': (master) => passwords.create(text(master, 1024)),
     'passwords:unlock': (master) => passwords.unlock(text(master, 1024)),
     'passwords:lock': () => passwords.lock(),
@@ -383,11 +413,21 @@ export function registerInternalIpc(services: InternalServices): () => void {
     }
   }
 
-  ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {
-    if (!isTrusted(event, tabs)) throw new Error('Rejected internal call from untrusted page')
+  const dispatch: Dispatch = (event, channel, args) => {
     if (typeof channel !== 'string' || !Object.hasOwn(handlers, channel)) throw new Error('Unknown internal channel')
     caller = event.sender
     return handlers[channel as keyof InternalCommands](...args)
-  })
-  return () => ipcMain.removeHandler(CHANNEL)
+  }
+  if (dispatchers.size === 0) {
+    ipcMain.handle(CHANNEL, (event, channel: unknown, ...args: unknown[]) => {
+      const owner = [...dispatchers].find(([windowTabs]) => isTrusted(event, windowTabs))
+      if (!owner) throw new Error('Rejected internal call from untrusted page')
+      return owner[1](event, channel, args)
+    })
+  }
+  dispatchers.set(tabs, dispatch)
+  return () => {
+    dispatchers.delete(tabs)
+    if (dispatchers.size === 0) ipcMain.removeHandler(CHANNEL)
+  }
 }

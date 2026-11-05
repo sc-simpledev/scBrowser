@@ -1,7 +1,7 @@
 import { Copy, Eye, EyeOff, Globe, Pencil, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { generatePassword, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { EMPTY_IDENTITY, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
 import { api } from '../api'
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
@@ -225,16 +225,82 @@ function ChangeMaster({ onDone }: { onDone: () => void }) {
   )
 }
 
+/** Addresses and contact details, offered from the key button and the menu in text fields. */
+function Details() {
+  const [identities, setIdentities] = useState<Identity[]>([])
+  const [editing, setEditing] = useState<Identity | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const load = useCallback(() => void api().invoke('autofill:list').then(setIdentities), [])
+  useEffect(load, [load])
+  return (
+    <section aria-label="Addresses and details" className={CARD}>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Addresses and details</h2>
+        <Button onClick={() => setEditing({ ...EMPTY_IDENTITY })}>Add</Button>
+      </div>
+      {editing && (
+        <form
+          aria-label={editing.id ? 'Edit details' : 'New details'}
+          className="flex flex-col gap-2 rounded-md border border-border p-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void api()
+              .invoke('autofill:save', editing)
+              .then(() => {
+                setEditing(null)
+                setProblem(null)
+                load()
+              })
+              .catch((error: Error) => setProblem(cleanError(error)))
+          }}
+        >
+          {IDENTITY_FIELDS.map(({ key, label }) => (
+            <Input key={key} aria-label={label} placeholder={label} autoComplete="off" value={editing[key]} onChange={(e) => setEditing({ ...editing, [key]: e.target.value })} />
+          ))}
+          {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" variant="primary">
+              Save
+            </Button>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+      {identities.length === 0 && !editing && <p className="px-2 py-1 text-text-muted">Nothing yet. Add your name and address to fill in forms from the key button.</p>}
+      <ul>
+        {identities.map((identity) => (
+          <li key={identity.id} className="flex min-h-11 items-center gap-3 rounded-md px-2 hover:bg-surface-hover">
+            <div className="min-w-0 flex-1">
+              <div className="truncate">{identityName(identity)}</div>
+              <div className="truncate text-xs text-text-muted">{[identity.address1, identity.city, identity.email].filter(Boolean).join(', ')}</div>
+            </div>
+            <IconButton size="sm" label="Edit details" onClick={() => setEditing(identity)}>
+              <Pencil size={12} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton size="sm" label="Delete details" onClick={() => void api().invoke('autofill:remove', identity.id!).then(load)}>
+              <X size={12} strokeWidth={2} />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function Options({ reload }: { reload: () => void }) {
   const [minutes, setMinutes] = useState<number | null>(null)
   const [offer, setOffer] = useState(true)
+  const [offerLocked, setOfferLocked] = useState(true)
   const [note, setNote] = useState<string | null>(null)
   const [changing, setChanging] = useState(false)
   const [exporting, setExporting] = useState(false)
   useEffect(() => {
-    void api().invoke('settings:get').then(({ passwordLockMinutes, passwordOfferSave }) => {
+    void api().invoke('settings:get').then(({ passwordLockMinutes, passwordOfferSave, passwordOfferLocked }) => {
       setMinutes(passwordLockMinutes)
       setOffer(passwordOfferSave)
+      setOfferLocked(passwordOfferLocked)
     })
   }, [])
   if (minutes === null) return null
@@ -269,6 +335,22 @@ function Options({ reload }: { reload: () => void }) {
           onChange={(e) => {
             setOffer(e.target.checked)
             void api().invoke('settings:set', { passwordOfferSave: e.target.checked })
+          }}
+        />
+      </label>
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          Also offer while locked
+          <span className="block text-xs text-text-muted">It can't check what's saved until you unlock, so it may ask about logins you already have. The login stays in memory for a minute at most.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={offerLocked}
+          disabled={!offer}
+          className="accent-(--sc-accent)"
+          onChange={(e) => {
+            setOfferLocked(e.target.checked)
+            void api().invoke('settings:set', { passwordOfferLocked: e.target.checked })
           }}
         />
       </label>
@@ -364,8 +446,9 @@ export function PasswordsPage() {
           ))}
         </ul>
       </section>
+      <Details />
       <Options reload={reload} />
-      <p className="text-xs text-text-faint">Logins stay on this computer, sealed with your master password, and aren't synced. To fill one in, use the key button in the toolbar or Ctrl Shift L.</p>
+      <p className="text-xs text-text-faint">Logins and details stay on this computer, sealed with your master password, and aren't synced. To fill them in, use the key button in the toolbar or Ctrl Shift L.</p>
     </>
   )
 }

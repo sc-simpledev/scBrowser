@@ -149,6 +149,17 @@ export type AssistantEvent =
 export const TRANSLATE_LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Arabic', 'Hindi', 'Russian'] as const
 export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]
 
+export const GOOGLE_LANGUAGES: Record<TranslateLanguage, string> = {
+  English: 'en', Spanish: 'es', French: 'fr', German: 'de', Portuguese: 'pt', Italian: 'it', Japanese: 'ja', Korean: 'ko', Chinese: 'zh-CN', Arabic: 'ar', Hindi: 'hi', Russian: 'ru'
+}
+
+/** Google answers with `[text, language]` for each one sent, or a plain string. Anything else is no answer. */
+export function parseGoogleTranslation(reply: unknown, count: number): string[] | null {
+  if (!Array.isArray(reply) || reply.length !== count) return null
+  const texts = reply.map((item: unknown) => (Array.isArray(item) ? item[0] : item))
+  return texts.every((text): text is string => typeof text === 'string') ? texts : null
+}
+
 export interface SavedTurn extends AssistantMessage {
   pageTitle?: string
   source?: ContextSource

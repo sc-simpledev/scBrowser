@@ -1,4 +1,4 @@
-import { ipcMain, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import type { BaseWindow, WebContents } from 'electron'
 import {
   engineById,
   MAX_MENTIONED_TABS,
@@ -18,6 +18,7 @@ import type { BrowserActions } from './actions'
 import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { readFlags } from './flags'
+import { route, unroute } from './ipcRouter'
 import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
@@ -140,6 +141,13 @@ const validators: Validators = {
   'search:suggestions': queryArg,
   'overlay:set': (args): args is [OverlayState] => args.length === 1 && isOverlayState(args[0]),
   'tabs:move': (args): args is [number, number] => args.length === 2 && isId(args[0]) && isId(args[1]),
+  'tabs:mute': (args): args is [number, boolean] => args.length === 2 && isId(args[0]) && typeof args[1] === 'boolean',
+  'tabs:search': noArgs,
+  'tabs:open-in-browser': noArgs,
+  'tabs:devtools-width': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
+  'browser:new-window': noArgs,
+  'tabs:split-toggle': noArgs,
+  'tabs:split-ratio': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
   'tabs:context-menu': idArg,
   'tabs:open-in-background': (args): args is [string] =>
     args.length === 1 && typeof args[0] === 'string' && /^https?:/i.test(args[0]) && args[0].length <= 8192,
@@ -156,6 +164,8 @@ const validators: Validators = {
   'layout:resizing': (args): args is [boolean] => args.length === 1 && typeof args[0] === 'boolean',
   'extensions:summary': noArgs,
   'extensions:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'extensions:anchor': (args): args is [PageRect] => args.length === 1 && isRect(args[0]),
+  'extensions:open': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
   'extensions:panel-state': noArgs,
   'extensions:panel-rect': (args): args is [PageRect] => args.length === 1 && isRect(args[0]),
   'extensions:panel-toggle': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
@@ -257,7 +267,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:create': (url) => tabs.create(url),
     'tabs:close': (id) => tabs.close(id),
     'tabs:activate': (id) => tabs.activate(id),
-    'tabs:navigate': (id, input) => tabs.navigate(id, input),
+    'tabs:navigate': (id, input) => actions.openAddress(id, input),
     'tabs:back': (id) => tabs.back(id),
     'tabs:forward': (id) => tabs.forward(id),
     'tabs:reload': (id) => tabs.reload(id),
@@ -277,6 +287,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     },
     'overlay:set': (state) => overlay.set(state),
     'tabs:move': (id, index) => tabs.move(id, index),
+    'tabs:mute': (id, muted) => tabs.setMuted(id, muted),
+    'tabs:search': () => actions.searchTabs(),
+    'tabs:open-in-browser': () => actions.openInBrowser(),
+    'tabs:devtools-width': (width) => tabs.setDevToolsWidth(width),
+    'browser:new-window': () => actions.openWindow(),
+    'tabs:split-toggle': () => tabs.toggleSplit(),
+    'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),
     'tabs:open-in-background': (url) => {
       tabs.create(url, { activate: false, afterId: tabs.active?.id })
@@ -299,13 +316,15 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'passwords:menu': (x, y) => openPasswordMenu(x, y),
     'layout:resizing': (resizing) => {
       tabs.setResizing(resizing)
-      extensions.setPanelHidden(resizing)
+      extensions.setPanelHidden(resizing, window)
     },
     'extensions:summary': () => extensions.summary(),
     'extensions:menu': (x, y) => extensions.popupMenu(x, y),
-    'extensions:panel-state': () => extensions.panelState(),
+    'extensions:anchor': (rect) => extensions.setAnchor(rect, window),
+    'extensions:open': (id) => extensions.open(id),
+    'extensions:panel-state': () => extensions.panelState(window),
     'extensions:panel-rect': ({ x, y, width, height }) =>
-      extensions.setPanelBounds({ x: Math.round(x), y: Math.round(y), width: Math.max(0, Math.round(width)), height: Math.max(0, Math.round(height)) }),
+      extensions.setPanelBounds({ x: Math.round(x), y: Math.round(y), width: Math.max(0, Math.round(width)), height: Math.max(0, Math.round(height)) }, window),
     'extensions:panel-toggle': (id) => extensions.togglePanel(id),
     'extensions:panel-close': () => extensions.closePanel(),
     'bookmarks:move-group': (id, parentId) => {
@@ -323,7 +342,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'bookmarks:group-menu': (id, x, y) => {
       const group = bookmarks.groups().find((g) => g.id === id)
       const open = (url: string) => {
-        if (tabs.active) tabs.navigate(tabs.active.id, url)
+        if (tabs.active) actions.openAddress(tabs.active.id, url)
       }
       if (group) popupBookmarkGroup(group, menuHooks, open, x, y)
     },
@@ -387,7 +406,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'updates:install': () => updates.install(),
     'bookmarks:overflow-menu': (items, x, y) => {
       const open = (url: string) => {
-        if (tabs.active) tabs.navigate(tabs.active.id, url)
+        if (tabs.active) actions.openAddress(tabs.active.id, url)
       }
       popupBookmarkOverflow(items, menuHooks, open, x, y)
     },
@@ -396,11 +415,10 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
 
   const channels = Object.keys(handlers) as CommandChannel[]
   for (const channel of channels) {
-    ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-      if (event.sender !== chromeUi) throw new Error(`Rejected ${channel} from untrusted sender`)
+    route(chromeUi, channel, (_event, ...args: unknown[]) => {
       if (!validators[channel](args)) throw new Error(`Invalid arguments for ${channel}`)
       return (handlers[channel] as (...a: unknown[]) => unknown)(...args)
     })
   }
-  return () => channels.forEach((channel) => ipcMain.removeHandler(channel))
+  return () => unroute(chromeUi)
 }

@@ -25,7 +25,7 @@ export const TOOLBAR_ITEMS = [
 export type ToolbarItemId = (typeof TOOLBAR_ITEMS)[number]['id']
 
 /** What can be dragged around the toolbar. Profiles, the assistant and More stay at its end. */
-export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'downloads', 'passwords', 'extensions'] as const
+export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'split', 'downloads', 'passwords', 'extensions'] as const
 
 export type ToolbarSlot = (typeof TOOLBAR_SLOTS)[number]
 
@@ -61,11 +61,15 @@ export interface ExtensionInfo {
   id: string
   name: string
   version: string
+  /** Turned off keeps it installed, but it doesn't run. */
+  enabled: boolean
   /** It shows its own page in place of the new tab page. */
   newTab: boolean
 }
 
 export interface ExtensionSummary {
+  /** Whether extensions open in the panel under the toolbar, or their own windows and side panels. */
+  display: 'panel' | 'window'
   /** Kept in the extensions menu rather than on the toolbar. */
   unpinned: string[]
   /** Clicking these extensions' buttons opens their side panel. */

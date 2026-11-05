@@ -1,4 +1,4 @@
-import { Bookmark, Bot, Download, FlaskConical, Globe, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
+import { Activity, Bookmark, Bot, Download, FlaskConical, Globe, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -15,6 +15,7 @@ import { NewTabPage } from './pages/NewTabPage'
 import { PasswordsPage } from './pages/PasswordsPage'
 import { PdfPage } from './pages/PdfPage'
 import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
+import { TasksPage } from './pages/TasksPage'
 import { VpnPage } from './pages/VpnPage'
 import { WelcomePage } from './welcome/WelcomePage'
 
@@ -28,6 +29,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   downloads: { title: 'Downloads', icon: Download, component: DownloadsPage },
   blocker: { title: 'Site blocker', icon: ShieldBan, component: BlockerPage },
   vpn: { title: 'VPN', icon: Globe, component: VpnPage },
+  tasks: { title: 'Task Manager', icon: Activity, component: TasksPage },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 

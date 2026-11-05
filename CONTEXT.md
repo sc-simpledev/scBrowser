@@ -4,7 +4,9 @@ scTerra (formerly scDelta, and before that scBrowser) is an Electron browser for
 
 ## Where things stand right now
 
-Written on 2026-11-05. Version 0.3.4 was committed and tagged after the owner tested the AppImage and said it works. Which extensions they tried wasn't recorded. Check the release finished before saying it's published.
+Version 0.4.0 was asked for on 2026-11-05, in the same message as its last fixes, so the owner tested everything but those fixes first: the row alignment, Google translation and the extensions panel. Ask how those went. It adds pinned tabs, tab mute and sound icons, tab search, a split view divider, a fuller page menu, view source, spell check, Open file, `javascript:` addresses, app links, several windows, installed sites, the Task Manager, docked developer tools, save offers while locked, address autofill, turning extensions off, a translate language menu, internal page icons, an update screen, an extensions list and panel, and self-updating on Macs. Nothing has run on Windows or a Mac, and Mac self-updating has never been tried for real, so check it the first time a Mac updates to the next version.
+
+Before that, version 0.3.4 was committed and tagged after the owner tested the AppImage and said it works. Which extensions they tried wasn't recorded. Check the release finished before saying it's published.
 
 What 0.3.4 changed:
 
@@ -25,7 +27,7 @@ What 0.3.3 changed:
 
 Still to ask the owner: has a copy on an older version updated itself? No update between published versions has been confirmed.
 
-Known flakes: `privacy.spec.ts:21` fails about 1 run in 75 under parallel load, showing 1 blocked instead of 2. `assistant.spec.ts:142` failed once in a full run. The cause of each isn't known. CI retries cover them.
+Known flakes: `omnibox.spec.ts:51` failed about 1 in 16 under parallel load, with nothing focused, and `phase7.spec.ts:111` once in a full run, with the drag not landing. Neither repeated on its own. `privacy.spec.ts:21` fails about 1 run in 75 under parallel load, showing 1 blocked instead of 2. `assistant.spec.ts:142` failed once in a full run. The cause of each isn't known. CI retries cover them.
 
 ## How to work with the owner
 
@@ -53,7 +55,7 @@ npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
 ```
 
-Build first, because E2E tests run the built app. The suite has 101 tests and takes under 2 minutes locally, and there are 201 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+Build first, because E2E tests run the built app. The suite has 156 tests and takes about 3 minutes locally, and there are 241 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
 
 ```bash
 node apps/desktop/scripts/fetch-xray.mjs
@@ -64,7 +66,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 ```
 
 ```bash
-SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.3.4/linux-unpacked/scterra" npx playwright test --timeout 20000
+SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.4.0/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
 The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests, on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
@@ -98,14 +100,17 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Page loads are screened in `PrivacyService.attach`, before anything is sent. Category checks hold the load for up to 6 seconds, then let it through.
 - VPN links hold passwords, so they stay encrypted in the main process and never reach a renderer. The toolbar and `sc://vpn` only see names, hosts and ports.
 - Site icons are saved as data addresses in `site_icons`, only for bookmarked hosts, so drawing the bar contacts nobody. Sites that were never visited are asked for `/favicon.ico` once per run.
-- Private windows skip history and icon saving, and take no AI keys. They're processes, because IPC handlers assume one window per process.
+- Private windows skip history and icon saving, and take no AI keys. They're separate processes with their own throwaway folder. Other windows, including installed sites, share one process.
+- `browserCore.ts` holds what exists once per process (VPN, vault, sync, updates, downloads, privacy, extensions, permissions, the session saver), and `window.ts` builds each window on top of it: its tabs, overlay, browser UI and assistant. Every chrome and overlay channel goes through `ipcRouter.ts`, which picks the handler by sender and refuses anyone else, as Electron allows one handler per channel. Tab ids are unique across windows. A window closed by itself doesn't come back after a restart, but all the windows open when quitting do (`session:extra-windows` in the database).
+- Developer tools sit in their own `WebContentsView` beside the page, as Electron's docking only works for full windows. `isDevToolsOpened` stays false in this mode and `devtools-closed` comes late, so `TabManager` keeps its own record.
+- Installed sites (`webApps.ts`) are windows of kind `app`: one tab, a slim bar, no tab strip. `TabManager` hands anything that would open a tab to the full browser. Their shortcuts run the browser with `--sc-app=<url>`, http and https only.
 - Agent mode needs approval for every click, entry and navigation. Private fields are refused in `ai/agent.ts`, not left to the model.
 - Nothing goes to an AI provider unless the person acts. Respect the per-site AI off list.
 - The address bar's answer card only runs once someone picks Ask scTerra, and never includes page text.
 - HTTP sign-in passwords go straight to Chromium and are never stored. The box closes if the page navigates away, so it can't sit over another site.
 - OCR runs in the sandboxed `sc://pdf` page from files in the app (`public/ocr`, copied at build time). No scan leaves the computer.
 - Workspaces: `TabManager.snapshot()` only returns the open workspace's tabs, so the UI needs no filtering. Use `allContents()` for anything that must reach every tab.
-- The password vault is sealed with a key derived from the master password, which is never stored; the key and logins only exist in memory while unlocked. Passwords reach a renderer only through `passwords:reveal` on the `sc://passwords` bridge, never the browser UI or overlay. Filling is only ever by request, top frame only, with the exact origin rechecked at that moment. Save offers watch pages only while unlocked, count only real clicks and keys, and hold the login in the main process for a minute at most. It never syncs and isn't in private windows.
+- The password vault is sealed with a key derived from the master password, which is never stored; the key and logins only exist in memory while unlocked. Passwords reach a renderer only through `passwords:reveal` on the `sc://passwords` bridge, never the browser UI or overlay. Filling is only ever by request, top frame only, with the exact origin rechecked at that moment. Save offers count only real clicks and keys, and hold the login in the main process for a minute at most. They also watch pages while the vault is locked or not set up (the owner chose this; `passwordOfferLocked` turns it off). The vault can't say what's saved until it's open, so while locked the offer may be for a login it already has. Addresses and details (`Identity`) are sealed in the same vault, reach only `sc://` pages through `autofill:list`, and fill only on request, top frame only, leaving non-empty fields and anything that looks like a card, login or ID alone. There's deliberately no card autofill. It never syncs and isn't in private windows.
 - A native page view swallows mouse events over itself, so `layout:resizing` hides it while a sidebar is dragged.
 - Google sign-in pages (`accounts.google.com`, `accounts.youtube.com`) see Electron's own user agent, without the app's name, in the header and to scripts, along with whatever they load. Every other site sees the clean Chrome one. Never call `setUserAgent` on a tab during a navigation, as Chromium reloads the page and drops the navigation: `googleSignIn.ts` sets the header per request, and `preload/internal.ts` sets what scripts read. Electron keeps only one listener per `webRequest` event per session, so anything else needing `onBeforeSendHeaders` has to share this one.
 - Links and `window.open` from websites become tabs. Unless they ask for `noopener` or open in the background, the tab holds the real popup, and `window.opener` works. `window.close()` shows up as the `close` event on its `WebContents`, not `destroyed`. `sc://` stays unreachable from them.
@@ -113,6 +118,10 @@ Deno isn't installed. To run server tests locally, use the npm package `deno`, t
 - Word files are rebuilt in the main process from the report's blocks through `toReport`, so only plain text reaches them. There's no docx dependency: `reportDocx.ts` writes the zip itself.
 - Saved reports are built by `reportHtml`, which escapes all text and carries a CSP blocking scripts and network requests. PDFs print that same file in a hidden window with scripts off.
 - The VPN defaults to just the browser. Whole-computer modes must always undo themselves: the system proxy's old values are saved before changing it and a watcher process restores them after a crash; the TUN script runs as root and removes its routes when its stdin closes. Never start either without the person choosing it. These settings stay out of sync (`LOCAL_SETTINGS`). Connect-at-start holds pages on a dead proxy port (`holdPages`) before any tab loads, and failing stays closed on purpose: the person asked to always be covered.
+- `javascript:` addresses only run through `openAddress` in `window.ts`, which is reached from the browser UI and its menus, and never on `sc://` pages. `TabManager.navigate` and `create` refuse them, so extensions can't use them (the AI agent only accepts http and https), and the address bar strips the prefix from pasted text.
+- App links (`claude://`, `mailto:`) go through `appLinks.ts`. Pages reach it from the `openExternal` permission, which is always refused so that the app opens them itself after asking. `NOT_APP_SCHEMES` in `url.ts` lists schemes that never open. "Always allow" is per site and scheme, saved in the permissions table as `app:<scheme>`, and shown in Settings.
+- Page translation goes to Google by default, through the address Chrome's dictionary extension uses (`ai/googleTranslate.ts`). It isn't a published API: `translate.googleapis.com` was already refusing this machine with a 429 on 2026-11-05, and this one could go the same way. Only asked-for pages go, and Settings says so. The AI model stays as an option, and failing Google never falls back to spending AI credit.
+- Extensions open in `extensionPopover.ts` by default: one `WebContentsView` hanging from the toolbar button, closing when focus moves on, used for popups, side panels and `chrome.windows.create`. Its border is drawn in the overlay, with the view stacked above it (`Overlay.above`). The list under the button is an overlay popup. `extensionDisplay: 'window'` brings back the library's popup windows, docked side panels and small windows.
 - Claude calls use the official SDK (v1.3, which sends keys as `Authorization: Bearer`). Other providers use the OpenAI-compatible adapter.
 
 ## Releasing and updates
@@ -124,7 +133,7 @@ Installers and update files go to the public `sc-simpledev/scTerra` repo (rename
 3. `.github/workflows/release.yml` checks the tag against the version, builds Linux, Windows and both kinds of Mac into a draft release using the `RELEASE_TOKEN` secret (already set), and publishes the draft only once every build succeeds.
 4. Watch it with `gh run list --workflow release.yml`, and check the release appeared with `gh release list --repo sc-simpledev/scTerra`.
 
-The app checks for updates 30 seconds after starting and every 4 hours (`apps/desktop/src/main/updater.ts`). AppImage replaces itself; Windows installs on restart; .deb asks for a password when Restart to update is pressed; unsigned Macs only point at the release page. Settings has a switch and Check now.
+The app checks for updates 30 seconds after starting and every 4 hours (`apps/desktop/src/main/updater.ts`). AppImage replaces itself; Windows installs on restart; .deb asks for a password when Restart to update is pressed; unsigned Macs replace their own app bundle through `macUpdate.ts`, which skips Squirrel.Mac as that refuses unsigned updates, and fall back to the release page if they can't. Settings has a switch and Check now.
 
 ## Hosted AI server
 
@@ -161,7 +170,7 @@ Passing Google's check may stop working at any time, as it's Google's to change.
 
 ## Status
 
-Version 0.3.4. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
+Version 0.4.0. Phases 0 to 5 are built, apart from signing, stores and extra update channels, which are on hold. Since then: site blocker, VPN with a bundled Xray core, whole-computer VPN (system proxy or TUN), VPN connect at start, fastest pick and skip list, bookmark folders and icons, a built-in password vault, private windows, the PDF viewer, the scSpace look, auto-updates, the first-run intro (night and daytime scenes, "Browse the World"), workspaces, tab clean-up, inline address bar answers, HTTP sign-in, OCR for scanned PDFs, saved zoom, split view restore, a report side page with versions, change requests, designs and PDF, HTML, Markdown and Word downloads, a saved-chat list, a draggable toolbar, resizable sidebars, a profiles button, bookmark overflow, a compact toolbar for narrow windows, and macOS builds. See Plan.md for what each does.
 
 0.2.0, 0.3.1, 0.3.2 and 0.3.3 are published at https://github.com/sc-simpledev/scTerra/releases. `release.yml` now creates one draft before building. 0.3.1 was the first release through that fix, and the first real update from one published version to another, so ask the owner whether their 0.2.0 picked it up. 0.3.1 has no Apple silicon Mac build: that runner sat queued, so the owner chose to publish without it, by cancelling the run and running `gh release edit v0.3.1 --repo sc-simpledev/scTerra --draft=false --latest`. Intel Mac, Linux and Windows are there. 0.3.2 built everything into one release, so the single-draft fix works. 0.3.0 was never published: its release run was cancelled over an error on closing the browser, and its draft is deleted. Only a `v0.3.0` tag remains, in the private repo. A release doesn't wait for CI, so let CI pass on `main` before tagging.
 
@@ -172,7 +181,7 @@ Open items:
 - A real AI provider hasn't been used through the browser UI. Everything in the app was tested against mocks, so reports, agent mode, translation, inline answers, AI tab clean-up and the scAI identity need real-model checks.
 - DRM (Netflix, Spotify) isn't in. It needs castLabs' Electron, whose newest stable build (44.9.3 in November 2026) is behind our 45.1.0, plus VMP signing for Windows and macOS. It was never run here. Don't swap the engine without the owner's say.
 - Copies older than 0.2.0 can't update themselves, so they need one manual install.
-- macOS has never been run. Builds are unsigned, so they can't install updates: the app offers the release page instead. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
+- macOS has never been run, including its self-update in `macUpdate.ts`. Windows and .deb updates are also untested. Only an AppImage update has been done for real.
 - Whole-computer VPN: the TUN script was run for real in a throwaway network namespace (traffic, DNS and clean-up all worked), and system proxy against the real KDE and GNOME tools in a scratch config. Neither has run through pkexec or against the real desktop settings, so ask the owner to try both. Windows and macOS system proxy have only run against fake commands. TUN is Linux only: Windows needs the wintun driver. Two profiles could fight over the system proxy; that isn't handled. Switching connections under TUN asks for the password again.
 - The report side page takes its room from the page, so a narrow window leaves little of the page showing. The chosen design isn't saved with a chat, and is forgotten when the side page closes. Versions are matched by title, so a model that renames a report starts a new set.
 - Dragging a sidebar was only tested with Playwright's mouse, which never crosses the native page view. Hiding the page during a drag is meant to make that work, so ask the owner to try it with a real mouse. The page area goes blank during the drag. Hiding the page drops pointer capture mid-drag, which is why `ResizeHandle` listens on the window.
@@ -229,6 +238,9 @@ Open items:
 - `e2e/xray.spec.ts` makes real connections through a local Xray server, and is skipped if the core hasn't been fetched.
 - `SCB_VPN_PROBE=host:port` points VPN pings at a local page. `serveSite` answers `/generate_204`.
 - Pages fill the window edge to edge, with no inset or rounded corners (`PAGE_RADIUS` is 0).
+- `electron-chrome-extensions` calls every tab it's told about the active one. `ExtensionManager.addTab` keeps that from reaching the real tabs, which is what makes background tabs stay in the background.
+- `setSpellCheckerLanguages` turns spell checking back on, so `setSpellCheckerEnabled` has to come after it.
+- Playwright doesn't list `view-source:` tabs as pages. Ask the tab with `executeJavaScript`.
 - Don't take desktop screenshots with spectacle: it can capture the owner's own windows.
 - `pkill -f` patterns can match your own shell. Use `pgrep -f "dist/electro[n]" | xargs -r kill -9`.
 - Code running during shutdown must guard against the destroyed window and closed database.

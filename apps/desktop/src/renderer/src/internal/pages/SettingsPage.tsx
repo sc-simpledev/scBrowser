@@ -18,9 +18,18 @@ import {
   type SitePermission,
   type SyncStatus,
   type ToolbarItemId,
-  type UpdateState
+  type UpdateState,
+  type WebApp
 } from '@scbrowser/shared'
 import { api, applyTint } from '../api'
+
+function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(undefined, { type: 'language' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -50,6 +59,7 @@ const UPDATE_WORDS: Record<UpdateState['phase'], string> = {
   downloading: 'Downloading a new version…',
   ready: 'A new version is ready.',
   manual: 'A new version is available to download.',
+  installing: 'Installing the update…',
   error: "Couldn't check for updates."
 }
 
@@ -62,7 +72,7 @@ function UpdatesSection({ settings, update }: { settings: Settings; update: (pat
     return () => clearInterval(timer)
   }, [])
   if (!state) return null
-  const busy = state.phase === 'checking' || state.phase === 'available' || state.phase === 'downloading'
+  const busy = state.phase === 'checking' || state.phase === 'available' || state.phase === 'downloading' || state.phase === 'installing'
   const hint =
     state.phase === 'downloading' && state.percent !== null
       ? `Downloading version ${state.version ?? ''}, ${state.percent}%`
@@ -112,6 +122,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [permissions, setPermissions] = useState<PermissionDecision[]>([])
+  const [spellLanguages, setSpellLanguages] = useState<string[]>([])
+  const [apps, setApps] = useState<WebApp[]>([])
   const [isDefault, setIsDefault] = useState(false)
   const [offHosts, setOffHosts] = useState<string[]>([])
   const [sources, setSources] = useState<ImportSource[]>([])
@@ -130,6 +142,8 @@ export function SettingsPage() {
   useEffect(() => {
     void api().invoke('settings:get').then(setSettings)
     void api().invoke('permissions:list').then(setPermissions)
+    void api().invoke('spelling:languages').then(setSpellLanguages)
+    void api().invoke('apps:list').then(setApps)
     void api().invoke('browser:is-default').then(setIsDefault)
     void api().invoke('privacy:off-hosts').then(setOffHosts)
     void api().invoke('import:sources').then(setSources)
@@ -329,6 +343,23 @@ export function SettingsPage() {
           />
         </Row>
       </Section>
+      <Section title="Spelling">
+        <Row label="Check spelling" hint="The dictionary is downloaded once from Google. What you type stays on this computer.">
+          <Switch label="Check spelling" checked={settings.spellCheck} onChange={(spellCheck) => update({ spellCheck })} />
+        </Row>
+        {spellLanguages.length > 0 && (
+          <Row label="Language">
+            <Select aria-label="Spelling language" value={settings.spellLanguage} onChange={(e) => update({ spellLanguage: e.target.value })}>
+              <option value="">Same as this computer</option>
+              {spellLanguages.map((code) => (
+                <option key={code} value={code}>
+                  {languageName(code)}
+                </option>
+              ))}
+            </Select>
+          </Row>
+        )}
+      </Section>
       </Group>
 
       <Group id="Privacy" title="Privacy">
@@ -373,7 +404,7 @@ export function SettingsPage() {
           <Row
             key={`${origin}:${permission}`}
             label={origin}
-            hint={`${allowed ? 'Allowed' : 'Blocked'} to ${PERMISSION_LABELS[permission as SitePermission]}`}
+            hint={permission.startsWith('app:') ? `Allowed to open ${permission.slice(4)}: links` : `${allowed ? 'Allowed' : 'Blocked'} to ${PERMISSION_LABELS[permission as SitePermission]}`}
           >
             <Button
               variant="ghost"
@@ -534,6 +565,12 @@ export function SettingsPage() {
         <Row label="Keep chats on this device" hint="Page text sent with a message isn't kept.">
           <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
         </Row>
+        <Row label="Translate with" hint={settings.translateEngine === 'google' ? 'Free, with no key. The page\'s text goes to Google when you translate.' : 'Uses your AI model and its credit, and only covers the start of long pages.'}>
+          <Select aria-label="Translate with" value={settings.translateEngine} onChange={(e) => update({ translateEngine: e.target.value as Settings['translateEngine'] })}>
+            <option value="google">Google Translate</option>
+            <option value="ai">Your AI model</option>
+          </Select>
+        </Row>
         <Row label="Translate pages into">
           <Select
             aria-label="Translate pages into"
@@ -552,6 +589,12 @@ export function SettingsPage() {
         </Row>
       </Section>
       <Section title="Extensions">
+        <Row label="Open extensions in" hint={settings.extensionDisplay === 'panel' ? 'Popups, side panels and small windows all open under the Extensions button.' : 'The older way: side panels beside the page, and small windows of their own.'}>
+          <Select aria-label="Open extensions in" value={settings.extensionDisplay} onChange={(e) => update({ extensionDisplay: e.target.value as Settings['extensionDisplay'] })}>
+            <option value="panel">A panel under the toolbar button</option>
+            <option value="window">Their own windows and side panels</option>
+          </Select>
+        </Row>
         <Row label="Chrome Web Store" hint="Install most Chrome extensions, including password managers.">
           <Button onClick={() => void api().invoke('extensions:open-store')}>Open</Button>
         </Row>
@@ -572,15 +615,44 @@ export function SettingsPage() {
         {extensionError && <Row label={extensionError}>{null}</Row>}
         {extensions.map((extension) => (
           <Row key={extension.id} label={extension.name} hint={`Version ${extension.version}${extension.newTab ? '. Shows its own new tab page' : ''}`}>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                void api().invoke('extensions:remove', extension.id)
-                setExtensions(extensions.filter((e) => e.id !== extension.id))
-              }}
-            >
-              Remove
-            </Button>
+            <div className="flex items-center gap-2">
+              <Switch
+                label={`Turn on ${extension.name}`}
+                checked={extension.enabled}
+                onChange={(enabled) => {
+                  setExtensions(extensions.map((e) => (e.id === extension.id ? { ...e, enabled } : e)))
+                  void api().invoke('extensions:set-enabled', extension.id, enabled)
+                }}
+              />
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  void api().invoke('extensions:remove', extension.id)
+                  setExtensions(extensions.filter((e) => e.id !== extension.id))
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          </Row>
+        ))}
+      </Section>
+      <Section title="Installed apps">
+        {apps.length === 0 && <Row label="No sites installed yet" hint="In a tab, open the More menu and choose Install this site as an app.">{null}</Row>}
+        {apps.map((entry) => (
+          <Row key={entry.id} label={entry.name} hint={entry.url}>
+            <div className="flex gap-2">
+              <Button onClick={() => void api().invoke('apps:open', entry.url)}>Open</Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  void api().invoke('apps:remove', entry.id)
+                  setApps(apps.filter((other) => other.id !== entry.id))
+                }}
+              >
+                Remove
+              </Button>
+            </div>
           </Row>
         ))}
       </Section>

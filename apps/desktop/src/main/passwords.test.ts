@@ -100,3 +100,37 @@ describe('password helpers', () => {
     expect(generatePassword(random)).not.toBe(generatePassword(random))
   })
 })
+
+describe('addresses and details', () => {
+  const home = { label: 'Home', fullName: 'Sam Lee', email: 'sam@example.com', phone: '', organization: '', address1: '1 Secret Street', address2: '', city: '', region: '', postalCode: '', country: '' }
+
+  it('stay sealed, come back after unlocking, and can be removed', async () => {
+    const { kv, vault, make } = setup()
+    await vault.create(MASTER)
+    const id = vault.saveIdentity(home)
+    expect(String(kv.get('passwords:vault'))).not.toContain('Secret Street')
+    vault.lock()
+    expect(() => vault.identities()).toThrow()
+    const again = make()
+    await again.unlock(MASTER)
+    expect(again.identity(id).address1).toBe('1 Secret Street')
+    again.removeIdentity(id)
+    expect(again.identities()).toEqual([])
+  })
+
+  it('replaces one when saved again, and refuses an empty one', async () => {
+    const { vault } = setup()
+    await vault.create(MASTER)
+    const id = vault.saveIdentity(home)
+    vault.saveIdentity({ ...home, id, city: 'Perth' })
+    expect(vault.identities()).toHaveLength(1)
+    expect(vault.identity(id).city).toBe('Perth')
+    expect(() => vault.saveIdentity({ ...home, label: ' ', fullName: '', email: '', address1: '' })).toThrow()
+  })
+
+  it('opens a vault made before details existed', async () => {
+    const { vault } = setup()
+    await vault.create(MASTER)
+    expect(vault.identities()).toEqual([])
+  })
+})

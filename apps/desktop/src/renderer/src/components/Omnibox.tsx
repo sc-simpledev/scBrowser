@@ -268,6 +268,13 @@ export function Omnibox() {
           value={value}
           spellCheck={false}
           autoComplete="off"
+          // Like other browsers: a pasted script can't run unless the person types the prefix themselves.
+          onPaste={(e) => {
+            const pasted = e.clipboardData.getData('text')
+            if (!/^\s*javascript:/i.test(pasted)) return
+            e.preventDefault()
+            document.execCommand('insertText', false, pasted.replace(/^\s*javascript:/i, ''))
+          }}
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"

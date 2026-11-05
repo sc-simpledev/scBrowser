@@ -1,5 +1,7 @@
 import type { WebContents } from 'electron'
 import { parseTranslation, rewritePrompt, translatePrompt, type RewriteStyle } from '@scbrowser/ai'
+import type { TranslateLanguage } from '@scbrowser/shared'
+import { translateWithGoogle } from './googleTranslate'
 import type { AiService } from './service'
 
 const TRANSLATE_WORLD = 1004
@@ -35,13 +37,23 @@ const apply = (start: number, texts: string[]) => `((start, texts) => {
 const run = <T>(contents: WebContents, code: string) =>
   contents.executeJavaScriptInIsolatedWorld(TRANSLATE_WORLD, [{ code }]) as Promise<T>
 
-function batches(texts: string[]): { start: number; texts: string[] }[] {
+interface BatchLimits {
+  chars: number
+  items: number
+  batches: number
+}
+/** A model's replies cost credit and take time, so it's kept to the start of long pages. */
+const AI_LIMITS: BatchLimits = { chars: MAX_BATCH_CHARS, items: Number.POSITIVE_INFINITY, batches: MAX_BATCHES }
+/** Enough for most long articles, without looking like a flood of requests. */
+const GOOGLE_LIMITS: BatchLimits = { chars: 4500, items: 120, batches: 25 }
+
+function batches(texts: string[], limits: BatchLimits): { start: number; texts: string[] }[] {
   const result: { start: number; texts: string[] }[] = []
   let current: string[] = []
   let size = 0
   let start = 0
   texts.forEach((text, index) => {
-    if (size + text.length > MAX_BATCH_CHARS && current.length > 0) {
+    if ((size + text.length > limits.chars || current.length >= limits.items) && current.length > 0) {
       result.push({ start, texts: current })
       current = []
       size = 0
@@ -57,15 +69,14 @@ function batches(texts: string[]): { start: number; texts: string[] }[] {
 export type TranslateOutcome = 'restored' | 'translated' | 'partly' | 'failed'
 
 /** Translates the page in place, or restores it if it's already translated. */
-export async function togglePageTranslation(contents: WebContents, ai: AiService, language: string): Promise<TranslateOutcome> {
+async function translatePage(contents: WebContents, limits: BatchLimits, translate: (texts: string[]) => Promise<string[] | null>): Promise<TranslateOutcome> {
   const texts = await run<string[] | null>(contents, COLLECT)
   if (texts === null) return 'restored'
-  const all = batches(texts)
-  const chosen = all.slice(0, MAX_BATCHES)
+  const all = batches(texts, limits)
+  const chosen = all.slice(0, limits.batches)
   let done = 0
   for (const batch of chosen) {
-    const reply = await ai.complete(translatePrompt(language), JSON.stringify(batch.texts))
-    const translated = parseTranslation(reply, batch.texts.length)
+    const translated = await translate(batch.texts).catch(() => null)
     if (!translated) continue
     await run(contents, apply(batch.start, translated))
     done++
@@ -76,6 +87,12 @@ export async function togglePageTranslation(contents: WebContents, ai: AiService
   }
   return done === all.length ? 'translated' : 'partly'
 }
+
+export const togglePageTranslation = (contents: WebContents, ai: AiService, language: string) =>
+  translatePage(contents, AI_LIMITS, async (texts) => parseTranslation(await ai.complete(translatePrompt(language), JSON.stringify(texts)), texts.length))
+
+export const togglePageGoogleTranslation = (contents: WebContents, language: TranslateLanguage) =>
+  translatePage(contents, GOOGLE_LIMITS, (texts) => translateWithGoogle(texts, language))
 
 /** What's selected now, in a field or the page, so a slow reply can't overwrite something else. */
 const SELECTED = `(() => {

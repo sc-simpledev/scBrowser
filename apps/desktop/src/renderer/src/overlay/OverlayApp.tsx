@@ -13,18 +13,21 @@ import {
   type PermissionPopupState
 } from '@scbrowser/shared'
 import { AnswerCard } from './AnswerCard'
+import { AppLinkPrompt } from './AppLinkPrompt'
 import { AuthPopup } from './AuthPopup'
 import { PasswordPrompt } from './PasswordPrompt'
 import { BookmarkEditor } from './BookmarkEditor'
 import { CleanupPopup } from './CleanupPopup'
 import { CommandPalette } from './CommandPalette'
+import { ExtensionsPopup } from './ExtensionsPopup'
 import { SuggestionList } from './SuggestionList'
+import { TabSearch } from './TabSearch'
 import { WorkspaceEditor } from './WorkspaceEditor'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
@@ -35,7 +38,7 @@ export function OverlayApp() {
     return () => window.removeEventListener('pointermove', clear)
   }, [])
 
-  const { omnibox, tooltip, permission, palette, accent, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor } = state
+  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -63,6 +66,7 @@ export function OverlayApp() {
         </div>
       )}
       {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} />}
+      {tabSearch && <TabSearch rows={tabSearch.rows} x={tabSearch.x - origin.x} y={tabSearch.y - origin.y} />}
       {toast && (
         <div
           role="status"
@@ -75,6 +79,15 @@ export function OverlayApp() {
       {bookmarkEditor && <BookmarkEditor key={bookmarkEditor.id} editor={bookmarkEditor} x={bookmarkEditor.x - origin.x} y={bookmarkEditor.y - origin.y} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
       {passwordPrompt && <PasswordPrompt prompt={passwordPrompt} x={passwordPrompt.x - origin.x} y={passwordPrompt.y - origin.y} />}
+      {extensionFrame && (
+        <div
+          aria-hidden
+          className="absolute rounded-lg border border-border bg-surface shadow-3"
+          style={{ left: extensionFrame.x - 1 - origin.x, top: extensionFrame.y - 1 - origin.y, width: extensionFrame.width + 2, height: extensionFrame.height + 2 }}
+        />
+      )}
+      {extensionsPopup && <ExtensionsPopup popup={extensionsPopup} x={extensionsPopup.x - origin.x} y={extensionsPopup.y - origin.y} />}
+      {appLink && <AppLinkPrompt key={appLink.url} prompt={appLink} x={appLink.x - origin.x} y={appLink.y - origin.y} />}
       {auth && <AuthPopup key={auth.requestId} auth={auth} x={auth.x - origin.x} y={auth.y - origin.y} />}
       {cleanup && <CleanupPopup cleanup={cleanup} x={cleanup.x - origin.x} y={cleanup.y - origin.y} />}
       {workspaceEditor && <WorkspaceEditor key={workspaceEditor.id ?? 'new'} editor={workspaceEditor} x={workspaceEditor.x - origin.x} y={workspaceEditor.y - origin.y} />}

@@ -1,7 +1,7 @@
 import type { BookmarkGroup, PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
 import type { AccentId } from './privacy'
-import type { CleanupRow, PageRect } from './tabs'
+import type { CleanupRow, PageRect, TabSearchRow } from './tabs'
 
 /**
  * The overlay is a transparent view stacked above web pages so popups drawn by the chrome
@@ -61,6 +61,8 @@ export interface PasswordPromptState {
   host: string
   username: string
   update: boolean
+  /** The vault has to be opened or created first, so saving goes by way of that. */
+  needs: 'unlock' | 'setup' | null
   x: number
   y: number
 }
@@ -79,6 +81,39 @@ export interface AuthPopupState {
 
 export interface CleanupPopupState {
   rows: CleanupRow[]
+  x: number
+  y: number
+}
+
+export interface TabSearchState {
+  rows: TabSearchRow[]
+  x: number
+  y: number
+}
+
+/** Asks before a link opens another app, such as `claude://`. */
+export interface AppLinkPromptState {
+  url: string
+  scheme: string
+  appName: string
+  /** The site asking, or null when the person entered the address themselves. */
+  host: string | null
+  x: number
+  y: number
+}
+
+export interface ExtensionRow {
+  id: string
+  name: string
+  /** A data address. */
+  icon: string | null
+  pinned: boolean
+  hasAction: boolean
+}
+
+export interface ExtensionsPopupState {
+  rows: ExtensionRow[]
+  height: number
   x: number
   y: number
 }
@@ -110,6 +145,11 @@ export interface OverlayView extends OverlayState {
   permission: PermissionPopupState | null
   /** Left edge and top of the command palette, when it's open. */
   palette: { x: number; y: number } | null
+  tabSearch: TabSearchState | null
+  appLink: AppLinkPromptState | null
+  extensionsPopup: ExtensionsPopupState | null
+  /** The border and shadow of an extension's panel, whose page is a native view above this. */
+  extensionFrame: PageRect | null
   accent: AccentId
   /** Brief confirmation near the top right of the page. */
   toast: { text: string; x: number; y: number } | null
@@ -136,6 +176,8 @@ export const BOOKMARK_POPUP = { width: 320, height: 248, inset: 8 }
 export const PERMISSION_POPUP = { width: 340, height: 120, inset: 8 }
 export const ANSWER_HEIGHT = 300
 export const AUTH_POPUP = { width: 340, height: 248 }
+export const EXTENSIONS_POPUP = { width: 320, rowHeight: 36, chrome: 98, maxHeight: 460 }
+export const APP_LINK_POPUP = { width: 360, height: 132 }
 export const PASSWORD_POPUP = { width: 340, height: 96, inset: 8 }
 export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
 export const WORKSPACE_POPUP = { width: 300, height: 188 }
@@ -155,6 +197,9 @@ export function overlayRegions(state: OverlayView): PageRect[] {
   const popups = [
     state.auth && { ...state.auth, ...AUTH_POPUP },
     state.passwordPrompt && { ...state.passwordPrompt, width: PASSWORD_POPUP.width, height: PASSWORD_POPUP.height },
+    state.appLink && { ...state.appLink, ...APP_LINK_POPUP },
+    state.extensionsPopup && { ...state.extensionsPopup, width: EXTENSIONS_POPUP.width },
+    state.extensionFrame,
     state.cleanup && { ...state.cleanup, ...CLEANUP_POPUP },
     state.workspaceEditor && { ...state.workspaceEditor, ...WORKSPACE_POPUP }
   ]
@@ -180,10 +225,11 @@ export function overlayRegions(state: OverlayView): PageRect[] {
       height: BOOKMARK_POPUP.height + OVERLAY_MARGIN * 2
     })
   }
-  if (state.palette) {
+  for (const popup of [state.palette, state.tabSearch]) {
+    if (!popup) continue
     regions.push({
-      x: state.palette.x - OVERLAY_MARGIN,
-      y: state.palette.y - OVERLAY_MARGIN,
+      x: popup.x - OVERLAY_MARGIN,
+      y: popup.y - OVERLAY_MARGIN,
       width: PALETTE_POPUP.width + OVERLAY_MARGIN * 2,
       height: PALETTE_POPUP.height + OVERLAY_MARGIN * 2
     })

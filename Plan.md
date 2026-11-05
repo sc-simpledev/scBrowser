@@ -48,8 +48,11 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; o
 - [x] Cosmetic filtering (hides ad placeholders with CSS once a page has loaded; ads added later aren't caught yet)
 - [x] Containers, from the tab menu
 - [x] Separate profiles, opened from Settings as their own window
-- [x] Split view (from the tab menu or Ctrl K, 50/50, restored after a restart)
-- [x] Vertical tabs as the default, with close on the favicon
+- [x] Save offers while the vault is locked, address and details autofill, turning extensions off, a translate language menu, icons for all internal pages, and an update screen
+- [x] Several browser windows (restored after a restart), open link in new window, installed sites, a Task Manager, and developer tools docked at the side
+- [x] A fuller page menu, view source, spell check with suggestions, Open file, `javascript:` addresses and bookmarklets, and app links that ask first
+- [x] Split view (from the toolbar, More menu, tab menu or Ctrl K, with a draggable divider, restored after a restart)
+- [x] Vertical tabs as the default, with close on the right (on the favicon in the narrow rail)
 - [x] Toolbar items can be shown, hidden and dragged around the address bar. Assistant, Profiles and More stay at the end, and a narrow window moves spare buttons into More
 - [x] `sc://flags`, screenshot tool (Ctrl Shift S)
 - [x] Import bookmarks and history from Chrome, Edge, Brave, Chromium and Firefox

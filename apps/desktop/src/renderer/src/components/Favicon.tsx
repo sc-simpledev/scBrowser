@@ -1,4 +1,4 @@
-import { Bookmark, Bot, Download, FileText, FlaskConical, Globe, History, MessageCircle, Plus, Settings, type LucideIcon } from 'lucide-react'
+import { Activity, AppWindow, Bookmark, BookOpen, Bot, CodeXml, Download, FileText, FlaskConical, Globe, History, KeyRound, MessageCircle, Network, Plus, Settings, ShieldBan, Sparkles, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { cx } from '@scbrowser/ui'
 
@@ -11,7 +11,15 @@ const INTERNAL_ICONS: Record<string, LucideIcon> = {
   flags: FlaskConical,
   history: History,
   bookmarks: Bookmark,
-  downloads: Download
+  downloads: Download,
+  tasks: Activity,
+  passwords: KeyRound,
+  vpn: Network,
+  blocker: ShieldBan,
+  blocked: ShieldBan,
+  reader: BookOpen,
+  error: TriangleAlert,
+  welcome: Sparkles
 }
 
 interface FaviconProps {
@@ -34,7 +42,9 @@ export function Favicon({ url, pageUrl, isLoading }: FaviconProps) {
   }
   const Internal = /^sc:\/\/(\w+)/.exec(pageUrl)?.[1]
   const Icon = Internal ? INTERNAL_ICONS[Internal] : undefined
-  if (Icon) return <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+  // Anything of scTerra's own always has something to show, and source views have no icon of their own.
+  const Own = Icon ?? (Internal ? AppWindow : pageUrl.startsWith('view-source:') ? CodeXml : undefined)
+  if (Own) return <Own aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
   if (!url || failedUrl === url) {
     return <Globe aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
   }

@@ -1,10 +1,10 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
-import { useEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
+import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, fullToolbarOrder, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
-import { useActiveTab } from '../state/tabs'
+import { useActiveTab, useTabs } from '../state/tabs'
 import { Omnibox } from './Omnibox'
 
 function DownloadsButton() {
@@ -109,7 +109,7 @@ const ALIGNMENT = 'bottom left'
 
 /** The menu of all extensions, and the buttons of those pinned to the toolbar. */
 function ExtensionsButtons({ container }: { container: string | null | undefined }) {
-  const [summary, setSummary] = useState<ExtensionSummary>({ unpinned: [], panelOnClick: [] })
+  const [summary, setSummary] = useState<ExtensionSummary>({ display: 'panel', unpinned: [], panelOnClick: [] })
   const list = useRef<HTMLElement>(null)
   const menuButton = useRef<HTMLSpanElement>(null)
   const partition = container ? containerPartition(container) : undefined
@@ -132,6 +132,19 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
     style.textContent = ids.length > 0 ? `${ids.map((id) => `#${id}`).join(',')}{display:none}` : ''
   }, [summary])
 
+  // Panels hang from this button, wherever it's been dragged to.
+  useLayoutEffect(() => {
+    const report = () => {
+      const button = menuButton.current
+      if (!button) return
+      const { x, y, width, height } = button.getBoundingClientRect()
+      void window.scb.invoke('extensions:anchor', { x, y, width, height })
+    }
+    report()
+    window.addEventListener('resize', report)
+    return () => window.removeEventListener('resize', report)
+  })
+
   useEffect(
     () =>
       window.scb.on('extensions:activate', (extensionId) => {
@@ -147,10 +160,16 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
       className="flex items-center gap-1"
       // Caught on the way down, before the button itself would open a popup or tell the extension.
       onClickCapture={(e) => {
-        const { id } = e.nativeEvent.composedPath()[0] as HTMLElement
-        if (!summary.panelOnClick.includes(id)) return
-        e.stopPropagation()
-        void window.scb.invoke('extensions:panel-toggle', id)
+        const button = e.nativeEvent.composedPath().find((target) => /^[a-p]{32}$/.test((target as HTMLElement).id ?? '')) as HTMLElement | undefined
+        if (!button) return
+        const { id } = button
+        if (summary.display === 'panel') {
+          e.stopPropagation()
+          void window.scb.invoke('extensions:open', id)
+        } else if (summary.panelOnClick.includes(id)) {
+          e.stopPropagation()
+          void window.scb.invoke('extensions:panel-toggle', id)
+        }
       }}
     >
       <browser-action-list ref={list} class="sc-no-drag" partition={partition} alignment={ALIGNMENT} />
@@ -169,7 +188,23 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
   )
 }
 
-const SPARE_SLOTS: ToolbarSlot[] = ['vpn', 'downloads', 'passwords', 'extensions']
+const SPARE_SLOTS: ToolbarSlot[] = ['split', 'vpn', 'downloads', 'passwords', 'extensions']
+
+function SplitButton() {
+  const splitOn = useTabs((s) => s.splitIds.length > 0)
+  const canSplit = useTabs((s) => s.tabs.length > 1)
+  return (
+    <IconButton
+      label={splitOn ? 'End split view' : 'Split view'}
+      aria-pressed={splitOn}
+      disabled={!splitOn && !canSplit}
+      className={splitOn ? 'text-accent' : undefined}
+      onClick={() => void window.scb.invoke('tabs:split-toggle')}
+    >
+      <Columns2 size={15} strokeWidth={1.75} />
+    </IconButton>
+  )
+}
 
 /** Shows once a new version is on its way, and stays out of sight the rest of the time. */
 function UpdateButton() {
@@ -266,6 +301,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
         <RotateCw size={15} strokeWidth={1.75} />
       </IconButton>
     ),
+    split: <SplitButton />,
     vpn: <VpnButton />,
     omnibox: <Omnibox />,
     downloads: <DownloadsButton />,

@@ -1,4 +1,5 @@
 import { clipboard, type WebContents } from 'electron'
+import type { Identity } from '@scbrowser/shared'
 
 /** Its own isolated world, so the page's scripts can't see what's done here. */
 const WORLD = 1004
@@ -59,6 +60,63 @@ const WATCH = `new Promise((resolve) => {
 
 export function fillLogin(contents: WebContents, username: string, password: string): Promise<boolean> {
   return contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: fillCode(username, password) }], true) as Promise<boolean>
+}
+
+/**
+ * Fills empty fields, in the form being used or else the page, reading what each one is for from
+ * its autocomplete hint and then its labels. Anything for a card, a login or an ID is left alone.
+ */
+const detailsCode = (identity: Identity) => {
+  const [first = '', ...rest] = identity.fullName.split(/\s+/)
+  const values = { ...identity, givenName: first, familyName: rest.join(' ') }
+  return `(() => {
+  const values = ${JSON.stringify(values)}
+  const HINTS = { name: 'fullName', 'given-name': 'givenName', 'family-name': 'familyName', email: 'email', tel: 'phone', 'tel-national': 'phone', organization: 'organization', 'street-address': 'address1', 'address-line1': 'address1', 'address-line2': 'address2', 'address-level2': 'city', 'address-level1': 'region', 'postal-code': 'postalCode', country: 'country', 'country-name': 'country' }
+  const SKIP = /user.?name|login|password|passcode|card|\\bcc\\b|cc-|cvv|cvc|iban|\\bssn\\b|passport|licen[cs]e|tax|captcha|coupon|promo|search|one-time/i
+  const RULES = [
+    ['email', /e.?mail/i], ['phone', /phone|mobile|\\btel\\b/i], ['organization', /company|organi[sz]ation|business/i],
+    ['address2', /address.?(line)?.?2|addr.?2|apartment|\\bapt\\b|\\bunit\\b|suite/i], ['address1', /address.?(line)?.?1|addr.?1|street|address/i],
+    ['city', /city|town|suburb|locality/i], ['postalCode', /post.?code|postal|\\bzip/i], ['region', /state|province|region|county/i], ['country', /country/i],
+    ['givenName', /first.?name|given.?name|fname/i], ['familyName', /last.?name|family.?name|surname|lname/i], ['fullName', /full.?name|your.?name|\\bname\\b/i]
+  ]
+  const visible = (el) => { const box = el.getBoundingClientRect(); return box.width > 0 && box.height > 0 && getComputedStyle(el).visibility !== 'hidden' }
+  const describe = (el) => [el.name, el.id, el.placeholder, el.getAttribute('aria-label'), ...[...(el.labels ?? [])].map((label) => label.textContent)].filter(Boolean).join(' ')
+  const purpose = (el) => {
+    const hint = (el.getAttribute('autocomplete') ?? '').trim().split(/\\s+/).at(-1)
+    if (hint && HINTS[hint]) return HINTS[hint]
+    if (/^(cc-|username|current-password|new-password|one-time-code)/.test(hint ?? '')) return null
+    const text = describe(el)
+    if (SKIP.test(text)) return null
+    return RULES.find(([, pattern]) => pattern.test(text))?.[0] ?? null
+  }
+  const put = (el, value) => {
+    if (el.tagName === 'SELECT') {
+      const wanted = value.toLowerCase()
+      const option = [...el.options].find((o) => o.value.toLowerCase() === wanted || o.textContent.trim().toLowerCase() === wanted)
+      if (!option) return false
+      el.value = option.value
+    } else {
+      el.value = value
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  }
+  const root = document.activeElement?.form ?? document
+  let filled = 0
+  for (const el of root.querySelectorAll('input, textarea, select')) {
+    if (el.disabled || el.readOnly || !visible(el) || ['password', 'hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'image', 'reset', 'date', 'number', 'range', 'color'].includes(el.type)) continue
+    if (el.tagName === 'SELECT' ? el.selectedIndex > 0 : el.value) continue
+    const value = values[purpose(el)]
+    if (value && put(el, value)) filled++
+  }
+  return filled
+})()`
+}
+
+/** Only ever by request, and only in the page's top frame. Returns how many fields were filled. */
+export function fillDetails(contents: WebContents, identity: Identity): Promise<number> {
+  return contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: detailsCode(identity) }], true) as Promise<number>
 }
 
 export interface EnteredLogin {

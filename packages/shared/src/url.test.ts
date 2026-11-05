@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { displayUrl, errorPageUrl, isNewTabUrl, NEW_TAB_URL, resolveOmniboxInput } from './url'
+import { appScheme, displayUrl, errorPageUrl, isJavascriptUrl, isNewTabUrl, isTypedAppUrl, javascriptUrlCode, NEW_TAB_URL, resolveOmniboxInput } from './url'
 
 describe('resolveOmniboxInput', () => {
   it.each([
@@ -15,7 +15,7 @@ describe('resolveOmniboxInput', () => {
     expect(resolveOmniboxInput(input)).toBe(expected)
   })
 
-  it.each(['how do browsers work', 'electron', 'example.com is down', 'javascript:alert(1)'])(
+  it.each(['how do browsers work', 'electron', 'example.com is down', 'javascript: the good parts'])(
     'searches for %s',
     (input) => {
       expect(resolveOmniboxInput(input)).toBe(`https://duckduckgo.com/?q=${encodeURIComponent(input)}`)
@@ -34,5 +34,38 @@ describe('displayUrl', () => {
     expect(isNewTabUrl('sc://newtab/')).toBe(true)
     expect(displayUrl(errorPageUrl('https://down.example/a?b=1', 'Timed out'))).toBe('https://down.example/a?b=1')
     expect(displayUrl('https://example.com/')).toBe('https://example.com/')
+  })
+})
+
+describe('app links', () => {
+  it.each(['claude://chat', 'karing://install?url=x', 'mailto:a@b.example', 'steam:run'])('%s belongs to another app', (url) => {
+    expect(appScheme(url)).not.toBeNull()
+  })
+
+  it.each(['http://a.example', 'file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,x', 'sc://settings', 'ms-msdt:x', 'search-ms:x', 'ssh://a', 'has space://x'])('%s never opens an app', (url) => {
+    expect(appScheme(url)).toBeNull()
+  })
+
+  it('only counts typed text as a link when it clearly is one', () => {
+    expect(isTypedAppUrl('claude://chat')).toBe(true)
+    expect(isTypedAppUrl('mailto:a@b.example')).toBe(true)
+    expect(isTypedAppUrl('localhost:3000')).toBe(false)
+    expect(isTypedAppUrl('note:milk')).toBe(false)
+    expect(resolveOmniboxInput('claude://chat')).toBe('claude://chat')
+    expect(resolveOmniboxInput('localhost:3000')).toBe('http://localhost:3000')
+  })
+})
+
+describe('javascript addresses', () => {
+  it('tells a script from a search', () => {
+    expect(isJavascriptUrl('javascript:alert(1)')).toBe(true)
+    expect(isJavascriptUrl('  JavaScript:void(0)')).toBe(true)
+    expect(isJavascriptUrl('javascript: the good parts')).toBe(false)
+    expect(resolveOmniboxInput('javascript:alert(1)')).toBe('javascript:alert(1)')
+  })
+
+  it('decodes the script, and survives bad escapes', () => {
+    expect(javascriptUrlCode('javascript:alert(%22hi%22)')).toBe('alert("hi")')
+    expect(javascriptUrlCode('javascript:a%zz')).toBe('a%zz')
   })
 })

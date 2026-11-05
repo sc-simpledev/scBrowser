@@ -12,6 +12,8 @@ export const useTabs = create<TabsStore>((set) => ({
   tabs: [],
   activeId: null,
   splitIds: [],
+  splitRatio: 0.5,
+  devToolsWidth: 0,
   workspaces: [DEFAULT_WORKSPACE],
   activeWorkspace: DEFAULT_WORKSPACE.id,
   omniboxFocusRequest: 0,

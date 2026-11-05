@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useState } from 'react'
 import { IconButton } from '@scbrowser/ui'
 import { useTabs } from '../state/tabs'
@@ -29,6 +29,9 @@ export function TabStrip() {
         ))}
         <IconButton label="New tab" shortcut="Ctrl T" onClick={() => void window.scb.invoke('tabs:create')}>
           <Plus size={16} strokeWidth={1.75} />
+        </IconButton>
+        <IconButton label="Search tabs" shortcut="Ctrl Shift E" onClick={() => void window.scb.invoke('tabs:search')}>
+          <Search size={15} strokeWidth={1.75} />
         </IconButton>
       </div>
       {/* Always leave a strip of empty space to drag the window by. */}

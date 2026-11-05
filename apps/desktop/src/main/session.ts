@@ -1,14 +1,19 @@
 import type { KeyValueRepo } from './storage/kv'
-import type { SavedTab, TabManager } from './tabs/TabManager'
+import type { Rectangle } from 'electron'
+import type { SavedTab } from './tabs/TabManager'
 
 const KEY = 'session'
+/** Every window but the first. The first stays under the old key, so older sessions still load. */
+const EXTRA_KEY = 'session:extra-windows'
 const SAVE_DELAY_MS = 1000
 
-interface SavedSession {
+export interface SavedSession {
   tabs: SavedTab[]
   activeIndex: number
   /** The two tabs in split view, as positions in `tabs`. */
   split?: [number, number] | null
+  splitRatio?: number
+  bounds?: Rectangle
 }
 
 const isSavedTab = (value: unknown): value is SavedTab => {
@@ -24,11 +29,20 @@ const isSavedTab = (value: unknown): value is SavedTab => {
 }
 
 export function loadSession(kv: KeyValueRepo): SavedSession | null {
-  const saved = kv.get(KEY) as SavedSession | undefined
+  return parseSession(kv.get(KEY))
+}
+
+export function loadExtraSessions(kv: KeyValueRepo): SavedSession[] {
+  const saved = kv.get(EXTRA_KEY)
+  return Array.isArray(saved) ? saved.flatMap((entry) => parseSession(entry) ?? []) : []
+}
+
+function parseSession(value: unknown): SavedSession | null {
+  const saved = value as SavedSession | undefined
   if (!saved || !Array.isArray(saved.tabs)) return null
   const tabs = saved.tabs.filter(isSavedTab)
   const split = Array.isArray(saved.split) && saved.split.length === 2 && saved.tabs.length === tabs.length && saved.split.every((index) => Number.isInteger(index) && tabs[index]) ? saved.split : null
-  return tabs.length > 0 ? { tabs, activeIndex: Number(saved.activeIndex) || 0, split } : null
+  return tabs.length > 0 ? { tabs, activeIndex: Number(saved.activeIndex) || 0, split, splitRatio: Number(saved.splitRatio) || undefined, bounds: saved.bounds } : null
 }
 
 /**
@@ -41,7 +55,7 @@ export class SessionSaver {
 
   constructor(
     private readonly kv: KeyValueRepo,
-    private readonly tabs: TabManager
+    private readonly windows: () => SavedSession[]
   ) {}
 
   schedule(): void {
@@ -52,7 +66,10 @@ export class SessionSaver {
   flush(): void {
     clearTimeout(this.timer)
     this.timer = undefined
-    this.kv.set(KEY, this.tabs.session())
+    const [first, ...others] = this.windows()
+    if (this.stopped || !first) return
+    this.kv.set(KEY, first)
+    this.kv.set(EXTRA_KEY, others)
   }
 
   /** Stops saving for good; the database may close after this. */

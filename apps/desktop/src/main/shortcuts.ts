@@ -19,7 +19,26 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   }
   const onActive = (action: (id: number) => void) => run(() => active && action(active.id))
 
+  // An installed site's window has one page, so only what acts on that page applies.
+  if (actions.appWindow) {
+    if (mod && key === 'w') return onActive((id) => tabs.close(id))
+    if ((mod && key === 'r') || key === 'f5') return onActive((id) => tabs.reload(id, input.shift || (mod && key === 'f5')))
+    if (input.alt && key === 'arrowleft') return onActive((id) => tabs.back(id))
+    if (input.alt && key === 'arrowright') return onActive((id) => tabs.forward(id))
+    if (key === 'f12' || (mod && input.shift && key === 'i')) return onActive((id) => tabs.toggleDevTools(id))
+    if (key === 'f11') return run(actions.toggleFullscreen)
+    if (mod && !input.shift && key === 'f') return run(actions.openFind)
+    if (mod && !input.shift && key === 'p') return onActive((id) => tabs.print(id))
+    if (mod && (key === '=' || key === '+')) return onActive((id) => tabs.zoomBy(id, 1))
+    if (mod && key === '-') return onActive((id) => tabs.zoomBy(id, -1))
+    if (mod && key === '0') return onActive((id) => tabs.setZoom(id, 1))
+    if (mod && !input.shift && key === 'q') return run(actions.quit)
+    return false
+  }
+
   if (mod && !input.shift && key === 't') return run(() => tabs.create())
+  if (mod && !input.shift && key === 'n') return run(() => actions.openWindow())
+  if (input.shift && key === 'escape') return run(() => actions.openPage('tasks'))
   if (mod && input.shift && key === 't') return run(() => tabs.reopenClosed())
   if (mod && key === 'w') return onActive((id) => tabs.close(id))
   if (mod && input.shift && key === 'l') return run(actions.passwordMenu)
@@ -41,6 +60,9 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (mod && !input.shift && key === 'f') return run(actions.openFind)
   if (mod && !input.shift && key === 'd') return run(actions.toggleBookmark)
   if (mod && !input.shift && key === 'k') return run(actions.togglePalette)
+  if (mod && input.shift && key === 'e') return run(actions.searchTabs)
+  if (mod && !input.shift && key === 'o') return run(actions.openFile)
+  if (mod && !input.shift && key === 'u') return run(actions.viewSource)
   if (key === 'f9') return run(actions.toggleReader)
   if (mod && input.shift && key === 's') return run(actions.screenshot)
   if (mod && input.shift && key === 'a') return run(actions.toggleAssistant)

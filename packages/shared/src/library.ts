@@ -61,10 +61,12 @@ export interface DownloadInfo {
 export type DownloadAction = 'pause' | 'resume' | 'cancel' | 'open' | 'show' | 'remove'
 
 export type SitePermission = 'camera' | 'microphone' | 'notifications' | 'location' | 'clipboard' | 'midi'
+/** Leave for a site to open a kind of app link without asking each time. */
+export type AppLinkPermission = `app:${string}`
 
 export interface PermissionDecision {
   origin: string
-  permission: SitePermission
+  permission: SitePermission | AppLinkPermission
   allowed: boolean
 }
 
@@ -83,5 +85,28 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'use MIDI devices'
 }
 
-export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'passwords', 'downloads', 'blocker', 'vpn', 'flags'] as const
+export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'passwords', 'downloads', 'blocker', 'vpn', 'tasks', 'flags'] as const
 export type InternalPage = (typeof INTERNAL_PAGES)[number]
+
+/** A site installed with its own window and system shortcut. */
+export interface WebApp {
+  id: string
+  name: string
+  url: string
+}
+
+/** One process, in the Task Manager. */
+export interface TaskRow {
+  pid: number
+  kind: 'Tab' | 'Browser' | 'Extension' | 'System'
+  name: string
+  memoryKb: number
+  cpu: number
+  /** Only processes holding nothing but web pages can be ended. */
+  canEnd: boolean
+}
+
+export interface TaskList {
+  rows: TaskRow[]
+  sleeping: number
+}

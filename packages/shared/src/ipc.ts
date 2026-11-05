@@ -1,12 +1,12 @@
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ExtensionPanelState, ExtensionSummary, ImportResult, ImportSource } from './containers'
-import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision } from './library'
+import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision, TaskList, WebApp } from './library'
 import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
-import type { PasswordEntry, PasswordState, PasswordSummary } from './passwords'
+import type { PasswordEntry, PasswordState, PasswordSummary, Identity } from './passwords'
 import type { ReportFormat } from './report'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
@@ -31,6 +31,15 @@ export interface ChromeCommands {
   'search:suggestions': (query: string) => Promise<string[]>
   'overlay:set': (state: OverlayState) => void
   'tabs:move': (id: TabId, index: number) => void
+  'tabs:mute': (id: TabId, muted: boolean) => void
+  'tabs:search': () => void
+  /** An installed site's window hands its page over to the full browser. */
+  'tabs:open-in-browser': () => void
+  'tabs:devtools-width': (width: number) => void
+  'browser:new-window': () => void
+  /** Splits with the next tab, or ends split view. */
+  'tabs:split-toggle': () => void
+  'tabs:split-ratio': (ratio: number) => void
   'tabs:context-menu': (id: TabId) => void
   'tabs:open-in-background': (url: string) => void
   'bookmarks:list': () => Bookmark[]
@@ -77,6 +86,10 @@ export interface ChromeCommands {
   'layout:resizing': (resizing: boolean) => void
   'extensions:summary': () => ExtensionSummary
   'extensions:menu': (x: number, y: number) => void
+  /** Where the toolbar's Extensions button is, for hanging panels from. */
+  'extensions:anchor': (rect: PageRect) => void
+  /** What pressing an extension's toolbar button does, in the panel way of working. */
+  'extensions:open': (id: string) => void
   'extensions:panel-state': () => ExtensionPanelState | null
   'extensions:panel-rect': (rect: PageRect) => void
   'extensions:panel-toggle': (id: string) => void
@@ -130,6 +143,12 @@ export interface OverlayCommands {
   'overlay:permission': (requestId: number, allow: boolean) => void
   'overlay:palette-run': (id: string) => void
   'overlay:palette-close': () => void
+  'overlay:app-link-answer': (choice: 'open' | 'always' | 'cancel') => void
+  'overlay:extensions-action': (action: 'open' | 'pin' | 'menu' | 'store' | 'manage', id: string, x: number, y: number) => void
+  'overlay:extensions-close': () => void
+  'overlay:tab-search-pick': (id: TabId) => void
+  'overlay:tab-search-remove': (id: TabId) => void
+  'overlay:tab-search-close': () => void
   /** Returns what's wrong, or null once saved. */
   'overlay:bookmark-save': (edit: BookmarkEdit) => string | null
   'overlay:bookmark-remove': (id: number) => void
@@ -170,6 +189,13 @@ export const COMMAND_CHANNELS = [
   'search:suggestions',
   'overlay:set',
   'tabs:move',
+  'tabs:mute',
+  'tabs:search',
+  'tabs:open-in-browser',
+  'tabs:devtools-width',
+  'browser:new-window',
+  'tabs:split-toggle',
+  'tabs:split-ratio',
   'tabs:context-menu',
   'tabs:open-in-background',
   'bookmarks:list',
@@ -213,6 +239,8 @@ export const COMMAND_CHANNELS = [
   'layout:resizing',
   'extensions:summary',
   'extensions:menu',
+  'extensions:anchor',
+  'extensions:open',
   'extensions:panel-state',
   'extensions:panel-rect',
   'extensions:panel-toggle',
@@ -254,7 +282,7 @@ export const EVENT_CHANNELS = [
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -288,6 +316,13 @@ export interface InternalCommands {
   'downloads:list': () => DownloadInfo[]
   'downloads:action': (id: string, action: DownloadAction) => void
   'downloads:clear': () => void
+  /** Languages that have a dictionary. Empty on a Mac, which uses the system's own. */
+  'spelling:languages': () => string[]
+  'tasks:list': () => TaskList
+  'tasks:end': (pid: number) => void
+  'apps:list': () => WebApp[]
+  'apps:open': (url: string) => void
+  'apps:remove': (id: string) => void
   'permissions:list': () => PermissionDecision[]
   'permissions:revoke': (origin: string, permission: string) => void
   'browser:is-default': () => boolean
@@ -321,6 +356,10 @@ export interface InternalCommands {
   'extensions:list': () => ExtensionInfo[]
   'extensions:add': () => string | null
   'extensions:remove': (id: string) => void
+  'extensions:set-enabled': (id: string, enabled: boolean) => void
+  'autofill:list': () => Identity[]
+  'autofill:save': (identity: Identity) => string
+  'autofill:remove': (id: string) => void
   'history:ask': (query: string) => HistoryEntry[] | null
   'ai:enable-hosted': () => void
   'ai:save-skills': (skills: Skill[]) => void
@@ -423,6 +462,12 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'downloads:list',
   'downloads:action',
   'downloads:clear',
+  'spelling:languages',
+  'tasks:list',
+  'tasks:end',
+  'apps:list',
+  'apps:open',
+  'apps:remove',
   'permissions:list',
   'permissions:revoke',
   'browser:is-default',
@@ -447,6 +492,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'extensions:list',
   'extensions:add',
   'extensions:remove',
+  'extensions:set-enabled',
+  'autofill:list',
+  'autofill:save',
+  'autofill:remove',
   'history:ask',
   'ai:enable-hosted',
   'ai:save-skills',

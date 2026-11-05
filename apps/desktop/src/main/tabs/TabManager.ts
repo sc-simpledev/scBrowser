@@ -3,16 +3,23 @@ import { session, WebContentsView, type AuthInfo, type AuthenticationResponseDet
 import {
   containerPartition,
   DEFAULT_WORKSPACE,
+  appScheme,
   effectiveUrl,
+  clampSplitRatio,
   ERROR_PAGE_URL,
+  isJavascriptUrl,
   isNewTabUrl,
   isReaderUrl,
   NEW_TAB_URL,
   resolveOmniboxInput,
+  SPLIT_GAP,
+  SPLIT_RATIO,
+  splitLeftWidth,
   type CleanupInput,
   type PageRect,
   type SearchEngine,
   type TabId,
+  type TabSearchRow,
   type TabState,
   type TabsSnapshot,
   type Workspace
@@ -29,12 +36,16 @@ export interface SavedTab {
   group?: string | null
   workspace?: string
   lastActiveAt?: number
+  pinned?: boolean
+  muted?: boolean
 }
 
 interface Tab {
   state: TabState
   /** The tab whose page opened this one as a popup. */
   openerId?: TabId
+  /** The side bar with developer tools in it, while they're open. */
+  devTools?: WebContentsView
   /** Null while asleep: the page is unloaded and only `saved` remains. */
   view: WebContentsView | null
   saved: SavedTab | null
@@ -42,6 +53,16 @@ interface Tab {
 }
 
 interface TabManagerOptions {
+  /** An installed site's window keeps to one page: everything else opens in the full browser. */
+  otherWindow?: (url: string, container: string | null) => void
+  /** The site an installed app's window belongs to. */
+  appOrigin?: string
+  /** Whether the window goes when its last tab does, rather than opening a new one. */
+  closeWhenEmpty: () => boolean
+  devToolsWidth: () => number
+  onDevToolsWidth: (width: number) => void
+  /** The side bar's own contents, for shortcuts and for keeping popups above it. */
+  onDevToolsCreated: (contents: WebContents) => void
   /** Called (coalesced per tick) whenever any tab or the active tab changes. */
   onChange: (snapshot: TabsSnapshot) => void
   /** Lets the caller hook keyboard shortcuts and other per-tab behaviour. */
@@ -70,10 +91,15 @@ interface TabManagerOptions {
   onWorkspaceChange: (next: Workspace, previous: Workspace | undefined) => void
   /** The page an extension shows in place of the new tab page, if one does. */
   newTabPage: (session: Session) => string | null
+  /** A page's `window.open` or `target=_blank` link goes to another app. */
+  onAppLink: (contents: WebContents, url: string, requester: string) => void
 }
 
 const PAGE_RADIUS = 0
-const SPLIT_GAP = 6
+/** Developer tools never squeeze the page below this, and have the same limit themselves. */
+const MIN_DOCKED = 240
+/** Unique across windows, as things like the assistant find tabs by id alone. */
+let nextTabId = 1
 const CLOSED_TABS_LIMIT = 25
 const ABORTED = -3
 /** The site blocker stopped the load, and shows its own page. */
@@ -90,7 +116,6 @@ export class TabManager {
   private readonly tabs = new Map<TabId, Tab>()
   private order: TabId[] = []
   private activeId: TabId | null = null
-  private nextId = 1
   private pageRect: PageRect = { x: 0, y: 0, width: 0, height: 0 }
   private resizing = false
   private closed: SavedTab[] = []
@@ -98,6 +123,7 @@ export class TabManager {
   private fullscreen = false
   /** Left and right tabs while split view is on. */
   private split: [TabId, TabId] | null = null
+  private splitRatio = SPLIT_RATIO.standard
   /** This tab covers the whole window, for the first-run intro. */
   private immersiveId: TabId | null = null
   private workspaces: Workspace[]
@@ -110,6 +136,15 @@ export class TabManager {
     workspaces: Workspace[] = [DEFAULT_WORKSPACE]
   ) {
     this.workspaces = workspaces
+  }
+
+  /** Tabs with their page, as a person can see them. */
+  taskInfo(): { contents: WebContents; title: string; url: string }[] {
+    return [...this.tabs.values()].flatMap(({ view, state }) => (view && !view.webContents.isDestroyed() ? [{ contents: view.webContents, title: state.title, url: state.url }] : []))
+  }
+
+  sleepingCount(): number {
+    return [...this.tabs.values()].filter((tab) => !tab.view).length
   }
 
   /** Tabs in the open workspace, which is all that's ever shown. */
@@ -166,7 +201,7 @@ export class TabManager {
     return this.visible.flatMap((id) => {
       const tab = this.tabs.get(id)!
       const url = effectiveUrl(tab.state.url)
-      return isInternal(url) && !isNewTabUrl(url) ? [] : [{ id, url, title: tab.state.title, lastActiveAt: tab.lastActiveAt }]
+      return tab.state.pinned || (isInternal(url) && !isNewTabUrl(url)) ? [] : [{ id, url, title: tab.state.title, lastActiveAt: tab.lastActiveAt }]
     })
   }
 
@@ -184,7 +219,12 @@ export class TabManager {
     url: string = NEW_TAB_URL,
     { activate = true, afterId, container = null }: { activate?: boolean; afterId?: TabId; container?: string | null } = {}
   ): TabId {
-    const tab = this.addTab(url, null, afterId)
+    if (this.options.otherWindow && this.order.length > 0) {
+      this.options.otherWindow(url, container)
+      return this.activeId!
+    }
+    // Only the browser's own controls may run a script, through `openAddress` in window.ts.
+    const tab = this.addTab(isJavascriptUrl(url) ? NEW_TAB_URL : url, null, afterId)
     tab.state.container = container
     tab.state.workspace = this.workspaceId
     this.wake(tab)
@@ -194,7 +234,8 @@ export class TabManager {
   }
 
   /** Adds saved tabs without loading them; only the one that gets activated wakes up. */
-  restore(saved: SavedTab[], activeIndex: number, split: [number, number] | null = null): void {
+  restore(saved: SavedTab[], activeIndex: number, split: [number, number] | null = null, splitRatio?: number): void {
+    if (splitRatio) this.splitRatio = clampSplitRatio(splitRatio)
     const known = (id: string | undefined) => this.workspaces.some((w) => w.id === id)
     const ids = saved.map((tab) => this.addTab(tab.url, { ...tab, workspace: known(tab.workspace) ? tab.workspace : DEFAULT_WORKSPACE.id }).state.id)
     const active = ids[activeIndex] ?? ids[0]
@@ -225,6 +266,10 @@ export class TabManager {
       const next = opener ?? this.visible[index] ?? this.visible[index - 1]
       if (next !== undefined) this.activate(next)
     }
+    if (this.order.length === 0 && this.options.closeWhenEmpty()) {
+      this.window.close()
+      return
+    }
     if (this.visible.length === 0) this.create()
     this.emitChange()
   }
@@ -242,11 +287,13 @@ export class TabManager {
     const grouped = groups.flatMap(({ name, ids }) =>
       ids.filter((id) => {
         const tab = this.tabs.get(id)
-        if (tab) tab.state.group = name
-        return !!tab
+        // Pinned tabs stay where they were put.
+        if (tab && !tab.state.pinned) tab.state.group = name
+        return !!tab && !tab.state.pinned
       })
     )
     this.order = [...grouped, ...this.order.filter((id) => !grouped.includes(id))]
+    this.settlePinned()
     this.emitChange()
   }
 
@@ -255,8 +302,62 @@ export class TabManager {
     this.emitChange()
   }
 
+  /** Pinned tabs stay, as they're the ones someone chose to keep. */
   closeOthers(id: TabId): void {
-    for (const other of this.visible) if (other !== id) this.close(other)
+    for (const other of this.visible) if (other !== id && !this.tabs.get(other)?.state.pinned) this.close(other)
+  }
+
+  setPinned(id: TabId, pinned: boolean): void {
+    const tab = this.tabs.get(id)
+    if (!tab || tab.state.pinned === pinned) return
+    tab.state.pinned = pinned
+    if (pinned) {
+      tab.state.group = null
+      // Joins the end of the pinned tabs rather than wherever it was.
+      this.order.splice(this.order.indexOf(id), 1)
+      const lastPinned = this.order.findLastIndex((other) => this.tabs.get(other)?.state.pinned)
+      this.order.splice(lastPinned + 1, 0, id)
+    } else {
+      this.settlePinned()
+    }
+    this.emitChange()
+  }
+
+  setMuted(id: TabId, muted: boolean): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    tab.state.muted = muted
+    tab.view?.webContents.setAudioMuted(muted)
+    this.emitChange()
+  }
+
+  /** Every tab, in any workspace, for tab search. */
+  searchRows(): TabSearchRow[] {
+    return this.order.flatMap((id) => {
+      const tab = this.tabs.get(id)
+      if (!tab) return []
+      const { title, url, faviconUrl, isLoading, pinned, audible, muted, workspace } = tab.state
+      return [{
+        id,
+        title: title || (isNewTabUrl(url) ? 'New tab' : url),
+        url: effectiveUrl(url),
+        faviconUrl,
+        isLoading,
+        pinned,
+        audible,
+        muted,
+        workspaceName: workspace === this.workspaceId ? null : (this.workspaces.find((w) => w.id === workspace)?.name ?? null),
+        lastActiveAt: id === this.activeId ? Date.now() : tab.lastActiveAt
+      }]
+    })
+  }
+
+  /** Goes to a tab that may be in another workspace, which switches properly on the way. */
+  reveal(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    this.switchWorkspace(tab.state.workspace)
+    this.activate(id)
   }
 
   duplicate(id: TabId): void {
@@ -282,6 +383,7 @@ export class TabManager {
     this.order.splice(from, 1)
     const at = before === undefined ? (others.length > 0 ? this.order.indexOf(others.at(-1)!) + 1 : this.order.length) : this.order.indexOf(before)
     this.order.splice(at, 0, id)
+    this.settlePinned()
     this.emitChange()
   }
 
@@ -338,6 +440,12 @@ export class TabManager {
     if (next !== undefined) this.startSplit(next)
   }
 
+  setSplitRatio(ratio: number): void {
+    this.splitRatio = clampSplitRatio(ratio)
+    this.applyBounds()
+    this.emitChange()
+  }
+
   endSplit(): void {
     if (!this.split) return
     for (const id of this.split) if (id !== this.activeId) this.tabs.get(id)?.view?.setVisible(false)
@@ -362,6 +470,8 @@ export class TabManager {
   navigate(id: TabId, input: string): void {
     const tab = this.tabs.get(id)
     if (!tab) return
+    // Only the browser's own controls may run a script, through `openAddress` in window.ts.
+    if (isJavascriptUrl(input)) return
     this.wake(tab)
     const contents = tab.view!.webContents
     void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine())))
@@ -403,8 +513,80 @@ export class TabManager {
     this.contents(id)?.stop()
   }
 
+  /** Docked beside the page, in a view of its own. Electron's docking only works for full windows. */
   toggleDevTools(id: TabId): void {
-    this.contents(id)?.toggleDevTools()
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    if (tab.devTools) {
+      tab.view?.webContents.closeDevTools()
+      // Electron's `devtools-closed` can take a long time to come with a view of our own, so this doesn't wait.
+      this.removeDevTools(tab, tab.devTools)
+    } else {
+      this.openDevTools(tab)
+    }
+    this.applyBounds()
+    this.emitChange()
+  }
+
+  /** The page menu's Inspect. Views that aren't tabs, such as a side panel, use Chromium's own window. */
+  inspect(contents: WebContents, x: number, y: number): void {
+    const id = this.tabIdFor(contents)
+    const tab = id === null ? undefined : this.tabs.get(id)
+    if (tab && !tab.devTools) {
+      this.openDevTools(tab)
+      this.applyBounds()
+      this.emitChange()
+    }
+    contents.inspectElement(x, y)
+  }
+
+  setDevToolsWidth(width: number): void {
+    this.options.onDevToolsWidth(Math.max(MIN_DOCKED, Math.round(width)))
+    this.applyBounds()
+    this.emitChange()
+  }
+
+  private openDevTools(tab: Tab): void {
+    const contents = tab.view?.webContents
+    if (!contents) return
+    const tools = new WebContentsView()
+    tools.setVisible(false)
+    tab.devTools = tools
+    this.window.contentView.addChildView(tools)
+    this.options.onDevToolsCreated(tools.webContents)
+    // Has to be set before it opens, on contents that haven't been anywhere yet.
+    contents.setDevToolsWebContents(tools.webContents)
+    // Their own close button ends their contents.
+    tools.webContents.once('destroyed', () => this.removeDevTools(tab, tools))
+    contents.once('devtools-closed', () => this.removeDevTools(tab, tools))
+    contents.openDevTools()
+  }
+
+  private removeDevTools(tab: Tab, tools: WebContentsView): void {
+    if (tab.devTools !== tools) return
+    tab.devTools = undefined
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(tools)
+    const contents = tools.webContents as WebContents | undefined
+    if (contents && !contents.isDestroyed()) contents.close()
+    if (this.window.isDestroyed()) return
+    this.applyBounds()
+    this.emitChange()
+  }
+
+  /** The open tab's developer tools, or the other split tab's if only it has them. */
+  private shownDevTools(): WebContentsView | undefined {
+    const ids = [this.activeId, ...(this.split ?? [])]
+    for (const id of ids) {
+      const tools = id === null ? undefined : this.tabs.get(id)?.devTools
+      if (tools) return tools
+    }
+    return undefined
+  }
+
+  /** How wide they're drawn, which takes the room from the page. */
+  private dockedWidth(): number {
+    if (!this.shownDevTools() || this.fullscreen || this.immersiveId === this.activeId) return 0
+    return Math.max(MIN_DOCKED, Math.min(this.options.devToolsWidth(), this.pageRect.width - MIN_DOCKED - SPLIT_GAP))
   }
 
   print(id: TabId): void {
@@ -445,6 +627,7 @@ export class TabManager {
     this.resizing = resizing
     const shown = this.split ?? (this.activeId === null ? [] : [this.activeId])
     for (const id of shown) this.tabs.get(id)?.view?.setVisible(!resizing)
+    this.shownDevTools()?.setVisible(!resizing)
     this.applyBounds()
   }
 
@@ -465,23 +648,31 @@ export class TabManager {
     const { width, height } = this.window.getContentBounds()
     const [left, right] = this.split ?? []
     const covers = this.fullscreen || this.immersiveId === this.activeId
+    const shownTools = covers ? undefined : this.shownDevTools()
+    for (const tab of this.tabs.values()) if (tab.devTools && tab.devTools !== shownTools) tab.devTools.setVisible(false)
+    const docked = this.dockedWidth()
+    const area = { ...this.pageRect, width: Math.max(0, this.pageRect.width - (docked > 0 ? docked + SPLIT_GAP : 0)) }
+    if (shownTools) {
+      shownTools.setBounds({ ...this.pageRect, x: area.x + area.width + SPLIT_GAP, width: docked })
+      shownTools.setVisible(true)
+    }
     if (this.split && !covers) {
-      const leftWidth = Math.floor((this.pageRect.width - SPLIT_GAP) / 2)
-      const rightX = this.pageRect.x + leftWidth + SPLIT_GAP
+      const leftWidth = Math.max(0, splitLeftWidth(area.width, this.splitRatio))
+      const rightX = area.x + leftWidth + SPLIT_GAP
       for (const [id, x, w] of [
-        [left!, this.pageRect.x, leftWidth],
-        [right!, rightX, this.pageRect.width - leftWidth - SPLIT_GAP]
+        [left!, area.x, leftWidth],
+        [right!, rightX, Math.max(0, area.width - leftWidth - SPLIT_GAP)]
       ] as const) {
         const side = this.tabs.get(id)?.view
         side?.setVisible(true)
-        side?.setBounds({ ...this.pageRect, x, width: w })
+        side?.setBounds({ ...area, x, width: w })
         side?.setBorderRadius(PAGE_RADIUS)
       }
       return
     }
     // Fullscreen video covers the window, so the other half of a split steps aside.
     if (this.split) this.tabs.get(left === this.activeId ? right! : left!)?.view?.setVisible(false)
-    view.setBounds(covers ? { x: 0, y: 0, width, height } : this.pageRect)
+    view.setBounds(covers ? { x: 0, y: 0, width, height } : area)
     view.setBorderRadius(covers ? 0 : PAGE_RADIUS)
   }
 
@@ -537,20 +728,23 @@ export class TabManager {
       tabs: this.visible.map((id) => ({ ...this.tabs.get(id)!.state })),
       activeId: this.activeId,
       splitIds: this.split ? [...this.split] : [],
+      splitRatio: this.splitRatio,
+      devToolsWidth: this.dockedWidth(),
       workspaces: this.workspaces,
       activeWorkspace: this.workspaceId
     }
   }
 
   /** What to write to disk so the session can be restored. */
-  session(): { tabs: SavedTab[]; activeIndex: number; split: [number, number] | null } {
+  session(): { tabs: SavedTab[]; activeIndex: number; split: [number, number] | null; splitRatio: number } {
     const kept = this.order.filter((id) => !isIntro(this.tabs.get(id)!.state.url))
     const left = this.split ? kept.indexOf(this.split[0]) : -1
     const right = this.split ? kept.indexOf(this.split[1]) : -1
     return {
       tabs: kept.map((id) => this.toSaved(this.tabs.get(id)!)),
       activeIndex: this.activeId === null ? 0 : Math.max(0, kept.indexOf(this.activeId)),
-      split: left === -1 || right === -1 ? null : [left, right]
+      split: left === -1 || right === -1 ? null : [left, right],
+      splitRatio: this.splitRatio
     }
   }
 
@@ -559,7 +753,7 @@ export class TabManager {
     for (const tab of this.tabs.values()) {
       if (tab.state.id === this.activeId || this.split?.includes(tab.state.id) || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
       const contents = tab.view.webContents
-      if (contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) continue
+      if (contents.isLoading() || contents.isCurrentlyAudible() || tab.devTools) continue
       // Sleeping would cut the link between a popup and its opener, which may be mid sign-in.
       const inPopupPair = (tab.openerId !== undefined && this.tabs.get(tab.openerId)?.view) || [...this.tabs.values()].some((other) => other.openerId === tab.state.id && other.view)
       if (inPopupPair) continue
@@ -593,7 +787,7 @@ export class TabManager {
   private addTab(url: string, saved: SavedTab | null, afterId?: TabId): Tab {
     const tab: Tab = {
       state: {
-        id: this.nextId++,
+        id: nextTabId++,
         url,
         title: saved?.title ?? '',
         faviconUrl: saved?.faviconUrl ?? null,
@@ -605,7 +799,10 @@ export class TabManager {
         blockedCount: 0,
         container: saved?.container ?? null,
         group: saved?.group ?? null,
-        workspace: saved?.workspace ?? this.workspaceId
+        workspace: saved?.workspace ?? this.workspaceId,
+        pinned: saved?.pinned ?? false,
+        audible: false,
+        muted: saved?.muted ?? false
       },
       view: null,
       saved,
@@ -615,7 +812,14 @@ export class TabManager {
     const index = afterId === undefined ? -1 : this.order.indexOf(afterId)
     if (index === -1) this.order.push(tab.state.id)
     else this.order.splice(index + 1, 0, tab.state.id)
+    this.settlePinned()
     return tab
+  }
+
+  /** Pinned tabs come first in every workspace, however the order changed. Otherwise it's left alone. */
+  private settlePinned(): void {
+    const isPinned = (id: TabId) => !!this.tabs.get(id)?.state.pinned
+    this.order = [...this.order.filter(isPinned), ...this.order.filter((id) => !isPinned(id))]
   }
 
   /** A window a page opened, shown as a tab beside it. Pages with `noopener` give us no window to adopt. */
@@ -654,6 +858,7 @@ export class TabManager {
     tab.state.isSleeping = false
     this.window.contentView.addChildView(view)
     this.wire(tab, view)
+    if (tab.state.muted) view.webContents.setAudioMuted(true)
     this.options.onTabCreated(view.webContents)
 
     const { saved } = tab
@@ -678,11 +883,13 @@ export class TabManager {
   }
 
   private destroyView(tab: Tab): void {
+    if (tab.devTools) this.removeDevTools(tab, tab.devTools)
     if (!tab.view) return
     // The window itself may already be gone when everything shuts down.
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(tab.view)
     if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
     tab.view = null
+    tab.state.audible = false
   }
 
   private toSaved(tab: Tab): SavedTab {
@@ -702,7 +909,9 @@ export class TabManager {
       container: tab.state.container,
       group: tab.state.group,
       workspace: tab.state.workspace,
-      lastActiveAt: tab.lastActiveAt
+      lastActiveAt: tab.lastActiveAt,
+      pinned: tab.state.pinned,
+      muted: tab.state.muted
     }
   }
 
@@ -756,6 +965,7 @@ export class TabManager {
     contents.on('found-in-page', (_e, result) =>
       this.options.onFound({ active: result.activeMatchOrdinal, total: result.matches })
     )
+    contents.on('audio-state-changed', ({ audible }) => sync({ audible }))
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 
     contents.on('did-finish-load', () => this.options.onPageLoaded(contents))
@@ -793,7 +1003,9 @@ export class TabManager {
       // Sign-in popups often start blank, and are sent on their way once they're open.
       const blank = url === '' || url === 'about:blank'
       // Chromium itself stops a site from opening extension pages that aren't meant for it.
-      if (fromPage && disposition !== 'background-tab' && (blank || /^(https?|chrome-extension):/i.test(url))) {
+      // An installed site's own popups stay with it, while links out go to the full browser.
+      const leavesApp = !!this.options.appOrigin && !blank && !(URL.canParse(url) && new URL(url).origin === this.options.appOrigin)
+      if (fromPage && !leavesApp && disposition !== 'background-tab' && (blank || /^(https?|chrome-extension):/i.test(url))) {
         // The real window, rather than a fresh tab at the same address: sign-in popups report
         // back through window.opener, and have to be able to close themselves.
         return { action: 'allow', createWindow: (options) => this.adoptPopup(url || 'about:blank', state, options) }
@@ -802,6 +1014,7 @@ export class TabManager {
       const sameExtension = /^chrome-extension:/i.test(url) && /^chrome-extension:/i.test(opener) && URL.canParse(url) && URL.canParse(opener) && new URL(url).host === new URL(opener).host
       const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(opener)) || sameExtension
       if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id, container: state.container })
+      else if (appScheme(url)) this.options.onAppLink(contents, url, opener)
       return { action: 'deny' }
     })
   }

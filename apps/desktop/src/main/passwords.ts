@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto'
-import { MIN_MASTER_LENGTH, originOf, parsePasswordCsv, passwordCsv, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { IDENTITY_FIELDS, MIN_MASTER_LENGTH, originOf, parsePasswordCsv, passwordCsv, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'passwords:vault'
@@ -25,6 +25,8 @@ interface Contents {
   logins: Login[]
   /** Sites where the person said never to offer saving. */
   never: string[]
+  /** Vaults from before this existed don't have it. */
+  identities?: Identity[]
 }
 
 interface Sealed {
@@ -228,6 +230,32 @@ export class PasswordVault {
   neverFor(origin: string): void {
     const contents = this.touch()
     if (!contents.never.includes(origin)) contents.never.push(origin)
+    this.save()
+  }
+
+  identities(): Identity[] {
+    return this.touch().identities ?? []
+  }
+
+  identity(id: string): Identity {
+    const found = this.identities().find((identity) => identity.id === id)
+    if (!found) throw new Error("Those details aren't saved any more.")
+    return found
+  }
+
+  saveIdentity(input: Identity): string {
+    const contents = this.touch()
+    const id = input.id ?? randomUUID()
+    const clean = { ...Object.fromEntries(IDENTITY_FIELDS.map(({ key }) => [key, input[key].trim()])), id } as Identity
+    if (IDENTITY_FIELDS.every(({ key }) => !clean[key])) throw new Error('Enter something to save.')
+    contents.identities = [...(contents.identities ?? []).filter((identity) => identity.id !== id), clean]
+    this.save()
+    return id
+  }
+
+  removeIdentity(id: string): void {
+    const contents = this.touch()
+    contents.identities = (contents.identities ?? []).filter((identity) => identity.id !== id)
     this.save()
   }
 

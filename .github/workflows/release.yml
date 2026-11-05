@@ -44,10 +44,30 @@ jobs:
       - run: pnpm release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      # Each Mac overwrites the other's latest-mac.yml, so each keeps a copy under its own name.
+      - name: Keep this Mac's update file
+        if: runner.os == 'macOS'
+        run: |
+          cp "apps/desktop/release/${GITHUB_REF_NAME#v}/latest-mac.yml" "mac-update-$(uname -m).yml"
+          gh release upload "$GITHUB_REF_NAME" "mac-update-$(uname -m).yml" --repo sc-simpledev/scTerra --clobber
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: List both kinds of Mac in the update file
+        run: |
+          mkdir mac
+          gh release download "$GITHUB_REF_NAME" --repo sc-simpledev/scTerra --dir mac --pattern 'mac-update-*.yml'
+          node apps/desktop/scripts/merge-mac-update.mjs latest-mac.yml mac/mac-update-*.yml
+          gh release upload "$GITHUB_REF_NAME" latest-mac.yml --repo sc-simpledev/scTerra --clobber
+          for file in mac/mac-update-*.yml; do
+            gh release delete-asset "$GITHUB_REF_NAME" "$(basename "$file")" --repo sc-simpledev/scTerra --yes
+          done
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       - name: Publish the finished draft
         run: gh release edit "$GITHUB_REF_NAME" --repo sc-simpledev/scTerra --draft=false --latest
         env:
