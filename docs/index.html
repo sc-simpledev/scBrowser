@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scTerra — Downloads</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            padding: 40px 18px;
+            background: #101114;
+            color: #f1f1f1;
+            font-family: system-ui, sans-serif;
+        }
+
+        main {
+            max-width: 650px;
+            margin: auto;
+        }
+
+        h1 {
+            font-size: 2.6rem;
+            letter-spacing: -1.5px;
+            margin: 0;
+        }
+
+        .subtitle {
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .version {
+            display: inline-block;
+            margin-top: 18px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            background: #24262c;
+            color: #bbb;
+            font-size: .85rem;
+        }
+
+        .downloads {
+            display: grid;
+            gap: 26px;
+            margin-top: 38px;
+        }
+
+        .platform h2 {
+            color: #aaa;
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0 0 10px;
+        }
+
+        .download {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 16px;
+            margin-top: 8px;
+            border: 1px solid #303239;
+            border-radius: 10px;
+            background: #1b1d22;
+            color: inherit;
+            text-align: left;
+            text-decoration: none;
+            cursor: pointer;
+            transition: .15s;
+        }
+
+        .download:hover {
+            background: #252830;
+            border-color: #777;
+        }
+
+        .download strong {
+            display: block;
+            font-size: .95rem;
+        }
+
+        .download small {
+            display: block;
+            margin-top: 4px;
+            color: #999;
+        }
+
+        .arrow {
+            color: #aaa;
+            font-size: 1.2rem;
+        }
+
+        #status {
+            margin-top: 25px;
+            color: #999;
+            font-size: .9rem;
+        }
+
+        .error {
+            color: #ff7777 !important;
+        }
+
+        /* Setup instructions */
+
+        #setup {
+            display: none;
+            margin-top: 35px;
+            padding: 22px;
+            background: #1b1d22;
+            border: 1px solid #393c45;
+            border-radius: 12px;
+            animation: appear .2s ease;
+        }
+
+        #setup h2 {
+            margin: 0 0 5px;
+            font-size: 1.25rem;
+        }
+
+        #setup-description {
+            color: #aaa;
+            margin-top: 5px;
+            font-size: .9rem;
+        }
+
+        #setup ol {
+            padding-left: 22px;
+            line-height: 1.8;
+        }
+
+        #setup li {
+            padding-left: 4px;
+            margin-bottom: 8px;
+        }
+
+        .notice {
+            margin-top: 18px;
+            padding: 13px;
+            border-radius: 8px;
+            background: #292a30;
+            color: #ccc;
+            font-size: .88rem;
+            line-height: 1.6;
+        }
+
+        .notice a {
+            color: #ddd;
+        }
+
+        .close {
+            margin-top: 18px;
+            padding: 9px 14px;
+            background: #303239;
+            color: #ddd;
+            border: 0;
+            border-radius: 7px;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            background: #41434b;
+        }
+
+        footer {
+            margin-top: 40px;
+            color: #777;
+            font-size: .85rem;
+        }
+
+        footer a {
+            color: #aaa;
+        }
+
+        @keyframes appear {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+<main>
+
+    <header>
+        <h1>scTerra</h1>
+        <p class="subtitle">Download the latest version.</p>
+        <span class="version" id="version">Loading version...</span>
+    </header>
+
+    <section class="downloads">
+
+        <div class="platform">
+            <h2>Linux</h2>
+
+            <a class="download" id="linux-deb" href="#" target="_blank">
+                <span>
+                    <strong>Debian / Ubuntu</strong>
+                    <small>.deb · x86_64</small>
+                </span>
+                <span class="arrow">↓</span>
+            </a>
+
+            <a class="download" id="linux-appimage" href="#" target="_blank">
+                <span>
+                    <strong>AppImage</strong>
+                    <small>Universal Linux · x86_64</small>
+                </span>
+                <span class="arrow">↓</span>
+            </a>
+        </div>
+
+        <div class="platform">
+            <h2>macOS</h2>
+
+            <a class="download" id="mac-arm" href="#" target="_blank">
+                <span>
+                    <strong>Apple Silicon</strong>
+                    <small>.dmg · ARM64</small>
+                </span>
+                <span class="arrow">↓</span>
+            </a>
+
+            <a class="download" id="mac-intel" href="#" target="_blank">
+                <span>
+                    <strong>Intel</strong>
+                    <small>.dmg · x86_64</small>
+                </span>
+                <span class="arrow">↓</span>
+            </a>
+        </div>
+
+        <div class="platform">
+            <h2>Windows</h2>
+
+            <a class="download" id="windows" href="#" target="_blank">
+                <span>
+                    <strong>Windows Installer</strong>
+                    <small>.exe · x64</small>
+                </span>
+                <span class="arrow">↓</span>
+            </a>
+        </div>
+
+    </section>
+
+    <p id="status">Fetching latest version...</p>
+
+    <section id="setup">
+        <h2 id="setup-title">Installation instructions</h2>
+        <p id="setup-description"></p>
+        <ol id="setup-steps"></ol>
+        <div class="notice" id="setup-notice"></div>
+
+        <button class="close" onclick="closeSetup()">
+            Close instructions
+        </button>
+    </section>
+
+    <footer>
+        Source code:
+        <a href="https://github.com/sc-simpledev/scTerra" target="_blank">
+            GitHub
+        </a>
+    </footer>
+
+</main>
+
+<script>
+    const API =
+        "https://api.github.com/repos/sc-simpledev/scTerra/tags?per_page=100";
+
+    const base =
+        "https://github.com/sc-simpledev/scTerra/releases/download/";
+
+    const setupInstructions = {
+
+        linuxDeb: {
+            title: "Install on Debian / Ubuntu",
+            description: "Installing the scTerra Debian package.",
+            steps: [
+                "Wait for the .deb file to finish downloading.",
+                "Open your Downloads folder.",
+                "Double-click the downloaded .deb file.",
+                "Open it with your software installer.",
+                "Click Install and follow the prompts.",
+                "Launch scTerra from your applications menu."
+            ],
+            notice:
+                "This package is intended for 64-bit Debian-based Linux distributions, including Ubuntu and Kubuntu."
+        },
+
+        linuxAppImage: {
+            title: "Run the Linux AppImage",
+            description: "AppImages can run without a traditional installation.",
+            steps: [
+                "Wait for the AppImage to finish downloading.",
+                "Open your Downloads folder.",
+                "Right-click the downloaded file and select Properties.",
+                "Find the Permissions tab.",
+                "Enable the option labelled 'Is executable' or 'Allow executing file as program'.",
+                "Close Properties and double-click the AppImage."
+            ],
+            notice:
+                "If your desktop environment asks whether to execute the file, choose to execute it."
+        },
+
+        mac: {
+            title: "Install on macOS",
+            description: "Installing scTerra from a DMG disk image.",
+            steps: [
+                "Download the correct DMG for your Mac (Apple Silicon or Intel).",
+                "Open the downloaded .dmg file.",
+                "Drag scTerra into the Applications folder if the installer window provides that option.",
+                "Eject the mounted scTerra disk image.",
+                "Open Applications and try launching scTerra."
+            ],
+            notice: `
+                <strong>macOS Gatekeeper warning</strong><br><br>
+
+                macOS may display a message such as
+                "Apple cannot check scTerra for malicious software"
+                or "The developer cannot be verified".<br><br>
+
+                Gatekeeper is a macOS security feature. A warning does
+                not prove an app is malicious, but it also does not prove
+                it is safe.<br><br>
+
+                Only continue if you have verified that the DMG came
+                from the official scTerra GitHub repository and you
+                trust the software.<br><br>
+
+                If you decide to proceed, Apple's documented process is:
+                after attempting to open the app, go to
+                <strong>System Settings → Privacy & Security</strong>,
+                find the security message and select
+                <strong>Open Anyway</strong> if that option is available.
+                You will need to confirm your choice.<br><br>
+
+                <a href="https://support.apple.com/en-au/102445"
+                   target="_blank">Apple's official instructions</a>.
+                Do not proceed if macOS says the app contains malware
+                or will damage your computer.
+            `
+        },
+
+        windows: {
+            title: "Install on Windows",
+            description: "Installing scTerra using the Windows installer.",
+            steps: [
+                "Wait for the .exe installer to finish downloading.",
+                "Open your Downloads folder.",
+                "Double-click the scTerra installer.",
+                "Follow the installation wizard.",
+                "Once installation finishes, launch scTerra from the Start menu."
+            ],
+            notice: `
+                <strong>Windows SmartScreen</strong><br><br>
+
+                Windows may display a "Windows protected your PC"
+                warning for an unfamiliar installer.<br><br>
+
+                This can happen when an application has little download
+                history or is not digitally signed. It does not
+                automatically mean the file is malicious.<br><br>
+
+                Verify that the installer came from the official
+                scTerra GitHub repository. If you cannot establish
+                that it is trustworthy, do not run it.<br><br>
+
+                <a href="https://learn.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-smartscreen/microsoft-defender-smartscreen-overview"
+                   target="_blank">Microsoft's SmartScreen explanation</a>.
+            `
+        }
+    };
+
+    function compareVersions(a, b) {
+        const parse = tag => {
+            const match = tag.match(/^v?(\d+(?:\.\d+)*)/);
+            return match
+                ? match[1].split(".").map(Number)
+                : [0];
+        };
+
+        const av = parse(a);
+        const bv = parse(b);
+
+        for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+            const x = av[i] || 0;
+            const y = bv[i] || 0;
+
+            if (x !== y) return y - x;
+        }
+
+        return 0;
+    }
+
+    function showSetup(type) {
+        const info = setupInstructions[type];
+
+        document.getElementById("setup-title").textContent =
+            info.title;
+
+        document.getElementById("setup-description").textContent =
+            info.description;
+
+        const steps = document.getElementById("setup-steps");
+        steps.innerHTML = "";
+
+        info.steps.forEach(step => {
+            const li = document.createElement("li");
+            li.textContent = step;
+            steps.appendChild(li);
+        });
+
+        document.getElementById("setup-notice").innerHTML =
+            info.notice;
+
+        const section = document.getElementById("setup");
+        section.style.display = "block";
+
+        section.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+        });
+    }
+
+    function closeSetup() {
+        document.getElementById("setup").style.display = "none";
+    }
+
+    function attachDownload(id, type) {
+        document.getElementById(id).addEventListener("click", () => {
+            showSetup(type);
+        });
+    }
+
+    async function loadDownloads() {
+        const status = document.getElementById("status");
+
+        try {
+            const response = await fetch(API);
+
+            if (!response.ok) {
+                throw new Error(`GitHub API error: ${response.status}`);
+            }
+
+            const tags = await response.json();
+
+            if (!Array.isArray(tags) || tags.length === 0) {
+                throw new Error("No tags found.");
+            }
+
+            // Sort tags by semantic version.
+            const sortedTags = [...tags].sort((a, b) =>
+                compareVersions(a.name, b.name)
+            );
+
+            const tag = sortedTags[0].name;
+            const version = tag.replace(/^v/, "");
+
+            const downloads = {
+                "linux-deb": {
+                    file: `scterra_${version}_amd64.deb`,
+                    type: "linuxDeb"
+                },
+
+                "linux-appimage": {
+                    file: `scTerra-${version}.AppImage`,
+                    type: "linuxAppImage"
+                },
+
+                "mac-arm": {
+                    file: `scTerra-${version}-arm64-mac.dmg`,
+                    type: "mac"
+                },
+
+                "mac-intel": {
+                    file: `scTerra-${version}-x64-mac.dmg`,
+                    type: "mac"
+                },
+
+                "windows": {
+                    file: `scTerra-Setup-${version}.exe`,
+                    type: "windows"
+                }
+            };
+
+            for (const [id, item] of Object.entries(downloads)) {
+                const link = document.getElementById(id);
+
+                link.href = base + tag + "/" + item.file;
+
+                attachDownload(id, item.type);
+            }
+
+            document.getElementById("version").textContent = tag;
+            status.textContent = "Latest downloads are ready.";
+
+        } catch (error) {
+            console.error(error);
+
+            document.getElementById("version").textContent =
+                "Unavailable";
+
+            status.textContent =
+                "Could not load downloads. Please try again later.";
+
+            status.classList.add("error");
+        }
+    }
+
+    loadDownloads();
+</script>
+
+</body>
+</html>
