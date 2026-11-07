@@ -69,4 +69,4 @@ Installers include the [Xray core](https://github.com/XTLS/Xray-core), which is 
 
 ## Important
 Only work on your own branch; do not merge branches without both approval of Alex and Nathan.
-Alex will work on `main` and Nathan will work on `nathan`
+Alex will work on `main`
