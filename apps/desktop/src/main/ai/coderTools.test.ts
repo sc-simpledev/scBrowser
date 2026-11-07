@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -15,7 +15,7 @@ beforeAll(async () => {
   await writeFile(join(root, 'src', 'a.ts'), 'export const a = 1\nexport const b = 2\n')
   await writeFile(join(root, 'node_modules', 'x.js'), 'export const a = 1\n')
   await writeFile(join(outside, 'secret.txt'), 'secret')
-  await symlink(outside, join(root, 'escape'))
+  await symlink(outside, join(root, 'escape'), 'junction')
 })
 
 afterAll(async () => {
@@ -29,7 +29,7 @@ describe('coder tools', () => {
     await expect(inside(root, '/etc/passwd')).rejects.toBeInstanceOf(ToolError)
     await expect(inside(root, 'escape/secret.txt')).rejects.toBeInstanceOf(ToolError)
     await expect(inside(root, 'escape/new/file.txt')).rejects.toBeInstanceOf(ToolError)
-    expect(await inside(root, 'src/new/b.ts')).toContain('src')
+    expect(await inside(root, 'src/new/b.ts')).toBe(join(await realpath(root), 'src', 'new', 'b.ts'))
   })
 
   it('lists, reads and searches, skipping dependency folders', async () => {

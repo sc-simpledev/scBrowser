@@ -48,7 +48,8 @@ export async function inside(root: string, path: string): Promise<string> {
 
 export const shown = (root: string, full: string) => relative(root, full).split(sep).join('/') || '.'
 
-export async function listFiles(root: string, path: string): Promise<string> {
+export async function listFiles(folder: string, path: string): Promise<string> {
+  const root = await realpath(folder)
   const start = await inside(root, path)
   const lines: string[] = []
   const walk = async (dir: string, depth: number) => {
@@ -90,7 +91,9 @@ export async function readLines(root: string, path: string, offset: number, limi
   return clip(`${path} (${lines.length} lines)\n${body}${more}`)
 }
 
-export async function searchFiles(root: string, path: string, pattern: string): Promise<string> {
+export async function searchFiles(folder: string, path: string, pattern: string): Promise<string> {
+  // Shown relative to the real folder, which can differ from the one given (short names on Windows, /private on Macs).
+  const root = await realpath(folder)
   let regex: RegExp
   try {
     regex = new RegExp(pattern, 'i')

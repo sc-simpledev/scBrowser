@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { CODER_PROMPT, parseCoderReply, toolResult, type CoderCall } from '@scbrowser/ai'
 import type { AssistantMessage, CoderAnswer, CoderEvent, CoderMode } from '@scbrowser/shared'
 import { applyEdit, inside, lineDiff, listFiles, readLines, readText, runCommand, searchFiles, shown, ToolError, writeText } from './coderTools'
@@ -57,6 +57,8 @@ export class Coder {
     const controller = new AbortController()
     session.controller = controller
     const { signal } = controller
+    // Its real path, so names shown to the model and the person match what `inside` resolves.
+    folder = await realpath(folder).catch(() => folder)
     const info = await stat(folder).catch(() => null)
     try {
       if (!info?.isDirectory()) throw new ToolError("The project folder can't be found. Choose it again.")

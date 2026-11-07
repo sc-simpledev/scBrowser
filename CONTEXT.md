@@ -9,7 +9,7 @@ Version 0.4.1 is published (2026-11-05). It adds Performance Mode (Settings, the
 Performance Mode is `performanceMode`, kept per device. `sleepMinutes` makes background tabs sleep within 5 minutes, `data-performance` (tokens.css) removes animations, blur and glass except spinners, and `quietMedia` in `TabManager` sets the autoplay policy on views created after it's on, so tabs already open keep their old policy until they sleep and wake. It needs no restart and changes no Chromium switches.
 
 
-**Version 0.4.5 was committed and pushed to `main` on 2026-11-07, as the owner asked, but not tagged, so it isn't published.** The owner asked to commit and push in the same message as the changes, so none of it was tried by hand first. Ask how it went, and only tag once CI passes and they say so. It covers their list (docked developer tools, dark mode, memory, passwords with autofill, agentic coding in beta) and everything in `PLS_FIX_OR_ELSE.md`. Plan.md has the summary. Tested: 340 unit tests and 195 end-to-end tests pass, including 9 new ones in `e2e/release045.spec.ts`; new screens were screenshotted in light and dark. Not checked: anything against a real AI model (coding agent and web search ran on the mock only), web search against the real DuckDuckGo pages beyond one accidental live run that parsed fine, autofill and the login list on real sites, the Chrome Web Store banner (needs the live store), Sider or any real extension's side panel, and the memory saver under real memory pressure.
+**Version 0.4.5 was committed and pushed to `main` on 2026-11-07, as the owner asked, but not tagged, so it isn't published.** The owner asked to commit and push in the same message as the changes, so none of it was tried by hand first. Ask how it went, and only tag once CI passes and they say so. It covers their list (docked developer tools, dark mode, memory, passwords with autofill, agentic coding in beta) and everything in `PLS_FIX_OR_ELSE.md`. Plan.md has the summary. Tested: 340 unit tests and 195 end-to-end tests pass, including 9 new ones in `e2e/release045.spec.ts`; new screens were screenshotted in light and dark. Its first push failed CI on Windows: the coding tools compared paths against the folder as given, and Windows' temp folder has a short `RUNNER~1` name, so results came out as `../../..` paths (Macs would do the same with `/var`). The folder is now resolved with `realpath` first. Not checked: anything against a real AI model (coding agent and web search ran on the mock only), web search against the real DuckDuckGo pages beyond one accidental live run that parsed fine, autofill and the login list on real sites, the Chrome Web Store banner (needs the live store), Sider or any real extension's side panel, and the memory saver under real memory pressure.
 
 - **Developer tools:** opened with `openDevTools({ mode: 'detach' })` into our own `WebContentsView`. Docked mode made DevTools put the device toolbar in `device_mode_emulation_frame.html`, which Electron opened as a separate window, and its own close button reached no window. Undocked, the device toolbar emulates inside the page. `DEVTOOLS_BAR` (30 px) above the view holds the title and close button (`tabs:devtools-close`). Their window opens are denied.
 - **Force dark:** `ALREADY_DARK` samples nine points with `elementFromPoint` and walks up to the first opaque background, falls back to the declared colour scheme for the canvas, and counts light body text. Page-level CSS, as user CSS can't be removed. Checked again on `did-finish-load` and 1.2 seconds later.
@@ -121,6 +121,12 @@ npx pnpm@10.34.9 typecheck
 npx pnpm@10.34.9 test
 npx pnpm@10.34.9 build
 npx playwright test --timeout 20000
+```
+
+To keep the test windows off the desktop, run them on an invisible KDE screen instead (extra arguments go to Playwright). The full suite passed this way on 2026-11-08, in about 3 minutes:
+
+```bash
+e2e/hidden.sh
 ```
 
 Build first, because E2E tests run the built app. The suite has 195 tests and takes about 4 minutes locally, and there are 340 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
