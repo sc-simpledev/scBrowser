@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } from 'node:crypto'
-import { IDENTITY_FIELDS, MIN_MASTER_LENGTH, originOf, passwordStrength, parsePasswordCsv, passwordCsv, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { IDENTITY_FIELDS, isTotpConfig, MIN_MASTER_LENGTH, originOf, parseTotp, passwordStrength, parsePasswordCsv, passwordCsv, totpUri, type Identity, type LeakCheck, type PasswordEntry, type PasswordState, type PasswordSummary, type TotpCode, type TotpConfig } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
+import { leakHash, parseLeakRange, totpCode } from './totp'
 
 const KEY = 'passwords:vault'
 const AAD = Buffer.from('scterra-vault-1')
@@ -19,6 +20,7 @@ interface Login {
   password: string
   note: string
   updatedAt: number
+  totp?: TotpConfig
 }
 
 interface Contents {
@@ -27,6 +29,9 @@ interface Contents {
   never: string[]
   /** Vaults from before this existed don't have it. */
   identities?: Identity[]
+  /** From the last leak check, by login. Only counts for a login not changed since. */
+  leaks?: Record<string, { count: number; checkedAt: number }>
+  leaksCheckedAt?: number
 }
 
 interface Sealed {
@@ -58,13 +63,28 @@ function open(sealed: Sealed, key: Buffer): Contents {
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(sealed.data, 'base64')), decipher.final()]).toString('utf8')) as Contents
 }
 
-const summary = ({ id, origin, username, note, updatedAt }: Login): PasswordSummary => ({ id, origin, username, note, updatedAt })
+const summary = ({ id, origin, username, note, updatedAt, totp }: Login): PasswordSummary => ({ id, origin, username, note, updatedAt, ...(totp ? { totp: true } : {}) })
 
-/** Adds health to each summary: weak, and reused on another site. */
-function withHealth(logins: Login[]): PasswordSummary[] {
+/** Adds health to each summary: weak, reused on another site, and found in a breach. */
+function withHealth(logins: Login[], leaks: Contents['leaks'] = {}): PasswordSummary[] {
   const sites = new Map<string, Set<string>>()
   for (const login of logins) sites.set(login.password, (sites.get(login.password) ?? new Set()).add(login.origin))
-  return logins.map((login) => ({ ...summary(login), weak: passwordStrength(login.password) < 2, reused: (sites.get(login.password)?.size ?? 0) > 1 }))
+  return logins.map((login) => {
+    const leak = leaks[login.id]
+    return { ...summary(login), weak: passwordStrength(login.password) < 2, reused: (sites.get(login.password)?.size ?? 0) > 1, leaked: !!leak && leak.count > 0 && leak.checkedAt >= login.updatedAt }
+  })
+}
+
+/** Fetches Have I Been Pwned's list for a 5-character hash prefix. */
+export type LeakRangeFetch = (prefix: string) => Promise<string>
+
+/** Saved keys are checked again, so a bad value from an old or edited vault can't break making codes. */
+function totpFrom(input: string | undefined, existing: TotpConfig | undefined): TotpConfig | undefined {
+  if (input === undefined) return existing && isTotpConfig(existing) ? existing : undefined
+  if (!input.trim()) return undefined
+  const parsed = parseTotp(input)
+  if (!parsed) throw new Error("That two-step key isn't valid. Paste the key the site shows, or the otpauth:// address from its QR code.")
+  return parsed
 }
 
 /** The system keychain, through `safeStorage`. */
@@ -274,7 +294,51 @@ export class PasswordVault {
   }
 
   list(): PasswordSummary[] {
-    return withHealth([...this.touch().logins].sort((a, b) => a.origin.localeCompare(b.origin) || a.username.localeCompare(b.username)))
+    const contents = this.touch()
+    return withHealth([...contents.logins].sort((a, b) => a.origin.localeCompare(b.origin) || a.username.localeCompare(b.username)), contents.leaks)
+  }
+
+  /** The current two-step code for a login. The key itself never leaves this process. */
+  totp(id: string, now = Date.now()): TotpCode {
+    const login = this.touch().logins.find((candidate) => candidate.id === id)
+    if (!login?.totp || !isTotpConfig(login.totp)) throw new Error("That login doesn't have two-step codes.")
+    return totpCode(login.totp, now)
+  }
+
+  leakStatus(): LeakCheck {
+    const contents = this.touch()
+    const leaked = withHealth(contents.logins, contents.leaks).filter((login) => login.leaked).length
+    return { checked: contents.leaksCheckedAt ? contents.logins.length : 0, leaked, checkedAt: contents.leaksCheckedAt ?? null }
+  }
+
+  /**
+   * Looks each password up in Have I Been Pwned by k-anonymity: only the first 5 characters of its
+   * SHA-1 are sent, and the rest is matched here. Only ever run when the person asks.
+   */
+  async checkLeaks(fetchRange: LeakRangeFetch): Promise<LeakCheck> {
+    const startedAt = Date.now()
+    const hashes = new Map(this.touch().logins.map((login) => [login.id, leakHash(login.password)]))
+    const prefixes = [...new Set([...hashes.values()].map((hash) => hash.slice(0, 5)))]
+    const ranges = new Map<string, Map<string, number>>()
+    // A few at a time: fast enough for a big vault, without hammering the service.
+    for (let i = 0; i < prefixes.length; i += 6) {
+      const batch = prefixes.slice(i, i + 6)
+      const bodies = await Promise.all(batch.map((prefix) => fetchRange(prefix)))
+      batch.forEach((prefix, index) => ranges.set(prefix, parseLeakRange(bodies[index]!)))
+    }
+    // It may have locked while waiting, and then the answers are dropped.
+    const contents = this.touch()
+    const leaks: NonNullable<Contents['leaks']> = {}
+    for (const login of contents.logins) {
+      const hash = hashes.get(login.id)
+      // Changed while the check ran, so this answer was for the old password.
+      if (!hash || login.updatedAt > startedAt || hash !== leakHash(login.password)) continue
+      leaks[login.id] = { count: ranges.get(hash.slice(0, 5))?.get(hash.slice(5)) ?? 0, checkedAt: startedAt }
+    }
+    contents.leaks = leaks
+    contents.leaksCheckedAt = startedAt
+    this.save()
+    return this.leakStatus()
   }
 
   /** Only logins for this exact site, so a lookalike or a subdomain never matches. */
@@ -302,7 +366,8 @@ export class PasswordVault {
     if (!origin) throw new Error('Use a web address, like https://example.com.')
     if (!entry.password) throw new Error('Enter a password.')
     const existing = entry.id ? contents.logins.find((login) => login.id === entry.id) : contents.logins.find((login) => login.origin === origin && login.username === entry.username)
-    const login: Login = { id: existing?.id ?? randomUUID(), origin, username: entry.username, password: entry.password, note: entry.note, updatedAt: Date.now() }
+    const totp = totpFrom(entry.totp, existing?.totp)
+    const login: Login = { id: existing?.id ?? randomUUID(), origin, username: entry.username, password: entry.password, note: entry.note, updatedAt: Date.now(), ...(totp ? { totp } : {}) }
     contents.logins = [...contents.logins.filter((candidate) => candidate !== existing), login]
     this.save()
     return login.id
@@ -311,6 +376,7 @@ export class PasswordVault {
   remove(id: string): void {
     const contents = this.touch()
     contents.logins = contents.logins.filter((login) => login.id !== id)
+    if (contents.leaks) delete contents.leaks[id]
     this.save()
   }
 
@@ -362,9 +428,11 @@ export class PasswordVault {
     for (const entry of parsePasswordCsv(text)) {
       const origin = originOf(entry.url)!
       const existing = contents.logins.find((login) => login.origin === origin && login.username === entry.username)
-      if (existing?.password === entry.password) continue
+      // A bad two-step key in the file shouldn't stop the rest importing, so it's just left out.
+      const totp = entry.totp ? (parseTotp(entry.totp) ?? existing?.totp) : existing?.totp
+      if (existing?.password === entry.password && totp?.secret === existing.totp?.secret) continue
       contents.logins = contents.logins.filter((login) => login !== existing)
-      contents.logins.push({ id: existing?.id ?? randomUUID(), origin, username: entry.username, password: entry.password, note: entry.note, updatedAt: Date.now() })
+      contents.logins.push({ id: existing?.id ?? randomUUID(), origin, username: entry.username, password: entry.password, note: entry.note, updatedAt: Date.now(), ...(totp ? { totp } : {}) })
       changed++
     }
     if (changed > 0) this.save()
@@ -372,6 +440,8 @@ export class PasswordVault {
   }
 
   exportCsv(): string {
-    return passwordCsv(this.touch().logins.map(({ origin, username, password, note }) => ({ url: origin, username, password, note })))
+    return passwordCsv(
+      this.touch().logins.map(({ origin, username, password, note, totp }) => ({ url: origin, username, password, note, ...(totp ? { totp: totpUri(totp, username ? `${new URL(origin).host}:${username}` : new URL(origin).host) } : {}) }))
+    )
   }
 }

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { WebContentsView, type BaseWindow } from 'electron'
 import {
   EMPTY_OVERLAY,
+  type LinkPreviewState,
   overlayRegions,
   unionRect,
   type AccentId,
@@ -45,6 +46,9 @@ export class Overlay {
   private extensionFrame: PageRect | null = null
   /** An extension's panel, kept above this view so that its frame can draw behind it. */
   private above: WebContentsView | null = null
+  /** A link preview's page, kept above the card the overlay draws for it. */
+  private previewView: WebContentsView | null = null
+  private linkPreview: LinkPreviewState | null = null
   private toast: OverlayView['toast'] = null
   private bookmarkEditor: BookmarkEditorState | null = null
   private auth: AuthPopupState | null = null
@@ -82,6 +86,7 @@ export class Overlay {
       onWorkspaceRemove: (id: string) => void
       onPopupClosed: () => void
       onTooltipCleared: () => void
+      onPreviewAction: (action: 'open' | 'background' | 'split' | 'close') => void
     }
   ) {
     this.view = new WebContentsView({
@@ -183,6 +188,10 @@ export class Overlay {
     })
     handle('overlay:workspace-close', () => this.closeWorkspaceEditor())
     handle('overlay:tooltip-clear', () => this.clearTooltip())
+    handle('overlay:preview-action', (action) => {
+      if (action !== 'open' && action !== 'background' && action !== 'split' && action !== 'close') throw new Error('Invalid arguments')
+      this.hooks.onPreviewAction(action)
+    })
     handle('overlay:app-link-answer', (choice) => {
       if (choice !== 'open' && choice !== 'always' && choice !== 'cancel') throw new Error('Invalid arguments')
       this.hooks.onAppLinkAnswer(choice)
@@ -300,6 +309,15 @@ export class Overlay {
   raise(): void {
     this.window.contentView.addChildView(this.view)
     if (this.above) this.window.contentView.addChildView(this.above)
+    if (this.previewView) this.window.contentView.addChildView(this.previewView)
+  }
+
+  setLinkPreview(state: LinkPreviewState | null, view: WebContentsView | null): void {
+    const added = view && view !== this.previewView
+    this.linkPreview = state
+    this.previewView = view
+    this.render()
+    if (added) this.raise()
   }
 
   set(state: OverlayState): void {
@@ -371,7 +389,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor, linkPreview: this.linkPreview }
   }
 
   private render(): void {

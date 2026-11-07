@@ -12,7 +12,7 @@ beforePack: scripts/require-xray.cjs
 extraResources:
   - from: resources/xray
     to: xray
-    filter: ['xray*', 'LICENSE']
+    filter: ['xray*', 'LICENSE', 'wintun.dll', 'wintun-LICENSE.txt']
 protocols:
   - name: Web page
     schemes: [http, https]

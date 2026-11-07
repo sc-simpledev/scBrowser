@@ -4,6 +4,7 @@ import { AppWindowBar } from './components/AppWindowBar'
 import { AssistantPanel, AssistantReport } from './components/AssistantPanel'
 import { BookmarksBar } from './components/BookmarksBar'
 import { ExtensionPanel } from './components/ExtensionPanel'
+import { SidebarRail, SidebarSitePanel } from './components/SidebarSites'
 import { FindBar } from './components/FindBar'
 import { PageSlot } from './components/PageSlot'
 import { TabStrip } from './components/TabStrip'
@@ -58,6 +59,8 @@ export function App() {
           <AssistantReport />
           <AssistantPanel />
           <ExtensionPanel />
+          <SidebarSitePanel />
+          <SidebarRail />
         </div>
       </div>
     </TooltipProvider>

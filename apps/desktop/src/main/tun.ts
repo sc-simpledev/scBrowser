@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { chmod, copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const DEVICE = 'scterra0'
 const MARK = 0x5c7e
@@ -85,7 +85,9 @@ wait "$pid"
 `
 
 const REASONS: Record<number, string> = {
-  126: 'Whole-computer TUN needs your password, and the request was cancelled.',
+  126: 'Whole-computer TUN needs your permission, and the request was cancelled.',
+  11: "The VPN core couldn't be set up to run.",
+  10: "A safe folder for the VPN core couldn't be made.",
   127: "This account isn't allowed to set up TUN.",
   12: "The VPN core didn't match its check, so it wasn't started.",
   13: "That connection didn't start. Its settings may not work with TUN.",
@@ -269,11 +271,136 @@ async function startMac({ corePath, config, onExit, isCancelled }: TunnelStart):
   return { stop }
 }
 
+/** Windows names the adapter after this, and Xray asks wintun for it by name. */
+const WINDOWS_DEVICE = 'scTerra'
+
+/** A value for a single-quoted PowerShell string. */
+const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
+
+/**
+ * The Windows version, run as an administrator after the system's own prompt. Like the Mac one,
+ * that prompt can't pass a pipe, so this watches a folder only this account can reach. The core
+ * and the wintun driver are copied somewhere only administrators can write and checked before
+ * anything runs. It stops when the `alive` file goes, when scTerra's process is gone (even after
+ * a crash), or when the core stops; wintun takes the adapter, and with it Xray's routes, away
+ * as the core ends.
+ */
+export const windowsTunScript = ({ control, xrayHash, wintunHash, appPid, device }: { control: string; xrayHash: string; wintunHash: string; appPid: number; device: string }) => `
+$ErrorActionPreference = 'Stop'
+$control = ${psQuote(control)}
+$core = $null
+$dir = $null
+try {
+  $dir = Join-Path $env:SystemRoot ('Temp\scterra-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $dir | Out-Null
+  & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+  if ($LASTEXITCODE -ne 0) { exit 10 }
+  Copy-Item -LiteralPath (Join-Path $control 'xray.exe') -Destination $dir
+  Copy-Item -LiteralPath (Join-Path $control 'wintun.dll') -Destination $dir
+  if ((Get-FileHash -LiteralPath (Join-Path $dir 'xray.exe') -Algorithm SHA256).Hash -ne ${psQuote(xrayHash.toUpperCase())}) { exit 12 }
+  if ((Get-FileHash -LiteralPath (Join-Path $dir 'wintun.dll') -Algorithm SHA256).Hash -ne ${psQuote(wintunHash.toUpperCase())}) { exit 12 }
+  # It holds passwords, so it's moved in behind the locked folder and gone once the core has read it.
+  $config = Join-Path $dir 'config.json'
+  Copy-Item -LiteralPath (Join-Path $control 'config') -Destination $config
+  Remove-Item -LiteralPath (Join-Path $control 'config') -Force
+  $core = Start-Process -FilePath (Join-Path $dir 'xray.exe') -ArgumentList 'run', '-c', ('"' + $config + '"') -WorkingDirectory $dir -WindowStyle Hidden -PassThru
+  $tries = 0
+  while (-not (Get-NetAdapter -Name ${psQuote(device)} -ErrorAction SilentlyContinue)) {
+    if ($core.HasExited) { exit 13 }
+    $tries++
+    if ($tries -gt 150) { exit 14 }
+    Start-Sleep -Milliseconds 100
+  }
+  Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
+  Set-Content -LiteralPath (Join-Path $control 'status') -Value 'READY'
+  while (-not $core.HasExited -and (Get-Process -Id ${appPid} -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath (Join-Path $control 'alive'))) { Start-Sleep -Seconds 1 }
+  exit 0
+} catch {
+  exit 11
+} finally {
+  if ($core -and -not $core.HasExited) { Stop-Process -Id $core.Id -Force -ErrorAction SilentlyContinue; $core.WaitForExit(3000) | Out-Null }
+  if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath (Join-Path $control 'config') -Force -ErrorAction SilentlyContinue
+}
+`
+
+/** PowerShell's -EncodedCommand takes UTF-16 little-endian, in base64. */
+const encodePowerShell = (script: string) => Buffer.from(script, 'utf16le').toString('base64')
+
+async function startWindows({ corePath, config, onExit, isCancelled }: TunnelStart): Promise<TunnelHandle> {
+  const driver = join(dirname(corePath), 'wintun.dll')
+  if (!existsSync(driver)) throw new Error("This copy of scTerra doesn't include the wintun driver that TUN needs on Windows. Use the system proxy instead.")
+  const control = await mkdtemp(join(tmpdir(), 'scterra-tun-'))
+  const hashOf = async (path: string) => createHash('sha256').update(await readFile(path)).digest('hex')
+  await copyFile(corePath, join(control, 'xray.exe'))
+  await copyFile(driver, join(control, 'wintun.dll'))
+  const xrayHash = await hashOf(join(control, 'xray.exe'))
+  const wintunHash = await hashOf(join(control, 'wintun.dll'))
+  // The folder sits in this account's own temp folder, which other accounts can't read.
+  await writeFile(join(control, 'config'), JSON.stringify(config({ device: WINDOWS_DEVICE, autoRoute: true })))
+  await writeFile(join(control, 'alive'), '')
+  const inner = encodePowerShell(windowsTunScript({ control, xrayHash, wintunHash, appPid: process.pid, device: WINDOWS_DEVICE }))
+  // Start-Process -Verb RunAs shows Windows' own prompt. Cancelling it throws, which reads as 126.
+  const outer = `try { $p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -PassThru -Wait -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${inner}'; exit $p.ExitCode } catch { exit 126 }`
+  // Plain text, as it's only base64 and quotes, which keeps the line well under Windows' 32,767 characters.
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', outer], { stdio: 'ignore', windowsHide: true })
+  const exited = new Promise<number | null>((resolve) => {
+    child.once('exit', (code) => resolve(code))
+    child.once('error', () => resolve(127))
+  })
+  const tidy = () => rm(control, { recursive: true, force: true }).catch(() => undefined)
+  const stop = async () => {
+    await rm(join(control, 'alive'), { force: true })
+    await exited
+    await tidy()
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + START_MS
+      let done = false
+      void exited.then((code) => {
+        if (done) return
+        done = true
+        reject(new Error(REASONS[code ?? -1] ?? "TUN didn't start."))
+      })
+      const check = async () => {
+        if (done) return
+        if (await stat(join(control, 'status')).then(() => true, () => false)) {
+          done = true
+          return resolve()
+        }
+        if (Date.now() > deadline) {
+          done = true
+          return reject(new Error('TUN took too long to start.'))
+        }
+        setTimeout(() => void check(), 150)
+      }
+      void check()
+    })
+  } catch (error) {
+    void stop()
+    throw error
+  } finally {
+    await rm(join(control, 'xray.exe'), { force: true })
+    await rm(join(control, 'wintun.dll'), { force: true })
+  }
+  if (isCancelled()) {
+    await stop()
+    throw new Error('Cancelled.')
+  }
+  void exited.then(() => {
+    void tidy()
+    onExit()
+  })
+  return { stop }
+}
+
 const resolve = async (host: string) => (await lookup(host)).address
 
-/** Linux and macOS. Windows needs the wintun driver, which isn't shipped. */
+/** Linux through pkexec, macOS through its password box, and Windows through its admin prompt with the bundled wintun driver. */
 export const tunnelFor = (): Tunnel | null => {
   if (process.platform === 'linux') return onPath('pkexec') ? { resolve, start } : null
   if (process.platform === 'darwin') return { resolve, start: startMac }
+  if (process.platform === 'win32') return { resolve, start: startWindows }
   return null
 }

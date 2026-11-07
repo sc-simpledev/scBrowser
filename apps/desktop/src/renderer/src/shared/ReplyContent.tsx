@@ -3,9 +3,37 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, ChevronRight, Copy, FileCode2, FileText, TriangleAlert } from 'lucide-react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { conversationReports, isHttpUrl, languageOf, splitFiles, splitReply, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
+import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, splitFiles, splitReply, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
 
-export function ReplyMarkdown({ text, onOpenLink }: { text: string; onOpenLink: (href: string) => void }) {
+/** Follows a citation to its page, or a time to its moment in the video. */
+export type OpenSource = (source: CitationSource, target: CitationTarget) => void
+
+interface Citations {
+  sources?: CitationSource[]
+  onOpenSource?: OpenSource
+}
+
+const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') : url)
+
+/** A small numbered chip after a claim, or a time in a video, that goes to where it came from. */
+function CitationChip({ href, label, sources, onOpenSource }: { href: string; label: string } & Required<Citations>) {
+  const parsed = parseCitationHref(href)
+  if (!parsed) return <span>{label}</span>
+  const source = parsed.target.seconds !== null ? sources.find((candidate) => candidate.kind === 'transcript') : sources.find((candidate) => candidate.n === parsed.n)
+  if (!source) return <span>{label}</span>
+  const isTime = parsed.target.seconds !== null
+  const title = isTime
+    ? `Play from ${formatTimestamp(parsed.target.seconds!)} in ${source.title || hostOf(source.url)}`
+    : `${source.title || hostOf(source.url)}${parsed.target.quote ? `: “${parsed.target.quote}”` : ''}`
+  return (
+    <button type="button" title={title} aria-label={title} className={isTime ? 'sc-cite sc-cite-time' : 'sc-cite'} onClick={() => onOpenSource(source, parsed.target)}>
+      {label}
+    </button>
+  )
+}
+
+export function ReplyMarkdown({ text, onOpenLink, sources = [], onOpenSource }: { text: string; onOpenLink: (href: string) => void } & Citations) {
+  const linked = onOpenSource ? linkCitations(text, { sources: sources.length, timestamps: sources.some((source) => source.kind === 'transcript') }) : text
   return (
     <div className="sc-prose">
       {/*
@@ -18,7 +46,9 @@ export function ReplyMarkdown({ text, onOpenLink }: { text: string; onOpenLink: 
         unwrapDisallowed
         components={{
           a: ({ href, children }) =>
-            href && isHttpUrl(href) ? (
+            href?.startsWith('#sc-') && onOpenSource ? (
+              <CitationChip href={href} label={String(children)} sources={sources} onOpenSource={onOpenSource} />
+            ) : href && isHttpUrl(href) ? (
               <button type="button" title={href} className="sc-link" onClick={() => onOpenLink(href)}>
                 {children}
               </button>
@@ -27,7 +57,7 @@ export function ReplyMarkdown({ text, onOpenLink }: { text: string; onOpenLink: 
             )
         }}
       >
-        {text}
+        {linked}
       </Markdown>
     </div>
   )
@@ -253,6 +283,9 @@ interface ReplyContentProps {
   onOpenFile?: (change: FileChange) => void
   /** The file version open beside the conversation. */
   openFile?: { name: string; turn: number } | null
+  /** The pages this reply was given, so its citations can link back to them. */
+  sources?: CitationSource[]
+  onOpenSource?: OpenSource
 }
 
 /** A reply's text, reports and files, in the order they were written. */
@@ -282,21 +315,43 @@ export const ReplyContent = memo(function ReplyContent({ text, fileChanges = [],
   )
 })
 
-const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, openReport, streaming = false }: ReplyContentProps) {
+const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, openReport, streaming = false, sources, onOpenSource }: ReplyContentProps) {
   const { before, after, report, writing } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
-      {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} />}
+      {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} sources={sources} onOpenSource={onOpenSource} />}
       {writing && (
         <div className="flex items-center gap-3 rounded-lg border border-border p-3">
           <Thinking label="Writing a report" />
         </div>
       )}
       {report && (onOpenReport ? <ReportCard report={report} active={!!openReport && JSON.stringify(openReport) === JSON.stringify(report)} onOpen={() => onOpenReport(report)} /> : <ReportView report={report} />)}
-      {after && <ReplyText text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} />}
+      {after && <ReplyText text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} sources={sources} onOpenSource={onOpenSource} />}
+      {sources && sources.length > 0 && onOpenSource && !streaming && !after && <SourceList sources={sources} onOpenSource={onOpenSource} />}
     </div>
   )
 })
+
+/** The pages a reply drew on, numbered as its citations are. */
+function SourceList({ sources, onOpenSource }: Required<Citations>) {
+  return (
+    <ol aria-label="Sources" className="flex flex-wrap gap-1.5">
+      {sources.map((source) => (
+        <li key={source.n}>
+          <button
+            type="button"
+            title={source.url}
+            onClick={() => onOpenSource(source, { quote: null, seconds: null })}
+            className="flex h-6 max-w-64 items-center gap-1.5 rounded-sm border border-border px-1.5 text-2xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <span className="font-medium text-text tabular-nums">{source.n}</span>
+            <span className="truncate">{source.title || hostOf(source.url)}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+}
 
 /** The newest report in a conversation, if it has one. */
 export const latestReport = (turns: { role: string; content: string }[]): Report | null => conversationReports(turns).at(-1) ?? null

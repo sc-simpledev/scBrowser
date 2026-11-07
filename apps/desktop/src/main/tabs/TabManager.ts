@@ -97,6 +97,12 @@ interface TabManagerOptions {
   newTabPage: (session: Session) => string | null
   /** A page's `window.open` or `target=_blank` link goes to another app. */
   onAppLink: (contents: WebContents, url: string, requester: string) => void
+  /** A Shift-clicked link, to show over the page instead of in a new window. False lets it open as usual. */
+  onPreviewLink?: (url: string, session: Session, container: string | null) => boolean
+  /** The page area moved or changed size. */
+  onPageRect?: (rect: PageRect) => void
+  /** A sidebar is being dragged, so other native views step aside too. */
+  onResizing?: (resizing: boolean) => void
 }
 
 const PAGE_RADIUS = 0
@@ -740,11 +746,13 @@ export class TabManager {
     for (const id of shown) this.tabs.get(id)?.view?.setVisible(!resizing)
     this.shownDevTools()?.setVisible(!resizing)
     this.applyBounds()
+    this.options.onResizing?.(resizing)
   }
 
   setPageRect(rect: PageRect): void {
     this.pageRect = rect
     this.applyBounds()
+    this.options.onPageRect?.(rect)
   }
 
   get page(): PageRect {
@@ -873,6 +881,57 @@ export class TabManager {
       tab.state.isSleeping = true
       this.emitChange()
     }
+  }
+
+  /**
+   * Closes tabs unused for longer than `maxIdleMs`, for the archive. Leaves pinned, playing and
+   * showing tabs, scTerra's own pages, popup pairs, and always at least one tab. Returns what closed.
+   */
+  archiveIdle(maxIdleMs: number, now = Date.now()): (SavedTab & { lastActiveAt: number })[] {
+    const archived: (SavedTab & { lastActiveAt: number })[] = []
+    for (const tab of [...this.tabs.values()]) {
+      if (this.tabs.size <= 1) break
+      const { state } = tab
+      if (state.id === this.activeId || this.split?.includes(state.id) || state.pinned || state.audible || now - tab.lastActiveAt < maxIdleMs) continue
+      const url = effectiveUrl(state.url)
+      if (!/^(https?|file):/i.test(url) || tab.devTools) continue
+      const inPopupPair = tab.openerId !== undefined || [...this.tabs.values()].some((other) => other.openerId === state.id)
+      if (inPopupPair) continue
+      archived.push({ ...this.toSaved(tab), lastActiveAt: tab.lastActiveAt })
+      this.close(state.id)
+    }
+    return archived
+  }
+
+  /** Loads a sleeping tab without showing it, so its page can be read. Waits up to 15 seconds for it. */
+  async wakeInBackground(id: TabId): Promise<WebContents | undefined> {
+    const tab = this.tabs.get(id)
+    if (!tab) return undefined
+    if (!tab.view) {
+      this.wake(tab)
+      tab.lastActiveAt = Date.now()
+      this.emitChange()
+    }
+    const contents = tab.view?.webContents
+    if (contents?.isLoading()) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 15_000)
+        contents.once('did-stop-loading', () => {
+          clearTimeout(timer)
+          resolve()
+        })
+      })
+    }
+    return contents && !contents.isDestroyed() ? contents : undefined
+  }
+
+  /** One tab, by hand. Null if it can't go, as with the last tab or an sc:// page. */
+  archiveTab(id: TabId): (SavedTab & { lastActiveAt: number }) | null {
+    const tab = this.tabs.get(id)
+    if (!tab || this.tabs.size <= 1 || !/^(https?|file):/i.test(effectiveUrl(tab.state.url))) return null
+    const saved = { ...this.toSaved(tab), lastActiveAt: tab.lastActiveAt }
+    this.close(id)
+    return saved
   }
 
   destroy(): void {
@@ -1119,9 +1178,13 @@ export class TabManager {
     })
 
     // Links with target=_blank and window.open land in a new tab next to their opener.
-    contents.setWindowOpenHandler(({ url, disposition }) => {
+    contents.setWindowOpenHandler(({ url, disposition, features }) => {
       const opener = contents.getURL()
       const fromPage = /^(https?|chrome-extension):/i.test(opener)
+      // Shift-clicking a link asks for a new window with no features, which a script's popup always sets.
+      if (disposition === 'new-window' && !features && /^https?:/i.test(opener) && /^https?:/i.test(url) && this.options.onPreviewLink?.(url, contents.session, state.container ?? null)) {
+        return { action: 'deny' }
+      }
       // Sign-in popups often start blank, and are sent on their way once they're open.
       const blank = url === '' || url === 'about:blank'
       // Chromium itself stops a site from opening extension pages that aren't meant for it.

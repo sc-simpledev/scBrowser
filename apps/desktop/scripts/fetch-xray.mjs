@@ -44,4 +44,24 @@ if (!existsSync(stamp)) {
   writeFileSync(stamp, VERSION)
   rmSync(temporary, { recursive: true, force: true })
 }
+// Windows needs the wintun driver beside the core for whole-computer TUN. It's WireGuard's signed
+// build, which may be shipped unchanged. Its checksum is from wintun.net and is checked here too.
+const WINTUN = { url: 'https://www.wintun.net/builds/wintun-0.14.1.zip', sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51' }
+const wintunStamp = join(out, `wintun-${WINTUN.sha256}.ok`)
+if (process.platform === 'win32' && !existsSync(wintunStamp)) {
+  const response = await fetch(WINTUN.url)
+  if (!response.ok) throw new Error(`wintun download failed: ${response.status}`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  const hash = createHash('sha256').update(bytes).digest('hex')
+  if (hash !== WINTUN.sha256) throw new Error(`Checksum mismatch for wintun: ${hash}`)
+  const temporary = mkdtempSync(join(tmpdir(), 'wintun-'))
+  const archive = join(temporary, 'wintun.zip')
+  writeFileSync(archive, bytes)
+  execFileSync('powershell', ['-NoProfile', '-Command', 'Expand-Archive', '-LiteralPath', archive, '-DestinationPath', temporary])
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+  copyFileSync(join(temporary, 'wintun', 'bin', arch, 'wintun.dll'), join(out, 'wintun.dll'))
+  copyFileSync(join(temporary, 'wintun', 'LICENSE.txt'), join(out, 'wintun-LICENSE.txt'))
+  writeFileSync(wintunStamp, '0.14.1')
+  rmSync(temporary, { recursive: true, force: true })
+}
 console.log(`Xray ${VERSION} is in ${out}`)

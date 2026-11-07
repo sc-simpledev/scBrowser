@@ -12,6 +12,37 @@
   text-align: left;
 }
 
+/* A citation after a claim, or a time in a video, linking back to where it came from. */
+.sc-cite {
+  display: inline-flex;
+  min-width: 16px;
+  height: 16px;
+  margin: 0 1px;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: 2px;
+  border-radius: var(--sc-radius-sm);
+  background: var(--sc-accent-soft);
+  color: var(--sc-accent);
+  font: var(--sc-weight-medium) var(--sc-text-2xs) / 1 var(--sc-font-sans);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--sc-duration-fast) var(--sc-ease-out);
+}
+.sc-cite:hover {
+  background: var(--sc-accent);
+  color: var(--sc-on-accent);
+}
+.sc-cite:focus-visible {
+  outline: 2px solid var(--sc-focus-ring);
+  outline-offset: 1px;
+}
+.sc-cite-time {
+  vertical-align: baseline;
+  height: 18px;
+}
+
 .sc-prose {
   display: flex;
   flex-direction: column;

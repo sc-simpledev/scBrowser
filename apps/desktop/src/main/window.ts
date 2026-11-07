@@ -7,7 +7,11 @@ import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
 import {
+  belongsToSite,
   effectiveUrl,
+  MAX_HIDDEN_PER_SITE,
+  MAX_SIDEBAR_SITES,
+  siteOf,
   engineById,
   isJavascriptUrl,
   isTypedAppUrl,
@@ -26,7 +30,7 @@ import {
   byPing,
   errorPageUrl,
   isReaderUrl,
-  SUMMARISE_PROMPT,
+  summarisePromptFor,
   isNewTabUrl,
   sleepMinutes,
   type Bookmark,
@@ -55,6 +59,10 @@ import { fetchIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
 import { readFlags } from './flags'
 import { darkenPage } from './forceDark'
+import { rejectCookieBanner, watchConsentFrames } from './cookieBanners'
+import { applySiteTweaks, pickElement } from './siteTweaks'
+import { LinkPreview } from './linkPreview'
+import { SidebarSites } from './sidebarSites'
 import { copySecret, fillDetails, fillLogin, watchForSignIn } from './passwordFill'
 import { TabManager } from './tabs/TabManager'
 
@@ -123,6 +131,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const siteColours = readFlags().includes('site-colours')
   const forceDark = readFlags().includes('force-dark-pages')
   const pageColours = new WeakMap<Electron.WebContents, string | null>()
+  /** Cookie banners are left alone where the person turned tracking protection off. */
+  const rejectsBanners = (url: string) => settings.get().rejectCookieBanners && /^https?:/i.test(url) && !privacy.isOff(new URL(url).host)
   const translatedInto = new WeakMap<Electron.WebContents, string>()
   const publishSiteColour = () => {
     if (!siteColours) return
@@ -163,6 +173,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
       contents.on('did-finish-load', () => watchTab(contents))
+      watchConsentFrames(contents, () => rejectsBanners(contents.getURL()))
       if (siteColours) {
         contents.on('did-change-theme-color', (_event, color) => {
           pageColours.set(contents, color)
@@ -180,7 +191,19 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!chromeUi.isDestroyed()) chromeUi.focus()
     },
     onAppLink: (contents, url, requester) => appLinks.request(url, requester, contents),
+    onPreviewLink: (url, target, container) => {
+      if (!settings.get().linkPreview || isApp) return false
+      openPreview(url, target, container)
+      return true
+    },
+    onPageRect: () => preview.place(),
+    onResizing: (resizing) => {
+      preview.setHidden(resizing)
+      sidebarSites.setHidden(resizing, 'resizing')
+    },
     onActivate: (tab) => {
+      // A preview belongs to the page it was opened from.
+      preview.close()
       const contents = tabs.contentsFor(tab.id)
       appLinks.activeChanged()
       publishSiteColour()
@@ -192,11 +215,17 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     // Pages can still report in during shutdown, after the database has closed.
     onVisit: (url) => {
-      if (!window.isDestroyed() && !isPrivate) history.recordVisit(url)
+      if (!window.isDestroyed() && !isPrivate) {
+        history.recordVisit(url)
+        core.readingList?.markVisited(url)
+      }
     },
     onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
     onDomReady: (contents) => {
       if (forceDark) void darkenPage(contents)
+      void applySiteTweaks(contents, settings.get())
+      void core.highlights?.paint(contents)
+      if (rejectsBanners(contents.getURL())) rejectCookieBanner(contents)
     },
     onTitle: (url, title) => {
       if (!window.isDestroyed() && !isPrivate) history.updateTitle(url, title)
@@ -208,6 +237,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => {
       window.setFullScreen(fullscreen)
+      sidebarSites.setHidden(fullscreen, 'fullscreen')
+      if (fullscreen) preview.close()
       extensions.setPanelHidden(fullscreen, window)
     },
     newTabPage: (target): string | null => extensions.newTabPage(target),
@@ -380,9 +411,119 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     quit: () => app.quit(),
     openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list()),
     installUpdate: () => updates.install(),
-    extensionMenu: () => extensions.menu()
+    extensionMenu: () => extensions.menu(),
+    addToSidebar: () => addSidebarSite(),
+    highlight: (contents, text) => {
+      const store = core.highlights
+      if (!store) return notify('Private windows keep no highlights')
+      const url = contents.getURL()
+      if (!/^(https?|file):/i.test(url)) return notify('Only web pages can be highlighted')
+      try {
+        store.add(url, contents.getTitle(), text)
+        void store.paint(contents)
+        notify('Highlighted. Find it in Highlights')
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Couldn't highlight that")
+      }
+    },
+    addToReadingList: () => {
+      const list = core.readingList
+      const active = tabs.active
+      const url = active ? effectiveUrl(active.url) : ''
+      if (!list) return notify('Private windows keep no reading list')
+      if (!active || !/^(https?|file):/i.test(url)) return notify('Only web pages can go on the reading list')
+      const already = list.has(url)
+      list.add(url, active.title)
+      notify(already ? 'Already on your reading list' : 'Added to your reading list')
+    },
+    archiveTab: (id) => {
+      if (isPrivate) return notify('Private windows keep no archive')
+      const saved = tabs.archiveTab(id)
+      if (!saved) return notify("This tab can't be archived")
+      core.archive.add([saved], true)
+      notify('Archived. Find it in Archived tabs')
+    },
+    watchPage: (part) => {
+      const watcher = core.watcher
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      const url = contents?.getURL() ?? ''
+      if (!watcher) return notify("Private windows don't watch pages")
+      if (!contents || !/^https?:/i.test(url)) return notify('Only websites can be watched')
+      const title = contents.getTitle()
+      void (part ? pickElement(contents, 'watch') : Promise.resolve(null))
+        .then(async (selector) => {
+          if (part && !selector) return
+          await watcher.add(url, title, selector)
+          notify(selector ? 'Watching that part. You’ll be told when it changes' : 'Watching this page. You’ll be told when it changes')
+        })
+        .catch((error: Error) => notify(error.message))
+    },
+    previewLink: (url, contents) => {
+      if (!/^https?:/i.test(url)) return
+      const id = tabs.tabIdFor(contents)
+      openPreview(url, contents.session, id === null ? null : (tabs.snapshot().tabs.find((tab) => tab.id === id)?.container ?? null))
+    },
+    hidePart: () => {
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      const url = contents?.getURL() ?? ''
+      const site = siteOf(url)
+      if (!contents || !site) return notify('Parts can only be hidden on websites')
+      void pickElement(contents).then((selector) => {
+        if (!selector || contents.isDestroyed() || siteOf(contents.getURL()) !== site) return
+        const { hiddenElements } = settings.get()
+        const list = hiddenElements[site] ?? []
+        if (list.length >= MAX_HIDDEN_PER_SITE) return notify(`A site can have ${MAX_HIDDEN_PER_SITE} hidden parts at most`)
+        if (!list.includes(selector)) settings.set({ hiddenElements: { ...hiddenElements, [site]: [...list, selector] } })
+        notify('Hidden on this site. Show it again from the page menu')
+      })
+    },
+    hasHiddenParts: (url) => {
+      const site = siteOf(url)
+      return !!site && Object.keys(settings.get().hiddenElements).some((hidden) => belongsToSite(site, hidden))
+    },
+    showHiddenParts: () => {
+      const site = siteOf(tabs.active ? effectiveUrl(tabs.active.url) : '')
+      if (!site) return
+      const hiddenElements = Object.fromEntries(Object.entries(settings.get().hiddenElements).filter(([hidden]) => !belongsToSite(site, hidden)))
+      settings.set({ hiddenElements })
+      notify('Hidden parts are showing again')
+    },
+    forgetSite: () => {
+      const site = siteOf(tabs.active ? effectiveUrl(tabs.active.url) : '')
+      if (!site) return notify('Only websites can be forgotten')
+      if (isPrivate) return notify('Private windows forget every site when they close')
+      const always = settings.get().forgetOnClose.includes(site)
+      void dialog
+        .showMessageBox(window as BrowserWindow, {
+          type: 'question',
+          message: `Forget ${site}?`,
+          detail: `This signs you out of ${site} and clears its cookies, saved site data, history and permissions, including its subdomains. Bookmarks and saved passwords stay.`,
+          buttons: ['Forget', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          checkboxLabel: 'Also forget it every time scTerra closes',
+          checkboxChecked: always
+        })
+        .then(async ({ response, checkboxChecked }) => {
+          if (response !== 0) return
+          const others = settings.get().forgetOnClose.filter((host) => host !== site)
+          if (checkboxChecked !== always) settings.set({ forgetOnClose: checkboxChecked ? [...others, site].sort() : others })
+          await core.forgetSite(site)
+          notify(`${site} is forgotten`)
+        })
+        .catch(() => notify(`Couldn't forget ${site}`))
+    }
   }
-  const ai = new AiService(aiStore, (id) => core.contentsFor(id))
+  // Hidden parts and site CSS apply to open pages as soon as they change.
+  let lastTweaks = JSON.stringify([settings.get().hiddenElements, settings.get().siteCss])
+  const stopTweaks = settings.subscribe((next) => {
+    const tweaks = JSON.stringify([next.hiddenElements, next.siteCss])
+    if (tweaks === lastTweaks) return
+    lastTweaks = tweaks
+    for (const contents of tabs.allContents()) void applySiteTweaks(contents, next)
+  })
+  const stopSidebarPrune = settings.subscribe((next) => sidebarSites.prune(next.sidebarSites.map((site) => site.url)))
+  const ai = new AiService(aiStore, (id) => core.contentsFor(id), (contents) => core.tabIdFor(contents))
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
@@ -440,9 +581,71 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         core.removeWorkspace(id)
       },
       onPopupClosed: () => tabs.focusActive(),
-      onTooltipCleared: () => send('overlay:clear-tooltip')
+      onTooltipCleared: () => send('overlay:clear-tooltip'),
+      onPreviewAction: (action) => (action === 'close' ? preview.close() : preview.promote(action))
     }
   )
+  let previewContainer: string | null = null
+  const preview = new LinkPreview({
+    window,
+    page: () => tabs.page,
+    show: (state, view) => overlay.setLinkPreview(state, view),
+    prepare: (contents) => {
+      attachShortcuts(contents, actions)
+      attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
+    },
+    openTab: (url, how) => {
+      const id = tabs.create(url, { activate: how !== 'background', afterId: tabs.active?.id, container: previewContainer })
+      if (how === 'split') tabs.startSplit(id)
+    },
+    watch: (contents, onBlocked) => core.watchPage(contents, onBlocked)
+  })
+  const sidebarSites = new SidebarSites({
+    window,
+    prepare: (contents) => {
+      attachShortcuts(contents, actions)
+      attachPageMenu(contents, actions, window, (page, params) => extensions.menuItems(page, params))
+    },
+    onState: (state) => send('sidebar-sites:changed', state),
+    raiseOverlay: () => overlay.raise(),
+    openTab: (url) => tabs.create(url, { afterId: tabs.active?.id }),
+    watch: (contents, onBlocked) => core.watchPage(contents, onBlocked)
+  })
+  const addSidebarSite = () => {
+    const active = tabs.active
+    const url = active ? effectiveUrl(active.url) : ''
+    if (!active || !/^https?:\/\//i.test(url)) return notify('Only websites can go in the sidebar')
+    const { sidebarSites: sites } = settings.get()
+    if (sites.some((site) => site.url === url)) return sidebarSites.open(url)
+    if (sites.length >= MAX_SIDEBAR_SITES) return notify(`The sidebar holds ${MAX_SIDEBAR_SITES} sites at most`)
+    settings.set({ sidebarSites: [...sites, { url, title: (active.title || new URL(url).host).slice(0, 200) }] })
+    // The rail has to be drawn before the panel has room to open in.
+    setTimeout(() => sidebarSites.open(url), 50)
+  }
+  const sidebarSiteMenu = (url: string, x: number, y: number) => {
+    const sites = settings.get().sidebarSites
+    const index = sites.findIndex((site) => site.url === url)
+    if (index < 0) return
+    const move = (offset: number) => {
+      const next = [...sites]
+      const [site] = next.splice(index, 1)
+      next.splice(Math.max(0, Math.min(next.length, index + offset)), 0, site!)
+      settings.set({ sidebarSites: next })
+    }
+    Menu.buildFromTemplate([
+      { label: 'Open as tab', click: () => tabs.create(url, { afterId: tabs.active?.id }) },
+      { label: 'Reload', click: () => (sidebarSites.state()?.home === url ? sidebarSites.act('reload') : sidebarSites.open(url)) },
+      { type: 'separator' },
+      { label: 'Move up', enabled: index > 0, click: () => move(-1) },
+      { label: 'Move down', enabled: index < sites.length - 1, click: () => move(1) },
+      { type: 'separator' },
+      { label: 'Remove from sidebar', click: () => settings.set({ sidebarSites: sites.filter((site) => site.url !== url) }) }
+    ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+  }
+  const openPreview = (url: string, target: Electron.Session, container: string | null) => {
+    previewContainer = container
+    preview.open(url, target)
+  }
   const onActive = (action: (id: number) => void) => () => {
     if (tabs.active) action(tabs.active.id)
   }
@@ -506,7 +709,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'bookmarks-bar': actions.toggleBookmarksBar,
     reader: actions.toggleReader,
     assistant: actions.toggleAssistant,
-    summarise: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true }),
+    summarise: () => actions.askAssistant({ text: summarisePromptFor(tabs.active?.url ?? ''), selection: null, includePage: true }),
     split: () => tabs.toggleSplit(),
     'search-tabs': actions.searchTabs,
     'open-file': actions.openFile,
@@ -514,6 +717,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'pin-tab': onActive((id) => tabs.setPinned(id, !tabs.active?.pinned)),
     'mute-tab': onActive((id) => tabs.setMuted(id, !tabs.active?.muted)),
     screenshot: actions.screenshot,
+    'hide-part': actions.hidePart,
+    'add-to-sidebar': actions.addToSidebar,
+    'watch-page': () => actions.watchPage(false),
+    'reading-list-add': actions.addToReadingList,
+    'reading-list': () => actions.openPage('reading'),
+    highlights: () => actions.openPage('highlights'),
+    'watched-pages': () => actions.openPage('watching'),
+    'archived-tabs': () => actions.openPage('archive'),
+    'forget-site': actions.forgetSite,
     translate: () => actions.translatePage(),
     'organise-tabs': actions.organiseTabs,
     'cleanup-tabs': actions.cleanupTabs,
@@ -631,6 +843,16 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     Menu.buildFromTemplate([
       ...(logins.length === 0 ? [{ label: origin ? 'No saved logins for this site' : 'Nothing to fill on this page', enabled: false }] : []),
       ...logins.map((login) => ({ label: login.username || 'No username', click: () => fill(login.id) })),
+      ...logins
+        .filter((login) => login.totp)
+        .map((login) => ({
+          label: logins.filter((other) => other.totp).length > 1 ? `Copy two-step code for ${login.username || 'no username'}` : 'Copy two-step code',
+          click: () => {
+            const { code, remaining } = passwords.totp(login.id)
+            copySecret(code)
+            notify(`Two-step code copied. It changes in ${remaining} seconds`)
+          }
+        })),
       ...(logins.length > 0 && origin?.startsWith('http:') ? [{ label: "This page isn't encrypted", enabled: false }] : []),
       ...(contents ? actions.autofillRows(contents) : []),
       { type: 'separator' },
@@ -802,7 +1024,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     passwords,
     openVpnMenu,
     openPasswordMenu,
-    extensions
+    extensions,
+    sidebar: { sites: sidebarSites, addCurrent: addSidebarSite, menu: sidebarSiteMenu },
+    core
   })
   const disposeInternalIpc = registerInternalIpc({
     window,
@@ -855,6 +1079,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const sleepTimer = setInterval(() => {
     const minutes = sleepMinutes(settings.get())
     if (minutes > 0) tabs.sleepIdle(minutes * 60_000)
+    const days = settings.get().archiveAfterDays
+    if (days > 0 && !isPrivate && !isApp) core.archive.add(tabs.archiveIdle(days * 86_400_000))
   }, SLEEP_CHECK_MS)
 
   // Windows: mouse back/forward buttons arrive as app commands.
@@ -876,6 +1102,10 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   })
   window.on('closed', () => {
     clearInterval(sleepTimer)
+    stopTweaks()
+    stopSidebarPrune()
+    preview.close()
+    sidebarSites.destroy()
     nativeTheme.off('updated', syncTheme)
     disposeIpc()
     disposeInternalIpc()

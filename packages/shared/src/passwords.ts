@@ -9,6 +9,24 @@ export interface PasswordSummary {
   weak?: boolean
   /** The same password is saved for another site. */
   reused?: boolean
+  /** Turns up in known data breaches, from the last leak check. */
+  leaked?: boolean
+  /** Two-step codes are set up for it. */
+  totp?: boolean
+}
+
+/** A two-step code and how long it has left. */
+export interface TotpCode {
+  code: string
+  period: number
+  remaining: number
+}
+
+export interface LeakCheck {
+  checked: number
+  leaked: number
+  /** When it last ran, or null if it never has. */
+  checkedAt: number | null
 }
 
 export interface PasswordEntry {
@@ -18,6 +36,11 @@ export interface PasswordEntry {
   username: string
   password: string
   note: string
+  /**
+   * A setup key or `otpauth://` address for two-step codes. Left out keeps what's saved,
+   * and an empty string removes it. Saved codes never come back to a page.
+   */
+  totp?: string
 }
 
 export interface PasswordState {
@@ -133,18 +156,22 @@ export function parsePasswordCsv(text: string): PasswordEntry[] {
   const username = column('username', 'login_username', 'login name')
   const password = column('password', 'login_password')
   const note = column('note', 'notes')
+  const totp = column('totp', 'login_totp', 'otpauth')
   if (url === -1 || password === -1) return []
   return rows.flatMap((row) => {
-    const entry = { url: row[url] ?? '', username: row[username] ?? '', password: row[password] ?? '', note: row[note] ?? '' }
+    const entry: PasswordEntry = { url: row[url] ?? '', username: row[username] ?? '', password: row[password] ?? '', note: row[note] ?? '' }
+    if (row[totp]?.trim()) entry.totp = row[totp]!.trim()
     return entry.password && originOf(entry.url) ? [entry] : []
   })
 }
 
 const csvCell = (text: string) => (/[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text)
 
+/** Two-step keys get a column only when some login has one, so plain exports look as they always did. */
 export function passwordCsv(entries: Omit<PasswordEntry, 'id'>[]): string {
-  const rows = entries.map(({ url, username, password, note }) => [url, username, password, note].map(csvCell).join(','))
-  return ['url,username,password,note', ...rows].join('\n') + '\n'
+  const withTotp = entries.some((entry) => entry.totp)
+  const rows = entries.map(({ url, username, password, note, totp }) => [url, username, password, note, ...(withTotp ? [totp ?? ''] : [])].map(csvCell).join(','))
+  return [withTotp ? 'url,username,password,note,totp' : 'url,username,password,note', ...rows].join('\n') + '\n'
 }
 
 const COMMON = new Set(['password', 'passw0rd', '123456', '12345678', '123456789', 'qwerty', 'letmein', 'iloveyou', 'admin', 'welcome', 'monkey', 'dragon', 'abc123', 'football', 'baseball', 'sunshine', 'princess', 'master', 'trustno1', '111111', '000000'])

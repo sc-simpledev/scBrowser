@@ -1,5 +1,5 @@
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { bypassRules, DEFAULT_WORKSPACE, type Workspace } from '@scbrowser/shared'
+import { belongsToSite, bypassRules, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -17,6 +17,13 @@ import type { SettingsStore } from './settings'
 import { attachShortcuts } from './shortcuts'
 import { attachPageMenu } from './menus'
 import { fetchSiteIcon } from './siteIcons'
+import { clearSiteStorage, forgetSite, siteSessions } from './siteData'
+import { PageWatcher } from './pageWatch'
+import { TabArchive } from './tabArchive'
+import { goToTarget, samePage } from './citations'
+import { HighlightStore } from './highlights'
+import { ReadingList } from './readingList'
+import { MiniApps } from './miniApps'
 import { pdfPageUrl } from './internal/pdf'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -105,6 +112,8 @@ export class BrowserCore {
   private quitting = false
   private browserOpened = false
   private readonly prepared = new Set<Session>()
+  /** Pages outside tabs, like link previews and sidebar sites, that the site blocker still screens. */
+  private readonly extraPages = new WeakMap<WebContents, (url: string) => void>()
   private readonly triedIcons = new Set<string>()
   private proxyRules: string | null = null
   private spellingKey: string
@@ -124,6 +133,13 @@ export class BrowserCore {
   readonly passwords: PasswordVault
   readonly updates: UpdateService
   readonly webApps: WebApps
+  /** Private windows watch nothing and archive nothing. */
+  readonly watcher: PageWatcher | null
+  readonly archive: TabArchive
+  /** Private windows keep neither. */
+  readonly highlights: HighlightStore | null
+  readonly readingList: ReadingList | null
+  readonly miniApps: MiniApps
 
   constructor(
     readonly services: Services,
@@ -187,8 +203,13 @@ export class BrowserCore {
     })
     this.privacy = new PrivacyService(settings, kv, {
       onBlocked: (id) => this.windows.forEach((handle) => handle.tabs.noteBlocked(id)),
-      screen: (url, contents): string | null | Promise<string | null> => (this.ownerOf(contents) ? this.blocker.screen(url) : null),
-      onScreenedOut: (url, reason, contents) => void contents.loadURL(this.blocker.pageFor(url, reason)).catch(() => undefined),
+      screen: (url, contents): string | null | Promise<string | null> => (this.ownerOf(contents) || this.extraPages.has(contents) ? this.blocker.screen(url) : null),
+      onScreenedOut: (url, reason, contents) => {
+        // Only a tab can show the block page, as it's an sc:// page that needs the tab's bridge.
+        const elsewhere = this.extraPages.get(contents)
+        if (elsewhere) return elsewhere(url)
+        void contents.loadURL(this.blocker.pageFor(url, reason)).catch(() => undefined)
+      },
       isTab: (contents): boolean => !!this.ownerOf(contents),
       onPdf: (url, contents) => {
         if (!isPrivate) history.recordVisit(url)
@@ -295,6 +316,56 @@ export class BrowserCore {
     app.on('before-quit', () => {
       this.quitting = true
     })
+    if (!isPrivate) this.forgetOnClose()
+    this.archive = new TabArchive(kv, () => undefined)
+    this.highlights = isPrivate ? null : new HighlightStore(kv)
+    this.readingList = isPrivate ? null : new ReadingList(kv)
+    this.miniApps = new MiniApps(kv)
+    this.watcher = isPrivate
+      ? null
+      : new PageWatcher(kv, {
+          onChange: () => undefined,
+          openTab: (url) => {
+            const { tabs, window } = this.browser()
+            tabs.create(url)
+            window.show()
+            window.focus()
+          }
+        })
+    app.on('will-quit', () => this.watcher?.destroy())
+  }
+
+  /** Clears what this computer remembers about a site, then reloads its open tabs so they start fresh. */
+  async forgetSite(base: string): Promise<void> {
+    await forgetSite(base, this.services)
+    for (const handle of this.windows) {
+      for (const contents of handle.tabs.allContents()) {
+        const url = contents.getURL()
+        if (/^https?:/.test(url) && URL.canParse(url) && belongsToSite(new URL(url).hostname, base)) contents.reload()
+      }
+    }
+  }
+
+  /**
+   * Sites the person asked to be forgotten each time. Cleared as scTerra quits, after its windows
+   * have gone, and again at the next start in case quitting was cut short by a crash or power cut.
+   */
+  private forgetOnClose(): void {
+    const { settings, history } = this.services
+    const clear = (withHistory: boolean) => {
+      const sites = settings.get().forgetOnClose
+      const origins = withHistory ? sites.map((base) => history.forgetSite(base)) : sites.map(() => [])
+      return Promise.all(sites.flatMap((base, i) => siteSessions().map((target) => clearSiteStorage(target, base, origins[i]!))))
+    }
+    if (settings.get().forgetOnClose.length > 0) void clear(true)
+    let cleared = false
+    app.on('will-quit', (event) => {
+      if (cleared || settings.get().forgetOnClose.length === 0) return
+      cleared = true
+      event.preventDefault()
+      // Never holds quitting up for long: what's left is cleared at the next start.
+      void Promise.race([clear(true).catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 4000))]).then(() => app.quit())
+    })
   }
 
   openWindow(options: WindowOptions = {}): BrowserWindowHandle {
@@ -365,6 +436,39 @@ export class BrowserCore {
 
   broadcast: Send = (channel, ...payload) => {
     for (const handle of this.windows) handle.send(channel, ...payload)
+  }
+
+  /**
+   * Follows a citation: to its tab if that's still on the page, or else a new tab at the address,
+   * which finds the words or the moment by itself as it loads.
+   */
+  openSource(source: { tabId: number | null; url: string }, target: CitationTarget): void {
+    for (const handle of this.windows) {
+      const contents = source.tabId === null ? undefined : handle.tabs.contentsFor(source.tabId)
+      if (!contents || !samePage(contents.getURL(), source.url)) continue
+      handle.tabs.activate(source.tabId!)
+      handle.window.focus()
+      void goToTarget(contents, target)
+      return
+    }
+    // A sleeping tab has no page to look at yet, but still knows its address.
+    for (const handle of this.windows) {
+      const tab = source.tabId === null ? undefined : handle.tabs.snapshot().tabs.find((candidate) => candidate.id === source.tabId)
+      if (!tab || !samePage(tab.url, source.url)) continue
+      handle.tabs.activate(tab.id)
+      handle.window.focus()
+      const woken = handle.tabs.contentsFor(tab.id)
+      if (woken) void goToTarget(woken, target)
+      return
+    }
+    const { tabs, window } = this.focused() ?? this.browser()
+    tabs.create(target.seconds !== null ? videoTimeUrl(source.url, target.seconds) : textFragmentUrl(source.url, target.quote), { afterId: tabs.active?.id })
+    window.focus()
+  }
+
+  /** Screens a page that isn't a tab, handing anything blocked back to be opened as a tab. */
+  watchPage(contents: WebContents, onBlocked: (url: string) => void): void {
+    this.extraPages.set(contents, onBlocked)
   }
 
   ownerOf(contents: WebContents): BrowserWindowHandle | undefined {

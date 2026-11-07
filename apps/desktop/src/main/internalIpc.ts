@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { buildSuggestions, DEFAULT_SETTINGS, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { buildSuggestions, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
@@ -30,6 +30,12 @@ import type { SyncService } from './sync'
 import type { TabManager } from './tabs/TabManager'
 import type { UpdateService } from './updater'
 import { copySecret } from './passwordFill'
+import { LEAK_RANGE_URL } from './totp'
+import iconPath from '../../build/icon.png?asset'
+import { samePage } from './citations'
+import { withHiddenPage } from './hiddenPage'
+import { extractContext } from './ai/pageText'
+import { trimPage, withContext } from '@scbrowser/ai'
 import type { PasswordVault } from './passwords'
 import type { VpnService } from './vpn'
 
@@ -70,6 +76,13 @@ const text = (value: unknown, max = 8192): string => {
 const int = (value: unknown): number => {
   if (!Number.isInteger(value)) throw new Error('Expected an integer')
   return value as number
+}
+
+/** Through the browser's own session, so it takes the VPN like a page would. Padding hides how many matches came back. */
+async function fetchLeakRange(prefix: string): Promise<string> {
+  const response = await session.defaultSession.fetch(`${LEAK_RANGE_URL}${prefix}`, { headers: { 'Add-Padding': 'true' }, signal: AbortSignal.timeout(15_000) })
+  if (!response.ok) throw new Error(`The leak check service answered ${response.status}. Try again later.`)
+  return response.text()
 }
 
 const optionalId = (value: unknown): string | null => (value === null ? null : text(value, 64))
@@ -221,9 +234,11 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'chats:delete': (id) => chats.delete(text(id, 64)),
     'ai:status': () => aiStore.status(),
-    'ai:send': (streamId, request) => {
+    'ai:send': async (streamId, request) => {
       if (!isAssistantRequest(request)) throw new Error('Invalid request')
       const sender = caller
+      // Tabs picked for research may be asleep, and a page has to be loaded to be read.
+      await Promise.all(request.extraTabIds.map((id) => (tabs.contentsFor(id) ? undefined : tabs.wakeInBackground(id))))
       void ai.send(
         text(streamId, 64),
         request,
@@ -345,11 +360,22 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'passwords:list': () => passwords.list(),
     'passwords:reveal': (id) => passwords.reveal(text(id, 64)),
     'passwords:save': (entry) => {
-      const { id, url, username, password, note } = (entry ?? {}) as Partial<PasswordEntry>
-      return passwords.saveEntry({ ...(id === undefined ? {} : { id: text(id, 64) }), url: text(url, 2048), username: text(username, 1024), password: text(password, 4096), note: text(note, 1024) })
+      const { id, url, username, password, note, totp } = (entry ?? {}) as Partial<PasswordEntry>
+      return passwords.saveEntry({
+        ...(id === undefined ? {} : { id: text(id, 64) }),
+        url: text(url, 2048),
+        username: text(username, 1024),
+        password: text(password, 4096),
+        note: text(note, 1024),
+        ...(totp === undefined ? {} : { totp: text(totp, 2048) })
+      })
     },
     'passwords:remove': (id) => passwords.remove(text(id, 64)),
     'passwords:copy': (id) => copySecret(passwords.reveal(text(id, 64))),
+    'passwords:totp': (id) => passwords.totp(text(id, 64)),
+    'passwords:copy-totp': (id) => copySecret(passwords.totp(text(id, 64)).code),
+    'passwords:check-leaks': () => passwords.checkLeaks(fetchLeakRange),
+    'passwords:leak-status': () => passwords.leakStatus(),
     'passwords:import': async () => {
       const picked = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }] })
       const path = picked.filePaths[0]
@@ -394,6 +420,78 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'report:save': (...args) => {
       if (!isReportSave(args)) throw new Error('Invalid report')
       return saveReport(window, ...args)
+    },
+    'tabs:research-list': () =>
+      tabs
+        .snapshot()
+        .tabs.filter((tab) => /^(https?|file):/i.test(tab.url))
+        .map(({ id, title, url, isSleeping }) => ({ id, title, url, isSleeping })),
+    'ai:open-source': (source, target) => {
+      if (!isCitationSource(source) || !isCitationTarget(target)) throw new Error('Invalid source')
+      core.openSource(source, target)
+    },
+    'watch:list': () => (core.watcher?.list() ?? []).map(({ lastText: _text, ...watch }) => watch),
+    'watch:check': (id) => core.watcher?.check(text(id, 64)),
+    'watch:remove': (id) => core.watcher?.remove(text(id, 64)),
+    'watch:set-interval': (id, everyMinutes) => {
+      if (!isWatchInterval(everyMinutes)) throw new Error('Invalid interval')
+      core.watcher?.setInterval(text(id, 64), everyMinutes)
+    },
+    'watch:seen': (id) => core.watcher?.markSeen(id === null ? undefined : text(id, 64)),
+    'archive:list': () => core.archive.list(),
+    'archive:restore': (id) => {
+      const found = core.archive.take(text(id, 64))
+      if (found && /^(https?|file):/i.test(found.url)) tabs.create(found.url, { container: found.container })
+    },
+    'archive:remove': (id) => void core.archive.take(text(id, 64)),
+    'archive:clear': () => core.archive.clear(),
+    'highlights:list': () => core.highlights?.list() ?? [],
+    'highlights:note': (id, note) => core.highlights?.setNote(text(id, 64), text(note, MAX_NOTE_CHARS)),
+    'highlights:remove': (id) => core.highlights?.remove(text(id, 64)),
+    'highlights:open': (id) => {
+      const found = core.highlights?.list().find((highlight) => highlight.id === text(id, 64))
+      if (found && /^(https?|file):/i.test(found.url)) core.openSource({ tabId: null, url: found.url }, { quote: found.text, seconds: null })
+    },
+    'highlights:report': (ids) => {
+      if (!Array.isArray(ids) || ids.length > MAX_HIGHLIGHTS) throw new Error('Too many highlights')
+      const wanted = new Set(ids.map((id) => text(id, 64)))
+      const chosen = (core.highlights?.list() ?? []).filter((highlight) => wanted.has(highlight.id))
+      const tab = caller && tabs.tabIdFor(caller)
+      if (chosen.length === 0 || !tab) return
+      ai.setPendingPrompt(highlightsReportPrompt(chosen))
+      tabs.navigate(tab, 'sc://assistant')
+    },
+    'mini-apps:keep': (name, content) => {
+      if (!isFileSave([name, content])) throw new Error('Invalid file')
+      // Only sc://assistant writes files, so only it can keep one.
+      if (!caller?.getURL().startsWith('sc://assistant')) throw new Error('Only the assistant can keep apps.')
+      return core.miniApps.keep(name as string, content as string).name
+    },
+    'mini-apps:list': () => core.miniApps.list().map(({ id, name, createdAt }) => ({ id, name, createdAt })),
+    'mini-apps:open': (id) => core.miniApps.launch(text(id, 64), process.platform === 'darwin' ? undefined : iconPath),
+    'mini-apps:remove': (id) => core.miniApps.remove(text(id, 64)),
+    'reading:list': () => core.readingList?.list() ?? [],
+    'reading:open': (id) => {
+      const item = core.readingList?.get(text(id, 64))
+      if (!item || !/^(https?|file):/i.test(item.url)) return
+      core.readingList!.patch(item.id, { readAt: item.readAt ?? Date.now() })
+      tabs.create(item.url, { afterId: tabs.active?.id })
+    },
+    'reading:set-read': (id, read) => core.readingList?.patch(text(id, 64), { readAt: read === true ? Date.now() : null }),
+    'reading:remove': (id) => core.readingList?.remove(text(id, 64)),
+    'reading:summarise': async (id) => {
+      const item = core.readingList?.get(text(id, 64))
+      if (!item) throw new Error("That page isn't on the list any more.")
+      if (URL.canParse(item.url) && aiStore.disabledHosts().includes(new URL(item.url).host)) throw new Error('AI is off for this site.')
+      // A tab already showing it saves loading it again.
+      const open = tabs.allContents().find((contents) => samePage(contents.getURL(), item.url))
+      const page = open ? await extractContext(open) : await withHiddenPage(item.url, extractContext)
+      if (!page?.text.trim()) throw new Error("Couldn't find an article on that page.")
+      const [message] = withContext([{ role: 'user', content: 'Summarise this article.' }], [{ ...page, ...trimPage(page.text, 60_000) }], null)
+      const summary = (await ai.complete(READING_SUMMARY_PROMPT, message!.content)).trim()
+      if (!summary) throw new Error('The AI sent back nothing.')
+      core.readingList?.patch(item.id, { summary: summary.slice(0, 4000), ...(page.title && !item.title ? { title: page.title } : {}) })
+      return summary
     },
     'updates:state': () => updates.state(),
     'updates:check': () => updates.check(),

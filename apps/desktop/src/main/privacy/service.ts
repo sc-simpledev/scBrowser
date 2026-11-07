@@ -127,6 +127,11 @@ export class PrivacyService {
     if (styles) await contents.insertCSS(styles, { cssOrigin: 'user' }).catch(() => undefined)
   }
 
+  /** Tracking protection was turned off for this exact host. */
+  isOff(host: string): boolean {
+    return this.off.has(host)
+  }
+
   offHosts(): string[] {
     return [...this.off].sort()
   }

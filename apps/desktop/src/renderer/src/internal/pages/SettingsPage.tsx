@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { Button, Input, Select, Switch } from '@scbrowser/ui'
 import {
   ACCENTS,
+  ARCHIVE_CHOICES,
   PERFORMANCE_SLEEP_MINUTES,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
@@ -24,6 +25,7 @@ import {
 } from '@scbrowser/shared'
 import { api, applyPerformance, applyTint } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
+import { ForgetOnClose, MiniAppsSection, PageTweaks } from './SiteSettings'
 
 function languageName(code: string): string {
   try {
@@ -265,6 +267,9 @@ export function SettingsPage() {
           </Button>
         </Row>
       </Section>
+      <Section title="Page tweaks">
+        <PageTweaks settings={settings} update={update} />
+      </Section>
       </Group>
 
       <Group id="Browsing" title="Browsing">
@@ -338,6 +343,18 @@ export function SettingsPage() {
             <option value={120}>After 2 hours</option>
           </RowSelect>
         </Row>
+        <Row label="Archive unused tabs" hint="Closes tabs left unused and keeps them under Archived tabs, to bring back. Pinned and playing tabs stay.">
+          <RowSelect aria-label="Archive unused tabs" value={settings.archiveAfterDays} onChange={(e) => update({ archiveAfterDays: Number(e.target.value) as Settings['archiveAfterDays'] })}>
+            {ARCHIVE_CHOICES.map((days) => (
+              <option key={days} value={days}>
+                {days === 0 ? 'Never' : days === 1 ? 'After a day unused' : `After ${days} days unused`}
+              </option>
+            ))}
+          </RowSelect>
+        </Row>
+        <Row label="Preview links with Shift-click" hint="Opens the link over the page, to read without making a tab. Open it as a tab from there if you want to keep it.">
+          <Switch label="Preview links with Shift-click" checked={settings.linkPreview} onChange={(linkPreview) => update({ linkPreview })} />
+        </Row>
         <Row label="Performance Mode" hint={`Background tabs sleep after ${PERFORMANCE_SLEEP_MINUTES} minutes, newly opened pages wait for a press before playing sound or video, and scTerra drops its animations and blur.`}>
           <Switch
             label="Performance Mode"
@@ -404,6 +421,9 @@ export function SettingsPage() {
         <Row label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one.">
           <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
         </Row>
+        <Row label="Reject cookie banners" hint="Presses Reject or Only necessary on cookie banners for you. It never accepts. Sites with tracking protection off are left alone.">
+          <Switch label="Reject cookie banners" checked={settings.rejectCookieBanners} onChange={(rejectCookieBanners) => update({ rejectCookieBanners })} />
+        </Row>
         {offHosts.map((host) => (
           <Row key={host} label={host} hint="Tracking protection is off">
             <Button
@@ -423,6 +443,9 @@ export function SettingsPage() {
         <Row label="VPN" hint="Send scTerra's traffic through your own connection.">
           <Button onClick={() => void api().invoke('browser:open', 'sc://vpn')}>Open</Button>
         </Row>
+      </Section>
+      <Section title="Forget when scTerra closes">
+        <ForgetOnClose settings={settings} update={update} />
       </Section>
       <Section title="Site permissions">
         {permissions.length === 0 && <Row label="No sites have asked for permissions yet">{null}</Row>}
@@ -688,6 +711,7 @@ export function SettingsPage() {
           </Row>
         ))}
       </Section>
+      <MiniAppsSection />
       </Group>
 
       <Group id="About" title="About">

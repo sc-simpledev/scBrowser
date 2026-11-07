@@ -1,4 +1,4 @@
-import { Activity, Bookmark, Bot, Download, FlaskConical, Globe, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
+import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { Fragment, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -17,6 +17,10 @@ import { PdfPage } from './pages/PdfPage'
 import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
 import { TasksPage } from './pages/TasksPage'
 import { VpnPage } from './pages/VpnPage'
+import { ArchivePage } from './pages/ArchivePage'
+import { WatchingPage } from './pages/WatchingPage'
+import { HighlightsPage } from './pages/HighlightsPage'
+import { ReadingPage } from './pages/ReadingPage'
 import { WelcomePage } from './welcome/WelcomePage'
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
@@ -30,6 +34,10 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   blocker: { title: 'Site blocker', icon: ShieldBan, component: BlockerPage },
   vpn: { title: 'VPN', icon: Globe, component: VpnPage },
   tasks: { title: 'Task Manager', icon: Activity, component: TasksPage },
+  reading: { title: 'Reading list', icon: BookMarked, component: ReadingPage },
+  highlights: { title: 'Highlights', icon: Highlighter, component: HighlightsPage },
+  watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
+  archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 

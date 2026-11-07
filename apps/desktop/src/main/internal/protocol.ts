@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { net, protocol, session } from 'electron'
 import { INTERNAL_PAGES } from '@scbrowser/shared'
 import { handlePreviews, PREVIEW_SCHEME } from '../filePreview'
+import { MINI_APP_SCHEME } from '../miniApps'
 import { errorPage } from './error'
 import { READER_CSP, readerPage } from './reader'
 
@@ -13,7 +14,9 @@ export function registerInternalScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: INTERNAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
     // Nothing more than an address of its own: no fetch, no bypassing its policy.
-    { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true } }
+    { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true } },
+    // A kept mini app: an origin of its own so its storage lasts, and nothing else.
+    { scheme: MINI_APP_SCHEME, privileges: { standard: true, secure: true } }
   ])
 }
 

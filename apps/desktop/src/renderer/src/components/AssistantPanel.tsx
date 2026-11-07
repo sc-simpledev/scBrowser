@@ -1,13 +1,15 @@
 import { ArrowUp, AtSign, Check, FileText, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL } from '@scbrowser/shared'
+import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
 import { useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
-import { CopyReply, ReplyContent, Thinking } from '../shared/ReplyContent'
+import { CopyReply, ReplyContent, Thinking, type OpenSource } from '../shared/ReplyContent'
 import { ReportPane } from '../shared/ReportPane'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
+
+const openSource: OpenSource = (source, target) => void window.scb.invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
 
 function contextLabel({ truncated, source }: Turn) {
   const what = source === 'transcript' ? 'the transcript of ' : source === 'pdf' ? 'the PDF ' : ''
@@ -147,6 +149,8 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
           onOpenReport={showReport}
           openReport={report}
           streaming={streaming}
+          sources={turn.sources}
+          onOpenSource={openSource}
         />
       )}
       {streaming && !turn.content && <Thinking />}
@@ -297,7 +301,7 @@ export function AssistantPanel() {
                   <h2 className="text-md font-medium">{canRead && !siteOff ? 'What do you want to know about this page?' : 'What can I help with?'}</h2>
                   {canRead && !siteOff && (
                     <div className="flex flex-col items-start gap-1.5">
-                      {PAGE_STARTERS.map(({ label, prompt }) => (
+                      {(tab && summarisePromptFor(tab.url) === VIDEO_SUMMARY_PROMPT ? [{ label: 'Summarise with key moments', prompt: VIDEO_SUMMARY_PROMPT }, ...PAGE_STARTERS.slice(1)] : PAGE_STARTERS).map(({ label, prompt }) => (
                         <Button
                           key={label}
                           onClick={() => {

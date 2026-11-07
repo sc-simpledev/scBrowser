@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { appScheme, CONTAINERS, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, SUMMARISE_PROMPT, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { appScheme, CONTAINERS, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -53,6 +53,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { label: 'Open link in new tab', click: () => openInTab(params.linkURL) },
       { label: 'Open link in new window', click: () => actions.openWindow(params.linkURL, tabs.active?.container) },
       { label: 'Open link in split view', click: () => tabs.startSplit(openInTab(params.linkURL)) },
+      { label: 'Preview link', click: () => actions.previewLink(params.linkURL, contents) },
       { label: 'Save link as…', click: () => contents.downloadURL(params.linkURL) },
       { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
       ...(params.linkText.trim() ? [{ label: 'Copy link text', click: () => clipboard.writeText(params.linkText.trim()) }] : [])
@@ -130,7 +131,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       {
         label: 'Ask about selection',
         click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false })
-      }
+      },
+      ...(isWeb(params.pageURL) || params.pageURL.startsWith('file:') ? [{ label: 'Highlight', click: () => actions.highlight(contents, params.selectionText) }] : [])
     ])
   }
   if (groups.length === 0) {
@@ -162,12 +164,27 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { label: 'Bookmark this page', click: actions.toggleBookmark },
       { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) }
     ])
+    if (isWeb(params.pageURL)) {
+      groups.push([
+        { label: 'Add to reading list', click: actions.addToReadingList },
+        { label: 'Add page to the sidebar', click: actions.addToSidebar },
+        { label: 'Watch for changes', submenu: [
+          { label: 'The whole page', click: () => actions.watchPage(false) },
+          { label: 'Pick a part…', click: () => actions.watchPage(true) },
+          { type: 'separator' },
+          { label: 'Watched pages…', click: () => actions.openPage('watching') }
+        ] },
+        { label: 'Hide part of this page…', click: actions.hidePart },
+        ...(actions.hasHiddenParts(params.pageURL) ? [{ label: 'Show hidden parts again', click: actions.showHiddenParts }] : []),
+        { label: 'Forget this site…', click: actions.forgetSite }
+      ])
+    }
     if (sourcePage) {
       groups.push([
         { label: 'Reader view', click: actions.toggleReader },
         {
           label: 'Summarise page',
-          click: () => actions.askAssistant({ text: SUMMARISE_PROMPT, selection: null, includePage: true })
+          click: () => actions.askAssistant({ text: summarisePromptFor(params.pageURL), selection: null, includePage: true })
         },
         { label: 'Translate page', submenu: translateRows(actions) }
       ])
@@ -203,6 +220,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
       ]
     },
     { label: 'Sleep tab', enabled: !tab?.isSleeping && open.length > 1, click: () => tabs.sleep(id) },
+    { label: 'Archive tab', enabled: open.length > 1 && !tab?.pinned, click: () => actions.archiveTab(id) },
     { type: 'separator' },
     { label: 'Add to new group', enabled: !tab?.pinned, click: () => tabs.setGroup([id], tabs.freshGroupName()) },
     {

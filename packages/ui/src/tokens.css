@@ -69,6 +69,8 @@
   --sc-glass-strong: color-mix(in oklab, var(--sc-surface) 90%, transparent);
   --sc-glass-edge: color-mix(in oklab, var(--sc-text) 9%, transparent);
   --sc-wash: none;
+  /* Dims the page behind something opened over it, like a link preview. */
+  --sc-scrim: color-mix(in oklab, black 34%, transparent);
 
   /* Motion */
   --sc-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);

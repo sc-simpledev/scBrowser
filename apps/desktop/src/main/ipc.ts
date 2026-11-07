@@ -1,6 +1,8 @@
 import { Menu, type BaseWindow, type WebContents } from 'electron'
 import {
   engineById,
+  isCitationSource,
+  isCitationTarget,
   MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
   type AssistantRequest,
@@ -34,6 +36,7 @@ import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { TabManager } from './tabs/TabManager'
 import type { VpnService } from './vpn'
+import type { SidebarSites } from './sidebarSites'
 
 type Handlers = { [C in CommandChannel]: (...args: Parameters<ChromeCommands[C]>) => ReturnType<ChromeCommands[C]> | Promise<ReturnType<ChromeCommands[C]>> }
 type Validators = { [C in CommandChannel]: (args: unknown[]) => args is Parameters<ChromeCommands[C]> }
@@ -91,7 +94,8 @@ export const isTurns = (value: unknown): value is SavedTurn[] =>
       isShortString(t.content, MAX_CONVERSATION_CHARS) &&
       (t.pageTitle === undefined || isShortString(t.pageTitle, 2048)) &&
       (t.source === undefined || ['page', 'transcript', 'pdf'].includes(t.source as string)) &&
-      (t.truncated === undefined || typeof t.truncated === 'boolean')
+      (t.truncated === undefined || typeof t.truncated === 'boolean') &&
+      (t.sources === undefined || (Array.isArray(t.sources) && t.sources.length <= MAX_MENTIONED_TABS + 1 && t.sources.every((source: unknown) => isCitationSource(source))))
   )
 
 const chatIdArg = (args: unknown[]): args is [string] => args.length === 1 && isShortString(args[0], 64)
@@ -232,7 +236,14 @@ const validators: Validators = {
     args[0].every((item: BarItem) => record(item) && (item.kind === 'bookmark' || item.kind === 'group') && isId(item.id)) &&
     Number.isFinite(args[1]) &&
     Number.isFinite(args[2]),
-  'profiles:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1])
+  'profiles:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'ai:open-source': (args): args is [{ tabId: number | null; url: string }, { quote: string | null; seconds: number | null }] => args.length === 2 && isCitationSource(args[0]) && isCitationTarget(args[1]),
+  'sidebar-sites:toggle': (args): args is [string] => args.length === 1 && isShortString(args[0], 2048),
+  'sidebar-sites:rect': (args): args is [PageRect] => args.length === 1 && isRect(args[0]),
+  'sidebar-sites:state': noArgs,
+  'sidebar-sites:action': (args): args is ['back' | 'reload' | 'open-tab' | 'close'] => args.length === 1 && ['back', 'reload', 'open-tab', 'close'].includes(args[0] as string),
+  'sidebar-sites:add-current': noArgs,
+  'sidebar-sites:menu': (args): args is [string, number, number] => args.length === 3 && isShortString(args[0], 2048) && Number.isFinite(args[1]) && Number.isFinite(args[2])
 }
 
 interface IpcServices {
@@ -257,6 +268,8 @@ interface IpcServices {
   ai: AiService
   chats: ChatsRepo
   privacy: PrivacyService
+  core: { openSource: (source: { tabId: number | null; url: string }, target: { quote: string | null; seconds: number | null }) => void }
+  sidebar: { sites: SidebarSites; addCurrent: () => void; menu: (url: string, x: number, y: number) => void }
 }
 
 /**
@@ -264,7 +277,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace, extensions } = services
+  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace, extensions, sidebar, core } = services
   const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
@@ -445,7 +458,18 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       }
       popupBookmarkOverflow(items, menuHooks, open, x, y)
     },
-    'profiles:menu': (x, y) => popupProfilesMenu(actions, window, x, y)
+    'profiles:menu': (x, y) => popupProfilesMenu(actions, window, x, y),
+    'ai:open-source': (source, target) => core.openSource(source, target),
+    // Only sites the person put in the rail can open there.
+    'sidebar-sites:toggle': (url) => {
+      if (settings.get().sidebarSites.some((site) => site.url === url)) sidebar.sites.toggle(url)
+    },
+    'sidebar-sites:rect': ({ x, y, width, height }) =>
+      sidebar.sites.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.max(0, Math.round(width)), height: Math.max(0, Math.round(height)) }),
+    'sidebar-sites:state': () => sidebar.sites.state(),
+    'sidebar-sites:action': (action) => sidebar.sites.act(action),
+    'sidebar-sites:add-current': () => sidebar.addCurrent(),
+    'sidebar-sites:menu': (url, x, y) => sidebar.menu(url, x, y)
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

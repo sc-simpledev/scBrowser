@@ -1,3 +1,4 @@
+import type { CitationSource } from './citations'
 export type ProviderProtocol = 'anthropic' | 'openai'
 
 /** A configured AI provider. Secrets live separately and never leave the main process. */
@@ -132,13 +133,14 @@ export interface AssistantRequest {
   selection: string | null
 }
 
-export const MAX_MENTIONED_TABS = 5
+/** Shared with the one page budget, so more tabs means less of each. */
+export const MAX_MENTIONED_TABS = 8
 
 /** Where the text sent with a message came from. */
 export type ContextSource = 'page' | 'transcript' | 'pdf'
 
 export type AssistantEvent =
-  | { streamId: string; type: 'context'; title: string; truncated: boolean; source: ContextSource }
+  | { streamId: string; type: 'context'; title: string; truncated: boolean; source: ContextSource; sources?: CitationSource[] }
   | { streamId: string; type: 'text'; text: string }
   | { streamId: string; type: 'done'; stopReason: string | null }
   /** Agent mode: something it did, or wants permission to do. */
@@ -164,6 +166,8 @@ export interface SavedTurn extends AssistantMessage {
   pageTitle?: string
   source?: ContextSource
   truncated?: boolean
+  /** The pages this reply was given, to link its citations to. */
+  sources?: CitationSource[]
 }
 
 export interface ChatSummary {
@@ -187,6 +191,14 @@ export interface AssistantPrompt {
 export const ASSISTANT_NAME = 'scAI'
 
 export const SUMMARISE_PROMPT = 'Summarise this page.'
+
+/** For a video with a transcript, a summary that jumps to each moment. */
+export const VIDEO_SUMMARY_PROMPT = 'Summarise this video in two sentences, then list its key moments in order, each starting with its time from the transcript, like [1:23], so I can jump to them.'
+
+const isVideoPage = (url: string) => URL.canParse(url) && /(^|\.)youtube\.com$/.test(new URL(url).hostname) && new URL(url).pathname === '/watch'
+
+/** The summary prompt that fits the page: key moments for a video, a plain summary otherwise. */
+export const summarisePromptFor = (url: string) => (isVideoPage(url) ? VIDEO_SUMMARY_PROMPT : SUMMARISE_PROMPT)
 
 export const isHttpUrl = (url: string) => /^https?:\/\//i.test(url)
 

@@ -1,11 +1,12 @@
-import { ArrowUp, Code2, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, Code2, Layers, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { conversationFiles, presetPrompt, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
-import { CopyReply, latestReport, ReplyContent, Thinking } from '../../shared/ReplyContent'
+import { conversationFiles, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { CopyReply, latestReport, ReplyContent, Thinking, type OpenSource } from '../../shared/ReplyContent'
 import { ReportPane, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
 import { PresetChip, PresetGallery } from '../../shared/PresetGallery'
+import { PickedTabs, TabPicker, type PickableTab } from '../../shared/TabPicker'
 import { newestFile } from '../../state/files'
 import { api } from '../api'
 
@@ -14,6 +15,8 @@ interface Turn extends SavedTurn {
 }
 
 const openLink = (href: string) => void api().invoke('browser:open', href)
+const loadTabs = () => api().invoke('tabs:research-list')
+const openSource: OpenSource = (source, target) => void api().invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
 
 const saveReport: SaveReport = (title, format, content) => api().invoke('report:save', title, format, content)
 const previewFile: PreviewFile = (name, content) => api().invoke('files:preview', name, content)
@@ -86,6 +89,19 @@ export function AssistantPage() {
     void api().invoke('settings:get').then((settings) => setReportWidth(Math.max(REPORT_START_WIDTH, settings.reportWidth)))
   }, [])
   const chatId = useRef<string | null>(new URLSearchParams(location.search).get('chat'))
+  // Tabs picked for research stay picked for follow-up questions, until they're taken off.
+  const [research, setResearch] = useState<number[]>([])
+  const [researchTabs, setResearchTabs] = useState<PickableTab[]>([])
+  const [picking, setPicking] = useState(false)
+  const researchRef = useRef<number[]>([])
+  useEffect(() => {
+    researchRef.current = research
+    void loadTabs().then((open) => {
+      setResearchTabs(research.flatMap((id) => open.filter((tab) => tab.id === id)))
+      // A tab closed since it was picked can't be read any more.
+      if (open.filter((tab) => research.includes(tab.id)).length !== research.length) setResearch(research.filter((id) => open.some((tab) => tab.id === id)))
+    })
+  }, [research])
   const logRef = useRef<HTMLDivElement>(null)
 
   const send = useCallback((text: string) => {
@@ -100,7 +116,7 @@ export function AssistantPage() {
         messages: history.map(({ role, content }) => ({ role, content })),
         tabId: null,
         includePage: false,
-        extraTabIds: [],
+        extraTabIds: researchRef.current,
         selection: null
       })
       return [...history, { role: 'assistant', content: '' }]
@@ -136,6 +152,7 @@ export function AssistantPage() {
           return last ? [...current.slice(0, -1), patch(last)] : current
         })
       if (event.type === 'text') update((last) => ({ ...last, content: last.content + event.text }))
+      if (event.type === 'context') update((last) => ({ ...last, pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }))
       if (event.type === 'error') {
         update((last) => ({ ...last, error: event.message }))
         setStreamId(null)
@@ -143,7 +160,7 @@ export function AssistantPage() {
       if (event.type === 'done') {
         setStreamId(null)
         setTurns((current) => {
-          const saved = current.filter((t) => t.content && !t.error).map(({ role, content }) => ({ role, content }))
+          const saved = current.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
           if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
           const written = latestReport(current.slice(-1))
           const made = newestFile(current)
@@ -224,7 +241,9 @@ export function AssistantPage() {
           }}
         />
       )}
+      {picking && <TabPicker load={loadTabs} picked={research} onChange={setResearch} onClose={() => setPicking(false)} />}
       {preset && <PresetChip preset={preset} onRemove={() => setPreset(null)} />}
+      <PickedTabs tabs={researchTabs} onRemove={(id) => setResearch(research.filter((other) => other !== id))} />
       <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
         <textarea
           autoFocus
@@ -250,6 +269,18 @@ export function AssistantPage() {
           >
             <LayoutTemplate aria-hidden size={12} strokeWidth={1.75} />
             Report
+          </button>
+          <button
+            type="button"
+            aria-pressed={picking || research.length > 0}
+            onClick={() => {
+              setPicking(!picking)
+              setGallery(false)
+            }}
+            className={cx('flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 text-xs transition-colors hover:bg-surface-hover', picking || research.length > 0 ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text')}
+          >
+            <Layers aria-hidden size={12} strokeWidth={1.75} />
+            {research.length > 0 ? `${research.length} ${research.length === 1 ? 'tab' : 'tabs'}` : 'Tabs'}
           </button>
           <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{status?.model}</span>
           {streamId ? (
@@ -278,10 +309,19 @@ export function AssistantPage() {
             <h1 className="mx-auto w-full max-w-180 px-8 pb-5 text-xl font-semibold tracking-[-0.03em]">What can I help with?</h1>
             {composer}
             {status?.ready && !gallery && (
-              <div className="mx-auto flex w-full max-w-180 gap-2 px-8">
+              <div className="mx-auto flex w-full max-w-180 flex-wrap gap-2 px-8 [&>button]:whitespace-nowrap">
                 <Button onClick={() => setGallery(true)}>
                   <LayoutTemplate aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
                   Make a report
+                </Button>
+                <Button
+                  onClick={() => {
+                    setPreset(REPORT_PRESETS.find((candidate) => candidate.id === 'brief') ?? null)
+                    setPicking(true)
+                  }}
+                >
+                  <Layers aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  Research my tabs
                 </Button>
                 <Button onClick={() => setDraft('Make a web page that ')}>
                   <Code2 aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
@@ -312,6 +352,8 @@ export function AssistantPage() {
                           fileChanges={changes.get(index)}
                           onOpenFile={(change) => change.version && showFile(change.version)}
                           openFile={file}
+                          sources={turn.sources}
+                          onOpenSource={openSource}
                         />
                       )}
                       {!turn.content && !turn.error && <Thinking />}
@@ -357,6 +399,7 @@ export function AssistantPage() {
           busy={streamId !== null}
           preview={previewFile}
           save={saveFile}
+          keep={(name, content) => api().invoke('mini-apps:keep', name, content)}
           onClose={() => setFile(null)}
           width={reportWidth}
           onWidth={setReportWidth}

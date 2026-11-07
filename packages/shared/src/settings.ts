@@ -6,6 +6,9 @@ import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
 import type { SearchEngine } from './url'
+import { isHiddenElements, isSiteCss, isSiteHost } from './siteTweaks'
+import { isSidebarSites, type SidebarSite } from './sidebarSites'
+import { ARCHIVE_CHOICES } from './archive'
 
 const isWidth = (v: unknown) => Number.isInteger(v) && (v as number) >= 160 && (v as number) <= 2000
 
@@ -70,6 +73,8 @@ export interface Settings {
   startup: 'restore' | 'new-tab'
   /** Background tabs are unloaded after this many minutes; 0 disables it. */
   sleepAfterMinutes: number
+  /** Days a tab goes unused before it's closed into the archive, or 0 for never. Pinned and playing tabs stay. */
+  archiveAfterDays: (typeof ARCHIVE_CHOICES)[number]
   /** Trades polish for speed: see `sleepMinutes`, `data-performance` in tokens.css and `quietMedia` in TabManager. */
   performanceMode: boolean
   /** Empty means the system Downloads folder. */
@@ -80,6 +85,16 @@ export interface Settings {
   /** Standard blocks ads and trackers; strict also blocks annoyances like cookie banners. */
   trackingProtection: 'off' | 'standard' | 'strict'
   httpsOnly: boolean
+  /** Shift-clicking a link shows it over the page instead of opening a window. */
+  linkPreview: boolean
+  /** Presses a cookie banner's reject button, never accept. Off for sites where tracking protection is off. */
+  rejectCookieBanners: boolean
+  /** Sites whose cookies and storage are cleared each time scTerra closes, like example.com. */
+  forgetOnClose: string[]
+  /** Parts of pages hidden with the picker, as selectors by site. */
+  hiddenElements: Record<string, string[]>
+  /** The person's own CSS, by site. */
+  siteCss: Record<string, string>
   accent: AccentId
   /** A faint wash of the accent behind the toolbar and browser pages. */
   accentTint: boolean
@@ -112,12 +127,15 @@ export interface Settings {
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
   vpnBypass: string[]
+  /** Sites kept in a rail at the right edge, each opening in a panel beside the page. */
+  sidebarSites: SidebarSite[]
   /** Widths in pixels of what can be dragged wider or narrower. */
   assistantWidth: number
   extensionPanelWidth: number
   reportWidth: number
   sidebarWidth: number
   devToolsWidth: number
+  sidebarSiteWidth: number
   /** Minutes unused before passwords lock again, or 0 for only when closed. */
   passwordLockMinutes: number
   passwordOfferSave: boolean
@@ -148,11 +166,17 @@ export const DEFAULT_SETTINGS: Settings = {
   startup: 'restore',
   sleepAfterMinutes: 30,
   performanceMode: false,
+  archiveAfterDays: 0,
   downloadDir: '',
   askWhereToSave: false,
   saveChats: true,
   trackingProtection: 'standard',
   httpsOnly: true,
+  linkPreview: true,
+  rejectCookieBanners: true,
+  forgetOnClose: [],
+  hiddenElements: {},
+  siteCss: {},
   accent: 'teal',
   accentTint: false,
   hiddenToolbarItems: [],
@@ -178,6 +202,8 @@ export const DEFAULT_SETTINGS: Settings = {
   reportWidth: 560,
   sidebarWidth: 240,
   devToolsWidth: 460,
+  sidebarSiteWidth: 400,
+  sidebarSites: [],
   passwordLockMinutes: 15,
   passwordOfferSave: true,
   passwordOfferLocked: true,
@@ -212,11 +238,17 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
   performanceMode: (v) => typeof v === 'boolean',
+  archiveAfterDays: (v) => (ARCHIVE_CHOICES as readonly unknown[]).includes(v),
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,
   askWhereToSave: (v) => typeof v === 'boolean',
   saveChats: (v) => typeof v === 'boolean',
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
+  linkPreview: (v) => typeof v === 'boolean',
+  rejectCookieBanners: (v) => typeof v === 'boolean',
+  forgetOnClose: (v) => Array.isArray(v) && v.length <= 200 && v.every(isSiteHost),
+  hiddenElements: isHiddenElements,
+  siteCss: isSiteCss,
   accent: (v) => ACCENTS.some((accent) => accent.id === v),
   accentTint: (v) => typeof v === 'boolean',
   translateTo: (v) => TRANSLATE_LANGUAGES.includes(v as TranslateLanguage),
@@ -242,6 +274,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   reportWidth: isWidth,
   sidebarWidth: isWidth,
   devToolsWidth: isWidth,
+  sidebarSiteWidth: isWidth,
+  sidebarSites: isSidebarSites,
   passwordLockMinutes: (v) => (PASSWORD_LOCK_CHOICES as readonly unknown[]).includes(v),
   passwordOfferSave: (v) => typeof v === 'boolean',
   passwordOfferLocked: (v) => typeof v === 'boolean',

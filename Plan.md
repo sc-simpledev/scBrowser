@@ -200,6 +200,14 @@ Multi-tab context (@-mention tabs) · smart tab grouping & auto-naming · **writ
 ### Phase 5 — Ecosystem & shipping
 Chrome extensions support · encrypted sync (bookmarks/history/settings; E2E so it can later be a paid service) · password manager integration (extensions first; native vault later) · auto-update channels (stable/beta/nightly) · code signing (Windows EV cert) · distribution: Flathub, .deb/.rpm repos, winget, Microsoft Store · telemetry (opt-in only) and crash reporting.
 
+### Next round (started 2026-11-07, in four parts)
+The owner asked for these in three building parts and one testing part, with all testing left to the end. Sign-in for the hosted server is held back for now.
+
+- [x] **Part 1: privacy and passwords.** Built and tested in part 4. Reject cookie banners (`cookieBanners.ts`), two-step codes in the vault (`totp.ts`), an opt-in leak check through Have I Been Pwned's range API, Forget this site with a clear-on-close list (`siteData.ts`), and hiding parts of pages with a picker plus each site's own CSS (`siteTweaks.ts`).
+- [x] **Part 2: browsing.** Built and tested in part 4, apart from Windows TUN. Link preview on Shift-click (`linkPreview.ts`), sites in a rail at the right edge (`sidebarSites.ts`), watching a page or part of one for changes (`pageWatch.ts`, sc://watching), a tab archive (`tabArchive.ts`, sc://archive), and whole-computer VPN on Windows through wintun (`startWindows` in `tun.ts`).
+- [x] **Part 3: AI.** Built and tested in part 4 against the mock AI, not a real model. Citations that jump to the words in their tab (`citations.ts`), research across up to 8 tabs from sc://assistant, highlights with notes (sc://highlights), a reading list with summaries on request (sc://reading), key-moment video summaries with clickable times, and keeping an AI-written page as an offline mini app (`miniApps.ts`).
+- [x] **Part 4: testing.** 46 new unit tests (311 in all) and 14 new end-to-end tests in `e2e/release044.spec.ts` (186 in all, all passing), screenshots of every new screen in light and dark, and a Linux beta. Released as 0.4.4. AI features ran against the mock AI only. Windows TUN and the wintun checksum are still unchecked.
+
 ## Known risks (and mitigations)
 - **Google sign-in sometimes blocks Electron** ("browser may not be secure") → clean Chrome-like user agent, remove `Electron/` token, test early in Phase 1.
 - **DRM (Netflix, Spotify)** needs Widevine → use castLabs "Electron for Content Security" build; requires VMP signing for Windows.

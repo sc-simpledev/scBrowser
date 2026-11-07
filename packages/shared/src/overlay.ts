@@ -141,6 +141,16 @@ export interface BookmarkEdit {
   groupId: number | null
 }
 
+/** A link opened over the page, without making a tab. Its page is a native view inside `card`, under the header. */
+export interface LinkPreviewState {
+  /** The dimmed page area behind it, which closes the preview when clicked. */
+  backdrop: PageRect
+  card: PageRect
+  title: string
+  url: string
+  loading: boolean
+}
+
 export interface OverlayView extends OverlayState {
   permission: PermissionPopupState | null
   /** Left edge and top of the command palette, when it's open. */
@@ -159,6 +169,7 @@ export interface OverlayView extends OverlayState {
   passwordPrompt: PasswordPromptState | null
   cleanup: CleanupPopupState | null
   workspaceEditor: WorkspaceEditorState | null
+  linkPreview: LinkPreviewState | null
 }
 
 export const EMPTY_OVERLAY: OverlayState = { omnibox: null, tooltip: null }
@@ -182,6 +193,17 @@ export const APP_LINK_POPUP = { width: 360, height: 132 }
 export const PASSWORD_POPUP = { width: 340, height: 96, inset: 8 }
 export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
 export const WORKSPACE_POPUP = { width: 300, height: 188 }
+/** The header above a link preview's page, and how far the card keeps from the page's edges. */
+export const LINK_PREVIEW = { header: 44, inset: 40, maxWidth: 1180, minWidth: 360 }
+
+/** Where a link preview's card goes in the page area, and where its page sits inside the card. */
+export function linkPreviewLayout(page: PageRect): { card: PageRect; view: PageRect } {
+  const inset = page.width < 720 ? 12 : LINK_PREVIEW.inset
+  const width = Math.max(Math.min(LINK_PREVIEW.minWidth, page.width), Math.min(LINK_PREVIEW.maxWidth, page.width - inset * 2))
+  const height = Math.max(LINK_PREVIEW.header + 80, page.height - inset * 2)
+  const card = { x: Math.round(page.x + (page.width - width) / 2), y: Math.round(page.y + (page.height - height) / 2), width: Math.round(width), height: Math.round(height) }
+  return { card, view: { x: card.x, y: card.y + LINK_PREVIEW.header, width: card.width, height: card.height - LINK_PREVIEW.header } }
+}
 
 /** Window-space rectangle each popup occupies, including its shadow margin. */
 export function overlayRegions(state: OverlayView): PageRect[] {
@@ -235,6 +257,7 @@ export function overlayRegions(state: OverlayView): PageRect[] {
       height: PALETTE_POPUP.height + OVERLAY_MARGIN * 2
     })
   }
+  if (state.linkPreview) regions.push(state.linkPreview.backdrop)
   if (state.toast) {
     regions.push({
       x: state.toast.x - OVERLAY_MARGIN,

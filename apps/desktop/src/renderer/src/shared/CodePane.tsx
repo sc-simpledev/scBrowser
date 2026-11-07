@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronLeft, ChevronRight, Code2, Copy, Download, Eye, FileCode2, RotateCw, X } from 'lucide-react'
+import { AppWindow, ArrowUp, Check, ChevronLeft, ChevronRight, Code2, Copy, Download, Eye, FileCode2, RotateCw, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { cx, IconButton, Select } from '@scbrowser/ui'
 import { languageOf, previewKind, type FileVersion } from '@scbrowser/shared'
@@ -131,6 +131,8 @@ interface CodePaneProps {
   busy: boolean
   preview: PreviewFile
   save: SaveFile
+  /** Keeps a web page as an app of its own. Left out where that isn't offered. */
+  keep?: (name: string, content: string) => Promise<string>
   onClose: () => void
   width: number
   onWidth: (width: number) => void
@@ -139,7 +141,7 @@ interface CodePaneProps {
 }
 
 /** A file the assistant wrote, beside the conversation: its code, a live preview, its versions and a way to ask for changes. */
-export function CodePane({ files, file, onSelect, onRevise, busy, preview, save, onClose, width, onWidth, onWidthCommit, onDragging }: CodePaneProps) {
+export function CodePane({ files, file, onSelect, onRevise, busy, preview, save, keep, onClose, width, onWidth, onWidthCommit, onDragging }: CodePaneProps) {
   const canPreview = previewKind(file.name) !== null
   const [view, setView] = useState<'code' | 'preview'>(canPreview ? 'preview' : 'code')
   const [reload, setReload] = useState(0)
@@ -195,7 +197,20 @@ export function CodePane({ files, file, onSelect, onRevise, busy, preview, save,
         >
           <Download size={15} strokeWidth={1.75} />
         </IconButton>
-        {note && <span role="status" className="text-xs text-text-muted">{note}</span>}
+        {keep && previewKind(file.name) === 'html' && (
+          <IconButton
+            label="Keep as an app"
+            onClick={() => {
+              setNote(null)
+              void keep(file.name, file.content)
+                .then((name) => setNote(`Kept as ${name}. Open it from Settings > Installed apps`))
+                .catch((error: Error) => setNote(error.message.replace(/^.*Error: /, '')))
+            }}
+          >
+            <AppWindow size={15} strokeWidth={1.75} />
+          </IconButton>
+        )}
+        {note && <span role="status" className="max-w-56 truncate text-xs text-text-muted" title={note}>{note}</span>}
         <IconButton label="Close file" onClick={onClose}>
           <X size={15} strokeWidth={1.75} />
         </IconButton>

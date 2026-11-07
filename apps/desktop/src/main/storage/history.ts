@@ -1,5 +1,5 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import type { HistoryEntry } from '@scbrowser/shared'
+import { belongsToSite, type HistoryEntry } from '@scbrowser/shared'
 
 const DAY_MS = 86_400_000
 
@@ -154,6 +154,25 @@ export class HistoryRepo {
 
   clear(): void {
     this.deleteAll.run()
+  }
+
+  /** Removes every visit to a site and its subdomains. Returns the origins they were on. */
+  forgetSite(base: string): string[] {
+    const rows = this.db.prepare(`SELECT url FROM history WHERE url LIKE ? ESCAPE '\\'`).all(`%${escapeLike(base)}%`) as unknown as { url: string }[]
+    const origins = new Set<string>()
+    this.db.exec('BEGIN')
+    try {
+      for (const { url } of rows) {
+        if (!URL.canParse(url) || !belongsToSite(new URL(url).hostname, base)) continue
+        origins.add(new URL(url).origin)
+        this.deleteUrl.run(url)
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+    return [...origins]
   }
 
   search(query: string, limit = 8, now = Date.now()): HistoryEntry[] {

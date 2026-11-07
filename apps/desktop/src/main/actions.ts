@@ -17,7 +17,7 @@ export interface BrowserActions {
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
-  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks') => void
+  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'archive' | 'highlights' | 'reading') => void
   toggleAssistant: () => void
   passwordMenu: () => void
   toggleReader: () => void
@@ -44,4 +44,22 @@ export interface BrowserActions {
   openPrivateWindow: () => void
   installUpdate: () => void
   extensionMenu: () => MenuItemConstructorOptions[]
+  /** Marks the selected words on this page, to show again whenever it's visited. */
+  highlight: (contents: WebContents, text: string) => void
+  addToReadingList: () => void
+  /** Closes a tab into the archive, to find in sc://archive. */
+  archiveTab: (id: number) => void
+  /** Watches the active page for changes, or a part of it the person picks. */
+  watchPage: (part: boolean) => void
+  /** Puts the active tab's site in the sidebar rail, and opens it there. */
+  addToSidebar: () => void
+  /** Opens a link over the page without making a tab. */
+  previewLink: (url: string, contents: WebContents) => void
+  /** Lets the person click a part of the page to hide on that site from now on. */
+  hidePart: () => void
+  /** True if parts of this address's site have been hidden. */
+  hasHiddenParts: (url: string) => boolean
+  showHiddenParts: () => void
+  /** Asks first, then clears the site's cookies, storage, history and permissions. */
+  forgetSite: () => void
 }

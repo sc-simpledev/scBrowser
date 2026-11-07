@@ -6,7 +6,13 @@ import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
 import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
-import type { PasswordEntry, PasswordState, PasswordSummary, Identity } from './passwords'
+import type { SidebarSiteState } from './sidebarSites'
+import type { CitationTarget } from './citations'
+import type { PageWatch, WatchInterval } from './watch'
+import type { ArchivedTab } from './archive'
+import type { Highlight } from './highlights'
+import type { ReadingItem } from './readingList'
+import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
 import type { PrintChoice, PrinterChoice } from './print'
 import type { ReportFormat } from './report'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
@@ -76,6 +82,8 @@ export interface ChromeCommands {
   'ai:enable-hosted': () => void
   'ai:open-assistant': (text: string) => void
   'ai:open-chat': (id: string) => void
+  /** Follows a citation or a video time in a reply. */
+  'ai:open-source': (source: { tabId: number | null; url: string }, target: CitationTarget) => void
   'ai:agent-start': (streamId: string, goal: string, tabId: number) => void
   'ai:agent-answer': (approvalId: string, allow: boolean) => void
   'tabs:organise': () => void
@@ -112,6 +120,14 @@ export interface ChromeCommands {
   'updates:install': () => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
   'profiles:menu': (x: number, y: number) => void
+  /** Opens a sidebar site, or closes it if it's the one showing. */
+  'sidebar-sites:toggle': (url: string) => void
+  'sidebar-sites:rect': (rect: PageRect) => void
+  'sidebar-sites:state': () => SidebarSiteState | null
+  'sidebar-sites:action': (action: 'back' | 'reload' | 'open-tab' | 'close') => void
+  /** Adds the page in the active tab to the rail. */
+  'sidebar-sites:add-current': () => void
+  'sidebar-sites:menu': (url: string, x: number, y: number) => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -137,6 +153,7 @@ export interface ChromeEvents {
   /** Do what clicking this extension's toolbar button would. */
   'extensions:activate': string
   'passwords:changed': PasswordState
+  'sidebar-sites:changed': SidebarSiteState | null
   /** The colour the active page asks for. Only sent with the Site colours flag on. */
   'ui:site-colour': string | null
   'updates:changed': UpdateState
@@ -171,6 +188,8 @@ export interface OverlayCommands {
   'overlay:workspace-remove': (id: string) => void
   'overlay:workspace-close': () => void
   'overlay:tooltip-clear': () => void
+  /** The buttons on a link preview, or a click on the page behind it. */
+  'overlay:preview-action': (action: 'open' | 'background' | 'split' | 'close') => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -265,12 +284,20 @@ export const COMMAND_CHANNELS = [
   'updates:state',
   'updates:install',
   'bookmarks:overflow-menu',
-  'profiles:menu'
+  'profiles:menu',
+  'sidebar-sites:toggle',
+  'ai:open-source',
+  'sidebar-sites:rect',
+  'sidebar-sites:state',
+  'sidebar-sites:action',
+  'sidebar-sites:add-current',
+  'sidebar-sites:menu'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
   'tabs:changed',
   'ui:focus-omnibox',
+  'sidebar-sites:changed',
   'omnibox:pick',
   'bookmarks:changed',
   'bookmark-groups:changed',
@@ -294,7 +321,7 @@ export const EVENT_CHANNELS = [
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -365,6 +392,9 @@ export interface InternalCommands {
   'ai:cancel': (streamId: string) => void
   /** Collects a question sent over from the address bar. */
   'ai:take-prompt': () => string | null
+  'ai:open-source': (source: { tabId: number | null; url: string }, target: CitationTarget) => void
+  /** Web pages open in this window, for picking which to research. */
+  'tabs:research-list': () => { id: number; title: string; url: string; isSleeping: boolean }[]
   'extensions:list': () => ExtensionInfo[]
   'extensions:add': () => string | null
   'extensions:remove': (id: string) => void
@@ -428,6 +458,12 @@ export interface InternalCommands {
   'passwords:save': (entry: PasswordEntry) => string
   'passwords:remove': (id: string) => void
   'passwords:copy': (id: string) => void
+  /** The current two-step code. The saved key never leaves the main process. */
+  'passwords:totp': (id: string) => TotpCode
+  'passwords:copy-totp': (id: string) => void
+  /** Sends only the first 5 characters of each password's SHA-1 to Have I Been Pwned. */
+  'passwords:check-leaks': () => LeakCheck
+  'passwords:leak-status': () => LeakCheck
   /** Null if the person cancelled the file picker. */
   'passwords:import': () => number | null
   'passwords:export': () => boolean
@@ -458,6 +494,36 @@ export interface InternalCommands {
   'updates:state': () => UpdateState
   'updates:check': () => UpdateState
   'updates:install': () => void
+  /** Watched pages, without the text kept to compare against. */
+  'watch:list': () => Omit<PageWatch, 'lastText'>[]
+  'watch:check': (id: string) => void
+  'watch:remove': (id: string) => void
+  'watch:set-interval': (id: string, everyMinutes: WatchInterval) => void
+  /** Null marks them all as seen. */
+  'watch:seen': (id: string | null) => void
+  'archive:list': () => ArchivedTab[]
+  /** Opens it as a tab again, and takes it out of the archive. */
+  'archive:restore': (id: string) => void
+  'archive:remove': (id: string) => void
+  'archive:clear': () => void
+  'highlights:list': () => Highlight[]
+  'highlights:note': (id: string, note: string) => void
+  'highlights:remove': (id: string) => void
+  /** Opens the page with the words marked. */
+  'highlights:open': (id: string) => void
+  /** Hands these highlights to sc://assistant, which writes a report from them alone. */
+  'highlights:report': (ids: string[]) => void
+  'reading:list': () => ReadingItem[]
+  'reading:open': (id: string) => void
+  'reading:set-read': (id: string, read: boolean) => void
+  'reading:remove': (id: string) => void
+  /** Asks the AI for a summary, only when the person presses for one. Returns it. */
+  'reading:summarise': (id: string) => string
+  /** Keeps a page the assistant wrote as an app of its own. Returns its name. */
+  'mini-apps:keep': (name: string, content: string) => string
+  'mini-apps:list': () => { id: string; name: string; createdAt: number }[]
+  'mini-apps:open': (id: string) => void
+  'mini-apps:remove': (id: string) => void
   /** Leaves the first-run intro for a new tab. */
   'welcome:finish': () => void
   'welcome:replay': () => void
@@ -510,6 +576,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'ai:send',
   'ai:cancel',
   'ai:take-prompt',
+  'ai:open-source',
+  'tabs:research-list',
   'extensions:list',
   'extensions:add',
   'extensions:remove',
@@ -565,6 +633,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'passwords:save',
   'passwords:remove',
   'passwords:copy',
+  'passwords:totp',
+  'passwords:copy-totp',
+  'passwords:check-leaks',
+  'passwords:leak-status',
   'passwords:import',
   'passwords:export',
   'vpn:state',
@@ -589,7 +661,30 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'updates:check',
   'updates:install',
   'welcome:finish',
-  'welcome:replay'
+  'welcome:replay',
+  'watch:list',
+  'watch:check',
+  'watch:remove',
+  'watch:set-interval',
+  'watch:seen',
+  'archive:list',
+  'archive:restore',
+  'archive:remove',
+  'archive:clear',
+  'highlights:list',
+  'highlights:note',
+  'highlights:remove',
+  'highlights:open',
+  'highlights:report',
+  'reading:list',
+  'reading:open',
+  'reading:set-read',
+  'reading:remove',
+  'reading:summarise',
+  'mini-apps:keep',
+  'mini-apps:list',
+  'mini-apps:open',
+  'mini-apps:remove'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

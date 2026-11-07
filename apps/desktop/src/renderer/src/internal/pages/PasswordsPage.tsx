@@ -1,7 +1,7 @@
 import { Copy, Eye, EyeOff, Globe, KeyRound, Pencil, RefreshCw, ShieldAlert, User, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { EMPTY_IDENTITY, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, passwordStrength, STRENGTH_LABELS, type Identity, type PasswordEntry, type PasswordState, type PasswordSummary } from '@scbrowser/shared'
+import { EMPTY_IDENTITY, formatTotp, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, passwordStrength, STRENGTH_LABELS, type Identity, type LeakCheck, type PasswordEntry, type PasswordState, type PasswordSummary, type TotpCode } from '@scbrowser/shared'
 import { api } from '../api'
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
@@ -122,7 +122,119 @@ function UnlockVault({ reload }: { reload: () => void }) {
   )
 }
 
-function EntryForm({ initial, onDone }: { initial: PasswordEntry; onDone: (saved: boolean) => void }) {
+/** The setup key field. A saved key is never shown again, only replaced or removed. */
+function TotpField({ saved, onChange }: { saved: boolean; onChange: (totp: string | undefined) => void }) {
+  const [mode, setMode] = useState<'saved' | 'replace' | 'remove'>(saved ? 'saved' : 'replace')
+  const [draft, setDraft] = useState('')
+  if (mode === 'saved' || mode === 'remove') {
+    return (
+      <div className="flex min-h-8 items-center justify-between gap-2 rounded-md border border-border px-2.5 text-xs text-text-muted">
+        <span className="flex items-center gap-1.5">
+          <KeyRound aria-hidden size={12} strokeWidth={1.75} />
+          {mode === 'saved' ? 'Two-step codes are set up' : 'Two-step codes will be removed when you save'}
+        </span>
+        <span className="flex gap-1">
+          {mode === 'saved' ? (
+            <>
+              <Button variant="ghost" onClick={() => setMode('replace')}>
+                Replace key
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-danger"
+                onClick={() => {
+                  setMode('remove')
+                  onChange('')
+                }}
+              >
+                Remove
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setMode('saved')
+                onChange(undefined)
+              }}
+            >
+              Keep them
+            </Button>
+          )}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Input
+        aria-label="Two-step key"
+        placeholder={saved ? 'Paste the new key or otpauth:// address' : 'Two-step key or otpauth:// address (optional)'}
+        autoComplete="off"
+        spellCheck={false}
+        className="font-mono"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value)
+          // Left empty while replacing keeps the old key, rather than quietly removing it.
+          onChange(e.target.value.trim() ? e.target.value : saved ? undefined : '')
+        }}
+      />
+      {!saved && !draft && <p className="px-0.5 text-2xs text-text-faint">When a site turns on two-step sign-in, it shows a key beside its QR code. Paste it here and scTerra makes the codes.</p>}
+    </div>
+  )
+}
+
+/** A two-step code with a thin bar running down to the next one. Clicking copies it. */
+function TotpChip({ id }: { id: string }) {
+  const [code, setCode] = useState<TotpCode | null>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    let live = true
+    const load = () =>
+      void api()
+        .invoke('passwords:totp', id)
+        .then((next) => {
+          if (!live) return
+          setCode(next)
+          // A moment past the change, so the clock has moved on when it asks.
+          timer = setTimeout(load, next.remaining * 1000 + 150)
+        })
+        .catch(() => live && setCode(null))
+    load()
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [id])
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => tick((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  if (!code) return null
+  const left = code.period - (Math.floor(Date.now() / 1000) % code.period)
+  return (
+    <button
+      type="button"
+      aria-label={copied ? 'Two-step code copied' : `Copy two-step code, ${left} seconds left`}
+      title={copied ? 'Copied. Cleared in 30 seconds' : 'Copy two-step code'}
+      onClick={() =>
+        void api().invoke('passwords:copy-totp', id).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        })
+      }
+      className="relative flex h-6 shrink-0 items-center overflow-hidden rounded-sm border border-border px-1.5 font-mono text-xs text-text tabular-nums hover:bg-surface-active"
+    >
+      {copied ? 'Copied' : formatTotp(code.code)}
+      <span aria-hidden className={`absolute bottom-0 left-0 h-px ${left <= 5 ? 'bg-danger' : 'bg-(--sc-accent)'}`} style={{ width: `${(left / code.period) * 100}%` }} />
+    </button>
+  )
+}
+
+function EntryForm({ initial, hasTotp = false, onDone }: { initial: PasswordEntry; hasTotp?: boolean; onDone: (saved: boolean) => void }) {
   const [entry, setEntry] = useState(initial)
   const [show, setShow] = useState(!initial.id)
   const [problem, setProblem] = useState<string | null>(null)
@@ -193,6 +305,13 @@ function EntryForm({ initial, onDone }: { initial: PasswordEntry; onDone: (saved
         </div>
       )}
       <Input aria-label="Note" placeholder="Note (optional)" value={entry.note} onChange={(e) => set({ note: e.target.value })} />
+      <TotpField
+        saved={hasTotp}
+        onChange={(totp) => {
+          const { totp: _old, ...rest } = entry
+          setEntry(totp === undefined ? rest : { ...rest, totp })
+        }}
+      />
       {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
       <div className="flex gap-2">
         <Button type="submit" variant="primary">
@@ -215,6 +334,7 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
       <li className="py-1">
         <EntryForm
           initial={editing}
+          hasTotp={!!login.totp}
           onDone={(saved) => {
             setEditing(null)
             setShown(null)
@@ -225,17 +345,22 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
     )
   }
   return (
-    <li className="group flex min-h-11 items-center gap-3 rounded-md px-2 hover:bg-surface-hover">
+    <li className="group flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-1 hover:bg-surface-hover">
       <Globe aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
-      <div className="min-w-0 flex-1">
+      {/* The site keeps some room when a narrow page fills up with buttons; the hidden password gives way first. */}
+      <div className="min-w-28 flex-1">
         <div className="truncate">{siteName(login.origin)}</div>
         <div className="flex items-center gap-1.5 truncate text-xs text-text-muted">
           <span className="truncate">{login.username || 'No username'}{login.note && ` · ${login.note}`}</span>
           {login.weak && <span className="shrink-0 rounded-sm border border-border px-1 text-2xs text-danger">Weak</span>}
           {login.reused && <span className="shrink-0 rounded-sm border border-border px-1 text-2xs text-danger">Reused</span>}
+          {login.leaked && <span className="shrink-0 rounded-sm border border-border px-1 text-2xs text-danger">Leaked</span>}
         </div>
       </div>
-      <span className="max-w-52 truncate font-mono text-xs text-text-muted select-text">{shown ?? '••••••••'}</span>
+      {login.totp && <TotpChip id={login.id} />}
+      {/* On a narrow page the buttons move under the site rather than off the edge. */}
+      <div className="ml-auto flex min-w-0 items-center gap-1.5">
+      <span className="min-w-0 max-w-52 shrink truncate font-mono text-xs text-text-muted select-text">{shown ?? '••••••••'}</span>
       <IconButton
         size="sm"
         label={shown === null ? 'Show password' : 'Hide password'}
@@ -274,7 +399,58 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
       <IconButton size="sm" label="Delete login" onClick={() => void api().invoke('passwords:remove', login.id).then(reload)}>
         <X size={12} strokeWidth={2} />
       </IconButton>
+      </div>
     </li>
+  )
+}
+
+const formatDay = (time: number) => new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** Only runs when asked, and sends no password: just the first 5 characters of each one's SHA-1. */
+function LeakCheckCard({ count, onChecked }: { count: number; onChecked: () => void }) {
+  const [status, setStatus] = useState<LeakCheck | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => void api().invoke('passwords:leak-status').then(setStatus).catch(() => undefined), [count])
+  const run = () => {
+    setBusy(true)
+    setProblem(null)
+    void api()
+      .invoke('passwords:check-leaks')
+      .then((next) => {
+        setStatus(next)
+        onChecked()
+      })
+      .catch((error: Error) => setProblem(cleanError(error)))
+      .finally(() => setBusy(false))
+  }
+  if (count === 0) return null
+  return (
+    <section aria-label="Leak check" className={CARD}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Leak check</h2>
+          <p className="mt-1 text-xs text-text-muted">
+            Looks your passwords up in Have I Been Pwned's list of breached passwords. Your passwords never leave this computer: only the first 5 characters of a scrambled copy of each are sent, and the match is made here.
+          </p>
+        </div>
+        <Button className="shrink-0" disabled={busy} onClick={run}>
+          {busy ? 'Checking…' : status?.checkedAt ? 'Check again' : 'Check now'}
+        </Button>
+      </div>
+      {status?.checkedAt && !busy && (
+        <p role="status" className="flex items-center gap-1.5 text-xs">
+          {status.leaked > 0 ? <ShieldAlert aria-hidden size={12} strokeWidth={1.75} className="text-danger" /> : <KeyRound aria-hidden size={12} strokeWidth={1.75} className="text-text-muted" />}
+          <span className={status.leaked > 0 ? 'text-text' : 'text-text-muted'}>
+            {status.leaked > 0
+              ? `${status.leaked} ${status.leaked === 1 ? 'password has' : 'passwords have'} turned up in a breach. Change ${status.leaked === 1 ? 'it' : 'them'} on those sites.`
+              : 'None of your passwords turned up in a breach.'}
+          </span>
+          <span className="text-text-faint">Checked {formatDay(status.checkedAt)}</span>
+        </p>
+      )}
+      {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
+    </section>
   )
 }
 
@@ -544,7 +720,7 @@ export function PasswordsPage() {
   const [logins, setLogins] = useState<PasswordSummary[]>([])
   const [filter, setFilter] = useState('')
   const [adding, setAdding] = useState(false)
-  const [health, setHealth] = useState<'all' | 'weak' | 'reused'>('all')
+  const [health, setHealth] = useState<'all' | 'weak' | 'reused' | 'leaked'>('all')
 
   const reload = useCallback(() => {
     void api().invoke('passwords:state').then((next) => {
@@ -562,10 +738,11 @@ export function PasswordsPage() {
 
   const shown = useMemo(() => {
     const needle = filter.toLowerCase()
-    return logins.filter(({ origin, username, note, weak, reused }) => `${origin} ${username} ${note}`.toLowerCase().includes(needle) && (health === 'all' || (health === 'weak' ? weak : reused)))
+    return logins.filter((login) => `${login.origin} ${login.username} ${login.note}`.toLowerCase().includes(needle) && (health === 'all' || login[health]))
   }, [logins, filter, health])
   const weakCount = logins.filter((login) => login.weak).length
   const reusedCount = logins.filter((login) => login.reused).length
+  const leakedCount = logins.filter((login) => login.leaked).length
 
   if (!state) return null
   if (!state.available) return <p className="text-text-muted">Private windows don't use saved passwords.</p>
@@ -590,7 +767,8 @@ export function PasswordsPage() {
               [
                 ['all', `All ${logins.length}`, null],
                 ['weak', `Weak ${weakCount}`, weakCount],
-                ['reused', `Reused ${reusedCount}`, reusedCount]
+                ['reused', `Reused ${reusedCount}`, reusedCount],
+                ...(leakedCount > 0 || health === 'leaked' ? [['leaked', `Leaked ${leakedCount}`, leakedCount] as const] : [])
               ] as const
             ).map(([value, label, count]) => (
               <button
@@ -604,7 +782,7 @@ export function PasswordsPage() {
                 {label}
               </button>
             ))}
-            {weakCount + reusedCount === 0 && (
+            {weakCount + reusedCount + leakedCount === 0 && (
               <span className="ml-1 flex items-center gap-1 text-text-muted">
                 <KeyRound aria-hidden size={11} strokeWidth={1.75} />
                 No weak or reused passwords.
@@ -628,6 +806,7 @@ export function PasswordsPage() {
           ))}
         </ul>
       </section>
+      <LeakCheckCard count={logins.length} onChecked={reload} />
       <Details />
       <Options reload={reload} master={state.master} />
       <p className="text-xs text-text-faint">Logins and details stay on this computer, sealed with {state.master ? 'your master password' : "this computer's keychain"}, and aren't synced. To fill them in, use the key button in the toolbar or Ctrl Shift L.</p>

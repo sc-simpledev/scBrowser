@@ -152,9 +152,10 @@ function saveChat() {
   const { chatId, turns } = useAssistant.getState()
   const saved = turns
     .filter((turn) => turn.content && !turn.error)
-    .map(({ role, content, pageTitle, source, truncated }) => ({
+    .map(({ role, content, pageTitle, source, truncated, sources }) => ({
       role,
       content,
+      ...(sources === undefined ? {} : { sources }),
       ...(pageTitle === undefined ? {} : { pageTitle }),
       ...(source === undefined ? {} : { source }),
       ...(truncated === undefined ? {} : { truncated })
@@ -172,7 +173,7 @@ function onEvent(event: AssistantEvent) {
   if (event.type === 'text') {
     useAssistant.setState({ turns: update({ content: last.content + event.text }) })
   } else if (event.type === 'context') {
-    useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated, source: event.source }) })
+    useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }) })
   } else if (event.type === 'error') {
     useAssistant.setState({ turns: update({ error: event.message }), streamId: null, approval: null })
   } else if (event.type === 'step') {

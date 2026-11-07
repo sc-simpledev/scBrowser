@@ -22,7 +22,8 @@ export class AiService {
 
   constructor(
     private readonly store: AiStore,
-    private readonly contentsFor: (tabId: number) => WebContents | undefined
+    private readonly contentsFor: (tabId: number) => WebContents | undefined,
+    private readonly tabIdOf: (contents: WebContents) => number | null = () => null
   ) {}
 
   private async provider(id: string): Promise<Provider> {
@@ -147,17 +148,20 @@ export class AiService {
       if (!contents || !URL.canParse(contents.getURL())) return []
       return this.store.disabledHosts().includes(new URL(effectiveUrl(contents.getURL())).host) ? [] : [contents]
     })
-    const found = (await Promise.all(allowed.map(extractContext))).filter((page) => page !== null)
+    const read = await Promise.all(allowed.map(async (contents) => ({ page: await extractContext(contents), tabId: this.tabIdOf(contents) })))
+    const found = read.filter((entry): entry is { page: NonNullable<typeof entry.page>; tabId: number | null } => entry.page !== null)
     if (found.length === 0) return []
 
     const limit = Math.floor(MAX_PAGE_CHARS / found.length)
-    const trimmed = found.map((page) => ({ ...page, ...trimPage(page.text, limit) }))
+    // Numbered in the order sent, which is how the model is told to cite them.
+    const trimmed = found.map(({ page }, index) => ({ ...page, ...trimPage(page.text, limit), id: index + 1 }))
     emit({
       streamId,
       type: 'context',
       title: trimmed.map((page) => page.title).join(', '),
       truncated: trimmed.some((page) => page.truncated),
-      source: trimmed.length === 1 ? trimmed[0]!.source : 'page'
+      source: trimmed.length === 1 ? trimmed[0]!.source : 'page',
+      sources: trimmed.map((page, index) => ({ n: page.id, tabId: found[index]!.tabId, title: page.title, url: page.url, kind: page.source }))
     })
     return trimmed
   }

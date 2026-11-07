@@ -236,7 +236,7 @@ export class VpnService {
   private unavailable(): VpnState['unavailable'] {
     return {
       proxy: this.deps.systemProxy ? null : "scTerra can't set the system proxy on this desktop.",
-      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux and macOS for now.'
+      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux, Windows and macOS.'
     }
   }
 
