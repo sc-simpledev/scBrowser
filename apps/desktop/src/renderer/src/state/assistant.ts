@@ -21,6 +21,8 @@ interface AssistantStore {
   report: Report | null
   streamId: string | null
   includePage: boolean
+  /** Searches the web for each message first. Stays on until turned off. */
+  webSearch: boolean
   selection: string | null
   /** Other tabs @-mentioned for the next message. */
   mentions: number[]
@@ -35,6 +37,7 @@ interface AssistantStore {
   reviseReport: (change: string) => void
   close: () => void
   setIncludePage: (includePage: boolean) => void
+  setWebSearch: (webSearch: boolean) => void
   clearSelection: () => void
   setAgentMode: (agentMode: boolean) => void
   answerApproval: (allow: boolean) => void
@@ -65,6 +68,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   report: null,
   streamId: null,
   includePage: true,
+  webSearch: false,
   selection: null,
   mentions: [],
   agentMode: false,
@@ -82,6 +86,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     set({ includePage, agentMode })
   },
   setIncludePage: (includePage) => set({ includePage }),
+  setWebSearch: (webSearch) => set({ webSearch }),
   clearSelection: () => set({ selection: null }),
   setAgentMode: (agentMode) => set({ agentMode }),
   answerApproval: (allow) => {
@@ -118,7 +123,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode } = get()
+    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch } = get()
     if (streamId || !status.ready || !text.trim()) return
     const id = crypto.randomUUID()
     const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
@@ -133,7 +138,8 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
       tabId,
       includePage,
       extraTabIds: mentions,
-      selection
+      selection,
+      webSearch
     })
   },
 

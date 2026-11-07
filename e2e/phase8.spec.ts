@@ -87,7 +87,8 @@ test('the vault offers to save a sign-in, fills it back, and keeps it sealed', a
   await prompt.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(prompt).toHaveCount(0)
 
-  // Filling happens only from the menu, into this exact site.
+  // Filling from the menu, into this exact site. Filling by itself on load is tested in release045.
+  await setSetting(h, { passwordAutoFill: false })
   await login.reload()
   await expect(login.locator('#p')).toHaveValue('')
   await captureMenu()

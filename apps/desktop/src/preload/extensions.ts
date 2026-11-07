@@ -60,7 +60,19 @@ function addSidePanelApi() {
 }
 
 if (process.type === 'service-worker' || location.protocol === 'chrome-extension:') {
-  const call: Call = (method, ...args) => ipcRenderer.invoke(SIDE_PANEL_CHANNEL, method, ...args)
+  // A worker's calls go to a handler the main process sets up once it hears the worker is starting,
+  // which can be after the worker's first lines have run. Those calls are tried again for a moment,
+  // or an extension's setup (`setPanelBehavior` as it installs) is lost.
+  const call: Call = async (method, ...args) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await ipcRenderer.invoke(SIDE_PANEL_CHANNEL, method, ...args)
+      } catch (error) {
+        if (attempt >= 30 || !/No handler registered/i.test(String(error))) throw error
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+  }
   const listen: Listen = (listener) => void ipcRenderer.on(SIDE_PANEL_EVENT, (_event, name: 'opened' | 'closed', info: unknown) => listener(name, info))
   contextBridge.exposeInMainWorld('scbSidePanel', call)
   contextBridge.exposeInMainWorld('scbSidePanelEvents', listen)

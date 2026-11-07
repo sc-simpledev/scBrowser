@@ -609,11 +609,15 @@ function Options({ reload, master }: { reload: () => void; master: boolean }) {
   const [minutes, setMinutes] = useState<number | null>(null)
   const [offer, setOffer] = useState(true)
   const [offerLocked, setOfferLocked] = useState(true)
+  const [suggestOn, setSuggestOn] = useState(true)
+  const [autoFill, setAutoFill] = useState(true)
   const [note, setNote] = useState<string | null>(null)
   const [changing, setChanging] = useState<'change' | 'add' | 'remove' | null>(null)
   const [exporting, setExporting] = useState(false)
   useEffect(() => {
-    void api().invoke('settings:get').then(({ passwordLockMinutes, passwordOfferSave, passwordOfferLocked }) => {
+    void api().invoke('settings:get').then(({ passwordLockMinutes, passwordOfferSave, passwordOfferLocked, passwordSuggest, passwordAutoFill }) => {
+      setSuggestOn(passwordSuggest)
+      setAutoFill(passwordAutoFill)
       setMinutes(passwordLockMinutes)
       setOffer(passwordOfferSave)
       setOfferLocked(passwordOfferLocked)
@@ -642,6 +646,36 @@ function Options({ reload, master }: { reload: () => void; master: boolean }) {
           ))}
         </Select>
       </label>}
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          Show saved logins under sign-in fields
+          <span className="block text-xs text-text-muted">Click a username or password field to pick a login, or to get a strong password on sign-up forms.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={suggestOn}
+          className="accent-(--sc-accent)"
+          onChange={(e) => {
+            setSuggestOn(e.target.checked)
+            void api().invoke('settings:set', { passwordSuggest: e.target.checked })
+          }}
+        />
+      </label>
+      <label className="flex items-center justify-between gap-3">
+        <span>
+          Fill in automatically
+          <span className="block text-xs text-text-muted">When a site has exactly one saved login, its sign-in form is filled as the page opens. Only on the exact site it was saved for, and never in frames.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={autoFill}
+          className="accent-(--sc-accent)"
+          onChange={(e) => {
+            setAutoFill(e.target.checked)
+            void api().invoke('settings:set', { passwordAutoFill: e.target.checked })
+          }}
+        />
+      </label>
       <label className="flex items-center justify-between gap-3">
         Offer to save when you sign in
         <input

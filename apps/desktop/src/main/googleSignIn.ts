@@ -24,6 +24,23 @@ export function attachGoogleSignIn(target: Session): void {
   target.webRequest.onBeforeSendHeaders(({ url, resourceType, referrer, requestHeaders }, callback) => {
     // The referrer rather than the frame, as a frame can be gone by now and the request must always get an answer.
     const signingIn = isGoogleSignIn(url) || (resourceType !== 'mainFrame' && isGoogleSignIn(referrer))
-    callback({ requestHeaders: signingIn ? { ...requestHeaders, 'User-Agent': ownUserAgent } : requestHeaders })
+    if (signingIn) return callback({ requestHeaders: { ...requestHeaders, 'User-Agent': ownUserAgent } })
+    if (isWebStore(url) || isWebStore(referrer)) return callback({ requestHeaders: withChromeBrand(requestHeaders) })
+    callback({ requestHeaders })
   })
+}
+
+const WEB_STORE = 'chromewebstore.google.com'
+const isWebStore = (url: string | undefined) => !!url && URL.canParse(url) && new URL(url).hostname === WEB_STORE
+
+/**
+ * The Chrome Web Store asks people to switch to Chrome unless the client hints name Google Chrome.
+ * Scripts on the store get the same brands from `preload/internal.ts`.
+ */
+export function withChromeBrand(headers: Record<string, string>): Record<string, string> {
+  const major = process.versions.chrome?.split('.')[0] ?? '140'
+  const next: Record<string, string> = {}
+  for (const [name, value] of Object.entries(headers)) if (name.toLowerCase() !== 'sec-ch-ua') next[name] = value
+  next['sec-ch-ua'] = `"Chromium";v="${major}", "Google Chrome";v="${major}", "Not_A Brand";v="24"`
+  return next
 }

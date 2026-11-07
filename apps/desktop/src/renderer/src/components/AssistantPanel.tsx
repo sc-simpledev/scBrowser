@@ -1,4 +1,4 @@
-import { ArrowUp, AtSign, Check, FileText, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, AtSign, Check, FileText, Globe, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
@@ -170,8 +170,8 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
 }
 
 export function AssistantPanel() {
-  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval } = useAssistant()
-  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention, setAgentMode, answerApproval } = useAssistant.getState()
+  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()
+  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention, setAgentMode, answerApproval, setWebSearch } = useAssistant.getState()
   const allTabs = useTabs((s) => s.tabs)
   const [pickerIndex, setPickerIndex] = useState(0)
   const tab = useActiveTab()
@@ -412,6 +412,21 @@ export function AssistantPanel() {
                     >
                       <Hand aria-hidden size={12} strokeWidth={1.75} />
                       Act on page
+                    </button>
+                  )}
+                  {!agentMode && (
+                    <button
+                      type="button"
+                      aria-pressed={webSearch}
+                      title={webSearch ? 'Searches DuckDuckGo for each message and sends the top results to the model' : 'Search the web for each message'}
+                      onClick={() => setWebSearch(!webSearch)}
+                      className={cx(
+                        'flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 transition-colors hover:bg-surface-hover',
+                        webSearch ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text'
+                      )}
+                    >
+                      <Globe aria-hidden size={12} strokeWidth={1.75} />
+                      Web
                     </button>
                   )}
                   <div className="ml-auto shrink-0 pl-1">

@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions, WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import type { AssistantPrompt, TranslateLanguage } from '@scbrowser/shared'
+import type { AssistantPrompt, ClosedGroup, TranslateLanguage } from '@scbrowser/shared'
 import type { TabManager } from './tabs/TabManager'
 
 /** Browser commands shared by keyboard shortcuts and menus. */
@@ -17,7 +17,7 @@ export interface BrowserActions {
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
-  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'archive' | 'highlights' | 'reading') => void
+  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'archive' | 'highlights' | 'reading' | 'code') => void
   toggleAssistant: () => void
   passwordMenu: () => void
   toggleReader: () => void
@@ -49,6 +49,10 @@ export interface BrowserActions {
   addToReadingList: () => void
   /** Closes a tab into the archive, to find in sc://archive. */
   archiveTab: (id: number) => void
+  /** Closes a tab group, keeping it to reopen later unless `keep` is false. */
+  closeGroup: (name: string, keep: boolean) => void
+  closedGroups: () => ClosedGroup[]
+  reopenGroup: (id: string) => void
   /** Watches the active page for changes, or a part of it the person picks. */
   watchPage: (part: boolean) => void
   /** Puts the active tab's site in the sidebar rail, and opens it there. */

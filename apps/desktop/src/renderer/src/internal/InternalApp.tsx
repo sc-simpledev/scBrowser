@@ -1,27 +1,29 @@
-import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
-import { Fragment, useEffect, useState, type ComponentType } from 'react'
+import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, SquareTerminal, type LucideIcon } from 'lucide-react'
+import { Fragment, lazy, Suspense, useEffect, useState, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { applyPerformance, applyTint } from './api'
-import { AiPage } from './pages/AiPage'
-import { AssistantPage } from './pages/AssistantPage'
-import { BookmarksPage } from './pages/BookmarksPage'
-import { DownloadsPage } from './pages/DownloadsPage'
-import { FlagsPage } from './pages/FlagsPage'
-import { HistoryPage } from './pages/HistoryPage'
-import { BlockedPage } from './pages/BlockedPage'
-import { BlockerPage } from './pages/BlockerPage'
-import { NewTabPage } from './pages/NewTabPage'
-import { PasswordsPage } from './pages/PasswordsPage'
-import { PdfPage } from './pages/PdfPage'
-import { SETTINGS_GROUPS, SettingsPage } from './pages/SettingsPage'
-import { TasksPage } from './pages/TasksPage'
-import { VpnPage } from './pages/VpnPage'
-import { ArchivePage } from './pages/ArchivePage'
-import { WatchingPage } from './pages/WatchingPage'
-import { HighlightsPage } from './pages/HighlightsPage'
-import { ReadingPage } from './pages/ReadingPage'
-import { WelcomePage } from './welcome/WelcomePage'
+import { SETTINGS_GROUPS } from './settingsGroups'
+const AiPage = lazy(() => import('./pages/AiPage').then((m) => ({ default: m.AiPage })))
+const AssistantPage = lazy(() => import('./pages/AssistantPage').then((m) => ({ default: m.AssistantPage })))
+const BookmarksPage = lazy(() => import('./pages/BookmarksPage').then((m) => ({ default: m.BookmarksPage })))
+const DownloadsPage = lazy(() => import('./pages/DownloadsPage').then((m) => ({ default: m.DownloadsPage })))
+const FlagsPage = lazy(() => import('./pages/FlagsPage').then((m) => ({ default: m.FlagsPage })))
+const HistoryPage = lazy(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage })))
+const BlockedPage = lazy(() => import('./pages/BlockedPage').then((m) => ({ default: m.BlockedPage })))
+const BlockerPage = lazy(() => import('./pages/BlockerPage').then((m) => ({ default: m.BlockerPage })))
+const NewTabPage = lazy(() => import('./pages/NewTabPage').then((m) => ({ default: m.NewTabPage })))
+const PasswordsPage = lazy(() => import('./pages/PasswordsPage').then((m) => ({ default: m.PasswordsPage })))
+const PdfPage = lazy(() => import('./pages/PdfPage').then((m) => ({ default: m.PdfPage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const TasksPage = lazy(() => import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })))
+const VpnPage = lazy(() => import('./pages/VpnPage').then((m) => ({ default: m.VpnPage })))
+const ArchivePage = lazy(() => import('./pages/ArchivePage').then((m) => ({ default: m.ArchivePage })))
+const WatchingPage = lazy(() => import('./pages/WatchingPage').then((m) => ({ default: m.WatchingPage })))
+const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then((m) => ({ default: m.HighlightsPage })))
+const ReadingPage = lazy(() => import('./pages/ReadingPage').then((m) => ({ default: m.ReadingPage })))
+const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
+const CodePage = lazy(() => import('./pages/CodePage').then((m) => ({ default: m.CodePage })))
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
@@ -38,10 +40,23 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   highlights: { title: 'Highlights', icon: Highlighter, component: HighlightsPage },
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
-  flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
+  flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage },
+  code: { title: 'Code (beta)', icon: SquareTerminal, component: CodePage }
 }
 
+/**
+ * Each page is loaded only when it's shown, so a new tab doesn't parse the PDF viewer, the assistant
+ * and every other page as well. That keeps each sc:// tab's memory down.
+ */
 export function InternalApp() {
+  return (
+    <Suspense fallback={null}>
+      <InternalPage />
+    </Suspense>
+  )
+}
+
+function InternalPage() {
   if (location.host === 'blocked') return <BlockedPage />
   if (location.host === 'pdf') return <PdfPage />
   if (location.host === 'welcome') return <WelcomePage />
@@ -113,7 +128,7 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
+        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
           {(Object.entries(pages) as [InternalPage, (typeof pages)[InternalPage]][]).map(([page, { title, icon: Icon }]) => (
             <Fragment key={page}>
             <a
@@ -131,7 +146,7 @@ function PageFrame() {
             </Fragment>
           ))}
         </nav>}
-        {current === 'assistant' ? (
+        {current === 'assistant' || current === 'code' ? (
           <main className="min-w-0 flex-1">
             <Page />
           </main>

@@ -67,6 +67,26 @@ export interface PasswordPromptState {
   y: number
 }
 
+/** The list under a sign-in field: saved logins to fill, or a new strong password for a sign-up form. */
+export interface PasswordSuggestState {
+  host: string
+  logins: { id: string; username: string }[]
+  /** The vault is locked, so the only row is to open it. */
+  locked: boolean
+  /** A field for a new password, so the list offers to make one. */
+  generate: boolean
+  x: number
+  y: number
+  width: number
+}
+
+export const PASSWORD_SUGGEST = { rowHeight: 34, maxRows: 5, minWidth: 260, maxWidth: 380, footer: 30 }
+
+export function passwordSuggestHeight(state: Pick<PasswordSuggestState, 'logins' | 'locked' | 'generate'>): number {
+  const rows = state.locked ? 1 : Math.min(PASSWORD_SUGGEST.maxRows, state.logins.length) + (state.generate ? 1 : 0)
+  return Math.max(1, rows) * PASSWORD_SUGGEST.rowHeight + PASSWORD_SUGGEST.footer + POPUP_PADDING * 2
+}
+
 /** A site or proxy asking for a username and password. */
 export interface AuthPopupState {
   requestId: number
@@ -167,6 +187,7 @@ export interface OverlayView extends OverlayState {
   bookmarkEditor: BookmarkEditorState | null
   auth: AuthPopupState | null
   passwordPrompt: PasswordPromptState | null
+  passwordSuggest: PasswordSuggestState | null
   cleanup: CleanupPopupState | null
   workspaceEditor: WorkspaceEditorState | null
   linkPreview: LinkPreviewState | null
@@ -220,6 +241,7 @@ export function overlayRegions(state: OverlayView): PageRect[] {
   const popups = [
     state.auth && { ...state.auth, ...AUTH_POPUP },
     state.passwordPrompt && { ...state.passwordPrompt, width: PASSWORD_POPUP.width, height: PASSWORD_POPUP.height },
+    state.passwordSuggest && { ...state.passwordSuggest, height: passwordSuggestHeight(state.passwordSuggest) },
     state.appLink && { ...state.appLink, ...APP_LINK_POPUP },
     state.extensionsPopup && { ...state.extensionsPopup, width: EXTENSIONS_POPUP.width },
     state.extensionFrame,

@@ -208,6 +208,16 @@ The owner asked for these in three building parts and one testing part, with all
 - [x] **Part 3: AI.** Built and tested in part 4 against the mock AI, not a real model. Citations that jump to the words in their tab (`citations.ts`), research across up to 8 tabs from sc://assistant, highlights with notes (sc://highlights), a reading list with summaries on request (sc://reading), key-moment video summaries with clickable times, and keeping an AI-written page as an offline mini app (`miniApps.ts`).
 - [x] **Part 4: testing.** 46 new unit tests (311 in all) and 14 new end-to-end tests in `e2e/release044.spec.ts` (186 in all, all passing), screenshots of every new screen in light and dark, and a Linux beta. Released as 0.4.4. AI features ran against the mock AI only. Windows TUN and the wintun checksum are still unchecked.
 
+### 0.4.5 (2026-11-07)
+The owner's list plus everything in `PLS_FIX_OR_ELSE.md`, in one round.
+
+- [x] **Developer tools** open beside the page with no second window, and the device toolbar (viewport) works: they're opened as undockable (`mode: 'detach'`) inside our own view, which stops DevTools moving the device toolbar into a frame Electron could only show as a window. A bar above them has a close button.
+- [x] **Force dark pages** looks at what's drawn across the window, not just `body`, so dark sites painted on a wrapper stay dark. Softer contrast, page-level CSS that can be taken off again, and a second look after load.
+- [x] **Lighter:** sc:// pages load each page's code only when shown (a new tab parses about 500 KB of script instead of 1.2 MB), and a memory saver sleeps the oldest background tabs while the computer is short of memory (`memorySaver.ts`, Settings > Browsing).
+- [x] **Passwords:** a list of saved logins under sign-in fields, filling by itself when a site has exactly one login, a strong password offered on sign-up forms, the name kept from the first page of a two-page sign-in, and `www.` matching the bare name.
+- [x] **Code with AI (beta)** on sc://code: the model works in one folder the person picks, reads, searches, edits and runs commands, and asks before every change and command (or only commands). Recommends an API key of one's own over the free hosted model.
+- [x] **From the fix list:** sign-ins that only lasted until closing are kept (`sessionCookies.ts`), web search in the assistant (`ai/webSearch.ts`), tab icons fetched through the tab's own session (`tabIcon` in `siteIcons.ts`), the Chrome Web Store sees Google Chrome's brand, side panel calls from an extension's worker no longer lost while it starts, and closed tab groups that reopen with their tabs (`closedGroups.ts`, sc://archive).
+
 ## Known risks (and mitigations)
 - **Google sign-in sometimes blocks Electron** ("browser may not be secure") → clean Chrome-like user agent, remove `Electron/` token, test early in Phase 1.
 - **DRM (Netflix, Spotify)** needs Widevine → use castLabs "Electron for Content Security" build; requires VMP signing for Windows.

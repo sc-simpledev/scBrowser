@@ -80,6 +80,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'highlights', label: 'Highlights' },
   { id: 'watched-pages', label: 'Watched pages' },
   { id: 'archived-tabs', label: 'Archived tabs' },
+  { id: 'reopen-group', label: 'Reopen closed tab group' },
+  { id: 'code', label: 'Code with AI (beta)' },
   { id: 'forget-site', label: 'Forget this site' },
   { id: 'print', label: 'Print', shortcut: 'Ctrl P' },
   { id: 'fullscreen', label: 'Full screen', shortcut: 'F11' },

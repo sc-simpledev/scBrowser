@@ -1,4 +1,4 @@
-import { Activity, AppWindow, Archive, Bookmark, BookMarked, Highlighter, BookOpen, Bot, CodeXml, Download, Eye, FileText, FlaskConical, Globe, History, KeyRound, MessageCircle, Network, Plus, Settings, ShieldBan, Sparkles, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { Activity, AppWindow, Archive, Bookmark, BookMarked, Highlighter, BookOpen, Bot, CodeXml, Download, Eye, FileText, FlaskConical, Globe, History, KeyRound, MessageCircle, Network, Plus, Settings, ShieldBan, Sparkles, SquareTerminal, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { cx } from '@scbrowser/ui'
 
@@ -23,7 +23,8 @@ const INTERNAL_ICONS: Record<string, LucideIcon> = {
   blocked: ShieldBan,
   reader: BookOpen,
   error: TriangleAlert,
-  welcome: Sparkles
+  welcome: Sparkles,
+  code: SquareTerminal
 }
 
 interface FaviconProps {

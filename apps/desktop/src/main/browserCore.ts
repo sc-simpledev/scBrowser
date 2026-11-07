@@ -1,3 +1,6 @@
+import { keepSessionCookies } from './sessionCookies'
+import { ClosedGroups } from './closedGroups'
+import { startMemorySaver } from './memorySaver'
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
 import { belongsToSite, bypassRules, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
@@ -136,6 +139,7 @@ export class BrowserCore {
   /** Private windows watch nothing and archive nothing. */
   readonly watcher: PageWatcher | null
   readonly archive: TabArchive
+  readonly closedGroups: ClosedGroups
   /** Private windows keep neither. */
   readonly highlights: HighlightStore | null
   readonly readingList: ReadingList | null
@@ -315,9 +319,12 @@ export class BrowserCore {
     this.updates.start()
     app.on('before-quit', () => {
       this.quitting = true
+      // Cookies are written in batches; a quick quit could lose the last sign-in.
+      for (const target of this.prepared) void target.cookies.flushStore().catch(() => undefined)
     })
     if (!isPrivate) this.forgetOnClose()
     this.archive = new TabArchive(kv, () => undefined)
+    this.closedGroups = new ClosedGroups(kv)
     this.highlights = isPrivate ? null : new HighlightStore(kv)
     this.readingList = isPrivate ? null : new ReadingList(kv)
     this.miniApps = new MiniApps(kv)
@@ -333,6 +340,17 @@ export class BrowserCore {
           }
         })
     app.on('will-quit', () => this.watcher?.destroy())
+    const stopSaver = startMemorySaver({
+      enabled: () => settings.get().memorySaver,
+      memory: () => process.getSystemMemoryInfo(),
+      // The oldest tabs of all windows count together, a couple at a time.
+      sleepOldest: (count, minIdleMs) => {
+        let slept = 0
+        for (const handle of this.windows) if (slept < count) slept += handle.tabs.sleepOldest(count - slept, minIdleMs)
+        return slept
+      }
+    })
+    app.on('will-quit', stopSaver)
   }
 
   /** Clears what this computer remembers about a site, then reloads its open tabs so they start fresh. */
@@ -538,6 +556,7 @@ export class BrowserCore {
   prepareSession(target: Session): void {
     if (this.prepared.has(target)) return
     this.prepared.add(target)
+    if (!isPrivate) keepSessionCookies(target, () => this.services.settings.get().keepSignIns)
     attachGoogleSignIn(target)
     this.privacy.attach(target)
     this.permissionService.attach(target)

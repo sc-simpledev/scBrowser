@@ -13,6 +13,7 @@ import {
   NEW_TAB_URL,
   resolveOmniboxInput,
   SPLIT_GAP,
+  DEVTOOLS_BAR,
   SPLIT_RATIO,
   splitLeftWidth,
   type CleanupInput,
@@ -24,6 +25,7 @@ import {
   type TabsSnapshot,
   type Workspace, PDF_PAGE_URL } from '@scbrowser/shared'
 import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
+import { tabIcon } from '../siteIcons'
 
 /** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
 export interface SavedTab {
@@ -379,8 +381,32 @@ export class TabManager {
     this.emitChange()
   }
 
-  closeGroup(name: string): void {
-    for (const id of this.visible.filter((other) => this.tabs.get(other)?.state.group === name)) this.close(id)
+  /** Returns what the group held, so it can be kept and opened again. */
+  closeGroup(name: string): { url: string; title: string; container: string | null }[] {
+    const ids = this.visible.filter((other) => this.tabs.get(other)?.state.group === name)
+    const kept = ids.flatMap((id) => {
+      const tab = this.tabs.get(id)
+      return tab ? [{ url: effectiveUrl(tab.state.url), title: tab.state.title || tab.saved?.title || '', container: tab.state.container ?? null }] : []
+    })
+    for (const id of ids) this.close(id)
+    return kept
+  }
+
+  /** A closed group's tabs, back together under its name (or a fresh one if that's taken), sleeping until looked at. */
+  openGroup(name: string, saved: { url: string; title: string; container: string | null }[]): void {
+    if (saved.length === 0) return
+    const taken = this.groupNames()
+    let group = name
+    for (let n = 2; taken.includes(group); n++) group = `${name} ${n}`
+    let after = this.visible.at(-1)
+    const ids: TabId[] = []
+    for (const tab of saved) {
+      const opened = this.addTab(tab.url, { url: tab.url, title: tab.title, container: tab.container, workspace: this.workspaceId, group, faviconUrl: null, entries: [{ url: tab.url, title: tab.title }], entryIndex: 0 }, after)
+      ids.push(opened.state.id)
+      after = opened.state.id
+    }
+    this.activate(ids[0]!)
+    this.emitChange()
   }
 
   /**
@@ -672,7 +698,20 @@ export class TabManager {
     // Their own close button ends their contents.
     tools.webContents.once('destroyed', () => this.removeDevTools(tab, tools))
     contents.once('devtools-closed', () => this.removeDevTools(tab, tools))
-    contents.openDevTools()
+    // DevTools' own windows (the device toolbar's frame, popups from the console) never become windows here.
+    tools.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // 'detach' tells DevTools it can't dock. Docked, it moves the device toolbar into a second
+    // frame that Electron can only show as a separate window, and its close button reaches no window.
+    // Undocked, the device toolbar emulates inside the page itself, so the viewport works.
+    contents.openDevTools({ mode: 'detach', activate: true })
+  }
+
+  /** The close button on the bar above them. */
+  closeShownDevTools(): void {
+    const ids = [this.activeId, ...(this.split ?? [])]
+    for (const id of ids) {
+      if (id !== null && this.tabs.get(id)?.devTools) return this.toggleDevTools(id)
+    }
   }
 
   private removeDevTools(tab: Tab, tools: WebContentsView): void {
@@ -772,7 +811,12 @@ export class TabManager {
     const docked = this.dockedWidth()
     const area = { ...this.pageRect, width: Math.max(0, this.pageRect.width - (docked > 0 ? docked + SPLIT_GAP : 0)) }
     if (shownTools) {
-      shownTools.setBounds({ ...this.pageRect, x: area.x + area.width + SPLIT_GAP, width: docked })
+      shownTools.setBounds({
+        x: area.x + area.width + SPLIT_GAP,
+        y: this.pageRect.y + DEVTOOLS_BAR,
+        width: docked,
+        height: Math.max(0, this.pageRect.height - DEVTOOLS_BAR)
+      })
       shownTools.setVisible(true)
     }
     if (this.split && !covers) {
@@ -833,6 +877,14 @@ export class TabManager {
     }
   }
 
+  /** Where a shown tab's page is drawn in the window, or null when it isn't showing. */
+  shownBounds(contents: WebContents): PageRect | null {
+    const id = this.tabIdFor(contents)
+    const view = id === null ? undefined : this.tabs.get(id)?.view
+    if (!view || !view.getVisible() || (id !== this.activeId && !this.split?.includes(id!))) return null
+    return view.getBounds()
+  }
+
   owns(contents: WebContents): boolean {
     return [...this.tabs.values()].some((tab) => tab.view?.webContents === contents)
   }
@@ -869,18 +921,38 @@ export class TabManager {
 
   /** Unloads background tabs idle for longer than `maxIdleMs`. */
   sleepIdle(maxIdleMs: number, now = Date.now()): void {
-    for (const tab of this.tabs.values()) {
-      if (tab.state.id === this.activeId || this.split?.includes(tab.state.id) || !tab.view || now - tab.lastActiveAt < maxIdleMs) continue
+    for (const tab of this.sleepable(maxIdleMs, now)) this.putToSleep(tab)
+  }
+
+  /**
+   * The memory saver: when the computer runs short of memory, the background tabs looked at longest
+   * ago sleep first, `count` at most. Returns how many went to sleep.
+   */
+  sleepOldest(count: number, minIdleMs: number, now = Date.now()): number {
+    const oldest = this.sleepable(minIdleMs, now)
+      .toSorted((a, b) => a.lastActiveAt - b.lastActiveAt)
+      .slice(0, count)
+    for (const tab of oldest) this.putToSleep(tab)
+    return oldest.length
+  }
+
+  /** Background tabs that are awake and can sleep without losing anything that's going on. */
+  private sleepable(minIdleMs: number, now: number): Tab[] {
+    return [...this.tabs.values()].filter((tab) => {
+      if (tab.state.id === this.activeId || this.split?.includes(tab.state.id) || !tab.view || now - tab.lastActiveAt < minIdleMs) return false
       const contents = tab.view.webContents
-      if (contents.isLoading() || contents.isCurrentlyAudible() || tab.devTools) continue
+      if (contents.isLoading() || contents.isCurrentlyAudible() || tab.devTools) return false
       // Sleeping would cut the link between a popup and its opener, which may be mid sign-in.
       const inPopupPair = (tab.openerId !== undefined && this.tabs.get(tab.openerId)?.view) || [...this.tabs.values()].some((other) => other.openerId === tab.state.id && other.view)
-      if (inPopupPair) continue
-      tab.saved = this.toSaved(tab)
-      this.destroyView(tab)
-      tab.state.isSleeping = true
-      this.emitChange()
-    }
+      return !inPopupPair
+    })
+  }
+
+  private putToSleep(tab: Tab): void {
+    tab.saved = this.toSaved(tab)
+    this.destroyView(tab)
+    tab.state.isSleeping = true
+    this.emitChange()
   }
 
   /**
@@ -1134,8 +1206,21 @@ export class TabManager {
       this.options.onTitle(state.url, title)
     })
     contents.on('page-favicon-updated', (_e, favicons) => {
-      sync({ faviconUrl: favicons[0] ?? null })
-      if (favicons[0]) this.options.onFavicon(contents, state.url, favicons[0])
+      const pageUrl = state.url
+      const wanted = favicons.find((icon) => /^(https?|data):/i.test(icon)) ?? favicons[0] ?? ''
+      if (wanted) this.options.onFavicon(contents, pageUrl, wanted)
+      // Fetched by the main process through the tab's session, then shown as a data address.
+      void tabIcon(contents.session, wanted, pageUrl).then((icon) => {
+        if (!contents.isDestroyed() && state.url === pageUrl) sync({ faviconUrl: icon ?? (wanted || null) })
+      })
+    })
+    // Pages that name no icon at all still usually have /favicon.ico.
+    contents.on('did-finish-load', () => {
+      const pageUrl = state.url
+      if (state.faviconUrl || !/^https?:/.test(pageUrl)) return
+      void tabIcon(contents.session, '', pageUrl).then((icon) => {
+        if (icon && !contents.isDestroyed() && state.url === pageUrl && !state.faviconUrl) sync({ faviconUrl: icon })
+      })
     })
     contents.on('found-in-page', (_e, result) =>
       this.options.onFound({ active: result.activeMatchOrdinal, total: result.matches })

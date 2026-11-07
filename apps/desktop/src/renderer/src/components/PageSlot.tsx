@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { SPLIT_GAP, SPLIT_RATIO, splitLeftWidth } from '@scbrowser/shared'
+import { Code2, X } from 'lucide-react'
+import { DEVTOOLS_BAR, SPLIT_GAP, SPLIT_RATIO, splitLeftWidth } from '@scbrowser/shared'
+import { IconButton } from '@scbrowser/ui'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useTabs } from '../state/tabs'
 
@@ -48,6 +50,17 @@ export function PageSlot() {
       {shownDocked > 0 && (
         <div className="absolute inset-y-0 right-0" style={{ width: shownDocked + SPLIT_GAP / 2 }}>
           <div aria-hidden className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-border-strong" />
+          <div
+            data-testid="devtools-bar"
+            className="absolute right-0 top-0 flex items-center gap-1.5 border-b border-border bg-bg pl-2.5 pr-1 text-xs text-text-muted"
+            style={{ width: shownDocked, height: DEVTOOLS_BAR }}
+          >
+            <Code2 size={13} strokeWidth={1.75} aria-hidden />
+            <span className="flex-1 truncate">Developer tools</span>
+            <IconButton size="sm" label="Close developer tools" onClick={() => void window.scb.invoke('tabs:devtools-close')}>
+              <X size={14} strokeWidth={1.75} />
+            </IconButton>
+          </div>
           <ResizeHandle
             label="Developer tools width"
             edge="left"

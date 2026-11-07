@@ -1,8 +1,10 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
-import { effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type ModelRef } from '@scbrowser/shared'
+import { effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
+import { webContext } from './webSearch'
+import { Coder } from './coder'
 import type { AiStore } from './store'
 
 const MAX_OUTPUT_TOKENS = 16_000
@@ -61,9 +63,19 @@ export class AiService {
     return chat
   }
 
-  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal): Promise<string> {
+  /** Agentic coding (beta), on the chat model. Long replies, as it writes whole files. */
+  readonly coder = new Coder({ chat: (messages, system, signal) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS) })
+
+  coderStatus(folder: string): CoderStatus {
+    const chat = this.store.roles().chat
+    const provider = chat && this.store.provider(chat.providerId)
+    const status = this.store.status()
+    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running }
+  }
+
+  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS): Promise<string> {
     let text = ''
-    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: TASK_OUTPUT_TOKENS, signal })
+    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal })
     for await (const event of stream) {
       if (event.type === 'text') text += event.text
       if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
@@ -148,8 +160,17 @@ export class AiService {
       if (!contents || !URL.canParse(contents.getURL())) return []
       return this.store.disabledHosts().includes(new URL(effectiveUrl(contents.getURL())).host) ? [] : [contents]
     })
-    const read = await Promise.all(allowed.map(async (contents) => ({ page: await extractContext(contents), tabId: this.tabIdOf(contents) })))
-    const found = read.filter((entry): entry is { page: NonNullable<typeof entry.page>; tabId: number | null } => entry.page !== null)
+    const question = request.webSearch ? [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? '' : ''
+    const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
+    const [read, web] = await Promise.all([
+      Promise.all(allowed.map(async (contents) => ({ page: await extractContext(contents), tabId: this.tabIdOf(contents) }))),
+      // A failed search shouldn't stop the question being answered from what else there is.
+      question ? webContext(question, isSiteOff).catch(() => []) : Promise.resolve([])
+    ])
+    const found = [
+      ...read.filter((entry): entry is { page: NonNullable<typeof entry.page>; tabId: number | null } => entry.page !== null),
+      ...web.map((page) => ({ page: { ...page, source: 'page' as const }, tabId: null }))
+    ]
     if (found.length === 0) return []
 
     const limit = Math.floor(MAX_PAGE_CHARS / found.length)

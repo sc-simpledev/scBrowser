@@ -343,7 +343,11 @@ export class PasswordVault {
 
   /** Only logins for this exact site, so a lookalike or a subdomain never matches. */
   matches(origin: string): PasswordSummary[] {
-    return this.touch().logins.filter((login) => login.origin === origin).map(summary)
+    const site = sameSite(origin)
+    const logins = this.touch().logins
+    const exact = logins.filter((login) => login.origin === origin)
+    // `www.` and the bare name are one site, which matters for logins imported from other browsers.
+    return [...exact, ...logins.filter((login) => login.origin !== origin && sameSite(login.origin) === site && !exact.some((other) => other.username === login.username))].map(summary)
   }
 
   reveal(id: string): string {
@@ -444,4 +448,9 @@ export class PasswordVault {
       this.touch().logins.map(({ origin, username, password, note, totp }) => ({ url: origin, username, password, note, ...(totp ? { totp: totpUri(totp, username ? `${new URL(origin).host}:${username}` : new URL(origin).host) } : {}) }))
     )
   }
+}
+
+/** An origin with a leading `www.` dropped, keeping the scheme and port. */
+function sameSite(origin: string): string {
+  return origin.replace(/^(https?:\/\/)www\./, '$1')
 }

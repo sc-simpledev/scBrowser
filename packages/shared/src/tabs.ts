@@ -58,6 +58,8 @@ export interface PageRect {
 
 /** The strip left between the two tabs in split view, where its divider sits. */
 export const SPLIT_GAP = 6
+/** The bar drawn by the browser UI above docked developer tools, holding their title and close button. */
+export const DEVTOOLS_BAR = 30
 export const SPLIT_RATIO = { min: 0.2, max: 0.8, standard: 0.5 }
 
 export const clampSplitRatio = (ratio: number) => Math.min(SPLIT_RATIO.max, Math.max(SPLIT_RATIO.min, ratio))

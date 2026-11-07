@@ -9,3 +9,4 @@ export * from './types'
 export function createProvider(options: ProviderOptions): Provider {
   return options.config.protocol === 'anthropic' ? createAnthropicProvider(options) : createOpenAiProvider(options)
 }
+export * from './coder'

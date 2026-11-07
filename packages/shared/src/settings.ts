@@ -141,6 +141,17 @@ export interface Settings {
   passwordOfferSave: boolean
   /** Also offers while the vault is locked or hasn't been set up, which keeps the login in memory for a minute. */
   passwordOfferLocked: boolean
+  /** A list of saved logins under sign-in fields when one is clicked. */
+  passwordSuggest: boolean
+  /** Fills a page's sign-in form by itself when exactly one login is saved for the site. */
+  passwordAutoFill: boolean
+  /** Keeps sign-ins that sites meant to last only until the browser closes, as Chrome does when it continues where it left off. */
+  keepSignIns: boolean
+  /** Sleeps the oldest background tabs when the computer is short of memory, like Chrome's Memory Saver. */
+  memorySaver: boolean
+  /** The project folder agentic coding (beta) works in, on this computer only. */
+  coderFolder: string
+  coderMode: 'ask' | 'edits'
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -207,6 +218,12 @@ export const DEFAULT_SETTINGS: Settings = {
   passwordLockMinutes: 15,
   passwordOfferSave: true,
   passwordOfferLocked: true,
+  passwordSuggest: true,
+  passwordAutoFill: true,
+  keepSignIns: true,
+  memorySaver: true,
+  coderFolder: '',
+  coderMode: 'ask',
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   syncHistory: true,
@@ -279,6 +296,12 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   passwordLockMinutes: (v) => (PASSWORD_LOCK_CHOICES as readonly unknown[]).includes(v),
   passwordOfferSave: (v) => typeof v === 'boolean',
   passwordOfferLocked: (v) => typeof v === 'boolean',
+  passwordSuggest: (v) => typeof v === 'boolean',
+  passwordAutoFill: (v) => typeof v === 'boolean',
+  keepSignIns: (v) => typeof v === 'boolean',
+  memorySaver: (v) => typeof v === 'boolean',
+  coderFolder: (v) => typeof v === 'string' && v.length <= 4096,
+  coderMode: (v) => v === 'ask' || v === 'edits',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   syncHistory: (v) => typeof v === 'boolean',

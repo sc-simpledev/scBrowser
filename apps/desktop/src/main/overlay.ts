@@ -9,6 +9,7 @@ import {
   type AppLinkPromptState,
   type AuthPopupState,
   type PasswordPromptState,
+  type PasswordSuggestState,
   type BookmarkEdit,
   type BookmarkEditorState,
   type ChromeEvents,
@@ -53,6 +54,7 @@ export class Overlay {
   private bookmarkEditor: BookmarkEditorState | null = null
   private auth: AuthPopupState | null = null
   private passwordPrompt: PasswordPromptState | null = null
+  private passwordSuggest: PasswordSuggestState | null = null
   private cleanup: CleanupPopupState | null = null
   private workspaceEditor: WorkspaceEditorState | null = null
   private toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -81,6 +83,7 @@ export class Overlay {
       onAnswerLink: (href: string) => void
       onAuth: (requestId: number, login: { username: string; password: string } | null) => void
       onPasswordAnswer: (choice: 'save' | 'never' | 'dismiss') => void
+      onPasswordSuggest: (choice: string) => void
       onCleanup: (ids: TabId[] | null) => void
       onWorkspaceSave: (edit: WorkspaceEdit) => void
       onWorkspaceRemove: (id: string) => void
@@ -168,6 +171,12 @@ export class Overlay {
       if (choice !== 'save' && choice !== 'never' && choice !== 'dismiss') throw new Error('Invalid arguments')
       this.hooks.onPasswordAnswer(choice)
     })
+    handle('overlay:password-suggest', (choice) => {
+      if (typeof choice !== 'string' || choice.length > 200) throw new Error('Invalid arguments')
+      this.passwordSuggest = null
+      this.render()
+      this.hooks.onPasswordSuggest(choice)
+    })
     handle('overlay:cleanup', (ids) => {
       const list = Array.isArray(ids) && ids.every(Number.isInteger) ? (ids as TabId[]) : null
       this.cleanup = null
@@ -245,6 +254,17 @@ export class Overlay {
   setPasswordPrompt(prompt: PasswordPromptState | null): void {
     this.passwordPrompt = prompt
     this.render()
+  }
+
+  /** Like the save offer, it leaves focus in the page, so typing carries on into the field. */
+  setPasswordSuggest(suggest: PasswordSuggestState | null): void {
+    if (!suggest && !this.passwordSuggest) return
+    this.passwordSuggest = suggest
+    this.render()
+  }
+
+  get suggestingPasswords(): boolean {
+    return this.passwordSuggest !== null
   }
 
   setAppLink(prompt: AppLinkPromptState | null): void {
@@ -389,7 +409,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, passwordPrompt: this.passwordPrompt, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor, linkPreview: this.linkPreview }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, passwordSuggest: this.passwordSuggest, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor, linkPreview: this.linkPreview }
   }
 
   private render(): void {

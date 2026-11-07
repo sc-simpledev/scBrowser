@@ -44,7 +44,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-export const SETTINGS_GROUPS = ['Look', 'Browsing', 'Privacy', 'Data', 'Add-ons', 'About']
+export { SETTINGS_GROUPS } from '../settingsGroups'
 
 function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -343,6 +343,9 @@ export function SettingsPage() {
             <option value={120}>After 2 hours</option>
           </RowSelect>
         </Row>
+        <Row label="Memory saver" hint="When your computer runs low on memory, the background tabs you looked at longest ago sleep until there's room. Tabs playing sound and the ones you're using stay awake.">
+          <Switch label="Memory saver" checked={settings.memorySaver} onChange={(memorySaver) => update({ memorySaver })} />
+        </Row>
         <Row label="Archive unused tabs" hint="Closes tabs left unused and keeps them under Archived tabs, to bring back. Pinned and playing tabs stay.">
           <RowSelect aria-label="Archive unused tabs" value={settings.archiveAfterDays} onChange={(e) => update({ archiveAfterDays: Number(e.target.value) as Settings['archiveAfterDays'] })}>
             {ARCHIVE_CHOICES.map((days) => (
@@ -423,6 +426,9 @@ export function SettingsPage() {
         </Row>
         <Row label="Reject cookie banners" hint="Presses Reject or Only necessary on cookie banners for you. It never accepts. Sites with tracking protection off are left alone.">
           <Switch label="Reject cookie banners" checked={settings.rejectCookieBanners} onChange={(rejectCookieBanners) => update({ rejectCookieBanners })} />
+        </Row>
+        <Row label="Stay signed in after closing" hint="Some sites sign you in only until the browser closes. This keeps those sign-ins, as Chrome does when it continues where you left off. Applies to sign-ins from now on.">
+          <Switch label="Stay signed in after closing" checked={settings.keepSignIns} onChange={(keepSignIns) => update({ keepSignIns })} />
         </Row>
         {offHosts.map((host) => (
           <Row key={host} label={host} hint="Tracking protection is off">

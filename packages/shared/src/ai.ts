@@ -131,6 +131,8 @@ export interface AssistantRequest {
   extraTabIds: number[]
   /** Text the person highlighted, quoted with their message. */
   selection: string | null
+  /** Searches the web for the message first, and sends the top results' text with it. */
+  webSearch?: boolean
 }
 
 /** Shared with the one page budget, so more tabs means less of each. */

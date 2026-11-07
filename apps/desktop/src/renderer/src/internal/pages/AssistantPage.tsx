@@ -1,4 +1,4 @@
-import { ArrowUp, Code2, Layers, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { conversationFiles, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
@@ -94,6 +94,12 @@ export function AssistantPage() {
   const [researchTabs, setResearchTabs] = useState<PickableTab[]>([])
   const [picking, setPicking] = useState(false)
   const researchRef = useRef<number[]>([])
+  const [webSearch, setWebSearchState] = useState(false)
+  const webSearchRef = useRef(false)
+  const setWebSearch = (on: boolean) => {
+    webSearchRef.current = on
+    setWebSearchState(on)
+  }
   useEffect(() => {
     researchRef.current = research
     void loadTabs().then((open) => {
@@ -117,7 +123,8 @@ export function AssistantPage() {
         tabId: null,
         includePage: false,
         extraTabIds: researchRef.current,
-        selection: null
+        selection: null,
+        webSearch: webSearchRef.current
       })
       return [...history, { role: 'assistant', content: '' }]
     })
@@ -281,6 +288,16 @@ export function AssistantPage() {
           >
             <Layers aria-hidden size={12} strokeWidth={1.75} />
             {research.length > 0 ? `${research.length} ${research.length === 1 ? 'tab' : 'tabs'}` : 'Tabs'}
+          </button>
+          <button
+            type="button"
+            aria-pressed={webSearch}
+            title={webSearch ? 'Searches DuckDuckGo for each message and sends the top results to the model' : 'Search the web for each message'}
+            onClick={() => setWebSearch(!webSearch)}
+            className={cx('flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 text-xs transition-colors hover:bg-surface-hover', webSearch ? 'bg-accent-soft text-accent' : 'text-text-faint hover:text-text')}
+          >
+            <Globe aria-hidden size={12} strokeWidth={1.75} />
+            Web
           </button>
           <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{status?.model}</span>
           {streamId ? (

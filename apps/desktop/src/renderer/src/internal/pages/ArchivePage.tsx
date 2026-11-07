@@ -1,7 +1,7 @@
-import { RotateCcw, X } from 'lucide-react'
+import { Layers, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { ARCHIVE_CHOICES, type ArchivedTab, type Settings } from '@scbrowser/shared'
+import { ARCHIVE_CHOICES, type ArchivedTab, type ClosedGroup, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
 
@@ -14,7 +14,11 @@ export function ArchivePage() {
   const [tabs, setTabs] = useState<ArchivedTab[]>([])
   const [query, setQuery] = useState('')
   const [after, setAfter] = useState<Settings['archiveAfterDays'] | null>(null)
-  const load = useCallback(() => void api().invoke('archive:list').then(setTabs), [])
+  const [groups, setGroups] = useState<ClosedGroup[]>([])
+  const load = useCallback(() => {
+    void api().invoke('archive:list').then(setTabs)
+    void api().invoke('groups:closed').then(setGroups)
+  }, [])
   useEffect(() => {
     load()
     void api().invoke('settings:get').then((settings) => setAfter(settings.archiveAfterDays))
@@ -58,6 +62,31 @@ export function ArchivePage() {
           )}
         </div>
       </section>
+      {groups.length > 0 && (
+        <section aria-label="Closed tab groups" className="flex flex-col gap-1">
+          <h2 className="text-xs font-medium text-text-muted">Closed tab groups</h2>
+          <ul>
+            {groups.map((group) => (
+              <li key={group.id} className="group flex h-9 items-center gap-3 rounded-md px-2 hover:bg-surface-hover">
+                <Layers aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+                <button type="button" className="min-w-0 flex-1 truncate text-left" title={group.tabs.map((tab) => tab.title || tab.url).join('\n')} onClick={() => void api().invoke('groups:reopen', group.id).then(load)}>
+                  {group.name}
+                </button>
+                <span className="shrink-0 text-xs text-text-faint">
+                  {group.tabs.length} {group.tabs.length === 1 ? 'tab' : 'tabs'} · {new Date(group.closedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                </span>
+                <Button variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => void api().invoke('groups:reopen', group.id).then(load)}>
+                  <RotateCcw aria-hidden size={12} strokeWidth={1.75} />
+                  Reopen
+                </Button>
+                <IconButton size="sm" label="Forget this group" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => void api().invoke('groups:forget', group.id).then(load)}>
+                  <X size={12} strokeWidth={2} />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="flex gap-2">
         <Input aria-label="Search archived tabs" placeholder="Search archived tabs" className="flex-1" value={query} onChange={(e) => setQuery(e.target.value)} />
         <ConfirmButton disabled={tabs.length === 0} confirmLabel="Clear the archive?" onConfirm={() => void api().invoke('archive:clear').then(load)}>

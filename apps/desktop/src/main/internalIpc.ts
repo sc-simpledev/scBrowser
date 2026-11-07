@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { buildSuggestions, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
@@ -127,6 +127,11 @@ export function registerInternalIpc(services: InternalServices): () => void {
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
+  /** It works on the person's files and runs commands, so no other page may drive it. */
+  const coderOnly = (): WebContents => {
+    if (!caller || !caller.getURL().startsWith('sc://code')) throw new Error('Only sc://code can use the coding agent.')
+    return caller
+  }
 
   const handlers: { [C in keyof InternalCommands]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> } = {
     'settings:get': () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
@@ -445,6 +450,47 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'archive:remove': (id) => void core.archive.take(text(id, 64)),
     'archive:clear': () => core.archive.clear(),
+    'coder:status': () => ai.coderStatus(settings.get().coderFolder),
+    'coder:pick-folder': async () => {
+      coderOnly()
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: 'Choose a project folder', properties: ['openDirectory', 'createDirectory'] })
+      const folder = result.canceled ? undefined : result.filePaths[0]
+      if (!folder) return null
+      settings.set({ coderFolder: folder })
+      return folder
+    },
+    'coder:open-folder': () => {
+      coderOnly()
+      const { coderFolder } = settings.get()
+      if (coderFolder) void shell.openPath(coderFolder)
+    },
+    'coder:run': (sessionId, task) => {
+      const sender = coderOnly()
+      const { coderFolder, coderMode } = settings.get()
+      if (!coderFolder) throw new Error('Choose a project folder first.')
+      void ai.coder.run(text(sessionId, 64), coderFolder, text(task, CODER_MAX_TASK_CHARS), coderMode, (event) => {
+        if (!sender.isDestroyed()) sender.send('coder:event', event)
+      })
+    },
+    'coder:answer': (id, answer) => {
+      coderOnly()
+      if (answer !== 'allow' && answer !== 'always' && answer !== 'deny') throw new Error('Invalid answer')
+      ai.coder.answer(text(id, 64), answer)
+    },
+    'coder:stop': (sessionId) => {
+      coderOnly()
+      ai.coder.stop(text(sessionId, 64))
+    },
+    'coder:reset': (sessionId) => {
+      coderOnly()
+      ai.coder.reset(text(sessionId, 64))
+    },
+    'groups:closed': () => core.closedGroups.list(),
+    'groups:reopen': (id) => {
+      const group = core.closedGroups.take(text(id, 64))
+      if (group) tabs.openGroup(group.name, group.tabs)
+    },
+    'groups:forget': (id) => void core.closedGroups.take(text(id, 64)),
     'highlights:list': () => core.highlights?.list() ?? [],
     'highlights:note': (id, note) => core.highlights?.setNote(text(id, 64), text(note, MAX_NOTE_CHARS)),
     'highlights:remove': (id) => core.highlights?.remove(text(id, 64)),

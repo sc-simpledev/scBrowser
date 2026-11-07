@@ -237,8 +237,24 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Remove tab groups', click: () => tabs.clearGroups() },
     { label: 'Clean up tabs', click: actions.cleanupTabs },
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
-    { label: 'Reopen closed tab', click: () => tabs.reopenClosed() }
+    { label: 'Reopen closed tab', click: () => tabs.reopenClosed() },
+    ...closedGroupRows(actions)
   ]).popup({ window })
+}
+
+function closedGroupRows(actions: BrowserActions): MenuItemConstructorOptions[] {
+  const groups = actions.closedGroups()
+  if (groups.length === 0) return []
+  return [
+    {
+      label: 'Reopen closed group',
+      submenu: [
+        ...groups.slice(0, 12).map((group) => ({ label: `${group.name}  (${group.tabs.length} ${group.tabs.length === 1 ? 'tab' : 'tabs'})`, click: () => actions.reopenGroup(group.id) })),
+        { type: 'separator' as const },
+        { label: 'All closed groups…', click: () => actions.openPage('archive') }
+      ]
+    }
+  ]
 }
 
 interface BookmarkMenuHooks {
@@ -368,6 +384,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { type: 'separator' },
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
+    { label: 'Code with AI (beta)', click: () => actions.openPage('code') },
     { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
     { label: 'VPN', click: () => actions.openPage('vpn') },
     { type: 'separator' },

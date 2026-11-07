@@ -14,3 +14,13 @@ export interface ArchivedTab {
 /** Days unused before a tab is archived, or 0 for never. */
 export const ARCHIVE_CHOICES = [0, 1, 3, 7, 14, 30] as const
 export const MAX_ARCHIVED = 500
+
+/** A tab group that was closed, kept so it can come back with all its tabs. */
+export interface ClosedGroup {
+  id: string
+  name: string
+  closedAt: number
+  tabs: { url: string; title: string; container: string | null }[]
+}
+
+export const MAX_CLOSED_GROUPS = 30

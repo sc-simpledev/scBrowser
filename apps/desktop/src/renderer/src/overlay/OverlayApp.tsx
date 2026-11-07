@@ -16,6 +16,7 @@ import { AnswerCard } from './AnswerCard'
 import { AppLinkPrompt } from './AppLinkPrompt'
 import { AuthPopup } from './AuthPopup'
 import { PasswordPrompt } from './PasswordPrompt'
+import { PasswordSuggest } from './PasswordSuggest'
 import { BookmarkEditor } from './BookmarkEditor'
 import { CleanupPopup } from './CleanupPopup'
 import { CommandPalette } from './CommandPalette'
@@ -28,7 +29,7 @@ import { LinkPreviewCard } from './LinkPreviewCard'
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, cleanup: null, workspaceEditor: null, linkPreview: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, passwordSuggest: null, cleanup: null, workspaceEditor: null, linkPreview: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
@@ -39,7 +40,7 @@ export function OverlayApp() {
     return () => window.removeEventListener('pointermove', clear)
   }, [])
 
-  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, performance, toast, bookmarkEditor, auth, passwordPrompt, cleanup, workspaceEditor, linkPreview } = state
+  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, performance, toast, bookmarkEditor, auth, passwordPrompt, passwordSuggest, cleanup, workspaceEditor, linkPreview } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -83,6 +84,7 @@ export function OverlayApp() {
       {bookmarkEditor && <BookmarkEditor key={bookmarkEditor.id} editor={bookmarkEditor} x={bookmarkEditor.x - origin.x} y={bookmarkEditor.y - origin.y} />}
       {linkPreview && <LinkPreviewCard preview={linkPreview} origin={origin} />}
       {permission && <PermissionPopup popup={permission} origin={origin} />}
+      {passwordSuggest && <PasswordSuggest suggest={passwordSuggest} x={passwordSuggest.x - origin.x} y={passwordSuggest.y - origin.y} />}
       {passwordPrompt && <PasswordPrompt prompt={passwordPrompt} x={passwordPrompt.x - origin.x} y={passwordPrompt.y - origin.y} />}
       {extensionFrame && (
         <div

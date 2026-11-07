@@ -21,6 +21,8 @@ import {
   identityName,
   originOf,
   PASSWORD_POPUP,
+  PASSWORD_SUGGEST,
+  passwordSuggestHeight,
   BOOKMARK_POPUP,
   CLEANUP_POPUP,
   DEFAULT_WORKSPACE,
@@ -63,7 +65,7 @@ import { rejectCookieBanner, watchConsentFrames } from './cookieBanners'
 import { applySiteTweaks, pickElement } from './siteTweaks'
 import { LinkPreview } from './linkPreview'
 import { SidebarSites } from './sidebarSites'
-import { copySecret, fillDetails, fillLogin, watchForSignIn } from './passwordFill'
+import { copySecret, fillDetails, fillLogin, fillNewPassword, hasLoginForm, nextLoginField, watchForSignIn, type LoginFieldFocus } from './passwordFill'
 import { TabManager } from './tabs/TabManager'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
@@ -75,6 +77,7 @@ const WELCOME_KEY = 'welcome:done'
 const WELCOME_URL = 'sc://welcome'
 const INTRO_COLORS = { dark: { color: '#000000', symbolColor: '#ffffff' }, light: { color: '#f4f7f8', symbolColor: '#111111' } }
 /** How long a just-used login waits to be saved before it's forgotten. */
+const RECENT_NAME_MS = 10 * 60_000
 const LOGIN_PROMPT_MS = Number(process.env.SCB_E2E && process.env.SCB_LOGIN_HOLD_MS) || 60_000
 const CLIPBOARD_WAIT_MS = 2000
 const CAPTURE_RETRY_MS = 200
@@ -159,6 +162,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       // Tabs can still report in while the window is being torn down.
       if (window.isDestroyed()) return
       send('tabs:changed', snapshot)
+      if (suggestFor && !tabs.shownBounds(suggestFor.contents)) closeSuggest()
       if (!isApp) core.saver.schedule()
       overlay.updateTabSearch(tabs.searchRows())
       const active = snapshot.tabs.find((t) => t.id === snapshot.activeId)
@@ -170,9 +174,18 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       extensions.addTab(contents, window)
       contents.on('input-event', (_event, input) => {
         if (input.type === 'mouseMove') overlay.clearTooltip()
+        // Typing, scrolling or clicking elsewhere puts the list of logins away. A click into a login field brings it back.
+        else if (suggestFor?.contents === contents && (input.type === 'keyDown' || input.type === 'mouseDown' || input.type === 'mouseWheel')) closeSuggest()
       })
       if (vpn.summary().enabled) contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
-      contents.on('did-finish-load', () => watchTab(contents))
+      contents.on('did-finish-load', () => {
+        watchTab(contents)
+        watchLoginFields(contents)
+        void autoFillPassword(contents)
+      })
+      contents.on('did-start-navigation', (details) => {
+        if (details.isMainFrame && suggestFor?.contents === contents) closeSuggest()
+      })
       watchConsentFrames(contents, () => rejectsBanners(contents.getURL()))
       if (siteColours) {
         contents.on('did-change-theme-color', (_event, color) => {
@@ -436,6 +449,16 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       list.add(url, active.title)
       notify(already ? 'Already on your reading list' : 'Added to your reading list')
     },
+    closeGroup: (name, keep) => {
+      const saved = tabs.closeGroup(name)
+      if (!keep || isPrivate || isApp) return
+      if (core.closedGroups.add(name, saved)) notify(`Closed “${name}”. Reopen it from the tab menu`)
+    },
+    closedGroups: () => (isPrivate ? [] : core.closedGroups.list()),
+    reopenGroup: (id) => {
+      const group = core.closedGroups.take(id)
+      if (group) tabs.openGroup(group.name, group.tabs)
+    },
     archiveTab: (id) => {
       if (isPrivate) return notify('Private windows keep no archive')
       const saved = tabs.archiveTab(id)
@@ -571,6 +594,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       },
       onAuth: (requestId, login) => httpAuth.answer(requestId, login),
       onPasswordAnswer: (choice) => answerPassword(choice),
+      onPasswordSuggest: (choice) => answerSuggest(choice),
       onCleanup: (ids) => {
         if (!ids || ids.length === 0) return
         ids.forEach((id) => tabs.close(id))
@@ -725,6 +749,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     highlights: () => actions.openPage('highlights'),
     'watched-pages': () => actions.openPage('watching'),
     'archived-tabs': () => actions.openPage('archive'),
+    code: () => actions.openPage('code'),
+    'reopen-group': () => {
+      const [latest] = actions.closedGroups()
+      if (latest) actions.reopenGroup(latest.id)
+      else notify('No closed groups')
+    },
     'forget-site': actions.forgetSite,
     translate: () => actions.translatePage(),
     'organise-tabs': actions.organiseTabs,
@@ -809,6 +839,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     if (!origin || !available || !passwordOfferSave || (!unlocked && !passwordOfferLocked)) return
     void watchForSignIn(contents).then((login) => {
       if (contents.isDestroyed() || window.isDestroyed()) return
+      // The name step of a sign-in over two pages: kept for the password step that follows.
+      if (login && !login.password) {
+        recentNames.set(origin, { username: login.username, at: Date.now() })
+        return watchTab(contents)
+      }
+      if (login && !login.username) {
+        const recent = recentNames.get(origin)
+        if (recent && Date.now() - recent.at < RECENT_NAME_MS) login.username = recent.username
+      }
       if (login) {
         const open = passwords.unlocked
         const stillOffering = settings.get().passwordOfferSave && (open || settings.get().passwordOfferLocked)
@@ -822,6 +861,90 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       // Sites that sign in without loading a new page can still be watched for another try.
       if (login) watchTab(contents)
     })
+  }
+  /** Names typed on the first page of a two-page sign-in, by site, for a few minutes. */
+  const recentNames = new Map<string, { username: string; at: number }>()
+  /** The page whose sign-in field the list of logins hangs from. */
+  let suggestFor: { contents: Electron.WebContents; origin: string; kind: LoginFieldFocus['kind'] } | null = null
+  const closeSuggest = () => {
+    suggestFor = null
+    overlay.setPasswordSuggest(null)
+  }
+  const pageOrigin = (contents: Electron.WebContents) => {
+    const url = contents.isDestroyed() ? '' : contents.getURL()
+    return /^https?:/.test(url) ? originOf(url) : null
+  }
+  /** Waits for a click into a sign-in field, shows the list, and waits again. */
+  const watchLoginFields = (contents: Electron.WebContents) => {
+    if (window.isDestroyed() || contents.isDestroyed() || !pageOrigin(contents) || !passwords.state().available) return
+    void nextLoginField(contents).then((field) => {
+      if (!field || contents.isDestroyed() || window.isDestroyed()) return
+      showSuggest(contents, field)
+      watchLoginFields(contents)
+    })
+  }
+  const showSuggest = (contents: Electron.WebContents, field: LoginFieldFocus) => {
+    const origin = pageOrigin(contents)
+    const view = tabs.shownBounds(contents)
+    if (!origin || !view || !settings.get().passwordSuggest) return
+    const { available, exists, unlocked } = passwords.state()
+    if (!available) return
+    const generate = field.kind === 'new'
+    const logins = exists && unlocked ? passwords.matches(origin).map(({ id, username }) => ({ id, username })) : []
+    const locked = exists && !unlocked && !generate
+    if (!locked && logins.length === 0 && !generate) return
+    const zoom = contents.getZoomFactor()
+    const width = Math.round(Math.min(PASSWORD_SUGGEST.maxWidth, Math.max(PASSWORD_SUGGEST.minWidth, field.width * zoom)))
+    const height = passwordSuggestHeight({ logins, locked, generate })
+    const below = view.y + (field.y + field.height) * zoom + 2
+    const above = view.y + field.y * zoom - height - 2
+    const y = below + height > view.y + view.height && above > view.y ? above : below
+    const x = Math.min(view.x + view.width - width - 4, Math.max(view.x + 4, view.x + field.x * zoom))
+    suggestFor = { contents, origin, kind: field.kind }
+    overlay.setPasswordSuggest({ host: new URL(origin).host, logins, locked, generate, x: Math.round(x), y: Math.round(y), width })
+  }
+  const answerSuggest = (choice: string) => {
+    const target = suggestFor
+    suggestFor = null
+    if (choice === 'manage' || choice === 'unlock') return actions.openPage('passwords')
+    if (!target || choice === 'close' || target.contents.isDestroyed()) return
+    // Checked again now, as the page may have moved on while the list was open.
+    if (pageOrigin(target.contents) !== target.origin) return notify('This page has changed, so nothing was filled')
+    target.contents.focus()
+    if (choice === 'generate') {
+      const password = generatePassword((values) => void randomFillSync(values))
+      void fillNewPassword(target.contents, password).then((count) => {
+        if (count === 0) return notify('No password field to fill')
+        copySecret(password)
+        notify("Strong password filled and copied. You'll be asked to save it when you sign up")
+      })
+      return
+    }
+    const id = choice.startsWith('login:') ? choice.slice(6) : ''
+    if (!passwords.unlocked || !passwords.matches(target.origin).some((login) => login.id === id)) return
+    const { username, password } = passwords.find(id)
+    void fillLogin(target.contents, username, password).then((filled) => {
+      if (!filled) notify('No sign-in form on this page')
+    })
+  }
+  /**
+   * Fills by itself only when exactly one login is saved for this exact site, in the top frame, on an
+   * encrypted page (or this computer), and only into empty fields. Pages that draw their form late get one more look.
+   */
+  const autoFillPassword = async (contents: Electron.WebContents, retry = true): Promise<void> => {
+    const origin = pageOrigin(contents)
+    if (!origin || window.isDestroyed() || !settings.get().passwordAutoFill || !passwords.state().available || !passwords.unlocked) return
+    const { protocol, hostname } = new URL(origin)
+    if (protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(hostname)) return
+    const logins = passwords.matches(origin)
+    if (logins.length !== 1) return
+    if (!(await hasLoginForm(contents))) {
+      if (retry) setTimeout(() => void autoFillPassword(contents, false), 1500)
+      return
+    }
+    if (contents.isDestroyed() || pageOrigin(contents) !== origin || !passwords.unlocked) return
+    const { username, password } = passwords.find(logins[0]!.id)
+    await fillLogin(contents, username, password, true)
   }
   const openPasswordMenu = (x = tabs.page.x + tabs.page.width - 240, y = tabs.page.y) => {
     const { available, exists, unlocked } = passwords.state()

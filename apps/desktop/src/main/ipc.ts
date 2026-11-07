@@ -80,6 +80,7 @@ export const isAssistantRequest = (value: unknown): value is AssistantRequest =>
     value.extraTabIds.length <= MAX_MENTIONED_TABS &&
     value.extraTabIds.every(isId) &&
     typeof value.includePage === 'boolean' &&
+    (value.webSearch === undefined || typeof value.webSearch === 'boolean') &&
     (value.selection === null || isShortString(value.selection, MAX_CONVERSATION_CHARS))
   )
 }
@@ -148,6 +149,7 @@ const validators: Validators = {
   'tabs:mute': (args): args is [number, boolean] => args.length === 2 && isId(args[0]) && typeof args[1] === 'boolean',
   'tabs:search': noArgs,
   'tabs:open-in-browser': noArgs,
+  'tabs:devtools-close': (args): args is [] => args.length === 0,
   'tabs:devtools-width': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
   'browser:new-window': noArgs,
   'tabs:split-toggle': noArgs,
@@ -308,6 +310,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:search': () => actions.searchTabs(),
     'tabs:open-in-browser': () => actions.openInBrowser(),
     'tabs:devtools-width': (width) => tabs.setDevToolsWidth(width),
+    'tabs:devtools-close': () => tabs.closeShownDevTools(),
     'browser:new-window': () => actions.openWindow(),
     'tabs:split-toggle': () => tabs.toggleSplit(),
     'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
@@ -340,7 +343,8 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
           },
           { type: 'separator' },
           { label: 'Ungroup', click: () => tabs.ungroup(name) },
-          { label: 'Close group', click: () => tabs.closeGroup(name) }
+          { label: 'Close group', toolTip: 'Keeps it, to reopen from the tab menu or the archive page', click: () => actions.closeGroup(name, true) },
+          { label: 'Delete group', click: () => actions.closeGroup(name, false) }
         ]).popup({ window, callback: () => setTimeout(() => resolve(picked), 0) })
       }),
     'tabs:open-in-background': (url) => {

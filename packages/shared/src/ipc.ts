@@ -9,7 +9,8 @@ import type { Settings } from './settings'
 import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval } from './watch'
-import type { ArchivedTab } from './archive'
+import type { ArchivedTab, ClosedGroup } from './archive'
+import type { CoderAnswer, CoderEvent, CoderStatus } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -43,6 +44,7 @@ export interface ChromeCommands {
   /** An installed site's window hands its page over to the full browser. */
   'tabs:open-in-browser': () => void
   'tabs:devtools-width': (width: number) => void
+  'tabs:devtools-close': () => void
   'browser:new-window': () => void
   /** Splits with the next tab, or ends split view. */
   'tabs:split-toggle': () => void
@@ -182,6 +184,8 @@ export interface OverlayCommands {
   'overlay:answer-link': (href: string) => void
   /** Null cancels. The password goes straight to the network stack and is never kept. */
   'overlay:password-answer': (choice: 'save' | 'never' | 'dismiss') => void
+  /** A saved login's id, or one of the list's other rows. */
+  'overlay:password-suggest': (choice: string) => void
   'overlay:auth': (requestId: number, login: { username: string; password: string } | null) => void
   'overlay:cleanup': (ids: TabId[] | null) => void
   'overlay:workspace-save': (edit: WorkspaceEdit) => void
@@ -220,6 +224,7 @@ export const COMMAND_CHANNELS = [
   'tabs:search',
   'tabs:open-in-browser',
   'tabs:devtools-width',
+  'tabs:devtools-close',
   'browser:new-window',
   'tabs:split-toggle',
   'tabs:split-ratio',
@@ -321,7 +326,7 @@ export const EVENT_CHANNELS = [
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:password-suggest', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -506,6 +511,18 @@ export interface InternalCommands {
   'archive:restore': (id: string) => void
   'archive:remove': (id: string) => void
   'archive:clear': () => void
+  'groups:closed': () => ClosedGroup[]
+  /** Opens the group's tabs again in the window it's asked from, and takes it off the list. */
+  'groups:reopen': (id: string) => void
+  'groups:forget': (id: string) => void
+  /** Agentic coding (beta). Only sc://code may call these. */
+  'coder:status': () => CoderStatus
+  'coder:pick-folder': () => string | null
+  'coder:open-folder': () => void
+  'coder:run': (sessionId: string, task: string) => void
+  'coder:answer': (approvalId: string, answer: CoderAnswer) => void
+  'coder:stop': (sessionId: string) => void
+  'coder:reset': (sessionId: string) => void
   'highlights:list': () => Highlight[]
   'highlights:note': (id: string, note: string) => void
   'highlights:remove': (id: string) => void
@@ -671,6 +688,16 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'archive:restore',
   'archive:remove',
   'archive:clear',
+  'groups:closed',
+  'groups:reopen',
+  'groups:forget',
+  'coder:status',
+  'coder:pick-folder',
+  'coder:open-folder',
+  'coder:run',
+  'coder:answer',
+  'coder:stop',
+  'coder:reset',
   'highlights:list',
   'highlights:note',
   'highlights:remove',
@@ -701,4 +728,6 @@ export interface InternalBridge {
   ): Promise<Awaited<ReturnType<InternalCommands[C]>>>
   /** Assistant replies, for the sc://assistant page. */
   onAssistantEvent(listener: (event: AssistantEvent) => void): () => void
+  /** The coding agent's steps, for sc://code. */
+  onCoderEvent(listener: (event: CoderEvent) => void): () => void
 }
