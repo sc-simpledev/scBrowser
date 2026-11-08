@@ -34,7 +34,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 ]
 
 /** Address of the hosted AI service. SCTERRA_AI_URL overrides it, and `off` hides it. */
-export const HOSTED_AI_URL = 'https://sc-delta-ai.scspacedev.deno.net/v1'
+export const HOSTED_AI_URL = 'https://scterra-ai.scspace-dev.workers.dev/v1'
 export const HOSTED_PROVIDER_ID = 'scterra'
 export const HOSTED_MODEL = 'scterra-chat'
 export const HOSTED_NAME = 'scTerra AI'

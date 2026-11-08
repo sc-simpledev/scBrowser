@@ -49,13 +49,12 @@ Differences from Deno Deploy:
 To deploy on each push instead, connect the repository under the Worker's **Settings**,
 **Build**, with `server` as the root directory and `npx wrangler deploy` as the deploy command.
 
-### Moving the browser to it
+### The live Worker
 
-The browser's address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`, and it includes
-`/v1`. Once the Worker answers `/health`, change it from
-`https://sc-delta-ai.scspacedev.deno.net/v1` to `https://scterra-ai.<your-subdomain>.workers.dev/v1`
-and ship a browser release. Versions already installed keep using the Deno address, so leave
-the Deno Deploy app running until people have updated.
+It runs at `https://scterra-ai.scspace-dev.workers.dev`, and the browser's `HOSTED_AI_URL` in
+`packages/shared/src/ai.ts` points at it, including `/v1`. Versions released before the switch
+use `https://sc-delta-ai.scspacedev.deno.net/v1`, so leave the Deno Deploy app running until
+people have updated.
 
 ### Testing
 
@@ -84,8 +83,8 @@ To share limits across instances, go to **Databases**, press **Provision Databas
 Deno KV, press **Assign** next to it and pick the app, then set `USE_KV=true`. Without it,
 limits are kept per instance and reset when an instance restarts.
 
-Once it's deployed, the browser reads the app's address from `HOSTED_AI_URL` in
-`packages/shared/src/ai.ts`.
+Older browser versions use this one, at `https://sc-delta-ai.scspacedev.deno.net`. Newer
+ones use the Worker.
 
 ## Reports
 
