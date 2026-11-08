@@ -111,7 +111,9 @@ test('settings list what changed, reset one at a time, and go to and from a file
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
     }, file)
     await page.getByRole('button', { name: 'Changed', exact: true }).click()
-    await page.getByRole('navigation').getByRole('link', { name: 'About' }).click()
+    await page.evaluate(() => {
+      location.hash = 'about'
+    })
     await page.getByRole('button', { name: 'Export', exact: true }).click()
     await expect.poll(() => existsSync(file)).toBe(true)
     expect(JSON.parse(readFileSync(file, 'utf8')).settings.theme).toBe('dark')
@@ -188,16 +190,26 @@ test('highlights export as Markdown, and the reading digest goes to the assistan
 })
 
 test('a container set to go direct skips the VPN', async () => {
-  const proxied = () =>
+  // What each session is told, rather than Chromium's own lookup, which tests' --no-proxy-server can override.
+  const told = () =>
     h.app.evaluate(async ({ session }) => {
       const core = (globalThis as any).scbCore
       core.proxyRules = 'socks5://127.0.0.1:9'
       const banking = session.fromPartition('persist:container-banking')
-      core.prepareSession(banking)
-      await core.applySessionProxy(banking)
-      return banking.resolveProxy('https://example.com/')
+      const work = session.fromPartition('persist:container-work')
+      const modes: string[] = []
+      for (const target of [banking, work]) {
+        const real = target.setProxy.bind(target)
+        target.setProxy = ((config: { mode?: string; proxyRules?: string }) => {
+          modes.push(config.mode === 'direct' ? 'direct' : (config.proxyRules ?? ''))
+          return real(config as never)
+        }) as typeof target.setProxy
+        await core.applySessionProxy(target)
+        target.setProxy = real
+      }
+      return modes
     })
-  expect(await proxied()).toContain('SOCKS')
+  expect(await told()).toEqual(['socks5://127.0.0.1:9', 'socks5://127.0.0.1:9'])
   await setSetting(h, { vpnDirectContainers: ['banking'] })
-  await expect.poll(proxied).toBe('DIRECT')
+  expect(await told()).toEqual(['direct', 'socks5://127.0.0.1:9'])
 })

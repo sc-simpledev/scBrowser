@@ -4,6 +4,8 @@ import { go, launch, setSetting, type Harness } from './app'
 let h: Harness
 test.beforeAll(async () => {
   h = await launch()
+  // Tabs across the top leave the page the whole width, so the sidebar keeps its labels on small CI screens.
+  await setSetting(h, { tabLayout: 'horizontal' })
 })
 test.afterAll(() => h.close())
 

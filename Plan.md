@@ -231,7 +231,7 @@ Settings reorganised, a round of UI fixes, and ten additions the owner picked fr
 - [x] **VPN per container:** containers can go direct while the VPN covers scTerra (`vpnDirectContainers`). Running different connections at once isn't in.
 - [x] **Focus sessions** of 15, 25 or 50 minutes from the palette or sc://blocker, with a countdown in the toolbar (`focusTimer.ts`).
 - [x] **New tab widgets:** recent downloads, reading list and watched pages.
-- [x] **Fixes:** quick settings changes no longer drop each other, Enter submits small forms, Add provider waits for a key, removing an extension asks first, rows wrap in narrow windows, and the sc:// sidebar is clustered and turns to icons under 860 px.
+- [x] **Fixes:** quick settings changes no longer drop each other, Enter submits small forms, Add provider waits for a key, removing an extension asks first, rows wrap in narrow windows, and the sc:// sidebar is clustered and turns to icons when the page is under 720 px.
 
 ## Known risks (and mitigations)
 - **Google sign-in sometimes blocks Electron** ("browser may not be secure") → clean Chrome-like user agent, remove `Electron/` token, test early in Phase 1.

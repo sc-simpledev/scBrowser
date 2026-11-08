@@ -83,7 +83,7 @@ function SettingsSections() {
   // While searching, results come from every page, so none of them is the current one.
   const current = useSettingsSearching() ? null : group
   return (
-    <div className="mb-1 ml-5 flex flex-col border-l border-border pl-2 max-[860px]:hidden">
+    <div className="mb-1 ml-5 flex flex-col border-l border-border pl-2 max-[720px]:hidden">
       {SETTINGS_GROUPS.map((group) => (
         <a
           key={group.id}
@@ -122,7 +122,7 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[860px]:w-14 max-[860px]:px-2">
+        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
           {NAV.map((cluster, index) => (
             <Fragment key={cluster[0]}>
               {index > 0 && <div aria-hidden className="mx-2.5 my-1.5 h-px shrink-0 bg-border" />}
@@ -141,7 +141,7 @@ function PageFrame() {
                       )}
                     >
                       <Icon aria-hidden size={15} strokeWidth={1.75} className="shrink-0" />
-                      <span className="truncate max-[860px]:sr-only">{title}</span>
+                      <span className="truncate max-[720px]:sr-only">{title}</span>
                     </a>
                     {page === 'settings' && current === 'settings' && <SettingsSections />}
                   </Fragment>
@@ -156,7 +156,7 @@ function PageFrame() {
           </main>
         ) : (
           <main className="min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10 max-[860px]:px-5 max-[860px]:py-6">
+            <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10 max-[720px]:px-5 max-[720px]:py-6">
               <h1 className="text-xl font-semibold tracking-[-0.03em]">{title}</h1>
               <Page />
             </div>

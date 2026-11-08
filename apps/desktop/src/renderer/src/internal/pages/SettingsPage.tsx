@@ -207,7 +207,7 @@ export function SettingsPage() {
           Changed
         </Button>
         {/* The sidebar shows only icons in a narrow window, without the pages of Settings. */}
-        <Select aria-label="Settings page" className="h-9 shrink-0 min-[861px]:hidden" value={group} onChange={(e) => openSettingsGroup(e.target.value as SettingsGroupId)}>
+        <Select aria-label="Settings page" className="h-9 shrink-0 min-[721px]:hidden" value={group} onChange={(e) => openSettingsGroup(e.target.value as SettingsGroupId)}>
           {SETTINGS_GROUPS.map(({ id, title }) => (
             <option key={id} value={id}>
               {title}

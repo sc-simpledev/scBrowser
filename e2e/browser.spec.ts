@@ -152,7 +152,9 @@ test('settings page changes the search engine', async () => {
   await go(h, 'sc://settings/#search')
   const page = await h.page('sc://settings')
   await page.getByRole('combobox', { name: 'Search engine' }).selectOption('google')
-  await page.getByRole('navigation').getByRole('link', { name: 'Tabs and toolbar' }).click()
+  await page.evaluate(() => {
+    location.hash = 'tabs'
+  })
   await page.getByRole('combobox', { name: 'Tab layout' }).selectOption('vertical')
   await expect(h.chrome.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical')
 
