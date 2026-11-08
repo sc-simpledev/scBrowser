@@ -106,7 +106,7 @@ Known limits to pick up later: geolocation needs a Google API key in Electron; o
 
 **Fun flags.** `sc://flags` also has switches just for fun: site colours in the toolbar, an accent that follows the sun, an aurora new tab, a retro screen, wobbly tabs, a clicky address bar and download sparkles.
 
-**Hosted AI.** `server/` is a Deno service that lets people use scTerra AI without a key, with limits per IP address. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
+**Hosted AI.** `server/` is a service that lets people use scTerra AI without a key, with limits per IP address. It runs on Cloudflare Workers, and on Deno Deploy for older versions. Its address is `HOSTED_AI_URL` in `packages/shared/src/ai.ts`.
 
 ## Design direction — modern, deliberate, not "vibe coded"
 The look should feel like a crafted product (think Dia, Arc, Linear, Raycast, Firefox's Proton), not a generated template. That comes from a real design system and restraint, not from effects.
