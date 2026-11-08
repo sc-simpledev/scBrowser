@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Input } from '@scbrowser/ui'
 import { isSiteHost, MAX_SITE_CSS, siteBase, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
+import { Searchable, Section } from '../settingsParts'
 
 /** What someone types for a site, like https://www.Example.com/page, down to example.com. */
 function typedSite(text: string): string | null {
@@ -21,8 +22,8 @@ const FIELD = 'w-full resize-y rounded-md border border-border bg-field p-2 font
 
 function SiteRow({ site, hint, children }: { site: string; hint: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-6 border-b border-border px-3 py-2 last:border-b-0">
-      <div className="min-w-0 [overflow-wrap:anywhere]">
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-2 px-3 py-2">
+      <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
         <div>{site}</div>
         <div className="text-xs text-text-faint">{hint}</div>
       </div>
@@ -57,7 +58,7 @@ function AddSite({ label, placeholder, onAdd }: { label: string; placeholder: st
 
 function CssEditor({ editing, onChange, onSave }: { editing: { site: string; css: string }; onChange: (next: { site: string; css: string } | null) => void; onSave: () => void }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5 last:border-b-0">
+    <div className="flex flex-col gap-2 px-3 py-2.5">
       <div>{editing.site}</div>
       <textarea
         aria-label={`CSS for ${editing.site}`}
@@ -142,7 +143,7 @@ export function ForgetOnClose({ settings, update }: { settings: Settings; update
     <>
       {settings.forgetOnClose.length === 0 && (
         <div className="px-3 py-2.5 text-xs text-text-faint">
-          No sites yet. Their cookies, site data and history are cleared each time scTerra closes, so you're signed out next time. To forget a site once, right-click its page and pick Forget this site.
+          No sites yet. You'll be signed out of them each time. To forget a site just once, right-click its page and pick Forget this site.
         </div>
       )}
       {settings.forgetOnClose.map((site) => (
@@ -167,11 +168,10 @@ export function MiniAppsSection() {
   useEffect(() => void api().invoke('mini-apps:list').then(setApps), [])
   if (!apps || apps.length === 0) return null
   return (
-    <section aria-label="Kept from the assistant" className="flex flex-col gap-1">
-      <h3 className="px-1 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Kept from the assistant</h3>
-      <div className="flex flex-col rounded-lg bg-surface shadow-1">
-        {apps.map((app) => (
-          <SiteRow key={app.id} site={app.name} hint={`Kept ${new Date(app.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}. Works offline, and can't reach the internet.`}>
+    <Section title="Kept from the assistant" description="Pages the assistant wrote that you kept as apps." keywords="mini apps">
+      {apps.map((app) => (
+        <Searchable key={app.id} text={app.name}>
+          <SiteRow site={app.name} hint={`Kept ${new Date(app.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}. Works offline, and can't reach the internet.`}>
             <Button onClick={() => void api().invoke('mini-apps:open', app.id)}>Open</Button>
             <Button
               variant="ghost"
@@ -183,8 +183,8 @@ export function MiniAppsSection() {
               Remove
             </Button>
           </SiteRow>
-        ))}
-      </div>
-    </section>
+        </Searchable>
+      ))}
+    </Section>
   )
 }

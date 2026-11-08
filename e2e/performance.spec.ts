@@ -23,7 +23,7 @@ test.describe('Performance Mode', () => {
 
   test('the switch plainly draws the browser and is saved', async () => {
     h = await launch()
-    await go(h, 'sc://settings')
+    await go(h, 'sc://settings/#performance')
     const page = await h.page('sc://settings')
     await expect(page.locator('html')).not.toHaveAttribute('data-performance')
     await page.getByRole('switch', { name: 'Performance Mode' }).click()

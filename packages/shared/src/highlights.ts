@@ -27,3 +27,16 @@ export function highlightsReportPrompt(highlights: Highlight[]): string {
   })
   return `Write a report from my highlights and notes below. Group related points, keep my notes' views, and say which page each point came from.\n\n${parts.join('\n\n')}`
 }
+
+/** Highlights and notes as Markdown, a section per page, for notes apps such as Obsidian. */
+export function highlightsMarkdown(highlights: Highlight[], at = Date.now()): string {
+  const pages = new Map<string, Highlight[]>()
+  for (const highlight of highlights.toSorted((a, b) => a.createdAt - b.createdAt)) pages.set(highlight.url, [...(pages.get(highlight.url) ?? []), highlight])
+  const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
+  const sections = [...pages].map(([url, marks]) => {
+    const title = oneLine(marks[0]?.title || url).replace(/[[\]]/g, '')
+    const body = marks.map((mark) => `> ${oneLine(mark.text)}${mark.note ? `\n\n${mark.note.trim()}` : ''}`).join('\n\n')
+    return `## [${title}](<${url}>)\n\n${body}`
+  })
+  return `# Highlights\n\nExported from scTerra on ${new Date(at).toISOString().slice(0, 10)}.\n\n${sections.join('\n\n')}\n`
+}

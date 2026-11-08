@@ -360,6 +360,12 @@ function LoginRow({ login, reload }: { login: PasswordSummary; reload: () => voi
       {login.totp && <TotpChip id={login.id} />}
       {/* On a narrow page the buttons move under the site rather than off the edge. */}
       <div className="ml-auto flex min-w-0 items-center gap-1.5">
+      {(login.weak || login.reused || login.leaked) && /^https?:/.test(login.origin) && (
+        // Most sites answer this standard address with their own change-password page.
+        <Button variant="ghost" className="h-6 px-2 text-xs text-danger" onClick={() => void api().invoke('browser:open', `${new URL(login.origin).origin}/.well-known/change-password`)}>
+          Change password
+        </Button>
+      )}
       <span className="min-w-0 max-w-52 shrink truncate font-mono text-xs text-text-muted select-text">{shown ?? '••••••••'}</span>
       <IconButton
         size="sm"

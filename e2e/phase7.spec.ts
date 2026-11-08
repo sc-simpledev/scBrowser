@@ -225,7 +225,7 @@ test('a finished update shows a restart button, in the toolbar and in Settings',
   await expect(app.chrome.getByRole('button', { name: 'Restart to update' })).toBeHidden()
   await app.app.evaluate(() => (globalThis as never as { scbUpdates: { set: (patch: object) => void } }).scbUpdates.set({ phase: 'ready', version: '9.9.9' }))
   await expect(app.chrome.getByRole('button', { name: 'Restart to update' })).toBeVisible()
-  await app.chrome.evaluate(async () => window.scb.invoke('tabs:navigate', (await window.scb.invoke('tabs:snapshot')).activeId!, 'sc://settings'))
+  await app.chrome.evaluate(async () => window.scb.invoke('tabs:navigate', (await window.scb.invoke('tabs:snapshot')).activeId!, 'sc://settings/#about'))
   const page = await app.page('sc://settings')
   await expect(page.getByRole('heading', { name: 'About', level: 2 })).toBeAttached()
   await expect(app.chrome.getByRole('button', { name: 'Restart to update' })).toBeVisible()

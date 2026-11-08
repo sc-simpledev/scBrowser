@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
@@ -145,6 +145,29 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openDirectory', 'createDirectory'] })
       return result.canceled ? null : (result.filePaths[0] ?? null)
     },
+    'settings:export': async () => {
+      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, { defaultPath: 'scTerra settings.json', filters: [{ name: 'Settings', extensions: ['json'] }] })
+      if (result.canceled || !result.filePath) return false
+      await writeFile(result.filePath, JSON.stringify(settingsFile(settings.get()), null, 2))
+      return true
+    },
+    'settings:import': async () => {
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { properties: ['openFile'], filters: [{ name: 'Settings', extensions: ['json'] }] })
+      const path = result.canceled ? undefined : result.filePaths[0]
+      if (!path) return null
+      const raw = await readFile(path, 'utf8')
+      if (raw.length > 2_000_000) throw new Error('That file is too big to be scTerra settings.')
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        throw new Error("That file isn't scTerra settings.")
+      }
+      const patch = settingsFromFile(parsed)
+      if (!patch) throw new Error("That file isn't scTerra settings.")
+      settings.set(patch)
+      return Object.keys(patch).length
+    },
     'history:list': (query, limit, offset) => history.list(text(query, 1024), Math.min(int(limit), 500), int(offset)),
     'history:delete': (url) => history.delete(text(url)),
     'history:clear': () => history.clear(),
@@ -191,6 +214,21 @@ export function registerInternalIpc(services: InternalServices): () => void {
       downloads.act(text(id, 64), action as DownloadAction)
     },
     'downloads:clear': () => downloads.clearFinished(),
+    'downloads:suggest-name': async (id) => {
+      const info = downloads.list().find((download) => download.id === text(id, 64))
+      if (!info) throw new Error("That download isn't on the list any more.")
+      if (URL.canParse(info.url) && aiStore.disabledHosts().includes(new URL(info.url).host)) throw new Error('AI is off for the site this came from.')
+      // Data addresses can be long and hold the file itself, so only a web address is sent.
+      const from = /^https?:/i.test(info.url) ? info.url.slice(0, 500) : 'not a web address'
+      const suggestion = safeSuggestedName(await ai.complete(DOWNLOAD_NAME_PROMPT, `File name: ${info.filename}\nAddress: ${from}`), info.filename)
+      if (!suggestion) throw new Error("The AI didn't suggest a usable name.")
+      return suggestion
+    },
+    'downloads:rename': (id, name) => {
+      const clean = safeSuggestedName(text(name, 200), downloads.list().find((download) => download.id === text(id, 64))?.filename ?? '')
+      if (!clean) throw new Error('Use a name with letters or numbers in it.')
+      return downloads.rename(text(id, 64), clean)
+    },
     'tasks:list': () => taskList(core),
     'tasks:end': (pid) => endTask(core, int(pid)),
     'apps:list': () => core.webApps.list(),
@@ -505,6 +543,24 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const tab = caller && tabs.tabIdFor(caller)
       if (chosen.length === 0 || !tab) return
       ai.setPendingPrompt(highlightsReportPrompt(chosen))
+      tabs.navigate(tab, 'sc://assistant')
+    },
+    'highlights:export': async () => {
+      const highlights = core.highlights?.list() ?? []
+      if (highlights.length === 0) return false
+      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, { defaultPath: 'Highlights.md', filters: [{ name: 'Markdown', extensions: ['md'] }] })
+      if (result.canceled || !result.filePath) return false
+      await writeFile(result.filePath, highlightsMarkdown(highlights))
+      return true
+    },
+    'reading:digest': () => {
+      const off = aiStore.disabledHosts()
+      const unread = (core.readingList?.list() ?? [])
+        .filter((item) => item.readAt === null && !(URL.canParse(item.url) && off.includes(new URL(item.url).host)))
+        .toSorted((a, b) => b.addedAt - a.addedAt)
+      const tab = caller && tabs.tabIdFor(caller)
+      if (unread.length === 0 || !tab) return
+      ai.setPendingPrompt(readingDigestPrompt(unread))
       tabs.navigate(tab, 'sc://assistant')
     },
     'mini-apps:keep': (name, content) => {

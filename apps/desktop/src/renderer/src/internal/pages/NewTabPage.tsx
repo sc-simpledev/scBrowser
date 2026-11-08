@@ -10,6 +10,9 @@ import {
   type AiStatus,
   type AssistantEvent,
   type Bookmark,
+  type DownloadInfo,
+  type PageWatch,
+  type ReadingItem,
   type NewTabConfig,
   type NewTabLink,
   type NewTabWidgetId,
@@ -366,6 +369,78 @@ function BookmarksWidget() {
   )
 }
 
+/** A short list in a card, the same for every list widget: a line of text, a quieter line under it, and what to do when it's empty. */
+function ListCard({ title, empty, more, children }: { title: string; empty: string | null; more: { label: string; page: string }; children: ReactNode }) {
+  return (
+    <Card title={title}>
+      {empty ? <p className="text-text-muted">{empty}</p> : <div className="-mx-2 flex flex-col">{children}</div>}
+      <button type="button" className="self-start text-xs text-text-muted transition-colors hover:text-text" onClick={() => openNewTab(more.page)}>
+        {more.label}
+      </button>
+    </Card>
+  )
+}
+
+function ListItem({ title, detail, onOpen }: { title: string; detail: string; onOpen: () => void }) {
+  return (
+    <button type="button" onClick={onOpen} className="flex min-w-0 flex-col rounded-md px-2 py-1 text-left transition-colors hover:bg-surface-hover">
+      <span className="truncate">{title}</span>
+      <span className="truncate text-xs text-text-faint">{detail}</span>
+    </button>
+  )
+}
+
+const ago = (at: number) => {
+  const minutes = Math.round((Date.now() - at) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`
+  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+function DownloadsWidget() {
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([])
+  useEffect(() => void api().invoke('downloads:list').then((all) => setDownloads(all.toSorted((a, b) => b.startedAt - a.startedAt).slice(0, 4))), [])
+  return (
+    <ListCard title="Recent downloads" empty={downloads.length === 0 ? 'Nothing downloaded yet.' : null} more={{ label: 'All downloads', page: 'sc://downloads' }}>
+      {downloads.map((download) => (
+        <ListItem
+          key={download.id}
+          title={download.filename}
+          detail={download.state === 'completed' ? `${hostOf(download.url)} · ${ago(download.startedAt)}` : ({ progressing: 'Downloading…', paused: 'Paused', cancelled: 'Cancelled', interrupted: "Didn't finish" } as const)[download.state]}
+          onOpen={() => void api().invoke('downloads:action', download.id, download.state === 'completed' ? 'open' : 'show')}
+        />
+      ))}
+    </ListCard>
+  )
+}
+
+function ReadingWidget() {
+  const [items, setItems] = useState<ReadingItem[]>([])
+  useEffect(() => void api().invoke('reading:list').then((all) => setItems(all.filter((item) => item.readAt === null).toSorted((a, b) => b.addedAt - a.addedAt))), [])
+  return (
+    <ListCard title={items.length > 0 ? `Reading list · ${items.length} unread` : 'Reading list'} empty={items.length === 0 ? 'Nothing waiting. Right-click a page to save it for later.' : null} more={{ label: 'Open reading list', page: 'sc://reading' }}>
+      {items.slice(0, 4).map((item) => (
+        <ListItem key={item.id} title={item.title || hostOf(item.url)} detail={`${hostOf(item.url)} · saved ${ago(item.addedAt)}`} onOpen={() => void api().invoke('reading:open', item.id)} />
+      ))}
+    </ListCard>
+  )
+}
+
+function WatchingWidget() {
+  const [watches, setWatches] = useState<Omit<PageWatch, 'lastText'>[]>([])
+  useEffect(() => void api().invoke('watch:list').then(setWatches), [])
+  const changed = watches.filter((watch) => watch.unseen).toSorted((a, b) => (b.changedAt ?? 0) - (a.changedAt ?? 0))
+  const empty = watches.length === 0 ? 'Not watching any pages. Right-click a page to watch it for changes.' : changed.length === 0 ? `No changes on the ${watches.length === 1 ? 'page' : `${watches.length} pages`} you watch.` : null
+  return (
+    <ListCard title={changed.length > 0 ? `Watched pages · ${changed.length} changed` : 'Watched pages'} empty={empty} more={{ label: changed.length > 0 ? 'See what changed' : 'Open watched pages', page: 'sc://watching' }}>
+      {changed.slice(0, 4).map((watch) => (
+        <ListItem key={watch.id} title={watch.title || hostOf(watch.url)} detail={`Changed ${ago(watch.changedAt ?? Date.now())}${watch.added[0] ? ` · ${watch.added[0]}` : ''}`} onOpen={() => openHere(watch.url)} />
+      ))}
+    </ListCard>
+  )
+}
+
 function NotesWidget({ notes, update }: { notes: string; update: Update }) {
   const [text, setText] = useState(notes)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -434,6 +509,12 @@ function Widget({ id, config, update, keepChats }: { id: NewTabWidgetId; config:
       return <NotesWidget notes={config.notes} update={update} />
     case 'calendar':
       return <CalendarWidget />
+    case 'downloads':
+      return <DownloadsWidget />
+    case 'reading':
+      return <ReadingWidget />
+    case 'watching':
+      return <WatchingWidget />
   }
 }
 

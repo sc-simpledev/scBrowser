@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { basename, extname, join } from 'node:path'
+import { rename } from 'node:fs/promises'
+import { basename, dirname, extname, join } from 'node:path'
 import { app, shell, type DownloadItem, type Session } from 'electron'
-import type { DownloadAction, DownloadInfo } from '@scbrowser/shared'
+import { downloadFolderFor, type DownloadAction, type DownloadInfo } from '@scbrowser/shared'
 import type { SettingsStore } from './settings'
 import type { DownloadsRepo } from './storage/downloads'
 
@@ -34,7 +35,7 @@ export class DownloadManager {
   ) {}
 
   attach(session: Session): void {
-    session.on('will-download', (_event, item) => this.track(item))
+    session.on('will-download', (_event, item, contents) => this.track(item, contents?.getURL() ?? ''))
   }
 
   list(): DownloadInfo[] {
@@ -53,13 +54,27 @@ export class DownloadManager {
     if (action === 'remove' && !live) this.repo.remove(id)
   }
 
+  /** Renames a finished download in its own folder, keeping clear of names already there. Returns the new name. */
+  async rename(id: string, name: string): Promise<string> {
+    const info = this.repo.list().find((d) => d.id === id)
+    if (!info || info.state !== 'completed' || this.live.has(id)) throw new Error('Only finished downloads can be renamed.')
+    if (!existsSync(info.path)) throw new Error('The file has been moved or deleted.')
+    const target = uniquePath(dirname(info.path), basename(name), (p) => p !== info.path && existsSync(p))
+    if (target !== info.path) await rename(info.path, target)
+    const next = { ...info, path: target, filename: basename(target) }
+    this.repo.save(next)
+    return next.filename
+  }
+
   clearFinished(): void {
     this.repo.clearFinished()
   }
 
-  private track(item: DownloadItem): void {
-    const { downloadDir, askWhereToSave } = this.settings.get()
-    const dir = downloadDir || app.getPath('downloads')
+  private track(item: DownloadItem, pageUrl: string): void {
+    const { downloadDir, askWhereToSave, downloadRules } = this.settings.get()
+    // A rule's folder wins, as long as it's still there.
+    const ruled = downloadFolderFor(downloadRules, item.getFilename(), item.getURL(), pageUrl)
+    const dir = (ruled && existsSync(ruled) ? ruled : null) || downloadDir || app.getPath('downloads')
     const running = new Set([...this.live.values()].map((l) => l.info.path))
     const path = uniquePath(dir, item.getFilename(), (p) => existsSync(p) || running.has(p))
     // With a dialog, Chromium asks the user and reports the chosen path through the item.

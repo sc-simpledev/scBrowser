@@ -1,9 +1,9 @@
 import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, SquareTerminal, type LucideIcon } from 'lucide-react'
-import { Fragment, lazy, Suspense, useEffect, useState, type ComponentType } from 'react'
+import { Fragment, lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { applyPerformance, applyTint } from './api'
-import { SETTINGS_GROUPS } from './settingsGroups'
+import { openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, useSettingsSearching } from './settingsGroups'
 const AiPage = lazy(() => import('./pages/AiPage').then((m) => ({ default: m.AiPage })))
 const AssistantPage = lazy(() => import('./pages/AssistantPage').then((m) => ({ default: m.AssistantPage })))
 const BookmarksPage = lazy(() => import('./pages/BookmarksPage').then((m) => ({ default: m.BookmarksPage })))
@@ -44,6 +44,14 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   code: { title: 'Code (beta)', icon: SquareTerminal, component: CodePage }
 }
 
+/** The sidebar, in clusters of related pages, so the long list reads at a glance. */
+const NAV: InternalPage[][] = [
+  ['settings', 'history', 'bookmarks', 'downloads', 'passwords'],
+  ['assistant', 'ai', 'code'],
+  ['reading', 'highlights', 'watching', 'archive'],
+  ['blocker', 'vpn', 'tasks', 'flags']
+]
+
 /**
  * Each page is loaded only when it's shown, so a new tab doesn't parse the PDF viewer, the assistant
  * and every other page as well. That keeps each sc:// tab's memory down.
@@ -69,40 +77,26 @@ function InternalPage() {
   )
 }
 
-/** The parts of Settings, listed under its entry in the sidebar. */
+/** The pages of Settings, listed under its entry in the sidebar. */
 function SettingsSections() {
-  const [current, setCurrent] = useState(SETTINGS_GROUPS[0])
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const seen = entries.find((entry) => entry.isIntersecting)
-        if (seen) setCurrent(seen.target.id)
-      },
-      // Only the band near the top of the page counts as the current section.
-      { rootMargin: '0px 0px -75% 0px' }
-    )
-    // The sections appear once settings have loaded.
-    const timer = setTimeout(() => SETTINGS_GROUPS.forEach((id) => {
-      const element = document.getElementById(id)
-      if (element) observer.observe(element)
-    }), 100)
-    return () => {
-      clearTimeout(timer)
-      observer.disconnect()
-    }
-  }, [])
+  const group = useSettingsGroup()
+  // While searching, results come from every page, so none of them is the current one.
+  const current = useSettingsSearching() ? null : group
   return (
-    <div className="mb-1 ml-5 flex flex-col border-l border-border pl-2">
+    <div className="mb-1 ml-5 flex flex-col border-l border-border pl-2 max-[860px]:hidden">
       {SETTINGS_GROUPS.map((group) => (
-        <button
-          key={group}
-          type="button"
-          aria-current={group === current ? 'true' : undefined}
-          className={cx('flex h-7 items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text', group === current ? 'font-medium text-text' : 'text-text-muted')}
-          onClick={() => document.getElementById(group)?.scrollIntoView({ behavior: 'smooth' })}
+        <a
+          key={group.id}
+          href={`#${group.id}`}
+          aria-current={group.id === current ? 'page' : undefined}
+          className={cx('flex h-7 items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text', group.id === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted')}
+          onClick={(event) => {
+            event.preventDefault()
+            openSettingsGroup(group.id)
+          }}
         >
-          {group}
-        </button>
+          {group.title}
+        </a>
       ))}
     </div>
   )
@@ -128,21 +122,31 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 border-r border-border bg-bg p-3">
-          {(Object.entries(pages) as [InternalPage, (typeof pages)[InternalPage]][]).map(([page, { title, icon: Icon }]) => (
-            <Fragment key={page}>
-            <a
-              href={`sc://${page}/`}
-              aria-current={page === current ? 'page' : undefined}
-              className={cx(
-                'flex h-8 items-center gap-2.5 rounded-lg px-2.5 transition-colors',
-                page === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text'
-              )}
-            >
-              <Icon aria-hidden size={15} strokeWidth={1.75}  />
-              {title}
-            </a>
-            {page === 'settings' && current === 'settings' && <SettingsSections />}
+        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[860px]:w-14 max-[860px]:px-2">
+          {NAV.map((cluster, index) => (
+            <Fragment key={cluster[0]}>
+              {index > 0 && <div aria-hidden className="mx-2.5 my-1.5 h-px shrink-0 bg-border" />}
+              {cluster.map((page) => {
+                const { title, icon: Icon } = pages[page]
+                return (
+                  <Fragment key={page}>
+                    <a
+                      href={`sc://${page}/`}
+                      aria-label={title}
+                      title={title}
+                      aria-current={page === current ? 'page' : undefined}
+                      className={cx(
+                        'flex h-8 shrink-0 items-center gap-2.5 rounded-lg px-2.5 transition-colors',
+                        page === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text'
+                      )}
+                    >
+                      <Icon aria-hidden size={15} strokeWidth={1.75} className="shrink-0" />
+                      <span className="truncate max-[860px]:sr-only">{title}</span>
+                    </a>
+                    {page === 'settings' && current === 'settings' && <SettingsSections />}
+                  </Fragment>
+                )
+              })}
             </Fragment>
           ))}
         </nav>}
@@ -152,7 +156,7 @@ function PageFrame() {
           </main>
         ) : (
           <main className="min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10">
+            <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10 max-[860px]:px-5 max-[860px]:py-6">
               <h1 className="text-xl font-semibold tracking-[-0.03em]">{title}</h1>
               <Page />
             </div>

@@ -350,7 +350,7 @@ export function popupProfilesMenu(actions: BrowserActions, window: BaseWindow, x
   Menu.buildFromTemplate([
     ...names.map((name) => ({ label: name, type: 'radio' as const, checked: name === current, click: () => name !== current && openProfile(name) })),
     { type: 'separator' },
-    { label: 'Manage profiles…', click: () => actions.openPage('settings') }
+    { label: 'Manage profiles…', click: () => actions.openPage('settings', 'data') }
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }
 
@@ -368,7 +368,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
         { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
         { label: 'Passwords', accelerator: 'CmdOrCtrl+Shift+L', click: actions.passwordMenu },
         { label: 'Extensions', submenu: actions.extensionMenu() },
-        { label: 'Profiles', click: () => actions.openPage('settings') },
+        { label: 'Profiles', click: () => actions.openPage('settings', 'data') },
         { type: 'separator' }
       ]
     : []

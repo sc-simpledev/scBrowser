@@ -65,3 +65,9 @@
     break-after: page;
   }
 }
+
+/* Settings search: sections and pages with no matching setting left in them step aside. */
+[data-settings-searching] [data-settings-section]:not(:has([data-setting])),
+[data-settings-searching] [data-settings-group]:not(:has([data-setting])) {
+  display: none;
+}

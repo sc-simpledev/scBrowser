@@ -33,6 +33,8 @@ export interface PaletteCommand {
   id: string
   label: string
   shortcut?: string
+  /** Changes a setting, rather than doing something. */
+  setting?: boolean
 }
 
 export const PALETTE_COMMANDS: PaletteCommand[] = [
@@ -44,6 +46,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', shortcut: 'Ctrl Shift B' },
   { id: 'reader', label: 'Reader view', shortcut: 'F9' },
   { id: 'focus-mode', label: 'Turn Focus Mode on or off' },
+  { id: 'focus-15', label: 'Focus for 15 minutes' },
+  { id: 'focus-25', label: 'Focus for 25 minutes' },
+  { id: 'focus-50', label: 'Focus for 50 minutes' },
   { id: 'performance-mode', label: 'Turn Performance Mode on or off' },
   { id: 'site-blocker', label: 'Site blocker' },
   { id: 'vpn', label: 'VPN' },

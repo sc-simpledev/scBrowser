@@ -100,8 +100,17 @@ export function ReadingPage() {
             {label}
           </button>
         ))}
-        <span className="ml-auto text-text-faint">Summarise sends that page's text to your AI.</span>
+        <button
+          type="button"
+          disabled={unread.length === 0}
+          title="Only titles, addresses and summaries go to the AI, not the pages."
+          onClick={() => void api().invoke('reading:digest')}
+          className="ml-auto flex h-6 items-center rounded-sm border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:pointer-events-none disabled:opacity-50"
+        >
+          Digest of unread
+        </button>
       </div>
+      <p className="-mt-3 text-xs text-text-faint">Summarise sends that page's text to your AI. A digest sends only titles, addresses and summaries.</p>
       {items.length === 0 && <p className="text-text-muted">Nothing saved yet. Right-click a page and pick Add to reading list.</p>}
       {items.length > 0 && shown.length === 0 && <p className="text-text-muted">All read. Nice.</p>}
       <ul className="flex flex-col gap-2">

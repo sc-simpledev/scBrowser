@@ -24,6 +24,9 @@ import {
   type TabSearchState,
   type WorkspaceEdit,
   type WorkspaceEditorState,
+  type SiteControlsState,
+  type SiteAction,
+  isSiteAction,
   PALETTE_POPUP
 } from '@scbrowser/shared'
 
@@ -57,6 +60,7 @@ export class Overlay {
   private passwordSuggest: PasswordSuggestState | null = null
   private cleanup: CleanupPopupState | null = null
   private workspaceEditor: WorkspaceEditorState | null = null
+  private siteControls: SiteControlsState | null = null
   private toastTimer: ReturnType<typeof setTimeout> | undefined
   private destroyed = false
   private readonly channels: string[] = []
@@ -87,6 +91,7 @@ export class Overlay {
       onCleanup: (ids: TabId[] | null) => void
       onWorkspaceSave: (edit: WorkspaceEdit) => void
       onWorkspaceRemove: (id: string) => void
+      onSiteAction: (action: SiteAction) => void
       onPopupClosed: () => void
       onTooltipCleared: () => void
       onPreviewAction: (action: 'open' | 'background' | 'split' | 'close') => void
@@ -196,6 +201,11 @@ export class Overlay {
       this.closeWorkspaceEditor()
     })
     handle('overlay:workspace-close', () => this.closeWorkspaceEditor())
+    handle('overlay:site-action', (action) => {
+      if (!isSiteAction(action)) throw new Error('Invalid site action')
+      this.hooks.onSiteAction(action)
+    })
+    handle('overlay:site-close', () => this.closeSiteControls())
     handle('overlay:tooltip-clear', () => this.clearTooltip())
     handle('overlay:preview-action', (action) => {
       if (action !== 'open' && action !== 'background' && action !== 'split' && action !== 'close') throw new Error('Invalid arguments')
@@ -311,6 +321,31 @@ export class Overlay {
     this.view.webContents.focus()
   }
 
+  openSiteControls(state: SiteControlsState): void {
+    this.siteControls = state
+    this.render()
+    this.view.webContents.focus()
+  }
+
+  /** Redraws it after a change, keeping where it is. */
+  updateSiteControls(state: Omit<SiteControlsState, 'x' | 'y'> | null): void {
+    if (!this.siteControls) return
+    if (!state) return this.closeSiteControls()
+    this.siteControls = { ...state, x: this.siteControls.x, y: this.siteControls.y }
+    this.render()
+  }
+
+  get siteControlsOpen(): boolean {
+    return this.siteControls !== null
+  }
+
+  closeSiteControls(): void {
+    if (!this.siteControls) return
+    this.siteControls = null
+    this.render()
+    this.hooks.onPopupClosed()
+  }
+
   private closeWorkspaceEditor(): void {
     this.workspaceEditor = null
     this.render()
@@ -409,7 +444,7 @@ export class Overlay {
   }
 
   private current(): OverlayView {
-    return { ...this.state, passwordPrompt: this.passwordPrompt, passwordSuggest: this.passwordSuggest, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor, linkPreview: this.linkPreview }
+    return { ...this.state, passwordPrompt: this.passwordPrompt, passwordSuggest: this.passwordSuggest, permission: this.permission, palette: this.palette, tabSearch: this.tabSearch, appLink: this.appLink, extensionsPopup: this.extensionsPopup, extensionFrame: this.extensionFrame, accent: this.hooks.accent(), performance: this.hooks.performance(), toast: this.toast, bookmarkEditor: this.bookmarkEditor, auth: this.auth, cleanup: this.cleanup, workspaceEditor: this.workspaceEditor, linkPreview: this.linkPreview, siteControls: this.siteControls }
   }
 
   private render(): void {

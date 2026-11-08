@@ -29,14 +29,23 @@ import {
   suggestCleanup,
   TOAST_POPUP,
   WORKSPACE_POPUP,
+  SITE_POPUP,
+  siteControlsHeight,
+  PERMISSION_LABELS,
+  type SiteAction,
+  type SiteControlsState,
+  type SitePermission,
   byPing,
   errorPageUrl,
   isReaderUrl,
   summarisePromptFor,
   isNewTabUrl,
   sleepMinutes,
+  settingCommandPatch,
+  SETTING_COMMANDS,
   type Bookmark,
   type PermissionPrompt,
+  type TabId,
   type Workspace,
   type WorkspaceEdit
 } from '@scbrowser/shared'
@@ -100,6 +109,17 @@ interface SavedWindow {
 
 export function createBrowserWindow(core: BrowserCore, options: WindowOptions = {}): BrowserWindowHandle {
   const { kv, settings, history, bookmarks, aiStore } = core.services
+  /** Other browser windows' tabs come too, labelled with their window, so tab search reaches every tab. Tab ids are unique across windows. */
+  function searchRowsEverywhere() {
+    const others = core.windows.filter((handle) => handle.kind === 'browser' && handle.tabs !== tabs)
+    return [
+      ...tabs.searchRows(),
+      ...others.flatMap((handle, index) =>
+        handle.tabs.searchRows().map((row) => ({ ...row, workspaceName: [`Window ${index + 2}`, row.workspaceName].filter(Boolean).join(' · ') }))
+      )
+    ]
+  }
+  const ownerOf = (id: TabId) => core.windows.find((handle) => handle.tabs.searchRows().some((row) => row.id === id)) ?? { tabs, window }
   const { privacy, downloads, blocker, vpn, sync, passwords, updates, extensions, permissionService } = core
   const kind = options.kind ?? 'browser'
   const isApp = kind === 'app'
@@ -164,7 +184,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       send('tabs:changed', snapshot)
       if (suggestFor && !tabs.shownBounds(suggestFor.contents)) closeSuggest()
       if (!isApp) core.saver.schedule()
-      overlay.updateTabSearch(tabs.searchRows())
+      overlay.updateTabSearch(searchRowsEverywhere())
+      // The padlock's panel follows the open tab: a new site closes it, a zoom or block count updates it.
+      if (overlay.siteControlsOpen) overlay.updateSiteControls(siteControls())
       const active = snapshot.tabs.find((t) => t.id === snapshot.activeId)
       window.setTitle(isApp ? active?.title || APP_TITLE : `${active?.title ? `${active.title} — ` : ''}${APP_TITLE}`)
     },
@@ -297,7 +319,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     toggleBookmarksBar: () => settings.set({ bookmarksBar: settings.get().bookmarksBar === 'always' ? 'bookmarks-page' : 'always' }),
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
-    openPage: (page) => tabs.openInternal(`sc://${page}`),
+    openPage: (page, part) => tabs.openInternal(`sc://${page}${part ? `/#${part}` : ''}`),
     toggleAssistant: () => send('ui:assistant-toggle'),
     passwordMenu: () => openPasswordMenu(),
     toggleReader: () => {
@@ -318,7 +340,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         .catch(() => notify("Reader view can't open this page"))
     },
     togglePalette: () => overlay.togglePalette(),
-    searchTabs: () => overlay.toggleTabSearch(tabs.searchRows()),
+    searchTabs: () => overlay.toggleTabSearch(searchRowsEverywhere()),
+    notify: (text) => notify(text),
+    focusFor: (minutes) => {
+      settings.set({ focusMode: true, focusUntil: Date.now() + minutes * 60_000 })
+      notify(`Focus Mode is on for ${minutes} minutes`)
+    },
     openAddress: (id, input) => {
       const address = input.trim()
       if (isTypedAppUrl(address)) {
@@ -564,12 +591,21 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     (index) => send('omnibox:pick', index),
     (requestId, allow) => permissionService.decide(requestId, allow),
     {
-      onPaletteRun: (id) => paletteActions[id]?.(),
+      onPaletteRun: (id) => {
+        const patch = settingCommandPatch(id, settings.get())
+        if (!patch) return paletteActions[id]?.()
+        settings.set(patch)
+        notify(`${SETTING_COMMANDS.find((command) => command.id === id)!.label.replace(/^(\w)/, (c) => c.toUpperCase())}`)
+      },
       onPaletteClose: () => tabs.focusActive(),
       onAppLinkAnswer: (choice) => appLinks.answer(choice),
       onExtensionsAction: (action, id, x, y) => extensions.listAction(action, id, x, y, window),
-      onTabSearchPick: (id) => tabs.reveal(id),
-      onTabSearchRemove: (id) => tabs.close(id),
+      onTabSearchPick: (id) => {
+        const owner = ownerOf(id)
+        owner.tabs.reveal(id)
+        if (owner.tabs !== tabs) owner.window.focus()
+      },
+      onTabSearchRemove: (id) => ownerOf(id).tabs.close(id),
       accent: () => settings.get().accent,
       performance: () => settings.get().performanceMode,
       onBookmarkSave: ({ id, title, url, groupId }) => {
@@ -601,6 +637,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         notify(`Closed ${ids.length} ${ids.length === 1 ? 'tab' : 'tabs'}. Ctrl Shift T brings them back`)
       },
       onWorkspaceSave: saveWorkspace,
+      onSiteAction: (action) => siteAction(action),
       onWorkspaceRemove: (id) => {
         core.removeWorkspace(id)
       },
@@ -721,6 +758,68 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       y: Math.round(Math.max(8, Math.min(height - WORKSPACE_POPUP.height - 8, y)))
     })
   }
+  /** What the padlock's panel shows for the open tab, or null when it isn't a website. */
+  const siteControls = (): Omit<SiteControlsState, 'x' | 'y'> | null => {
+    const active = tabs.active
+    const url = active ? effectiveUrl(active.url) : ''
+    const site = siteOf(url)
+    if (!active || !site || !/^https?:/i.test(url)) return null
+    const { host, origin } = new URL(url)
+    const current = settings.get()
+    return {
+      site,
+      host,
+      secure: url.startsWith('https:'),
+      tracking: current.trackingProtection === 'off' ? null : !privacy.isOff(host),
+      blocked: active.blockedCount,
+      ai: !aiStore.disabledHosts().includes(host),
+      forgetOnClose: current.forgetOnClose.includes(site),
+      zoom: active.zoomPercent,
+      permissions: core.services.permissions
+        .list()
+        .filter((decision) => decision.origin === origin)
+        .map(({ permission, allowed }) => ({
+          permission,
+          allowed,
+          label: permission.startsWith('app:') ? `Open ${permission.slice(4)}: links` : (PERMISSION_LABELS[permission as SitePermission] ?? permission).replace(/^\w/, (c) => c.toUpperCase())
+        }))
+    }
+  }
+  const openSiteControls = (x: number, y: number) => {
+    const state = siteControls()
+    if (!state) return
+    const { width, height } = window.getContentBounds()
+    overlay.openSiteControls({
+      ...state,
+      x: Math.round(Math.max(8, Math.min(width - SITE_POPUP.width - 8, x))),
+      y: Math.round(Math.max(8, Math.min(height - siteControlsHeight(state) - 8, y)))
+    })
+  }
+  const siteAction = (action: SiteAction) => {
+    const state = siteControls()
+    const active = tabs.active
+    if (!state || !active) return overlay.closeSiteControls()
+    const reload = () => tabs.reload(active.id)
+    if (action === 'tracking') {
+      privacy.toggleSite(state.host)
+      reload()
+    } else if (action === 'ai') aiStore.setSiteDisabled(state.host, state.ai)
+    else if (action === 'forget-on-close') {
+      const others = settings.get().forgetOnClose.filter((site) => site !== state.site)
+      settings.set({ forgetOnClose: state.forgetOnClose ? others : [...others, state.site].sort() })
+    } else if (action === 'zoom-in' || action === 'zoom-out') tabs.zoomBy(active.id, action === 'zoom-in' ? 1 : -1)
+    else if (action === 'zoom-reset') tabs.setZoom(active.id, 1)
+    else if (action === 'forget-now') {
+      overlay.closeSiteControls()
+      return actions.forgetSite()
+    } else if (action === 'settings') {
+      overlay.closeSiteControls()
+      return actions.openPage('settings', 'privacy')
+    } else {
+      core.services.permissions.revoke(new URL(effectiveUrl(active.url)).origin, action.slice('permission:'.length))
+    }
+    overlay.updateSiteControls(siteControls())
+  }
   const paletteActions: Record<string, () => void> = {
     'new-tab': () => tabs.create(),
     'new-window': () => actions.openWindow(),
@@ -768,9 +867,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     downloads: () => actions.openPage('downloads'),
     settings: () => actions.openPage('settings'),
     'ai-settings': () => actions.openPage('ai'),
+    'focus-15': () => actions.focusFor(15),
+    'focus-25': () => actions.focusFor(25),
+    'focus-50': () => actions.focusFor(50),
     'focus-mode': () => {
       const focusMode = !settings.get().focusMode
-      settings.set({ focusMode })
+      settings.set({ focusMode, focusUntil: 0 })
       notify(focusMode ? 'Focus Mode is on' : 'Focus Mode is off')
     },
     'performance-mode': () => actions.performanceMode.toggle(),
@@ -1139,6 +1241,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     editBookmark,
     updates,
     editWorkspace,
+    openSiteControls,
     aiStore,
     ai,
     chats: core.services.chats,

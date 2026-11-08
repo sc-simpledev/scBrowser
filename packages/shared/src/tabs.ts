@@ -77,7 +77,7 @@ export interface TabSearchRow {
   pinned: boolean
   audible: boolean
   muted: boolean
-  /** Null for tabs in the open workspace. */
+  /** Null for tabs in the open workspace of this window; otherwise where the tab is, like "Work" or "Window 2 · Work". */
   workspaceName: string | null
   lastActiveAt: number
 }

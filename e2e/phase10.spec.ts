@@ -331,7 +331,7 @@ test.describe('addresses and menus', () => {
     await expect.poll(async () => (await opened()).length).toBe(3)
     await expect(prompt).toHaveCount(0)
 
-    await go(h, 'sc://settings')
+    await go(h, 'sc://settings/#privacy')
     const settings = await h.page('sc://settings')
     await expect(settings.getByText('Allowed to open zzscb: links')).toBeVisible()
   })
@@ -461,7 +461,7 @@ test.describe('addresses and menus', () => {
     await expect.poll(() => h.app.evaluate(({ session }) => session.defaultSession.isSpellCheckerEnabled())).toBe(false)
     await setSetting(h, { spellCheck: true, spellLanguage: 'fr' })
     await expect.poll(() => h.app.evaluate(({ session }) => session.defaultSession.getSpellCheckerLanguages()[0])).toMatch(/^fr/)
-    await go(h, 'sc://settings')
+    await go(h, 'sc://settings/#browsing')
     const settings = await h.page('sc://settings')
     await expect(settings.getByRole('switch', { name: 'Check spelling' })).toBeVisible()
     await expect(settings.getByRole('combobox', { name: 'Spelling language' })).toHaveValue(/^fr/)
@@ -632,7 +632,7 @@ test.describe('windows and tools', () => {
       expect(spawnableExec(entry).length).toBeGreaterThan(1)
     }
 
-    await go(h, 'sc://settings')
+    await go(h, 'sc://settings/#ai')
     const settings = await h.page('sc://settings')
     const row = settings.getByRole('region', { name: 'Installed apps' })
     await expect(row).toContainText('Alpha page')
@@ -858,7 +858,7 @@ test.describe('passwords, autofill and the rest', () => {
     const loaded = (extension: string) => h.app.evaluate(({ session }, wanted) => !!session.defaultSession.extensions.getExtension(wanted), extension)
     expect((await list())[0]).toMatchObject({ id, enabled: true })
 
-    await go(h, 'sc://settings')
+    await go(h, 'sc://settings/#ai')
     const settings = await h.page('sc://settings')
     const toggle = settings.getByRole('switch', { name: /^Turn on/ })
     await toggle.click()

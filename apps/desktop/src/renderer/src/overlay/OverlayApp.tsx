@@ -24,12 +24,13 @@ import { ExtensionsPopup } from './ExtensionsPopup'
 import { SuggestionList } from './SuggestionList'
 import { TabSearch } from './TabSearch'
 import { WorkspaceEditor } from './WorkspaceEditor'
+import { SiteControls } from './SiteControls'
 import { LinkPreviewCard } from './LinkPreviewCard'
 
 type Payload = OverlayEvents['overlay:state']
 
 export function OverlayApp() {
-  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, passwordSuggest: null, cleanup: null, workspaceEditor: null, linkPreview: null }, origin: { x: 0, y: 0 } })
+  const [{ state, origin }, setPayload] = useState<Payload>({ state: { ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, passwordSuggest: null, cleanup: null, workspaceEditor: null, linkPreview: null, siteControls: null }, origin: { x: 0, y: 0 } })
 
   useEffect(() => window.scbOverlay.on('overlay:state', setPayload), [])
 
@@ -40,7 +41,7 @@ export function OverlayApp() {
     return () => window.removeEventListener('pointermove', clear)
   }, [])
 
-  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, performance, toast, bookmarkEditor, auth, passwordPrompt, passwordSuggest, cleanup, workspaceEditor, linkPreview } = state
+  const { omnibox, tooltip, permission, palette, tabSearch, appLink, extensionsPopup, extensionFrame, accent, performance, toast, bookmarkEditor, auth, passwordPrompt, passwordSuggest, cleanup, workspaceEditor, linkPreview, siteControls } = state
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
@@ -97,6 +98,7 @@ export function OverlayApp() {
       {appLink && <AppLinkPrompt key={appLink.url} prompt={appLink} x={appLink.x - origin.x} y={appLink.y - origin.y} />}
       {auth && <AuthPopup key={auth.requestId} auth={auth} x={auth.x - origin.x} y={auth.y - origin.y} />}
       {cleanup && <CleanupPopup cleanup={cleanup} x={cleanup.x - origin.x} y={cleanup.y - origin.y} />}
+      {siteControls && <SiteControls state={siteControls} x={siteControls.x - origin.x} y={siteControls.y - origin.y} />}
       {workspaceEditor && <WorkspaceEditor key={workspaceEditor.id ?? 'new'} editor={workspaceEditor} x={workspaceEditor.x - origin.x} y={workspaceEditor.y - origin.y} />}
       {tooltip && (
         <PlacedTooltip

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, fullToolbarOrder, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
@@ -54,6 +54,30 @@ function PrivateBadge() {
       <EyeOff aria-hidden size={13} strokeWidth={1.75} />
       Private
     </span>
+  )
+}
+
+/** Shows while a focus session runs, with the minutes left. Pressing it ends the session early. */
+function FocusChip() {
+  const until = useApp((s) => (s.settings.focusMode ? s.settings.focusUntil : 0))
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!until) return
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    setNow(Date.now())
+    return () => clearInterval(timer)
+  }, [until])
+  if (!until || until <= now) return null
+  const minutes = Math.max(1, Math.ceil((until - now) / 60_000))
+  return (
+    <IconButton
+      label={`Focus Mode, ${minutes} min left. End the session`}
+      className="w-auto gap-1 px-2 text-xs font-medium text-accent tabular-nums"
+      onClick={() => void window.scb.invoke('settings:set', { focusMode: false, focusUntil: 0 })}
+    >
+      <Timer size={14} strokeWidth={1.75} />
+      {minutes}m
+    </IconButton>
   )
 }
 
@@ -344,6 +368,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       ))}
       {/* These stay at the end of the bar, wherever everything else has been dragged. */}
       <PrivateBadge />
+      <FocusChip />
       <UpdateButton />
       {showProfiles && !compact && (
         <IconButton

@@ -1,7 +1,8 @@
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
-import { byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
+import {
+  CONTAINERS, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
@@ -162,7 +163,7 @@ function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (
 
 /** Saved as it changes, so there's nothing to forget to press. */
 function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWide: boolean }) {
-  const [settings, setSettings] = useState<Pick<Settings, 'vpnAutoConnect' | 'vpnAutoFastest' | 'vpnBypass'> | null>(null)
+  const [settings, setSettings] = useState<Pick<Settings, 'vpnAutoConnect' | 'vpnAutoFastest' | 'vpnBypass' | 'vpnDirectContainers'> | null>(null)
   const [bypass, setBypass] = useState('')
   useEffect(() => {
     void api().invoke('settings:get').then((next) => {
@@ -212,6 +213,29 @@ function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWid
           Subdomains are included. These sites see your real address{computerWide ? '. This only applies inside scTerra, not to other apps' : ''}{usesTun ? ', though with TUN they still go through the connection' : ''}.
         </span>
       </label>
+      <div role="group" aria-label="Containers" className="flex flex-col gap-1.5">
+        <span>Containers that use the VPN</span>
+        <div className="flex flex-wrap gap-1.5">
+          {CONTAINERS.map((container) => {
+            const on = !settings.vpnDirectContainers.includes(container.id)
+            return (
+              <button
+                key={container.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => change({ vpnDirectContainers: on ? [...settings.vpnDirectContainers, container.id] : settings.vpnDirectContainers.filter((id) => id !== container.id) })}
+                className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors ${on ? 'border-accent bg-accent-soft text-text' : 'border-border text-text-muted hover:bg-surface-hover hover:text-text'}`}
+              >
+                <span aria-hidden className="size-2 rounded-full" style={{ background: `oklch(0.65 0.14 ${container.hue})` }} />
+                {container.name}
+              </button>
+            )
+          })}
+        </div>
+        <span className="text-xs text-text-faint">
+          {computerWide ? 'With the whole computer covered, every container goes through the connection.' : 'Turn one off to send its tabs directly, with your real address, like a bank in its own container.'}
+        </span>
+      </div>
     </section>
   )
 }
@@ -326,26 +350,28 @@ export function VpnPage() {
             Add links
           </Button>
         </div>
-        <div className="flex gap-2">
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!/^https?:\/\/./i.test(subscription)) return
+            setNote(null)
+            void api()
+              .invoke('vpn:subscribe', subscription.trim(), subscriptionName)
+              .then((result) => {
+                setSubscription('')
+                setSubscriptionName('')
+                report(result)
+              })
+              .catch(fail)
+          }}
+        >
           <Input aria-label="Subscription address" placeholder="Subscription address" className="min-w-0 flex-2" value={subscription} onChange={(e) => setSubscription(e.target.value)} />
           <Input aria-label="Subscription name" placeholder="Name" className="min-w-0 flex-1" value={subscriptionName} onChange={(e) => setSubscriptionName(e.target.value)} />
-          <Button
-            disabled={!/^https?:\/\/./i.test(subscription)}
-            onClick={() => {
-              setNote(null)
-              void api()
-                .invoke('vpn:subscribe', subscription.trim(), subscriptionName)
-                .then((result) => {
-                  setSubscription('')
-                  setSubscriptionName('')
-                  report(result)
-                })
-                .catch(fail)
-            }}
-          >
+          <Button type="submit" disabled={!/^https?:\/\/./i.test(subscription)}>
             Subscribe
           </Button>
-        </div>
+        </form>
         <form
           className="flex gap-2"
           onSubmit={(e) => {

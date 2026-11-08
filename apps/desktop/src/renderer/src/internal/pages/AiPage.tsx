@@ -32,6 +32,8 @@ function AddProvider({ onSaved }: { onSaved: () => void }) {
 
   const chosen = PROVIDER_PRESETS.find((p) => p.id === preset)
   const address = chosen?.baseUrl ?? baseUrl
+  // A hosted provider without its key would only fail on the first message.
+  const ready = Boolean(address) && !(chosen?.needsKey && !apiKey.trim())
 
   const save = async () => {
     setError(null)
@@ -60,6 +62,14 @@ function AddProvider({ onSaved }: { onSaved: () => void }) {
   return (
     <section aria-label="Add a provider" className="flex flex-col gap-3 rounded-lg p-3 shadow-1">
       <h2 className="font-medium">Add a provider</h2>
+      {/* A form, so Enter in any field adds the provider. */}
+      <form
+        className="contents"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (ready) void save()
+        }}
+      >
       <Field label="Provider">
         <Select aria-label="Provider" value={preset} onChange={(e) => setPreset(e.target.value)}>
           {PROVIDER_PRESETS.map((option) => (
@@ -116,10 +126,11 @@ function AddProvider({ onSaved }: { onSaved: () => void }) {
         </p>
       )}
       <div>
-        <Button variant="primary" disabled={!address} onClick={() => void save()}>
+        <Button type="submit" variant="primary" disabled={!ready}>
           Add provider
         </Button>
       </div>
+      </form>
     </section>
   )
 }
@@ -252,21 +263,25 @@ function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => v
           </li>
         ))}
       </ul>
+      <form
+        className="contents"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!name.trim() || !prompt.trim()) return
+          save([...skills, { id: crypto.randomUUID(), name: name.trim(), prompt: prompt.trim() }])
+          setName('')
+          setPrompt('')
+        }}
+      >
       <Input aria-label="Skill name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
       <Input aria-label="Skill prompt" placeholder="Prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       <div>
-        <Button
-          disabled={!name.trim() || !prompt.trim()}
-          onClick={() => {
-            save([...skills, { id: crypto.randomUUID(), name: name.trim(), prompt: prompt.trim() }])
-            setName('')
-            setPrompt('')
-          }}
-        >
+        <Button type="submit" disabled={!name.trim() || !prompt.trim()}>
           <Plus aria-hidden size={14} strokeWidth={1.75} />
           Add skill
         </Button>
       </div>
+      </form>
     </section>
   )
 }

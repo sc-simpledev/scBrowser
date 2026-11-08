@@ -4,7 +4,7 @@ import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, Pe
 import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
-import type { BookmarkEdit, OverlayState, OverlayView, WorkspaceEdit } from './overlay'
+import type { BookmarkEdit, OverlayState, OverlayView, SiteAction, WorkspaceEdit } from './overlay'
 import type { Settings } from './settings'
 import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
@@ -118,6 +118,8 @@ export interface ChromeCommands {
   'workspaces:switch': (id: string) => void
   /** Opens the small form for a workspace, or for a new one when `id` is null. */
   'workspaces:edit': (id: string | null, x: number, y: number) => void
+  /** The open site's controls, under the padlock in the address bar. */
+  'site:controls': (x: number, y: number) => void
   'updates:state': () => UpdateState
   'updates:install': () => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
@@ -191,6 +193,8 @@ export interface OverlayCommands {
   'overlay:workspace-save': (edit: WorkspaceEdit) => void
   'overlay:workspace-remove': (id: string) => void
   'overlay:workspace-close': () => void
+  'overlay:site-action': (action: SiteAction) => void
+  'overlay:site-close': () => void
   'overlay:tooltip-clear': () => void
   /** The buttons on a link preview, or a click on the page behind it. */
   'overlay:preview-action': (action: 'open' | 'background' | 'split' | 'close') => void
@@ -286,6 +290,7 @@ export const COMMAND_CHANNELS = [
   'tabs:cleanup',
   'workspaces:switch',
   'workspaces:edit',
+  'site:controls',
   'updates:state',
   'updates:install',
   'bookmarks:overflow-menu',
@@ -326,7 +331,7 @@ export const EVENT_CHANNELS = [
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:password-suggest', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:password-suggest', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:site-action', 'overlay:site-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -344,6 +349,10 @@ export interface InternalCommands {
   'settings:get': () => Settings
   'settings:set': (patch: Partial<Settings>) => void
   'settings:pick-download-dir': () => string | null
+  /** Saves the settings to a file the person picks. False if they cancel. */
+  'settings:export': () => boolean
+  /** Reads settings from a file the person picks, and applies them. Returns how many, or null if they cancel. */
+  'settings:import': () => number | null
   'history:list': (query: string, limit: number, offset: number) => HistoryEntry[]
   'history:delete': (url: string) => void
   'history:clear': () => void
@@ -360,6 +369,9 @@ export interface InternalCommands {
   'downloads:list': () => DownloadInfo[]
   'downloads:action': (id: string, action: DownloadAction) => void
   'downloads:clear': () => void
+  /** Asks the AI for a clearer name, from the file's name and address only. Only when the person presses for it. */
+  'downloads:suggest-name': (id: string) => string
+  'downloads:rename': (id: string, name: string) => string
   /** Languages that have a dictionary. Empty on a Mac, which uses the system's own. */
   'spelling:languages': () => string[]
   'tasks:list': () => TaskList
@@ -536,6 +548,10 @@ export interface InternalCommands {
   'reading:remove': (id: string) => void
   /** Asks the AI for a summary, only when the person presses for one. Returns it. */
   'reading:summarise': (id: string) => string
+  /** Hands the unread list's titles and summaries to sc://assistant for a digest. */
+  'reading:digest': () => void
+  /** Saves highlights as a Markdown file. False if cancelled. */
+  'highlights:export': () => boolean
   /** Keeps a page the assistant wrote as an app of its own. Returns its name. */
   'mini-apps:keep': (name: string, content: string) => string
   'mini-apps:list': () => { id: string; name: string; createdAt: number }[]
@@ -550,6 +566,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'settings:get',
   'settings:set',
   'settings:pick-download-dir',
+  'settings:export',
+  'settings:import',
   'history:list',
   'history:delete',
   'history:clear',
@@ -566,6 +584,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'downloads:list',
   'downloads:action',
   'downloads:clear',
+  'downloads:suggest-name',
+  'downloads:rename',
   'spelling:languages',
   'tasks:list',
   'tasks:end',
@@ -708,6 +728,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'reading:set-read',
   'reading:remove',
   'reading:summarise',
+  'reading:digest',
+  'highlights:export',
   'mini-apps:keep',
   'mini-apps:list',
   'mini-apps:open',

@@ -30,7 +30,7 @@ export interface SyncData {
 export const EMPTY_SYNC: SyncData = { bookmarks: {}, history: {}, settings: {} }
 
 /** These describe this computer, not the person. */
-export const LOCAL_SETTINGS: (keyof Settings)[] = ['vpnScope', 'vpnMethod', 'vpnAutoConnect', 'vpnAutoFastest', 'assistantWidth', 'extensionPanelWidth', 'reportWidth', 'sidebarWidth', 'passwordLockMinutes', 'passwordOfferSave', 'downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode', 'autoUpdate', 'performanceMode', 'devToolsWidth', 'passwordOfferLocked', 'sidebarSiteWidth', 'coderFolder', 'coderMode', 'memorySaver']
+export const LOCAL_SETTINGS: (keyof Settings)[] = ['vpnScope', 'vpnMethod', 'vpnAutoConnect', 'vpnAutoFastest', 'assistantWidth', 'extensionPanelWidth', 'reportWidth', 'sidebarWidth', 'passwordLockMinutes', 'passwordOfferSave', 'downloadDir', 'verticalTabsCollapsed', 'syncHistory', 'crashReports', 'usageStats', 'focusMode', 'autoUpdate', 'performanceMode', 'devToolsWidth', 'passwordOfferLocked', 'sidebarSiteWidth', 'coderFolder', 'coderMode', 'memorySaver', 'downloadRules', 'focusUntil', 'vpnDirectContainers']
 
 export const MAX_SYNCED_HISTORY = 5000
 

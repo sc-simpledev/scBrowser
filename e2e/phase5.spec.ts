@@ -148,11 +148,12 @@ test('extensions load, run on pages, stay after a restart and can be removed', a
   await h.close()
 
   h = await launch(h.profile)
-  await go(h, 'sc://settings')
+  await go(h, 'sc://settings/#ai')
   const settings = await h.page('sc://settings')
   const section = settings.getByRole('region', { name: 'Extensions' })
   await expect(section.getByText('Test extension')).toBeVisible()
   await section.getByRole('button', { name: 'Remove' }).click()
+  await section.getByRole('button', { name: 'Remove it?' }).click()
   await expect(section.getByText('Test extension')).toHaveCount(0)
 })
 
@@ -309,7 +310,7 @@ test('opted-out crash logging stays local and shows in Settings', async () => {
     const { scbReporter } = globalThis as unknown as { scbReporter: { record(kind: string, reason: string): void } }
     scbReporter.record('page', 'crashed')
   })
-  await go(h, 'sc://settings')
+  await go(h, 'sc://settings/#privacy')
   const page = await h.page('sc://settings')
   const section = page.getByRole('region', { name: 'Crash reports and usage' })
   await expect(section.getByText('page: crashed')).toBeVisible()
@@ -323,7 +324,7 @@ test('sync can be turned on from Settings', async () => {
   await h.app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
   }, folder)
-  await go(h, 'sc://settings')
+  await go(h, 'sc://settings/#data')
   const page = await h.page('sc://settings')
   const section = page.getByRole('region', { name: 'Sync' })
   await section.getByRole('button', { name: 'Choose' }).click()

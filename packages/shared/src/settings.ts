@@ -1,7 +1,7 @@
 import { PASSWORD_LOCK_CHOICES } from './passwords'
 import { isBypassHost, type VpnMethod, type VpnScope } from './vpn'
 import { TRANSLATE_LANGUAGES, type TranslateLanguage } from './ai'
-import { isToolbarOrder, TOOLBAR_ITEMS, TOOLBAR_SLOTS, type ToolbarItemId, type ToolbarSlot } from './containers'
+import { CONTAINERS, isToolbarOrder, TOOLBAR_ITEMS, TOOLBAR_SLOTS, type ToolbarItemId, type ToolbarSlot } from './containers'
 import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
@@ -9,6 +9,7 @@ import type { SearchEngine } from './url'
 import { isHiddenElements, isSiteCss, isSiteHost } from './siteTweaks'
 import { isSidebarSites, type SidebarSite } from './sidebarSites'
 import { ARCHIVE_CHOICES } from './archive'
+import { isDownloadRules, type DownloadRule } from './downloadRules'
 
 const isWidth = (v: unknown) => Number.isInteger(v) && (v as number) >= 160 && (v as number) <= 2000
 
@@ -80,6 +81,8 @@ export interface Settings {
   /** Empty means the system Downloads folder. */
   downloadDir: string
   askWhereToSave: boolean
+  /** Folders for downloads of a kind or from a site. Folders belong to this computer, so these aren't synced. */
+  downloadRules: DownloadRule[]
   /** Keep assistant chats on this device between sessions. */
   saveChats: boolean
   /** Standard blocks ads and trackers; strict also blocks annoyances like cookie banners. */
@@ -127,6 +130,8 @@ export interface Settings {
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
   vpnBypass: string[]
+  /** Containers whose tabs go direct rather than through the VPN, when it covers just scTerra. */
+  vpnDirectContainers: string[]
   /** Sites kept in a rail at the right edge, each opening in a panel beside the page. */
   sidebarSites: SidebarSite[]
   /** Widths in pixels of what can be dragged wider or narrower. */
@@ -155,6 +160,8 @@ export interface Settings {
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
+  /** When a focus session turns Focus Mode off again, or 0 when none is running. */
+  focusUntil: number
   /** Include browsing history in sync, as well as bookmarks and settings. */
   syncHistory: boolean
   /** Off until the person turns them on. */
@@ -180,6 +187,7 @@ export const DEFAULT_SETTINGS: Settings = {
   archiveAfterDays: 0,
   downloadDir: '',
   askWhereToSave: false,
+  downloadRules: [],
   saveChats: true,
   trackingProtection: 'standard',
   httpsOnly: true,
@@ -208,6 +216,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vpnAutoConnect: false,
   vpnAutoFastest: false,
   vpnBypass: [],
+  vpnDirectContainers: [],
   assistantWidth: 360,
   extensionPanelWidth: 360,
   reportWidth: 560,
@@ -226,6 +235,7 @@ export const DEFAULT_SETTINGS: Settings = {
   coderMode: 'ask',
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
+  focusUntil: 0,
   syncHistory: true,
   crashReports: false,
   usageStats: false,
@@ -258,6 +268,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   archiveAfterDays: (v) => (ARCHIVE_CHOICES as readonly unknown[]).includes(v),
   downloadDir: (v) => typeof v === 'string' && v.length <= 4096,
   askWhereToSave: (v) => typeof v === 'boolean',
+  downloadRules: isDownloadRules,
   saveChats: (v) => typeof v === 'boolean',
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
@@ -286,6 +297,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   vpnAutoConnect: (v) => typeof v === 'boolean',
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
+  vpnDirectContainers: (v) => Array.isArray(v) && v.every((id) => CONTAINERS.some((container) => container.id === id)),
   assistantWidth: isWidth,
   extensionPanelWidth: isWidth,
   reportWidth: isWidth,
@@ -304,6 +316,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderMode: (v) => v === 'ask' || v === 'edits',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
+  focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,
   syncHistory: (v) => typeof v === 'boolean',
   crashReports: (v) => typeof v === 'boolean',
   usageStats: (v) => typeof v === 'boolean',

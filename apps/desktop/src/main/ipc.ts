@@ -227,6 +227,7 @@ const validators: Validators = {
   'reader:toggle': noArgs,
   'tabs:cleanup': noArgs,
   'workspaces:switch': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
+  'site:controls': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
   'workspaces:edit': (args): args is [string | null, number, number] =>
     args.length === 3 && (args[0] === null || isShortString(args[0], 64)) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
   'updates:state': noArgs,
@@ -266,6 +267,7 @@ interface IpcServices {
   passwords: PasswordVault
   updates: UpdateService
   editWorkspace: (id: string | null, x: number, y: number) => void
+  openSiteControls: (x: number, y: number) => void
   aiStore: AiStore
   ai: AiService
   chats: ChatsRepo
@@ -279,7 +281,7 @@ interface IpcServices {
  * them, and every argument list is validated before it reaches the TabManager.
  */
 export function registerIpc(chromeUi: WebContents, services: IpcServices): () => void {
-  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace, extensions, sidebar, core } = services
+  const { passwords, openPasswordMenu, window, tabs, history, bookmarks, settings, overlay, actions, onBookmarksChanged, editBookmark, aiStore, ai, chats, privacy, vpn, openVpnMenu, updates, editWorkspace, openSiteControls, extensions, sidebar, core } = services
   const menuHooks = { repo: bookmarks, onChange: onBookmarksChanged, actions, window, edit: (bookmark: Bookmark) => editBookmark(bookmark, true) }
 
   const handlers: Handlers = {
@@ -454,6 +456,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:cleanup': () => actions.cleanupTabs(),
     'workspaces:switch': (id) => tabs.switchWorkspace(id),
     'workspaces:edit': (id, x, y) => editWorkspace(id, x, y),
+    'site:controls': (x, y) => openSiteControls(x, y),
     'updates:state': () => updates.state(),
     'updates:install': () => updates.install(),
     'bookmarks:overflow-menu': (items, x, y) => {

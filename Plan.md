@@ -218,6 +218,21 @@ The owner's list plus everything in `PLS_FIX_OR_ELSE.md`, in one round.
 - [x] **Code with AI (beta)** on sc://code: the model works in one folder the person picks, reads, searches, edits and runs commands, and asks before every change and command (or only commands). Recommends an API key of one's own over the free hosted model.
 - [x] **From the fix list:** sign-ins that only lasted until closing are kept (`sessionCookies.ts`), web search in the assistant (`ai/webSearch.ts`), tab icons fetched through the tab's own session (`tabIcon` in `siteIcons.ts`), the Chrome Web Store sees Google Chrome's brand, side panel calls from an extension's worker no longer lost while it starts, and closed tab groups that reopen with their tabs (`closedGroups.ts`, sc://archive).
 
+### 0.4.6 (2026-11-08)
+Settings reorganised, a round of UI fixes, and ten additions the owner picked from a brainstorm.
+
+- [x] **Settings** in nine pages with search, a Changed filter with a reset button on each changed setting, and export and import of settings as a file (`settingsFile.ts`). Sections are flat cards; toolbar buttons and address bar sources are toggle chips.
+- [x] **Site controls** from the padlock in the address bar: tracking protection, AI, forget on close, zoom and permissions for the site, plus Forget this site (`overlay/SiteControls.tsx`).
+- [x] **Tab search** covers every window as well as every workspace.
+- [x] **Command palette** changes settings (`settingCommands.ts`), listed only once something is typed.
+- [x] **Reading list digest** of unread items from titles and summaries only, and **highlights export** to Markdown.
+- [x] **Password health:** flagged logins get a Change password button that opens the site's `/.well-known/change-password`.
+- [x] **Download rules** by file type or site (`downloadRules.ts`), and renaming finished downloads, with an AI-suggested name on request from the file's name and address only.
+- [x] **VPN per container:** containers can go direct while the VPN covers scTerra (`vpnDirectContainers`). Running different connections at once isn't in.
+- [x] **Focus sessions** of 15, 25 or 50 minutes from the palette or sc://blocker, with a countdown in the toolbar (`focusTimer.ts`).
+- [x] **New tab widgets:** recent downloads, reading list and watched pages.
+- [x] **Fixes:** quick settings changes no longer drop each other, Enter submits small forms, Add provider waits for a key, removing an extension asks first, rows wrap in narrow windows, and the sc:// sidebar is clustered and turns to icons under 860 px.
+
 ## Known risks (and mitigations)
 - **Google sign-in sometimes blocks Electron** ("browser may not be secure") → clean Chrome-like user agent, remove `Electron/` token, test early in Phase 1.
 - **DRM (Netflix, Spotify)** needs Widevine → use castLabs "Electron for Content Security" build; requires VMP signing for Windows.

@@ -610,10 +610,14 @@ export class TabManager {
     contents.focus()
   }
 
-  /** Opens an internal page, reusing a tab already showing it. */
+  /** Goes to a page of the browser's own, reusing its tab if one is open. A #fragment picks a part of it, like sc://settings/#privacy. */
   openInternal(url: string): void {
-    const existing = this.visible.find((id) => this.tabs.get(id)?.state.url.startsWith(url))
-    if (existing !== undefined) this.activate(existing)
+    const page = url.split('#')[0]!
+    const existing = this.visible.find((id) => this.tabs.get(id)?.state.url.startsWith(page))
+    if (existing !== undefined) {
+      this.activate(existing)
+      if (url.includes('#') && this.tabs.get(existing)?.state.url !== url) this.navigate(existing, url)
+    }
     else if (this.active && isNewTabUrl(this.active.url)) this.navigate(this.active.id, url)
     else this.create(url, { afterId: this.activeId ?? undefined })
   }

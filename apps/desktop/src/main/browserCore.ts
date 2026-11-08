@@ -1,8 +1,9 @@
 import { keepSessionCookies } from './sessionCookies'
 import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
+import { startFocusTimer } from './focusTimer'
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { belongsToSite, bypassRules, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -195,7 +196,7 @@ export class BrowserCore {
         attachPageMenu(contents, handle.actions, handle.window, () => [])
       },
       raiseOverlay: (window) => this.windows.find((handle) => handle.window === window)?.raiseOverlay(),
-      openSettings: () => this.browser().actions.openPage('settings'),
+      openSettings: () => this.browser().actions.openPage('settings', 'ai'),
       onSummary: (summary) => this.broadcast('extensions:changed', summary),
       onPanel: (state, window) => this.windows.find((handle) => handle.window === window)?.send('extensions:panel', state),
       onLoaded: (id, newTabPage) => this.windows.forEach((handle) => handle.tabs.extensionReady(id, newTabPage))
@@ -271,10 +272,10 @@ export class BrowserCore {
     if (settings.get().vpnAutoConnect && !isPrivate) void this.vpn.holdPages().then(() => this.vpn.connectAtStart())
 
     let extensionDisplay = settings.get().extensionDisplay
-    let bypassInUse = JSON.stringify(settings.get().vpnBypass)
+    let bypassInUse = JSON.stringify([settings.get().vpnBypass, settings.get().vpnDirectContainers])
     this.unsubscribe.push(
       settings.subscribe((next) => {
-        const wanted = JSON.stringify(next.vpnBypass)
+        const wanted = JSON.stringify([next.vpnBypass, next.vpnDirectContainers])
         if (wanted === bypassInUse) return
         bypassInUse = wanted
         if (!this.proxyRules) return
@@ -351,6 +352,8 @@ export class BrowserCore {
       }
     })
     app.on('will-quit', stopSaver)
+    const stopFocus = startFocusTimer(settings, () => this.focused()?.actions.notify('Focus session over. Focus Mode is off.'))
+    app.on('will-quit', stopFocus)
   }
 
   /** Clears what this computer remembers about a site, then reloads its open tabs so they start fresh. */
@@ -585,6 +588,9 @@ export class BrowserCore {
   }
 
   private applySessionProxy(target: Session): Promise<void> {
+    // A container the person set to go direct skips the VPN; everything else takes it.
+    const direct = this.services.settings.get().vpnDirectContainers.some((id) => session.fromPartition(containerPartition(id)) === target)
+    if (direct) return target.setProxy({ mode: 'direct' })
     // Tests serve pages from this computer, which Chromium would otherwise send direct.
     const proxyBypassRules = [...(process.env.SCB_E2E ? ['<-loopback>'] : []), bypassRules(this.services.settings.get().vpnBypass)].filter(Boolean).join(';')
     return target.setProxy(this.proxyRules ? { mode: 'fixed_servers', proxyRules: this.proxyRules, proxyBypassRules } : { mode: 'direct' })

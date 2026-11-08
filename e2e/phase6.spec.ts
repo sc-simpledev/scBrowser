@@ -164,7 +164,7 @@ test('with a connection added, the VPN carries pages through it and turns off cl
   await expect(page.getByRole('status')).toContainText('Added 1, skipped 1')
   await expect(h.chrome.getByRole('button', { name: /^VPN/ })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Ping' }).click()
+  await page.getByRole('button', { name: 'Ping', exact: true }).click()
   await expect(page.locator('li').getByText(/\d+ ms/)).toBeVisible()
 
   await page.getByRole('switch', { name: 'VPN' }).click()

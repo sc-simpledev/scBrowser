@@ -34,10 +34,25 @@ function formatUrl(url: string): { prefix: string; host: string; rest: string } 
 
 function SecurityIcon({ url, editing }: { url: string; editing: boolean }) {
   const props = { size: 14, strokeWidth: 1.75, 'aria-hidden': true } as const
-  if (editing || !url) return <Search {...props} className="text-text-faint" />
-  if (url.startsWith('https:')) return <Lock {...props} className="text-text-faint" />
-  if (url.startsWith('http:')) return <TriangleAlert {...props} className="text-danger" />
-  return <Search {...props} className="text-text-faint" />
+  if (editing || !url || !/^https?:/.test(url)) return <Search {...props} className="text-text-faint" />
+  const secure = url.startsWith('https:')
+  // On a website, the padlock opens the site's controls: permissions, protection, AI, zoom.
+  return (
+    <button
+      type="button"
+      aria-label="Site controls"
+      title={secure ? 'Site controls' : 'Not secure. Site controls'}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.stopPropagation()
+        const rect = e.currentTarget.getBoundingClientRect()
+        void window.scb.invoke('site:controls', Math.round(rect.left - 8), Math.round(rect.bottom + 8))
+      }}
+      className="sc-no-drag -m-1 grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-hover"
+    >
+      {secure ? <Lock {...props} className="text-text-faint" /> : <TriangleAlert {...props} className="text-danger" />}
+    </button>
+  )
 }
 
 /** History and search-engine matches for the current draft; stale responses are dropped. */

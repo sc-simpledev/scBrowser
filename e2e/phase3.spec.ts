@@ -74,7 +74,7 @@ test('a named profile keeps its own data folder', async () => {
   const folder = await h.app.evaluate(({ app }) => app.getPath('userData'))
   expect(folder).toContain(join('profiles', 'Work'))
   expect(await h.chrome.title()).toBeTruthy()
-  await go(h, 'sc://settings')
+  await go(h, 'sc://settings/#data')
   const page = await h.page('sc://settings')
   await expect(page.getByText('This window')).toBeVisible()
   await expect(page.getByLabel('Profile name')).toBeVisible()

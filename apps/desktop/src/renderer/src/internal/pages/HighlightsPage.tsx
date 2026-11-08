@@ -62,6 +62,9 @@ export function HighlightsPage() {
           <FileText aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
           Write a report from {query ? 'these' : 'all'}
         </Button>
+        <Button variant="ghost" title="Save all highlights and notes as a Markdown file" disabled={highlights.length === 0} onClick={() => void api().invoke('highlights:export')}>
+          Export
+        </Button>
       </div>
       <p className="text-xs text-text-faint">Only your highlighted words and notes go to the AI for a report, not the rest of the pages.</p>
       {highlights.length === 0 && <p className="text-text-muted">Nothing highlighted yet. Select some words on a page, right-click and pick Highlight. They'll be marked whenever you come back.</p>}

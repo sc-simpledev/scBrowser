@@ -148,6 +148,35 @@ export interface WorkspaceEditorState {
   y: number
 }
 
+/** What can be changed for the open site, from the padlock in the address bar. */
+export interface SiteControlsState {
+  /** The site without `www.`, as settings key it. */
+  site: string
+  host: string
+  secure: boolean
+  /** Null while tracking protection is off everywhere. */
+  tracking: boolean | null
+  blocked: number
+  ai: boolean
+  forgetOnClose: boolean
+  zoom: number
+  permissions: { permission: string; label: string; allowed: boolean }[]
+  x: number
+  y: number
+}
+
+export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | `permission:${string}`
+
+export const isSiteAction = (value: unknown): value is SiteAction =>
+  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings)$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value))
+
+export const SITE_POPUP = { width: 320, header: 58, row: 44, permissionRow: 36, footer: 48 }
+
+export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'>): number {
+  const permissions = state.permissions.length > 0 ? 28 + state.permissions.length * SITE_POPUP.permissionRow : 0
+  return SITE_POPUP.header + 4 * SITE_POPUP.row + permissions + SITE_POPUP.footer + 10
+}
+
 export interface WorkspaceEdit {
   id: string | null
   name: string
@@ -191,6 +220,7 @@ export interface OverlayView extends OverlayState {
   cleanup: CleanupPopupState | null
   workspaceEditor: WorkspaceEditorState | null
   linkPreview: LinkPreviewState | null
+  siteControls: SiteControlsState | null
 }
 
 export const EMPTY_OVERLAY: OverlayState = { omnibox: null, tooltip: null }
@@ -246,7 +276,8 @@ export function overlayRegions(state: OverlayView): PageRect[] {
     state.extensionsPopup && { ...state.extensionsPopup, width: EXTENSIONS_POPUP.width },
     state.extensionFrame,
     state.cleanup && { ...state.cleanup, ...CLEANUP_POPUP },
-    state.workspaceEditor && { ...state.workspaceEditor, ...WORKSPACE_POPUP }
+    state.workspaceEditor && { ...state.workspaceEditor, ...WORKSPACE_POPUP },
+    state.siteControls && { ...state.siteControls, width: SITE_POPUP.width, height: siteControlsHeight(state.siteControls) }
   ]
   for (const popup of popups) {
     if (popup) regions.push({ x: popup.x - OVERLAY_MARGIN, y: popup.y - OVERLAY_MARGIN, width: popup.width + OVERLAY_MARGIN * 2, height: popup.height + OVERLAY_MARGIN * 2 })

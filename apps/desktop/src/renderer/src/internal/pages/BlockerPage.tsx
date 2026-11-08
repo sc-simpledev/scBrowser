@@ -105,10 +105,13 @@ export function BlockerPage() {
     setSettings({ ...settings, blocker })
     void api().invoke('settings:set', { blocker })
   }
-  const setFocus = (focusMode: boolean) => {
-    setSettings({ ...settings, focusMode })
-    void api().invoke('settings:set', { focusMode })
+  const setFocus = (focusMode: boolean, minutes = 0) => {
+    // Turning it on or off by hand ends any timed session; a session sets when it ends.
+    const focusUntil = focusMode && minutes > 0 ? Date.now() + minutes * 60_000 : 0
+    setSettings({ ...settings, focusMode, focusUntil })
+    void api().invoke('settings:set', { focusMode, focusUntil })
   }
+  const minutesLeft = settings.focusMode && settings.focusUntil > 0 ? Math.max(1, Math.ceil((settings.focusUntil - Date.now()) / 60_000)) : 0
   const addRule = () => {
     const site = toDomain(domain)
     if (!site) return
@@ -126,7 +129,17 @@ export function BlockerPage() {
         </div>
         <div className="flex items-center justify-between">
           <span>Focus Mode</span>
-          <Switch label="Focus Mode" checked={settings.focusMode} onChange={setFocus} />
+          <Switch label="Focus Mode" checked={settings.focusMode} onChange={(on) => setFocus(on)} />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-text-faint">{minutesLeft > 0 ? `A focus session is on, ending in ${minutesLeft} min.` : 'Or focus for a while, and it turns itself off.'}</span>
+          <div role="group" aria-label="Focus session" className="flex gap-1.5">
+            {[15, 25, 50].map((minutes) => (
+              <Button key={minutes} variant="ghost" className="h-7 px-2.5 text-xs" onClick={() => setFocus(true, minutes)}>
+                {minutes} min
+              </Button>
+            ))}
+          </div>
         </div>
       </Section>
 

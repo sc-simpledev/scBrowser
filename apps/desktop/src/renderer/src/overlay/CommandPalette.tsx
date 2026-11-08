@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cx } from '@scbrowser/ui'
-import { matchCommands, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
+import { matchPalette, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
 
 const ROW_HEIGHT = 36
 
@@ -10,7 +10,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const byKeyboard = useRef(false)
-  const commands = useMemo(() => matchCommands(query), [query])
+  const commands = useMemo(() => matchPalette(query), [query])
 
   const close = () => void window.scbOverlay.invoke('overlay:palette-close')
   const run = (id: string | undefined) => {
@@ -79,6 +79,7 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
           >
             {command.label}
             {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{shortcutLabel(command.shortcut, window.scbOverlay.platform)}</kbd>}
+            {command.setting && <span className="text-2xs text-text-faint">Setting</span>}
           </li>
         ))}
       </ul>

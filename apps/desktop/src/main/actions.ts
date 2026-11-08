@@ -17,7 +17,7 @@ export interface BrowserActions {
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
-  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'archive' | 'highlights' | 'reading' | 'code') => void
+  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'archive' | 'highlights' | 'reading' | 'code', part?: string) => void
   toggleAssistant: () => void
   passwordMenu: () => void
   toggleReader: () => void
@@ -31,6 +31,10 @@ export interface BrowserActions {
   rewrite: (contents: WebContents, text: string, style: RewriteStyle) => void
   togglePalette: () => void
   searchTabs: () => void
+  /** A brief note at the top right of the page. */
+  notify: (text: string) => void
+  /** Focus Mode for this many minutes, then off by itself. */
+  focusFor: (minutes: number) => void
   /** What the browser's own controls do with an address, which may be a script or another app's link. */
   openAddress: (id: number, input: string) => void
   openAppLink: (url: string, requester: string, contents: WebContents) => void
