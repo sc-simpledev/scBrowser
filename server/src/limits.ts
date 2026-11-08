@@ -1,6 +1,9 @@
 import type { Config } from './config.ts'
 
-/** Counters that expire. Memory for one server; Deno KV to share across several. */
+/**
+ * Counters that expire. Memory for one server; Deno KV (`deno_kv.ts`) or a Durable Object
+ * (`worker.ts`) to share them across several.
+ */
 export interface CounterStore {
   add(key: string, amount: number, ttlMs: number): Promise<number>
   get(key: string): Promise<number>
@@ -32,23 +35,6 @@ export class MemoryStore implements CounterStore {
   }
 }
 
-export class KvStore implements CounterStore {
-  constructor(private readonly kv: Deno.Kv) {}
-
-  async add(key: string, amount: number, ttlMs: number): Promise<number> {
-    for (;;) {
-      const entry = await this.kv.get<number>(['limits', key])
-      const value = (entry.value ?? 0) + amount
-      const { ok } = await this.kv.atomic().check(entry).set(['limits', key], value, { expireIn: ttlMs }).commit()
-      if (ok) return value
-    }
-  }
-
-  async get(key: string): Promise<number> {
-    return (await this.kv.get<number>(['limits', key])).value ?? 0
-  }
-}
-
 const MINUTE = 60_000
 const DAY = 86_400_000
 
@@ -65,8 +51,12 @@ export function clientAddress(request: Request, remote: string, trustedProxyHops
   return address.includes(':') ? address.split(':').slice(0, 4).join(':') : address
 }
 
+/** A reply that hasn't released its slot by now is treated as gone, so a lost release can't block an address forever. */
+const SLOT_MS = 15 * MINUTE
+
 export class Limiter {
-  private readonly active = new Map<string, number>()
+  /** Start times of the replies each address has running. */
+  private readonly active = new Map<string, number[]>()
 
   constructor(
     private readonly store: CounterStore,
@@ -88,7 +78,8 @@ export class Limiter {
     if ((await this.store.get(this.tokensKey(ip))) >= config.tokensPerDay) {
       return { allowed: false, code: 'daily_limit', retryAfterSeconds: this.secondsToTomorrow() }
     }
-    if ((this.active.get(ip) ?? 0) >= config.concurrentPerIp) {
+    const running = (this.active.get(ip) ?? []).filter((start) => this.now() - start < SLOT_MS)
+    if (running.length >= config.concurrentPerIp) {
       return { allowed: false, code: 'rate_limited', retryAfterSeconds: 5 }
     }
     const minute = Math.floor(this.now() / MINUTE)
@@ -98,18 +89,24 @@ export class Limiter {
     if ((await this.store.add(`requests:${this.day()}:${ip}`, 1, DAY * 2)) > config.requestsPerDay) {
       return { allowed: false, code: 'daily_limit', retryAfterSeconds: this.secondsToTomorrow() }
     }
-    this.active.set(ip, (this.active.get(ip) ?? 0) + 1)
+    this.active.set(ip, [...running, this.now()])
     return { allowed: true }
   }
 
   release(ip: string): void {
-    const count = (this.active.get(ip) ?? 1) - 1
-    if (count > 0) this.active.set(ip, count)
+    const running = this.active.get(ip)?.slice(1) ?? []
+    if (running.length > 0) this.active.set(ip, running)
     else this.active.delete(ip)
   }
 
   async recordTokens(ip: string, tokens: number): Promise<void> {
     await this.store.add(this.tokensKey(ip), tokens, DAY * 2)
     await this.store.add(this.globalKey(), tokens, DAY * 2)
+  }
+
+  /** Frees the reply's slot and charges its tokens. */
+  async finish(ip: string, tokens: number): Promise<void> {
+    this.release(ip)
+    await this.recordTokens(ip, tokens)
   }
 }

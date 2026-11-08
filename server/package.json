@@ -1,0 +1,20 @@
+{
+  "name": "scterra-ai-worker",
+  "private": true,
+  "description": "scTerra's hosted AI server on Cloudflare Workers. The Deno version uses deno.json instead.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 --test-timeout=60000 test/worker.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261019.1",
+    "typescript": "6.0.3",
+    "wrangler": "4.151.3"
+  }
+}

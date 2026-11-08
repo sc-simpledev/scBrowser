@@ -166,3 +166,14 @@ Deno.test('turns away invalid and excessive reports', async () => {
   assertEquals((await handle(report({ type: 'usage', ...environment }), '1.1.1.1')).status, 429)
   assertEquals(log.length, 30)
 })
+
+Deno.test('a slot that was never released frees itself after 15 minutes', async () => {
+  let time = 1_000_000
+  const config = loadConfig((name) => ({ CONCURRENT_PER_IP: '1' })[name])
+  const limiter = new Limiter(new MemoryStore(() => time), config, () => time)
+  assertEquals((await limiter.admit('1.1.1.1')).allowed, true)
+  time += 60_000
+  assertEquals((await limiter.admit('1.1.1.1')).allowed, false)
+  time += 15 * 60_000
+  assertEquals((await limiter.admit('1.1.1.1')).allowed, true)
+})

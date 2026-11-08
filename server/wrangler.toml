@@ -1,0 +1,20 @@
+# scTerra's hosted AI server on Cloudflare Workers. Deploy from this folder: npx wrangler deploy
+# Keys go in as secrets (npx wrangler secret put API_KEY_1), never in this file. See README.md.
+name = "scterra-ai"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+
+# Variables set in the Cloudflare dashboard survive a deploy.
+keep_vars = true
+
+# Reports are written to the log; this keeps them in Workers Logs.
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "LIMITS"
+class_name = "Limits"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Limits"]

@@ -10,5 +10,8 @@
   "unstable": ["kv"],
   "compilerOptions": {
     "strict": true
+  },
+  "test": {
+    "exclude": ["test/", "node_modules/"]
   }
 }

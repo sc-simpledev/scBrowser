@@ -133,9 +133,13 @@ function parseReport(text: string): Record<string, unknown> | null {
 
 export interface Dependencies {
   config: Config
-  limiter: Limiter
+  /** A `Limiter`, or on Workers a stand-in that calls the shared one in a Durable Object. */
+  limiter: Pick<Limiter, 'admit' | 'finish'>
   upstream: Upstream
 }
+
+/** Keeps work going after the response, such as charging tokens (Workers' `ctx.waitUntil`). */
+export type WaitUntil = (work: Promise<unknown>) => void
 
 /** Request contents are never logged or stored; only per-address counters are kept. */
 export function createHandler({ config, limiter, upstream }: Dependencies, record: (report: unknown) => void = (report) => console.log(JSON.stringify(report)), now = Date.now) {
@@ -150,7 +154,7 @@ export function createHandler({ config, limiter, upstream }: Dependencies, recor
     return ++entry.count <= REPORTS_PER_HOUR
   }
 
-  return async (request: Request, remoteAddress: string): Promise<Response> => {
+  return async (request: Request, remoteAddress: string, waitUntil?: WaitUntil): Promise<Response> => {
     const { pathname } = new URL(request.url)
     if (request.method === 'POST' && pathname === '/v1/reports') {
       const text = await readBody(request, MAX_REPORT_BYTES)
@@ -179,8 +183,8 @@ export function createHandler({ config, limiter, upstream }: Dependencies, recor
       return failure(status, decision.code, 'The free AI limit has been reached.', headers)
     }
     return streamReply(chat, upstream, (tokens) => {
-      limiter.release(ip)
-      void limiter.recordTokens(ip, tokens)
+      const charged = limiter.finish(ip, tokens).catch((error) => console.error('Could not record usage', error))
+      waitUntil?.(charged)
     })
   }
 }

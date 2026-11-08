@@ -1,6 +1,7 @@
 import { createHandler } from './src/app.ts'
 import { loadConfig } from './src/config.ts'
-import { KvStore, Limiter, MemoryStore } from './src/limits.ts'
+import { KvStore } from './src/deno_kv.ts'
+import { Limiter, MemoryStore } from './src/limits.ts'
 import { loadRoutes } from './src/routes.ts'
 import { createRouter } from './src/upstream.ts'
 
