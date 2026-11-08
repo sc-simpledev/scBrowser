@@ -347,3 +347,7 @@ export function byPing<T extends { id: string }>(items: T[], pings: Record<strin
   const time = (item: T) => pings[item.id] ?? Number.POSITIVE_INFINITY
   return [...items].sort((a, b) => time(a) - time(b))
 }
+
+/** Shown wherever the starting (Default) VPN is offered. */
+export const STARTING_VPN_NOTE =
+  'Free public servers are run by people you don’t know. Traffic to sites or apps that aren’t secure (plain http, or apps that don’t encrypt) could be seen by whoever runs the server. Secure (https) sites stay encrypted, so for general use it’s fine. Use a VPN you trust for anything sensitive.'

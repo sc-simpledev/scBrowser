@@ -35,7 +35,7 @@ import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
 import type { HistoryRepo } from './storage/history'
 import type { TabManager } from './tabs/TabManager'
-import type { VpnService } from './vpn'
+import { useVpnForAi, type VpnService } from './vpn'
 import type { SidebarSites } from './sidebarSites'
 
 type Handlers = { [C in CommandChannel]: (...args: Parameters<ChromeCommands[C]>) => ReturnType<ChromeCommands[C]> | Promise<ReturnType<ChromeCommands[C]>> }
@@ -167,6 +167,7 @@ const validators: Validators = {
   'bookmarks:context-menu': idArg,
   'bookmarks:groups': noArgs,
   'vpn:summary': noArgs,
+  'vpn:use-default': noArgs,
   'browser:is-private': noArgs,
   'passwords:summary': noArgs,
   'flags:get': noArgs,
@@ -363,6 +364,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     },
     'bookmarks:groups': () => bookmarks.groups(),
     'vpn:summary': () => vpn.summary(),
+    'vpn:use-default': () => useVpnForAi(vpn),
     'browser:is-private': () => isPrivate,
     'vpn:menu': (x, y) => openVpnMenu(x, y),
     'passwords:summary': () => passwords.state(),

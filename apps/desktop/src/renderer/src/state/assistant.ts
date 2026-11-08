@@ -4,6 +4,8 @@ import { useTabs } from './tabs'
 
 export interface Turn extends SavedTurn {
   error?: string
+  /** The error was the AI service being unreachable, which a VPN may fix. */
+  network?: boolean
   /** Agent mode: what it has done so far. */
   steps?: string[]
   /** Why the reply ended early, in words. */
@@ -48,6 +50,8 @@ interface AssistantStore {
   openChat: (id: string) => void
   deleteChat: (id: string) => void
   send: (text: string) => void
+  /** Sends the last message again, after a failure. */
+  retry: () => void
   stop: () => void
   applyPrompt: (prompt: AssistantPrompt) => void
 }
@@ -143,6 +147,16 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     })
   },
 
+  retry: () => {
+    const { turns, streamId } = get()
+    if (streamId) return
+    const lastUser = turns.findLastIndex((turn) => turn.role === 'user')
+    if (lastUser === -1) return
+    const text = turns[lastUser]!.content
+    set({ turns: turns.slice(0, lastUser) })
+    get().send(text)
+  },
+
   stop: () => {
     const { streamId } = get()
     if (streamId) void window.scb.invoke('ai:cancel', streamId)
@@ -181,7 +195,7 @@ function onEvent(event: AssistantEvent) {
   } else if (event.type === 'context') {
     useAssistant.setState({ turns: update({ pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }) })
   } else if (event.type === 'error') {
-    useAssistant.setState({ turns: update({ error: event.message }), streamId: null, approval: null })
+    useAssistant.setState({ turns: update({ error: event.message, network: !!event.network }), streamId: null, approval: null })
   } else if (event.type === 'step') {
     useAssistant.setState({ turns: update({ steps: [...(last.steps ?? []), event.text] }) })
   } else if (event.type === 'approval') {

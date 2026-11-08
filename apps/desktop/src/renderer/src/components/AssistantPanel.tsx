@@ -8,6 +8,7 @@ import { CopyReply, ReplyContent, Thinking, type OpenSource } from '../shared/Re
 import { ReportPane } from '../shared/ReportPane'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
+import { AiNetworkHelp } from '../shared/AiNetworkHelp'
 
 const openSource: OpenSource = (source, target) => void window.scb.invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
 
@@ -160,14 +161,26 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
         </div>
       )}
       {turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
-      {turn.error && (
-        <p role="alert" className="text-danger">
-          {turn.error}
-        </p>
-      )}
+      {turn.error &&
+        (turn.network ? (
+          <AiNetworkHelp
+            compact
+            message={turn.error}
+            loadHasVpn={loadHasVpn}
+            useVpn={() => window.scb.invoke('vpn:use-default')}
+            onRetry={() => useAssistant.getState().retry()}
+            onOpenVpn={() => void window.scb.invoke('tabs:create', 'sc://vpn/')}
+          />
+        ) : (
+          <p role="alert" className="text-danger">
+            {turn.error}
+          </p>
+        ))}
     </div>
   )
 }
+
+const loadHasVpn = () => window.scb.invoke('vpn:summary').then((summary) => summary.available)
 
 export function AssistantPanel() {
   const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()

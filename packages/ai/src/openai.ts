@@ -23,6 +23,12 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
       if (init.signal?.aborted) throw error
       throw new AiError('network', `Couldn't reach ${config.name}. Check the address and your connection.`)
     }
+    // The hosted server never answers with a web page or refuses outright, so either means a network
+    // filter (a school, workplace or country blocking Cloudflare Workers) got there first.
+    const page = (response.headers.get('content-type') ?? '').includes('text/html')
+    if (config.hosted && (page || response.status === 403 || response.status === 451)) {
+      throw new AiError('network', `Your network seems to be blocking ${config.name}.`)
+    }
     if (!response.ok) throw errorForStatus(response.status, config.name, config.hosted)
     return response
   }

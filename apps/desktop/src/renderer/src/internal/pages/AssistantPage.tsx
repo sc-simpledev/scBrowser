@@ -1,4 +1,4 @@
-import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, PanelLeft, Plus, Settings, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { conversationFiles, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
@@ -9,9 +9,41 @@ import { PresetChip, PresetGallery } from '../../shared/PresetGallery'
 import { PickedTabs, TabPicker, type PickableTab } from '../../shared/TabPicker'
 import { newestFile } from '../../state/files'
 import { api } from '../api'
+import { CodeWorkspace } from '../code/CodeWorkspace'
+import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
 
 interface Turn extends SavedTurn {
   error?: string
+  network?: boolean
+}
+
+type View = 'chat' | 'code'
+
+/** `/code fix the failing test` in the chat box hands the task to Terra Code. */
+export function codeCommand(text: string): string | null {
+  const match = /^\/code(?:\s+([\s\S]*))?$/i.exec(text.trim())
+  return match ? (match[1] ?? '').trim() : null
+}
+
+function ViewSwitch({ view, onChange }: { view: View; onChange: (view: View) => void }) {
+  const option = (id: View, label: string, Icon: typeof MessageSquare) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={view === id}
+      onClick={() => onChange(id)}
+      className={cx('flex h-6 items-center gap-1.5 rounded-sm px-2 text-xs transition-colors', view === id ? 'bg-surface text-text shadow-1' : 'text-text-muted hover:text-text')}
+    >
+      <Icon aria-hidden size={12} strokeWidth={1.75} />
+      {label}
+    </button>
+  )
+  return (
+    <div role="tablist" aria-label="Assistant mode" className="flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-bg p-0.5">
+      {option('chat', 'Chat', MessageSquare)}
+      {option('code', 'Code', SquareTerminal)}
+    </div>
+  )
 }
 
 const openLink = (href: string) => void api().invoke('browser:open', href)
@@ -89,6 +121,17 @@ export function AssistantPage() {
     void api().invoke('settings:get').then((settings) => setReportWidth(Math.max(REPORT_START_WIDTH, settings.reportWidth)))
   }, [])
   const chatId = useRef<string | null>(new URLSearchParams(location.search).get('chat'))
+  const [view, setViewState] = useState<View>(new URLSearchParams(location.search).get('mode') === 'code' ? 'code' : 'chat')
+  const [codeTask, setCodeTask] = useState<string | null>(null)
+  const takeCodeTask = useCallback(() => setCodeTask(null), [])
+  const setView = useCallback((next: View) => {
+    setViewState(next)
+    const url = new URL(location.href)
+    if (next === 'code') url.searchParams.set('mode', 'code')
+    else url.searchParams.delete('mode')
+    history.replaceState(null, '', url)
+    document.title = next === 'code' ? 'Terra Code' : 'Assistant'
+  }, [])
   // Tabs picked for research stay picked for follow-up questions, until they're taken off.
   const [research, setResearch] = useState<number[]>([])
   const [researchTabs, setResearchTabs] = useState<PickableTab[]>([])
@@ -161,7 +204,7 @@ export function AssistantPage() {
       if (event.type === 'text') update((last) => ({ ...last, content: last.content + event.text }))
       if (event.type === 'context') update((last) => ({ ...last, pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }))
       if (event.type === 'error') {
-        update((last) => ({ ...last, error: event.message }))
+        update((last) => ({ ...last, error: event.message, network: !!event.network }))
         setStreamId(null)
       }
       if (event.type === 'done') {
@@ -213,8 +256,24 @@ export function AssistantPage() {
     if (log && log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight
   }, [turns])
 
+  const retry = () => {
+    if (streamId) return
+    const lastUser = turns.findLastIndex((turn) => turn.role === 'user')
+    if (lastUser === -1) return
+    const text = turns[lastUser]!.content
+    setTurns(turns.slice(0, lastUser))
+    send(text)
+  }
+
   const submit = () => {
     if (streamId || !draft.trim()) return
+    const task = codeCommand(draft)
+    if (task !== null) {
+      setDraft('')
+      setCodeTask(task || null)
+      setView('code')
+      return
+    }
     send(preset ? presetPrompt(preset, draft, false) : draft)
     setPreset(null)
     setDraft('')
@@ -257,7 +316,7 @@ export function AssistantPage() {
           rows={2}
           value={draft}
           aria-label="Message the assistant"
-          placeholder={preset ? `What should the ${preset.name.toLowerCase()} be about?` : 'Ask anything'}
+          placeholder={preset ? `What should the ${preset.name.toLowerCase()} be about?` : 'Ask anything, or type /code to work on a project folder'}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -314,6 +373,16 @@ export function AssistantPage() {
     </div>
   )
 
+  if (view === 'code') {
+    return (
+      <div className="flex h-full">
+        <div className="flex min-w-72 flex-1 flex-col">
+          <CodeWorkspace embedded initialTask={codeTask} onInitialTaskTaken={takeCodeTask} leading={<ViewSwitch view={view} onChange={setView} />} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full">
       {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
@@ -321,6 +390,9 @@ export function AssistantPage() {
         <IconButton label={listOpen ? 'Hide chats' : 'Show chats'} side="right" className="absolute top-2 left-2 z-10" aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
           <PanelLeft size={15} strokeWidth={1.75} />
         </IconButton>
+        <div className="absolute top-2 left-11 z-10">
+          <ViewSwitch view={view} onChange={setView} />
+        </div>
         {empty ? (
           <div className="flex min-h-0 flex-1 flex-col justify-center pb-16">
             <h1 className="mx-auto w-full max-w-180 px-8 pb-5 text-xl font-semibold tracking-[-0.03em]">What can I help with?</h1>
@@ -343,6 +415,10 @@ export function AssistantPage() {
                 <Button onClick={() => setDraft('Make a web page that ')}>
                   <Code2 aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
                   Build something
+                </Button>
+                <Button onClick={() => setView('code')}>
+                  <SquareTerminal aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  Code in a folder
                 </Button>
               </div>
             )}
@@ -374,11 +450,20 @@ export function AssistantPage() {
                         />
                       )}
                       {!turn.content && !turn.error && <Thinking />}
-                      {turn.error && (
-                        <p role="alert" className="text-danger">
-                          {turn.error}
-                        </p>
-                      )}
+                      {turn.error &&
+                        (turn.network ? (
+                          <AiNetworkHelp
+                            message={turn.error}
+                            loadHasVpn={loadHasVpn}
+                            useVpn={() => api().invoke('vpn:use-default')}
+                            onRetry={retry}
+                            onOpenVpn={() => void api().invoke('browser:open', 'sc://vpn/')}
+                          />
+                        ) : (
+                          <p role="alert" className="text-danger">
+                            {turn.error}
+                          </p>
+                        ))}
                       {!streaming && turn.content && (
                         <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
                           <CopyReply text={turn.content} />
@@ -426,3 +511,5 @@ export function AssistantPage() {
     </div>
   )
 }
+
+const loadHasVpn = () => api().invoke('vpn:state').then((state) => state.connections.length > 0)

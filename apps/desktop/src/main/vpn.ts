@@ -30,6 +30,11 @@ import type { Tunnel, TunnelHandle } from './tun'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'vpn:store'
+/** The starting connections offered to anyone who hasn't added their own: a public list of free servers in Australia. */
+export const DEFAULT_VPN_URL = 'https://raw.githubusercontent.com/rtwo2/FastNodes/main/sub/countries/AU.txt'
+export const DEFAULT_VPN_NAME = 'Default'
+/** How many of the fastest starting connections to try before giving up, as free servers come and go. */
+const DEFAULT_TRIES = 4
 /** Points at a port nothing listens on, so pages fail rather than go out directly. */
 const HOLD_RULE = 'socks5://127.0.0.1:9'
 const FASTEST_LIMIT = 300
@@ -468,6 +473,49 @@ export class VpnService {
     this.deps.onChange()
   }
 
+  /**
+   * "Use starting VPN connection": adds the Default list if it isn't there yet (or refreshes it when
+   * it's empty), checks which of its servers really carry traffic, and connects through the fastest
+   * one that starts. Free public servers come and go, so a few are tried in turn.
+   */
+  async useDefault(): Promise<void> {
+    await this.ready
+    this.error = null
+    this.connecting = true
+    this.deps.onChange()
+    try {
+      let group = this.store.groups.find((candidate) => candidate.url === DEFAULT_VPN_URL)
+      if (!group) {
+        await this.subscribe(DEFAULT_VPN_URL, DEFAULT_VPN_NAME)
+        group = this.store.groups.find((candidate) => candidate.url === DEFAULT_VPN_URL)
+      } else if (!this.store.connections.some((connection) => connection.groupId === group!.id)) await this.refresh(group.id)
+      const candidates = this.store.connections.filter((connection) => connection.groupId === group?.id).slice(0, FASTEST_LIMIT)
+      if (candidates.length === 0) throw new Error("The starting VPN list is empty right now. Try again later, or add a connection of your own.")
+      this.connecting = true
+      this.deps.onChange()
+      const pings = await this.ping(candidates.map(({ id }) => id))
+      const working = byPing(candidates, pings).filter((connection) => pings[connection.id])
+      if (working.length === 0) throw new Error("None of the starting VPN servers answered just now. Try again in a while, or add a connection of your own.")
+      for (const connection of working.slice(0, DEFAULT_TRIES)) {
+        this.store.activeId = connection.id
+        await this.save()
+        await this.setEnabled(true)
+        if (this.enabled) return
+      }
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : "The starting VPN didn't connect."
+    } finally {
+      this.connecting = false
+      this.deps.onChange()
+    }
+  }
+
+  /** Whether the only connections are the starting ones, which are picked afresh each time. */
+  onlyDefault(): boolean {
+    const group = this.store.groups.find((candidate) => candidate.url === DEFAULT_VPN_URL)
+    return !!group && this.store.connections.every((connection) => connection.groupId === group.id)
+  }
+
   /** What the on switch does: picks a connection if asked to, then connects. */
   async turnOn(): Promise<void> {
     if (this.deps.autoFastest()) await this.pickFastest()
@@ -668,4 +716,14 @@ export function xrayPath(resourcesPath: string, appPath: string, packaged: boole
   if (process.env.SCB_XRAY) return process.env.SCB_XRAY
   const name = process.platform === 'win32' ? 'xray.exe' : 'xray'
   return packaged ? join(resourcesPath, 'xray', name) : join(appPath, 'resources', 'xray', name)
+}
+
+/** Someone with connections of their own gets theirs turned on; anyone else gets the starting one. */
+export async function useVpnForAi(vpn: VpnService): Promise<VpnSummary> {
+  await vpn.ready
+  if (!vpn.summary().enabled) {
+    if (vpn.summary().available && !vpn.onlyDefault()) await vpn.turnOn()
+    else await vpn.useDefault()
+  }
+  return vpn.summary()
 }

@@ -10,7 +10,7 @@ import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval } from './watch'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderEvent, CoderStatus } from './coder'
+import type { CoderAnswer, CoderChange, CoderEvent, CoderStatus } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -97,6 +97,8 @@ export interface ChromeCommands {
   'privacy:toggle-site': (host: string) => void
   'reader:toggle': () => void
   'vpn:summary': () => VpnSummary
+  /** Turns the VPN on for AI that couldn't get through: the person's own connection, or the starting one when they have none. */
+  'vpn:use-default': () => VpnSummary
   'passwords:summary': () => PasswordState
   'flags:get': () => string[]
   'passwords:menu': (x: number, y: number) => void
@@ -273,6 +275,7 @@ export const COMMAND_CHANNELS = [
   'privacy:toggle-site',
   'reader:toggle',
   'vpn:summary',
+  'vpn:use-default',
   'passwords:summary',
   'flags:get',
   'passwords:menu',
@@ -485,6 +488,7 @@ export interface InternalCommands {
   'passwords:import': () => number | null
   'passwords:export': () => boolean
   'vpn:state': () => VpnState
+  'vpn:use-default': () => VpnSummary
   'vpn:add': (text: string, groupId: string | null) => VpnAddResult
   'vpn:subscribe': (url: string, name: string) => VpnAddResult
   'vpn:refresh': (groupId: string) => VpnAddResult
@@ -527,7 +531,7 @@ export interface InternalCommands {
   /** Opens the group's tabs again in the window it's asked from, and takes it off the list. */
   'groups:reopen': (id: string) => void
   'groups:forget': (id: string) => void
-  /** Agentic coding (beta). Only sc://code may call these. */
+  /** Terra Code, agentic coding (beta). Only sc://code and sc://assistant may call these. */
   'coder:status': () => CoderStatus
   'coder:pick-folder': () => string | null
   'coder:open-folder': () => void
@@ -535,6 +539,11 @@ export interface InternalCommands {
   'coder:answer': (approvalId: string, answer: CoderAnswer) => void
   'coder:stop': (sessionId: string) => void
   'coder:reset': (sessionId: string) => void
+  /** Files the session changed, against how they were before it. */
+  'coder:changes': (sessionId: string) => CoderChange[]
+  'coder:diff': (sessionId: string, path: string) => string
+  /** Puts every file the session changed back as it was. Returns how many. */
+  'coder:undo': (sessionId: string) => number
   'highlights:list': () => Highlight[]
   'highlights:note': (id: string, note: string) => void
   'highlights:remove': (id: string) => void
@@ -677,6 +686,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'passwords:import',
   'passwords:export',
   'vpn:state',
+  'vpn:use-default',
   'vpn:add',
   'vpn:subscribe',
   'vpn:refresh',
@@ -718,6 +728,9 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:answer',
   'coder:stop',
   'coder:reset',
+  'coder:changes',
+  'coder:diff',
+  'coder:undo',
   'highlights:list',
   'highlights:note',
   'highlights:remove',

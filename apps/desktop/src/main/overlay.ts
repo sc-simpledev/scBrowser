@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { reloadAfterCrash } from './crashReload'
 import { WebContentsView, type BaseWindow } from 'electron'
 import {
   EMPTY_OVERLAY,
@@ -236,7 +237,7 @@ export class Overlay {
     handle('overlay:tab-search-remove', (id) => this.hooks.onTabSearchRemove(tabArg(id)))
     handle('overlay:tab-search-close', () => this.closeTabSearch())
     // A crashed overlay shouldn't take popups down for the rest of the session.
-    contents.on('render-process-gone', () => contents.reload())
+    reloadAfterCrash(contents)
 
     if (process.env.ELECTRON_RENDERER_URL) void contents.loadURL(`${process.env.ELECTRON_RENDERER_URL}/overlay.html`)
     else void contents.loadFile(join(__dirname, '../renderer/overlay.html'))

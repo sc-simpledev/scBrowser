@@ -50,6 +50,18 @@ function readTint(): [number, number, number] {
 
 type Stage = 'opening' | 'setup' | 'leaving'
 
+/**
+ * Windows reports reduced motion whenever "Animation effects" is off, which many PCs ship with or
+ * switch off for speed (virtual machines and remote desktops always do), so the intro never played
+ * there. It plays once, has Skip and Go straight to browsing, so on Windows it only stays still
+ * when scTerra's own Performance Mode is on. Elsewhere the system setting is a deliberate choice.
+ */
+function prefersStill(): boolean {
+  if (document.documentElement.dataset.performance !== undefined) return true
+  const windows = /^Win/i.test(navigator.platform) || /Windows/.test(navigator.userAgent)
+  return !windows && matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export function WelcomePage() {
   const canvas = useRef<HTMLCanvasElement>(null)
   const trails = useRef<HTMLCanvasElement>(null)
@@ -62,10 +74,12 @@ export function WelcomePage() {
   const [settled, setSettled] = useState(false)
   const [sound, setSound] = useState(false)
   const stopSound = useRef<(() => void) | null>(null)
-  const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const still = prefersStill()
 
   useEffect(() => {
     document.title = 'Welcome to scTerra'
+    // The page-wide reduced motion rule (theme.css) would otherwise stop the intro's own animations too.
+    if (!still) document.documentElement.dataset.motion = 'full'
     void api().invoke('settings:get').then(({ accent }) => {
       document.documentElement.dataset.accent = accent
       tint.current = readTint()

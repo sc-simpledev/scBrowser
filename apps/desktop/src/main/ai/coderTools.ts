@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { globToRegExp } from '@scbrowser/ai'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', 'dist', 'out', 'build', 'release', '.next', '.nuxt', '.venv', 'venv', '__pycache__', 'target', '.cache', '.turbo', 'coverage'])
@@ -91,7 +92,54 @@ export async function readLines(root: string, path: string, offset: number, limi
   return clip(`${path} (${lines.length} lines)\n${body}${more}`)
 }
 
-export async function searchFiles(folder: string, path: string, pattern: string): Promise<string> {
+/** Every file under the folder (skipping the usual build and dependency folders), as paths with forward slashes. */
+async function walkFiles(root: string, start: string, visit: (relative: string, full: string, size: number) => boolean | Promise<boolean>): Promise<void> {
+  let seen = 0
+  const step = async (full: string): Promise<boolean> => {
+    if (seen >= MAX_SEARCH_FILES) return false
+    const info = await lstat(full).catch(() => null)
+    if (!info || info.isSymbolicLink()) return true
+    if (info.isDirectory()) {
+      const entries = (await readdir(full).catch(() => [] as string[])).sort()
+      for (const entry of entries) if (!SKIP_DIRS.has(entry) && !(await step(join(full, entry)))) return false
+      return true
+    }
+    seen++
+    return visit(shown(root, full), full, info.size)
+  }
+  await step(start)
+}
+
+const GLOB_LIMIT = 300
+
+export async function globFiles(folder: string, pattern: string): Promise<string> {
+  const root = await realpath(folder)
+  const regex = globToRegExp(pattern)
+  const found: string[] = []
+  await walkFiles(root, root, (path) => {
+    if (regex.test(path)) found.push(path)
+    return found.length < GLOB_LIMIT
+  })
+  if (found.length === 0) return 'No files match.'
+  return found.join('\n') + (found.length >= GLOB_LIMIT ? '\n… more not shown' : '')
+}
+
+export async function deleteFile(full: string): Promise<void> {
+  const info = await stat(full).catch(() => null)
+  if (!info) throw new ToolError("That file doesn't exist.")
+  if (!info.isFile()) throw new ToolError('Only single files can be deleted.')
+  await unlink(full)
+}
+
+export async function moveFile(from: string, to: string): Promise<void> {
+  const info = await stat(from).catch(() => null)
+  if (!info?.isFile()) throw new ToolError("That file doesn't exist.")
+  if (await stat(to).then(() => true, () => false)) throw new ToolError('Something already exists at the new path.')
+  await mkdir(dirname(to), { recursive: true })
+  await rename(from, to)
+}
+
+export async function searchFiles(folder: string, path: string, pattern: string, glob: string | null = null): Promise<string> {
   // Shown relative to the real folder, which can differ from the one given (short names on Windows, /private on Macs).
   const root = await realpath(folder)
   let regex: RegExp
@@ -101,28 +149,32 @@ export async function searchFiles(folder: string, path: string, pattern: string)
     throw new ToolError('That pattern is not a valid regular expression.')
   }
   const start = await inside(root, path)
+  const only = glob ? globToRegExp(glob) : null
   const hits: string[] = []
-  let files = 0
-  const visit = async (full: string) => {
-    if (hits.length >= MAX_SEARCH_HITS || files >= MAX_SEARCH_FILES) return
-    const info = await lstat(full).catch(() => null)
-    if (!info || info.isSymbolicLink()) return
-    if (info.isDirectory()) {
-      for (const entry of await readdir(full).catch(() => [] as string[])) if (!SKIP_DIRS.has(entry)) await visit(join(full, entry))
-      return
-    }
-    if (info.size > 1_000_000) return
-    files++
+  await walkFiles(root, start, async (name, full, size) => {
+    if (size > 1_000_000 || (only && !only.test(name))) return true
     const bytes = await readFile(full).catch(() => null)
-    if (!bytes || bytes.subarray(0, 4000).includes(0)) return
+    if (!bytes || bytes.subarray(0, 4000).includes(0)) return true
     const lines = bytes.toString('utf8').split('\n')
     for (let i = 0; i < lines.length && hits.length < MAX_SEARCH_HITS; i++) {
-      if (regex.test(lines[i]!)) hits.push(`${shown(root, full)}:${i + 1}: ${lines[i]!.trim().slice(0, 240)}`)
+      if (regex.test(lines[i]!)) hits.push(`${name}:${i + 1}: ${lines[i]!.trim().slice(0, 240)}`)
     }
-  }
-  await visit(start)
+    return hits.length < MAX_SEARCH_HITS
+  })
   if (hits.length === 0) return 'No matches.'
   return clip(hits.join('\n') + (hits.length >= MAX_SEARCH_HITS ? '\n… more matches not shown' : ''))
+}
+
+/** Several edits in order. One that fails leaves the file as it was, and says which. */
+export function applyEdits(text: string, edits: { find: string; replace: string }[]): string {
+  return edits.reduce((current, { find, replace }, index) => {
+    try {
+      return applyEdit(current, find, replace)
+    } catch (error) {
+      if (edits.length === 1 || !(error instanceof ToolError)) throw error
+      throw new ToolError(`Edit ${index + 1} of ${edits.length}: ${error.message} Nothing was changed.`)
+    }
+  }, text)
 }
 
 /** Where `find` occurs, forgiving a difference in leading whitespace when the exact text isn't there. */

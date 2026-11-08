@@ -2,7 +2,7 @@ import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
-  CONTAINERS, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
+  CONTAINERS, STARTING_VPN_NOTE, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
@@ -240,6 +240,38 @@ function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWid
   )
 }
 
+/** For someone who hasn't added a VPN: free public servers from a community list, named Default. */
+function StartingVpn({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <section aria-label="Starting VPN connection" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="font-medium">No VPN of your own yet?</div>
+          <div className="text-xs text-text-muted">Use a starting connection from a public list of free servers. It’s added as a group called Default, and scTerra picks the fastest one that works.</div>
+        </div>
+        <Button
+          variant="primary"
+          className="shrink-0 whitespace-nowrap"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            void api()
+              .invoke('vpn:use-default')
+              .finally(() => {
+                setBusy(false)
+                onDone()
+              })
+          }}
+        >
+          {busy ? 'Finding a server…' : 'Use starting VPN connection'}
+        </Button>
+      </div>
+      <p className="text-2xs text-text-faint">{STARTING_VPN_NOTE}</p>
+    </section>
+  )
+}
+
 export function VpnPage() {
   const [state, setState] = useState<VpnState | null>(null)
   const [pings, setPings] = useState<VpnPings>({})
@@ -313,6 +345,8 @@ export function VpnPage() {
         </div>
         <Switch label="VPN" checked={state.enabled} onChange={(on) => void api().invoke('vpn:set-enabled', on).then(reload)} />
       </section>
+
+      {state.connections.length === 0 && <StartingVpn onDone={reload} />}
 
       <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
         <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Add connections</h2>

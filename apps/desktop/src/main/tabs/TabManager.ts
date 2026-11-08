@@ -124,6 +124,16 @@ const remembersZoom = (url: string) => /^(https?|file):/i.test(url)
 /** The first-run intro plays again if it was closed partway through, rather than coming back as a tab. */
 const isIntro = (url: string) => url.startsWith('sc://welcome')
 
+/** More page loads than this in a tab, inside the window below and with nobody asking, is a page reloading itself without end. */
+export const RELOAD_LOOP_LIMIT = 8
+export const RELOAD_LOOP_WINDOW_MS = 12_000
+
+/** Records a load the page started by itself, and says whether the tab is now stuck in a loop. */
+export function countSelfLoad(times: number[], now = Date.now()): { times: number[]; looping: boolean } {
+  const recent = [...times.filter((at) => now - at < RELOAD_LOOP_WINDOW_MS), now]
+  return { times: recent, looping: recent.length > RELOAD_LOOP_LIMIT }
+}
+
 export class TabManager {
   private readonly tabs = new Map<TabId, Tab>()
   private order: TabId[] = []
@@ -141,6 +151,8 @@ export class TabManager {
   private workspaces: Workspace[]
   private workspaceId: string = DEFAULT_WORKSPACE.id
   private readonly lastInWorkspace = new Map<string, TabId>()
+  /** Page loads since the person last navigated the tab themselves, to catch pages that reload without end. */
+  private readonly selfLoads = new WeakMap<WebContents, number[]>()
 
   constructor(
     private readonly window: BaseWindow,
@@ -606,6 +618,7 @@ export class TabManager {
     if (isJavascriptUrl(input) || isPreviewUrl(input.trim())) return
     this.wake(tab)
     const contents = tab.view!.webContents
+    this.selfLoads.delete(contents)
     void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine())))
     contents.focus()
   }
@@ -623,11 +636,18 @@ export class TabManager {
   }
 
   back(id: TabId): void {
+    this.personNavigated(id)
     this.contents(id)?.navigationHistory.goBack()
   }
 
   forward(id: TabId): void {
+    this.personNavigated(id)
     this.contents(id)?.navigationHistory.goForward()
+  }
+
+  private personNavigated(id: TabId): void {
+    const contents = this.contents(id)
+    if (contents) this.selfLoads.delete(contents)
   }
 
   reload(id: TabId, ignoreCache = false): void {
@@ -638,6 +658,7 @@ export class TabManager {
       this.emitChange()
       return
     }
+    this.personNavigated(id)
     const contents = this.contents(id)
     const url = contents?.getURL() ?? ''
     if (url.startsWith(ERROR_PAGE_URL)) void contents?.loadURL(effectiveUrl(url))
@@ -1192,8 +1213,21 @@ export class TabManager {
       }
     })
     // Counted from the start: news of the page committing can arrive after its trackers were blocked.
-    contents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
-      if (isMainFrame && !isSameDocument) sync({ blockedCount: 0 })
+    contents.on('did-start-navigation', ({ isMainFrame, isSameDocument, url }) => {
+      if (!isMainFrame || isSameDocument) return
+      sync({ blockedCount: 0 })
+      if (!/^https?:/i.test(url)) return
+      // A page that keeps reloading itself (a sign-in or consent loop, or a script that never settles)
+      // would otherwise spin forever and take the processor with it.
+      const { times, looping } = countSelfLoad(this.selfLoads.get(contents) ?? [])
+      this.selfLoads.set(contents, looping ? [] : times)
+      if (!looping) return
+      // Not from inside Chromium's own navigation event, which crashes if a new load starts there.
+      setTimeout(() => {
+        if (contents.isDestroyed()) return
+        contents.stop()
+        void contents.loadURL(this.options.errorUrl(url, 'This page kept reloading itself, so scTerra stopped it. Try again, or turn off tracker blocking or cookie banner rejection for this site in its site controls.')).catch(() => undefined)
+      }, 0)
     })
     contents.on('did-navigate', (_e, url) => {
       if (remembersZoom(url)) contents.setZoomFactor(this.options.zoomFor(url))

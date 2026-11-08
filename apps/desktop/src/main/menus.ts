@@ -5,6 +5,15 @@ import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
 
+/** Quick things to ask about selected words, sent straight to the sidebar assistant. */
+const SELECTION_PROMPTS = [
+  { label: 'Explain', text: 'Explain the selected text simply.' },
+  { label: 'Summarise', text: 'Summarise the selected text in a few bullet points.' },
+  { label: 'Simplify', text: 'Rewrite the selected text in plain, simple English.' },
+  { label: 'Translate to English', text: 'Translate the selected text into English.' },
+  { label: 'Check the facts', text: 'Which claims in the selected text can be checked, and are they right? Say what you are unsure of.' }
+]
+
 export function attachPageMenu(
   contents: WebContents,
   actions: BrowserActions,
@@ -129,8 +138,13 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { role: 'copy', label: 'Copy' },
       { label: `Search for ${quoted(selection)}`, click: () => actions.searchWeb(selection) },
       {
-        label: 'Ask about selection',
-        click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false })
+        label: 'Ask AI',
+        submenu: [
+          { label: 'Ask about selection…', click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false }) },
+          { type: 'separator' as const },
+          ...SELECTION_PROMPTS.map(({ label, text }) => ({ label, click: () => actions.askAssistant({ text, selection: params.selectionText, includePage: false }) })),
+          { label: 'Explain with the page for context', click: () => actions.askAssistant({ text: 'Explain the selected text, using the rest of the page for context.', selection: params.selectionText, includePage: true }) }
+        ]
       },
       ...(isWeb(params.pageURL) || params.pageURL.startsWith('file:') ? [{ label: 'Highlight', click: () => actions.highlight(contents, params.selectionText) }] : [])
     ])
@@ -384,7 +398,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { type: 'separator' },
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
-    { label: 'Code with AI (beta)', click: () => actions.openPage('code') },
+    { label: 'Terra Code (beta)', click: () => actions.openPage('code') },
     { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
     { label: 'VPN', click: () => actions.openPage('vpn') },
     { type: 'separator' },

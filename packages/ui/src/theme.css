@@ -90,7 +90,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * {
+  /* The intro sets data-motion="full" where it plays anyway: see WelcomePage. */
+  :root:not([data-motion='full']) * {
     animation-duration: 1ms !important;
   }
 }

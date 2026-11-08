@@ -86,3 +86,47 @@ describe('trimContext', () => {
     expect(messages.at(-1)!.content).toBe(big)
   })
 })
+
+describe('Coder 0.4.7', () => {
+  it('runs several tools from one reply, and skips the rest after a decline', async () => {
+    const reply = `Two at once.\n\`\`\`tool\n${JSON.stringify({ tool: 'read', path: 'a.txt' })}\n\`\`\`\n\`\`\`tool\n${JSON.stringify({ tool: 'write', path: 'b.txt', content: 'x' })}\n\`\`\`\n\`\`\`tool\n${JSON.stringify({ tool: 'write', path: 'c.txt', content: 'y' })}\n\`\`\``
+    const { coder, seen } = scripted([reply, 'Done.'])
+    await coder.run('s', root, 'x', 'ask', (event) => {
+      if (event.type === 'approval') coder.answer(event.id, 'deny')
+    })
+    const results = seen[1]!.at(-1)!
+    expect(results).toContain('1  hello')
+    expect(results).toContain('declined')
+    expect(results).toContain('Skipped')
+  })
+
+  it('changes nothing in plan mode', async () => {
+    const { coder, seen } = scripted([tool({ tool: 'write', path: 'a.txt', content: 'gone' }), 'Plan: 1. change a.txt'])
+    const kinds: string[] = []
+    await coder.run('s', root, 'plan it', 'plan', (event) => kinds.push(event.type))
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hello\n')
+    expect(kinds).not.toContain('approval')
+    expect(seen[1]!.at(-1)).toContain('Plan mode')
+  })
+
+  it('lists its changes and undoes them all', async () => {
+    const { coder } = scripted([tool({ tool: 'edit', path: 'a.txt', find: 'hello', replace: 'bye' }), tool({ tool: 'write', path: 'new.txt', content: 'n' }), 'Done.'])
+    const events: CoderEvent[] = []
+    await coder.run('s', root, 'x', 'edits', (event) => events.push(event))
+    const last = events.filter((event) => event.type === 'changes').at(-1)
+    expect(last).toMatchObject({ files: [{ path: 'a.txt', status: 'modified', added: 1, removed: 1 }, { path: 'new.txt', status: 'created' }] })
+    expect(await coder.diff('s', 'a.txt')).toContain('+ bye')
+    expect(await coder.undo('s')).toBe(2)
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hello\n')
+    await expect(readFile(join(root, 'new.txt'), 'utf8')).rejects.toThrow()
+    expect(await coder.changes('s')).toEqual([])
+  })
+
+  it('starts with the file list and the project instructions', async () => {
+    await writeFile(join(root, 'AGENTS.md'), 'Use tabs.')
+    const { coder, seen } = scripted(['Done.'])
+    await coder.run('s', root, 'x', 'ask', () => undefined)
+    expect(seen[0]![0]).toContain('a.txt')
+    expect(seen[0]![0]).toContain('Use tabs.')
+  })
+})

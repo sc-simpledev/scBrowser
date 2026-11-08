@@ -215,7 +215,7 @@ The owner's list plus everything in `PLS_FIX_OR_ELSE.md`, in one round.
 - [x] **Force dark pages** looks at what's drawn across the window, not just `body`, so dark sites painted on a wrapper stay dark. Softer contrast, page-level CSS that can be taken off again, and a second look after load.
 - [x] **Lighter:** sc:// pages load each page's code only when shown (a new tab parses about 500 KB of script instead of 1.2 MB), and a memory saver sleeps the oldest background tabs while the computer is short of memory (`memorySaver.ts`, Settings > Browsing).
 - [x] **Passwords:** a list of saved logins under sign-in fields, filling by itself when a site has exactly one login, a strong password offered on sign-up forms, the name kept from the first page of a two-page sign-in, and `www.` matching the bare name.
-- [x] **Code with AI (beta)** on sc://code: the model works in one folder the person picks, reads, searches, edits and runs commands, and asks before every change and command (or only commands). Recommends an API key of one's own over the free hosted model.
+- [x] **Code with AI (beta)** (Terra Code since 0.4.7) on sc://code: the model works in one folder the person picks, reads, searches, edits and runs commands, and asks before every change and command (or only commands). Recommends an API key of one's own over the free hosted model.
 - [x] **From the fix list:** sign-ins that only lasted until closing are kept (`sessionCookies.ts`), web search in the assistant (`ai/webSearch.ts`), tab icons fetched through the tab's own session (`tabIcon` in `siteIcons.ts`), the Chrome Web Store sees Google Chrome's brand, side panel calls from an extension's worker no longer lost while it starts, and closed tab groups that reopen with their tabs (`closedGroups.ts`, sc://archive).
 
 ### 0.4.6 (2026-11-08)
@@ -232,6 +232,17 @@ Settings reorganised, a round of UI fixes, and ten additions the owner picked fr
 - [x] **Focus sessions** of 15, 25 or 50 minutes from the palette or sc://blocker, with a countdown in the toolbar (`focusTimer.ts`).
 - [x] **New tab widgets:** recent downloads, reading list and watched pages.
 - [x] **Fixes:** quick settings changes no longer drop each other, Enter submits small forms, Add provider waits for a key, removing an extension asks first, rows wrap in narrow windows, and the sc:// sidebar is clustered and turns to icons when the page is under 720 px.
+
+### 0.4.7 (2026-11-09)
+Windows fixes, a much stronger Terra Code inside the assistant, and a VPN way round networks that block AI.
+
+- [x] **Intro on Windows:** Windows reports reduced motion whenever "Animation effects" is off, so the intro showed only its last frame. It now plays on Windows unless Performance Mode is on; elsewhere the system setting still wins (`prefersStill` in `WelcomePage.tsx`, `data-motion` on the root lifts theme.css's rule).
+- [x] **Pages reloading over and over:** cookie banner presses were counted per page load, so a site whose reject button reloads the page (and shows the banner again) looped for ever. Each site now gets two presses every three minutes (`cookieBanners.ts`). As a backstop, a tab that loads more than 8 times in 12 seconds without the person navigating is stopped with an error page (`countSelfLoad` in `TabManager`), and the browser UI and overlay back off if their process keeps crashing (`crashReload.ts`).
+- [x] **Terra Code** (was Code with AI): several tools per reply, new tools (find files by pattern, several edits at once, delete, move, a plan checklist, web search), a Plan only mode, replies that stream in, the file list and AGENTS.md/CLAUDE.md/README given up front, a changed-files panel with diffs, and Undo changes for everything it edited.
+- [x] **Code inside the assistant:** sc://assistant has a Chat and Code switch, `/code <task>` in the chat box hands the task over, and `sc://assistant/?mode=code` opens it there. sc://code still works on its own.
+- [x] **AI in the page menu:** selected text has an Ask AI submenu (Explain, Summarise, Simplify, Translate to English, Check the facts, Explain with the page).
+- [x] **AI blocked by the network:** when the AI service can't be reached (or a filter answers for the hosted one), the sidebar, sc://assistant and Terra Code offer to turn on a VPN and try again.
+- [x] **Starting VPN connection:** with no VPN of one's own, "Use starting VPN connection" adds the FastNodes Australia list as a group called Default, checks which servers carry traffic, and connects through the fastest that starts, with a note that traffic to sites that aren't secure could be seen by whoever runs the server (sc://vpn, the VPN menu, and the AI prompt).
 
 ## Known risks (and mitigations)
 - **Google sign-in sometimes blocks Electron** ("browser may not be secure") → clean Chrome-like user agent, remove `Electron/` token, test early in Phase 1.

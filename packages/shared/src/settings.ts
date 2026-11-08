@@ -156,7 +156,7 @@ export interface Settings {
   memorySaver: boolean
   /** The project folder agentic coding (beta) works in, on this computer only. */
   coderFolder: string
-  coderMode: 'ask' | 'edits'
+  coderMode: 'plan' | 'ask' | 'edits'
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -313,7 +313,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   keepSignIns: (v) => typeof v === 'boolean',
   memorySaver: (v) => typeof v === 'boolean',
   coderFolder: (v) => typeof v === 'string' && v.length <= 4096,
-  coderMode: (v) => v === 'ask' || v === 'edits',
+  coderMode: (v) => v === 'plan' || v === 'ask' || v === 'edits',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,

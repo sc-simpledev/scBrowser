@@ -37,7 +37,7 @@ import { withHiddenPage } from './hiddenPage'
 import { extractContext } from './ai/pageText'
 import { trimPage, withContext } from '@scbrowser/ai'
 import type { PasswordVault } from './passwords'
-import type { VpnService } from './vpn'
+import { useVpnForAi, type VpnService } from './vpn'
 
 import { endTask, taskList } from './tasks'
 
@@ -129,7 +129,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
   let caller: WebContents | null = null
   /** It works on the person's files and runs commands, so no other page may drive it. */
   const coderOnly = (): WebContents => {
-    if (!caller || !caller.getURL().startsWith('sc://code')) throw new Error('Only sc://code can use the coding agent.')
+    if (!caller || !/^sc:\/\/(code|assistant)(\/|$|\?|#)/.test(caller.getURL())) throw new Error('Only sc://code and sc://assistant can use Terra Code.')
     return caller
   }
 
@@ -432,6 +432,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
       return true
     },
     'vpn:state': () => vpn.state(),
+    'vpn:use-default': () => useVpnForAi(vpn),
     'vpn:add': (links, groupId) => vpn.add(text(links, 4_000_000), optionalId(groupId)),
     'vpn:subscribe': (url, name) => vpn.subscribe(text(url), text(name, 80)),
     'vpn:refresh': (groupId) => vpn.refresh(text(groupId, 64)),
@@ -488,7 +489,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'archive:remove': (id) => void core.archive.take(text(id, 64)),
     'archive:clear': () => core.archive.clear(),
-    'coder:status': () => ai.coderStatus(settings.get().coderFolder),
+    'coder:status': () => {
+      coderOnly()
+      return ai.coderStatus(settings.get().coderFolder)
+    },
     'coder:pick-folder': async () => {
       coderOnly()
       const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: 'Choose a project folder', properties: ['openDirectory', 'createDirectory'] })
@@ -522,6 +526,18 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'coder:reset': (sessionId) => {
       coderOnly()
       ai.coder.reset(text(sessionId, 64))
+    },
+    'coder:changes': (sessionId) => {
+      coderOnly()
+      return ai.coder.changes(text(sessionId, 64))
+    },
+    'coder:diff': (sessionId, path) => {
+      coderOnly()
+      return ai.coder.diff(text(sessionId, 64), text(path, 1024))
+    },
+    'coder:undo': (sessionId) => {
+      coderOnly()
+      return ai.coder.undo(text(sessionId, 64))
     },
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {

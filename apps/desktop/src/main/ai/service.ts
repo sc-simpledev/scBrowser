@@ -15,6 +15,18 @@ export const AI_PARTITION = 'scb-ai'
 
 const aiFetch: FetchLike = (input, init) => session.fromPartition(AI_PARTITION).fetch(input as string, init)
 
+/** Failures where nothing got through at all, which is what a VPN can help with. */
+export function isNetworkError(error: unknown): boolean {
+  if (error instanceof AiError) return error.kind === 'network'
+  return error instanceof Error && /net::ERR_|fetch failed|Failed to fetch|ECONN|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(error.message)
+}
+
+export function errorDetails(error: unknown): { message: string; network?: true } {
+  const network = isNetworkError(error)
+  const message = error instanceof AiError ? error.message : network ? "Couldn't reach the AI service." : 'Something went wrong with that request.'
+  return network ? { message, network: true } : { message }
+}
+
 export class AiService {
   private readonly running = new Map<string, AbortController>()
   private readonly agent = new Agent({
@@ -64,7 +76,15 @@ export class AiService {
   }
 
   /** Agentic coding (beta), on the chat model. Long replies, as it writes whole files. */
-  readonly coder = new Coder({ chat: (messages, system, signal) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS) })
+  readonly coder = new Coder({
+    chat: (messages, system, signal, onText) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS, onText),
+    webSearch: async (query) => {
+      const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
+      const pages = await webContext(query, isSiteOff)
+      if (pages.length === 0) return 'No results.'
+      return pages.map((page, index) => `[${index + 1}] ${page.title}\n${page.url}\n${page.text.slice(0, 5000)}`).join('\n\n')
+    }
+  })
 
   coderStatus(folder: string): CoderStatus {
     const chat = this.store.roles().chat
@@ -73,11 +93,14 @@ export class AiService {
     return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running }
   }
 
-  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS): Promise<string> {
+  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void): Promise<string> {
     let text = ''
     const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal })
     for await (const event of stream) {
-      if (event.type === 'text') text += event.text
+      if (event.type === 'text') {
+        text += event.text
+        onText?.(text)
+      }
       if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
     }
     return text
@@ -107,7 +130,7 @@ export class AiService {
       emit({ streamId, type: 'done', stopReason: controller.signal.aborted ? 'cancelled' : null })
     } catch (error) {
       if (controller.signal.aborted) emit({ streamId, type: 'done', stopReason: 'cancelled' })
-      else emit({ streamId, type: 'error', message: error instanceof AiError ? error.message : 'Something went wrong with that request.' })
+      else emit({ streamId, type: 'error', ...errorDetails(error) })
     } finally {
       this.running.delete(streamId)
     }
@@ -147,7 +170,7 @@ export class AiService {
       emit({ streamId, type: 'done', stopReason })
     } catch (error) {
       if (controller.signal.aborted) emit({ streamId, type: 'done', stopReason: 'cancelled' })
-      else emit({ streamId, type: 'error', message: error instanceof AiError ? error.message : 'Something went wrong with that request.' })
+      else emit({ streamId, type: 'error', ...errorDetails(error) })
     } finally {
       this.running.delete(streamId)
     }

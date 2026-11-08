@@ -41,7 +41,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage },
-  code: { title: 'Code (beta)', icon: SquareTerminal, component: CodePage }
+  code: { title: 'Terra Code (beta)', icon: SquareTerminal, component: CodePage }
 }
 
 /** The sidebar, in clusters of related pages, so the long list reads at a glance. */

@@ -1,4 +1,5 @@
 import { randomFillSync } from 'node:crypto'
+import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -1108,8 +1109,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       await vpn.ping(connections.map(({ id }) => id), settings.get().vpnPingTimeout)
       notify('Finished pinging')
     }
+    const starting = async () => {
+      notify('Finding a starting VPN server…')
+      await vpn.useDefault()
+      notify(vpn.summary().enabled ? `VPN on: ${vpn.summary().name ?? 'Default'}` : (vpn.summary().error ?? "The VPN didn't connect"))
+    }
     Menu.buildFromTemplate([
-      { label: enabled ? 'Turn off' : 'Turn on', click: () => void (enabled ? vpn.setEnabled(false) : vpn.turnOn()) },
+      ...(connections.length === 0
+        ? [{ label: 'Use starting VPN connection', click: () => void starting() }]
+        : [{ label: enabled ? 'Turn off' : 'Turn on', click: () => void (enabled ? vpn.setEnabled(false) : vpn.turnOn()) }]),
       { type: 'separator' },
       ...list(connections.filter((connection) => connection.groupId === null)),
       ...groups.map((group) => ({ label: group.name, submenu: list(connections.filter((connection) => connection.groupId === group.id)) })),
@@ -1291,7 +1299,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     return { action: 'deny' }
   })
   // If the UI process dies, reload it: tabs live in the main process and reappear.
-  chromeUi.on('render-process-gone', () => chromeUi.reload())
+  reloadAfterCrash(chromeUi)
 
   function syncTheme() {
     const { background, foreground } = nativeColors()

@@ -38,8 +38,9 @@ const SHADOW = [
 /** Names that mark an element as part of a consent banner, for sites with their own. */
 const BANNER_NAMES = String.raw`cookie|consent|gdpr|privacy[-_ ]?(?:banner|notice|popup|prompt)|\bcmp\b|onetrust|didomi|cybot|usercentrics|truste|qc-cmp|sp_message`
 
-const SCRIPT = (wholePage: boolean) => `(() => {
-  if (window.__scterraCookies) return
+/** Settles true just before its first press, so the main process hears of it even if the press reloads the page. */
+const SCRIPT = (wholePage: boolean) => `new Promise((settle) => {
+  if (window.__scterraCookies) return settle(false)
   window.__scterraCookies = true
   const REJECT = new RegExp(${JSON.stringify(REJECT_WORDS)}, 'i')
   const BANNER = new RegExp(${JSON.stringify(BANNER_NAMES)}, 'i')
@@ -101,7 +102,8 @@ const SCRIPT = (wholePage: boolean) => `(() => {
     if (!button) return
     presses++
     lastPress = Date.now()
-    button.click()
+    settle(true)
+    setTimeout(() => button.click(), 30)
   }
   let queued = false
   const observer = new MutationObserver(() => {
@@ -117,9 +119,10 @@ const SCRIPT = (wholePage: boolean) => `(() => {
     if (Date.now() - started > 15000 || presses >= 2) {
       clearInterval(timer)
       observer.disconnect()
+      settle(presses > 0)
     }
   }, 1000)
-})()`
+})`
 
 /** Consent screens that are whole pages, where every reject button is part of the banner. */
 const CONSENT_PAGES = /^consent\.(google|youtube)\.[a-z.]+$/
@@ -127,12 +130,41 @@ const CONSENT_PAGES = /^consent\.(google|youtube)\.[a-z.]+$/
 /** Consent tools that draw in their own frame, from these hosts. */
 const CONSENT_FRAMES = /(^|\.)(privacy-mgmt\.com|consent-pref\.trustarc\.com|cmp\.quantcast\.com|consentcdn\.cookiebot\.com)$/
 
+/**
+ * Pressing reject makes many sites reload, and a site that doesn't keep the answer (or a page whose
+ * own button only looks like a reject button) shows the banner again: pressing on every load sent
+ * those pages into a reload loop. So each site gets a few presses every few minutes, across loads.
+ */
+const PRESS_BUDGET = 2
+const PRESS_WINDOW_MS = 3 * 60_000
+const presses = new Map<string, number[]>()
+
+const siteOf = (url: string) => (URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, '') : '')
+
+export function mayPress(site: string, now = Date.now()): boolean {
+  const recent = (presses.get(site) ?? []).filter((at) => now - at < PRESS_WINDOW_MS)
+  presses.set(site, recent)
+  return recent.length < PRESS_BUDGET
+}
+
+export function notePress(site: string, now = Date.now()): void {
+  presses.set(site, [...(presses.get(site) ?? []), now])
+  if (presses.size > 500) presses.delete(presses.keys().next().value!)
+}
+
+const run = (site: string, execute: () => Promise<unknown>) => {
+  if (!site || !mayPress(site)) return
+  void execute()
+    .then((pressed) => pressed === true && notePress(site))
+    .catch(() => undefined)
+}
+
 /** Presses the reject button of a cookie banner on the page, if it has one. */
 export function rejectCookieBanner(contents: WebContents): void {
   const url = contents.getURL()
   if (contents.isDestroyed() || !/^https?:/i.test(url)) return
   const host = new URL(url).hostname
-  void contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: SCRIPT(CONSENT_PAGES.test(host)) }]).catch(() => undefined)
+  run(siteOf(url), () => contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: SCRIPT(CONSENT_PAGES.test(host)) }]))
 }
 
 /**
@@ -144,6 +176,6 @@ export function watchConsentFrames(contents: WebContents, enabled: () => boolean
     if (isMainFrame || !enabled()) return
     const frame = webFrameMain.fromId(processId, routingId)
     if (!frame || !URL.canParse(frame.url) || !CONSENT_FRAMES.test(new URL(frame.url).hostname)) return
-    void frame.executeJavaScript(SCRIPT(true)).catch(() => undefined)
+    run(siteOf(contents.getURL()), () => frame.executeJavaScript(SCRIPT(true)))
   })
 }

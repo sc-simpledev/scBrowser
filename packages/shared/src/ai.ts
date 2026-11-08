@@ -148,7 +148,8 @@ export type AssistantEvent =
   /** Agent mode: something it did, or wants permission to do. */
   | { streamId: string; type: 'step'; text: string }
   | { streamId: string; type: 'approval'; approvalId: string; text: string; reason: string }
-  | { streamId: string; type: 'error'; message: string }
+  /** `network`: the AI service couldn't be reached at all, which a VPN may get around. */
+  | { streamId: string; type: 'error'; message: string; network?: boolean }
 
 export const TRANSLATE_LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Arabic', 'Hindi', 'Russian'] as const
 export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]
