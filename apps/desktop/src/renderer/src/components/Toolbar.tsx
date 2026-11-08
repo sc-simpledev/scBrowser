@@ -154,6 +154,14 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
     }
     const ids = summary.unpinned.filter((id) => /^[a-p]{32}$/.test(id))
     style.textContent = ids.length > 0 ? `${ids.map((id) => `#${id}`).join(',')}{display:none}` : ''
+    // With no buttons showing, the list would still take a gap beside the menu button.
+    const fit = () => {
+      if (list.current) list.current.style.display = [...root.querySelectorAll('.action')].some((action) => !ids.includes(action.id)) ? '' : 'none'
+    }
+    fit()
+    const observer = new MutationObserver(fit)
+    observer.observe(root, { childList: true })
+    return () => observer.disconnect()
   }, [summary])
 
   // Panels hang from this button, wherever it's been dragged to.
@@ -286,7 +294,8 @@ function Slot({ slot, dragging, target, onDrag, onTarget, onDrop, children }: {
         e.preventDefault()
         onDrop()
       }}
-      className={cx('sc-no-drag relative flex items-center', wide && 'min-w-0 flex-1', dragging === slot && 'opacity-40')}
+      // A button with nothing to show leaves its slot empty, which mustn't take up a gap in the bar.
+      className={cx('sc-no-drag relative flex items-center empty:hidden', wide && 'min-w-0 flex-1', dragging === slot && 'opacity-40')}
     >
       {target?.slot === slot && (
         <span aria-hidden className={cx('absolute inset-y-1 w-0.5 rounded-full bg-accent', target.after ? '-right-0.5' : '-left-0.5')} />

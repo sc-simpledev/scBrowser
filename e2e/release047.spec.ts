@@ -94,6 +94,7 @@ test('Terra Code works inside the assistant, shows its plan and changes, and und
     await expect(page.getByRole('region', { name: 'Plan' })).toContainText('1 of 2')
     const changed = page.getByRole('region', { name: 'Changed files' })
     await expect(changed).toContainText('2 files changed')
+    await changed.getByRole('button', { name: /2 files changed/ }).click()
     await changed.getByRole('button', { name: /greeting\.txt/ }).click()
     await expect(changed).toContainText('+ goodbye')
     await changed.getByRole('button', { name: 'Undo changes' }).click()

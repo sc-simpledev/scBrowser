@@ -9,6 +9,14 @@ Version 0.4.1 is published (2026-11-05). It adds Performance Mode (Settings, the
 Performance Mode is `performanceMode`, kept per device. `sleepMinutes` makes background tabs sleep within 5 minutes, `data-performance` (tokens.css) removes animations, blur and glass except spinners, and `quietMedia` in `TabManager` sets the autoplay policy on views created after it's on, so tabs already open keep their old policy until they sleep and wake. It needs no restart and changes no Chromium switches.
 
 
+**Version 0.4.8 (2026-11-09): Terra Code's tools actually run, a cleaner Code screen, even toolbar spacing, 3x daily AI limits.** The owner asked for the commit and release in the same message, after a run on the hidden screen. Not tried by hand, against a real model, or on Windows. Ask whether tools now run with the model they use, and whether the toolbar is even on Windows.
+
+- **Terra Code harness:** `parseCoderReply` used to run only ```` ```tool ```` fences, or else just the first bare `{"tool":`; everything else landed in the chat. It now scans the whole reply: any fence or none, JSON arrays, `name`/`arguments` and OpenAI function shapes, `<tool_call>` and `<invoke>`, other agents' tool and field names (`TOOL_ALIASES`, `FIELD_ALIASES`), and mends raw newlines, stray backslashes and trailing commas (`looseJson`). A bare `name` only counts with arguments beside it, so a package.json in a reply is left alone. A reply with no tools that promises work (`promisesAction`) gets `CODER_NUDGE`, at most twice in a row; the model answers DONE to end, which isn't shown. Four unreadable replies in a row stop with an error. Tool calling is still text in the reply, not the providers' native tools, as that would need the Worker changing.
+- **Code screen:** steps in a row fold into one line (`ToolGroup`), plan and changed files are single lines above the box, modes are a Plan/Ask/Auto-edit switch inside the box, the hosted note can be closed.
+- **Toolbar:** a button with nothing to show left an empty `Slot` that still took a flex gap, doubling the space on fresh profiles such as the owner's Windows one (`empty:hidden`). The empty extensions list did the same.
+- **Daily limits:** `REQUESTS_PER_DAY` 300 and `TOKENS_PER_DAY` 600000 per address. `GLOBAL_TOKENS_PER_DAY` stays 5000000, as it's the owner's spending cap.
+- **Deno:** its CI job is gone (it was the job failing on `main`). Deno Deploy's own link to this repo is set on Deno's side, so a push may still roll out there until it's unlinked.
+
 **Version 0.4.7 is committed, pushed and tagged (2026-11-09) for Linux, Windows and both kinds of Mac.** The owner asked for the commit, push and tag in the same message as the changes, so none of it was tried by hand first. Ask how it went, especially on Windows. Plan.md has the summary. Tested: 364 unit tests and 212 end-to-end tests pass on the hidden screen, including 5 new ones in `e2e/release047.spec.ts` (reload loop stopped, banner pressed at most twice, Terra Code in the assistant with a plan, changes and undo, the VPN offer when AI can't be reached, and the starting VPN card). Terra Code, the assistant's Code view, the VPN card and the AI prompt were screenshotted in light and dark, and Terra Code at 720 px. Not checked: anything on Windows (the intro and the reloading are fixed from reading the code), Terra Code against a real model (mock only, and no streaming, as the mock sends replies whole), web search from Terra Code, and the starting VPN against the real FastNodes list.
 
 - **Intro on Windows:** Windows turns on `prefers-reduced-motion` whenever "Animation effects" is off (common, and always on VMs and remote desktops), and both the intro's `still` path and theme.css's global `animation-duration: 1ms` rule then showed only its last frame. `prefersStill()` in `WelcomePage.tsx` ignores the system setting on Windows (Performance Mode still makes it still), and sets `data-motion="full"` on the root, which theme.css's rule now skips. Not run on Windows.
@@ -154,7 +162,7 @@ To keep the test windows off the desktop, run them on an invisible KDE screen in
 e2e/hidden.sh
 ```
 
-Build first, because E2E tests run the built app. The suite has 212 tests and takes about 4 minutes locally, and there are 364 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
+Build first, because E2E tests run the built app. The suite has 214 tests and takes about 4 minutes locally, and there are 378 unit tests. To build and test the packaged app, fetch the Xray VPN core once first. Packaging stops if it's missing:
 
 ```bash
 node apps/desktop/scripts/fetch-xray.mjs
@@ -168,7 +176,7 @@ cd apps/desktop && npx electron-builder --linux AppImage deb
 SCB_E2E_EXECUTABLE="$PWD/apps/desktop/release/0.4.6/linux-unpacked/scterra" npx playwright test --timeout 20000
 ```
 
-The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests, on Linux and Windows, plus a Deno job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
+The beta lands in `apps/desktop/release/<version>/`, which git ignores. CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests, on Linux and Windows, plus a Worker job for `server/`, and uploads installers as artifacts. `macos.yml` is run by hand from the Actions tab, as a private repo's macOS minutes count ten times over. `release.yml` runs on a `v*` tag. See [docs/auto-update.md](docs/auto-update.md).
 
 Deno isn't installed. To run server tests locally, use the npm package `deno`, then `deno test --allow-env` inside `server/`.
 

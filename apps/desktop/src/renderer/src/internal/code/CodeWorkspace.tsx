@@ -23,8 +23,8 @@ import {
   X,
   type LucideIcon
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, cx, IconButton, Select } from '@scbrowser/ui'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Button, cx, IconButton } from '@scbrowser/ui'
 import { CODER_MAX_STEPS, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode, type CoderStatus, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
@@ -54,9 +54,9 @@ const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
 const DONE_NOTES: Record<string, string | null> = { finished: null, stopped: 'Stopped.', 'step-limit': `Stopped after ${CODER_MAX_STEPS} steps. Send a message to carry on.` }
 
 const MODES: { id: CoderMode; label: string; hint: string }[] = [
-  { id: 'plan', label: 'Plan only', hint: 'It looks around and writes a plan. Nothing changes.' },
-  { id: 'ask', label: 'Ask before every change', hint: 'It asks before every change and command.' },
-  { id: 'edits', label: 'Change files without asking', hint: 'It changes files without asking, and asks before every command.' }
+  { id: 'plan', label: 'Plan', hint: 'It looks around and writes a plan. Nothing changes.' },
+  { id: 'ask', label: 'Ask', hint: 'It asks before every change and command.' },
+  { id: 'edits', label: 'Auto-edit', hint: 'It changes files without asking, and asks before every command.' }
 ]
 
 const STARTERS = [
@@ -69,90 +69,176 @@ const STARTERS = [
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 const cleanError = (message: string) => message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
+const HOSTED_NOTE_KEY = 'terra-code-hosted-note-closed'
+const noteClosed = () => {
+  try {
+    return localStorage.getItem(HOSTED_NOTE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 /** Colours a diff's lines without parsing anything else out of it. */
 function Detail({ text, diff }: { text: string; diff: boolean }) {
   return (
-    <pre className="max-h-80 overflow-auto rounded-md border border-border bg-bg p-2.5 font-mono text-2xs leading-normal whitespace-pre select-text">
-      {diff
-        ? text.split('\n').map((line, i) => (
-            <div key={i} className={cx(line.startsWith('+ ') && 'text-success', line.startsWith('- ') && 'text-danger', line.startsWith('@@') && 'text-text-faint')}>
-              {line || ' '}
-            </div>
-          ))
-        : text}
+    <pre className="max-h-80 overflow-auto rounded-md border border-border bg-bg py-2 font-mono text-2xs leading-normal whitespace-pre select-text">
+      {diff ? (
+        text.split('\n').map((line, i) => (
+          <div key={i} className={cx('w-max min-w-full px-2.5', line.startsWith('+ ') && 'bg-success/10 text-success', line.startsWith('- ') && 'bg-danger/10 text-danger', line.startsWith('@@') && 'text-text-faint')}>
+            {line || ' '}
+          </div>
+        ))
+      ) : (
+        <div className="px-2.5">{text}</div>
+      )}
     </pre>
   )
 }
 
-function ToolRow({ item }: { item: Extract<Item, { kind: 'tool' }> }) {
+type ToolItem = Extract<Item, { kind: 'tool' }>
+
+/** The first word of a summary is what it did, and the rest is what it did it to. */
+function splitSummary(summary: string): [string, string] {
+  const at = summary.indexOf(' ')
+  return at === -1 ? [summary, ''] : [summary.slice(0, at), summary.slice(at + 1)]
+}
+
+function ToolState({ ok }: { ok: boolean | null }) {
+  if (ok === null) return <span role="status" aria-label="Running" className="size-3 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
+  if (ok) return <Check aria-label="Done" size={12} strokeWidth={2} className="shrink-0 text-text-faint" />
+  return <X aria-label="Failed" size={12} strokeWidth={2} className="shrink-0 text-danger" />
+}
+
+function ToolRow({ item }: { item: ToolItem }) {
   const [open, setOpen] = useState(false)
   const Icon = TOOL_ICONS[item.tool]
+  const [verb, target] = splitSummary(item.summary)
   return (
-    <div className="flex flex-col gap-1.5">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover">
-        <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 transition-transform', open && 'rotate-90')} />
-        <Icon aria-hidden size={13} strokeWidth={1.75} className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-mono">{item.summary}</span>
-        {item.ok === null ? (
-          <span role="status" aria-label="Running" className="size-3 shrink-0 animate-spin rounded-full border-2 border-border-strong border-t-accent" />
-        ) : item.ok ? (
-          <Check aria-label="Done" size={12} strokeWidth={2} className="shrink-0 text-success" />
-        ) : (
-          <X aria-label="Failed" size={12} strokeWidth={2} className="shrink-0 text-danger" />
-        )}
+    <div className="flex flex-col gap-1">
+      <button type="button" aria-expanded={open} disabled={!item.output} onClick={() => setOpen(!open)} className="group flex h-6.5 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors enabled:hover:bg-surface-hover">
+        <Icon aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        <span className="shrink-0 text-text">{verb}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-2xs">{target}</span>
+        <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint opacity-0 transition group-hover:opacity-100', open && 'rotate-90 opacity-100')} />
+        <ToolState ok={item.ok} />
       </button>
       {open && item.output && <Detail text={item.output} diff={false} />}
     </div>
   )
 }
 
-function ApprovalCard({ item, onAnswer }: { item: Extract<Item, { kind: 'approval' }>; onAnswer: (answer: CoderAnswer) => void }) {
+const TOOL_WORDS: Partial<Record<CoderToolName, [string, string]>> = {
+  read: ['Read', 'file'],
+  write: ['Wrote', 'file'],
+  edit: ['Edited', 'file'],
+  delete: ['Deleted', 'file'],
+  move: ['Moved', 'file'],
+  list: ['Listed', 'folder'],
+  glob: ['Looked for', 'pattern'],
+  search: ['Searched', 'time'],
+  web: ['Searched the web', 'time'],
+  run: ['Ran', 'command'],
+  todo: ['Updated the plan', 'time']
+}
+
+/** "Read 3 files, ran 1 command": a run of steps in a few words. */
+function describeTools(tools: ToolItem[]): string {
+  const counts = new Map<CoderToolName, number>()
+  for (const tool of tools) counts.set(tool.tool, (counts.get(tool.tool) ?? 0) + 1)
+  const parts = [...counts].map(([tool, count]) => {
+    const [verb, noun] = TOOL_WORDS[tool] ?? [tool, 'time']
+    return tool === 'todo' ? verb : `${verb} ${count} ${noun}${count === 1 ? '' : 's'}`
+  })
+  const text = parts.join(', ')
+  return parts.length > 1 ? text.replace(/(?<=, )[A-Z]/g, (letter) => letter.toLowerCase()) : text
+}
+
+/** Several steps in a row fold into one line, so the conversation stays readable. */
+function ToolGroup({ tools }: { tools: ToolItem[] }) {
+  const running = tools.some((tool) => tool.ok === null)
+  const failed = tools.filter((tool) => tool.ok === false).length
+  const [chosen, setChosen] = useState<boolean | null>(null)
+  const open = chosen ?? running
+  if (tools.length === 1) return <ToolRow item={tools[0]!} />
   return (
-    <div role="group" aria-label={item.summary} className="flex flex-col gap-2.5 rounded-lg border border-border-strong bg-surface p-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        {item.type === 'command' ? <SquareTerminal aria-hidden size={14} strokeWidth={1.75} className="text-accent" /> : <FilePen aria-hidden size={14} strokeWidth={1.75} className="text-accent" />}
-        <span className="min-w-0 truncate">{item.summary}</span>
-      </div>
-      <Detail text={item.detail} diff={item.type === 'change'} />
-      {item.answer === null ? (
-        <div className="flex flex-wrap justify-end gap-1.5">
-          <Button variant="ghost" onClick={() => onAnswer('deny')}>
-            Decline
-          </Button>
-          {item.type === 'command' && <Button onClick={() => onAnswer('always')}>Always allow this command</Button>}
-          <Button variant="primary" onClick={() => onAnswer('allow')}>
-            {item.type === 'command' ? 'Run' : 'Apply change'}
-          </Button>
+    <div className="flex flex-col gap-0.5">
+      <button type="button" aria-expanded={open} onClick={() => setChosen(!open)} className="flex h-6.5 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover">
+        <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
+        <span className="min-w-0 flex-1 truncate">{describeTools(tools)}</span>
+        {failed > 0 && <span className="shrink-0 text-danger">{failed} failed</span>}
+        {running && <ToolState ok={null} />}
+      </button>
+      {open && (
+        <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2">
+          {tools.map((tool) => (
+            <ToolRow key={tool.id} item={tool} />
+          ))}
         </div>
-      ) : (
-        <div className="text-right text-xs text-text-faint">{item.answer === 'deny' ? 'Declined' : 'Allowed'}</div>
       )}
     </div>
   )
 }
 
-function TodoList({ items }: { items: CoderTodo[] }) {
-  const done = items.filter((item) => item.done).length
+function ApprovalCard({ item, onAnswer }: { item: Extract<Item, { kind: 'approval' }>; onAnswer: (answer: CoderAnswer) => void }) {
+  const pending = item.answer === null
+  if (!pending) {
+    return (
+      <div className="flex h-6.5 min-w-0 items-center gap-2 px-1.5 text-xs text-text-muted">
+        <X aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        <span className="shrink-0">Declined</span>
+        <span className="min-w-0 truncate font-mono text-2xs">{item.type === 'command' ? item.detail : item.summary}</span>
+      </div>
+    )
+  }
   return (
-    <section aria-label="Plan" className="flex flex-col gap-1.5 rounded-lg border border-border bg-surface p-3">
-      <div className="flex items-center gap-2 text-xs font-medium text-text-muted">
-        <ListChecks aria-hidden size={13} strokeWidth={1.75} className="text-accent" />
-        Plan
-        <span className="ml-auto font-normal text-text-faint">
+    <div role="group" aria-label={item.summary} className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2.5">
+      <div className="flex items-center gap-2 px-0.5 text-sm font-medium">
+        {item.type === 'command' ? <SquareTerminal aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" /> : <FilePen aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />}
+        <span className="min-w-0 truncate">{item.summary}</span>
+      </div>
+      <Detail text={item.detail} diff={item.type === 'change'} />
+      <div className="flex flex-wrap justify-end gap-1.5">
+        <Button variant="ghost" onClick={() => onAnswer('deny')}>
+          Decline
+        </Button>
+        {item.type === 'command' && <Button onClick={() => onAnswer('always')}>Always allow this command</Button>}
+        <Button variant="primary" onClick={() => onAnswer('allow')}>
+          {item.type === 'command' ? 'Run' : 'Apply change'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** The plan as one line above the message box, which opens to show every step. */
+function TodoList({ items }: { items: CoderTodo[] }) {
+  const [open, setOpen] = useState(false)
+  const done = items.filter((item) => item.done).length
+  const current = items.find((item) => !item.done)
+  return (
+    <section aria-label="Plan" className="flex flex-col">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors hover:bg-surface-hover">
+        <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
+        <ListChecks aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+        <span className="shrink-0 font-medium">Plan</span>
+        <span className="min-w-0 flex-1 truncate text-text-muted">{current?.text ?? 'All steps done'}</span>
+        <span className="shrink-0 text-text-faint tabular-nums">
           {done} of {items.length}
         </span>
-      </div>
-      <ul className="flex flex-col gap-1">
-        {items.map((item, i) => (
-          <li key={i} className={cx('flex items-start gap-2 text-xs', item.done ? 'text-text-faint line-through' : 'text-text')}>
-            <span aria-hidden className={cx('mt-0.5 grid size-3 shrink-0 place-items-center rounded-sm border', item.done ? 'border-success bg-success text-surface' : 'border-border-strong')}>
-              {item.done && <Check size={9} strokeWidth={3} />}
-            </span>
-            <span className="sr-only">{item.done ? 'Done: ' : 'To do: '}</span>
-            {item.text}
-          </li>
-        ))}
-      </ul>
+      </button>
+      {open && (
+        <ul className="flex flex-col gap-1 px-1.5 pt-1 pb-1.5">
+          {items.map((item, i) => (
+            <li key={i} className={cx('flex items-start gap-2 text-xs', item.done ? 'text-text-faint line-through' : 'text-text')}>
+              <span aria-hidden className={cx('mt-0.5 grid size-3 shrink-0 place-items-center rounded-sm border', item.done ? 'border-success bg-success text-surface' : 'border-border-strong')}>
+                {item.done && <Check size={9} strokeWidth={3} />}
+              </span>
+              <span className="sr-only">{item.done ? 'Done: ' : 'To do: '}</span>
+              {item.text}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
@@ -164,6 +250,7 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
   const [open, setOpen] = useState<string | null>(null)
   const [diff, setDiff] = useState('')
   const [confirming, setConfirming] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   useEffect(() => {
     if (!open) return
     void api().invoke('coder:diff', session, open).then(setDiff)
@@ -171,14 +258,17 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
   return (
-    <section aria-label="Changed files" className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-2">
-      <div className="flex h-7 items-center gap-2 px-1 text-xs">
-        <span className="font-medium">
-          {files.length} {files.length === 1 ? 'file' : 'files'} changed
-        </span>
-        <span className="text-success">+{added}</span>
-        <span className="text-danger">−{removed}</span>
-        <span className="flex-1" />
+    <section aria-label="Changed files" className="flex flex-col">
+      <div className="flex h-7 items-center gap-2 text-xs">
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-surface-hover">
+          <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', expanded && 'rotate-90')} />
+          <FilePen aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+          <span className="font-medium">
+            {files.length} {files.length === 1 ? 'file' : 'files'} changed
+          </span>
+          <span className="text-success">+{added}</span>
+          <span className="text-danger">−{removed}</span>
+        </button>
         {confirming ? (
           <>
             <span className="text-text-muted">Put every file back?</span>
@@ -202,7 +292,7 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
           </Button>
         )}
       </div>
-      <ul className="flex flex-col">
+      {expanded && <ul className="flex flex-col pb-1">
         {files.map((file) => {
           const Icon = STATUS_ICONS[file.status]
           return (
@@ -222,7 +312,7 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
             </li>
           )
         })}
-      </ul>
+      </ul>}
     </section>
   )
 }
@@ -249,6 +339,7 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
   const [streaming, setStreaming] = useState('')
   const [todo, setTodo] = useState<CoderTodo[]>([])
   const [changes, setChanges] = useState<CoderChange[]>([])
+  const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const session = useRef(crypto.randomUUID())
   const lastTask = useRef<string | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -387,32 +478,49 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
     void api().invoke('settings:set', { coderMode })
   }
 
+  const blocks = useMemo(() => {
+    const out: (Exclude<Item, ToolItem> | { kind: 'tools'; tools: ToolItem[] })[] = []
+    for (const item of items) {
+      const last = out.at(-1)
+      // The card says what's being asked, and an allowed step carries on as its own row.
+      if (item.kind === 'approval' && item.answer === 'allow') continue
+      if (item.kind === 'approval' && item.answer === null && last?.kind === 'tools' && last.tools.at(-1)?.ok === null) {
+        last.tools.pop()
+        if (last.tools.length === 0) out.pop()
+      }
+      if (item.kind !== 'tool') out.push(item)
+      else if (last?.kind === 'tools') last.tools.push(item)
+      else out.push({ kind: 'tools', tools: [item] })
+    }
+    return out
+  }, [items])
+
   if (statusError) return <p className="p-6 text-sm text-danger">{statusError}</p>
   if (!status) return null
   const waiting = items.some((item) => item.kind === 'approval' && item.answer === null)
   const modeInfo = MODES.find((candidate) => candidate.id === mode) ?? MODES[1]!
 
+  const closeHostedNote = () => {
+    setHostedNoteClosed(true)
+    try {
+      localStorage.setItem(HOSTED_NOTE_KEY, '1')
+    } catch {
+      // It just comes back next time.
+    }
+  }
+
   const controls = (
     <>
-      <div className="flex min-w-0 items-center gap-1">
-        <Button variant="ghost" onClick={pickFolder} title={status.folder ?? undefined}>
-          <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
-          <span className="max-w-60 truncate">{status.folder ? folderName(status.folder) : 'Choose a project folder'}</span>
-        </Button>
+      <Button variant="ghost" onClick={pickFolder} title={status.folder ?? undefined} className="min-w-0">
+        <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
+        <span className="max-w-60 truncate">{status.folder ? folderName(status.folder) : 'Choose a project folder'}</span>
+      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {status.folder && (
           <IconButton size="sm" label="Show the folder" onClick={() => void api().invoke('coder:open-folder')}>
             <FolderTree size={13} strokeWidth={1.75} />
           </IconButton>
         )}
-      </div>
-      <div className="ml-auto flex shrink-0 items-center gap-2">
-        <Select aria-label="Changes" className="w-56" value={mode} title={modeInfo.hint} onChange={(e) => chooseMode(e.target.value as CoderMode)}>
-          {MODES.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </Select>
         <IconButton size="sm" label="New session" onClick={newSession}>
           <Plus size={14} strokeWidth={1.75} />
         </IconButton>
@@ -433,36 +541,36 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
           {controls}
         </div>
       ) : (
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-          <SquareTerminal aria-hidden size={16} strokeWidth={1.75} className="text-accent" />
-          <h1 className="font-semibold">Terra Code</h1>
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+          <SquareTerminal aria-hidden size={15} strokeWidth={1.75} className="text-accent" />
+          <h1 className="text-sm font-semibold">Terra Code</h1>
           <span className="rounded-sm border border-border px-1.5 text-2xs font-medium tracking-[0.04em] text-text-muted uppercase">Beta</span>
-          <div className="ml-3 flex min-w-0 flex-1 items-center gap-2">{controls}</div>
+          <div className="ml-2 flex min-w-0 flex-1 items-center gap-2">{controls}</div>
         </header>
       )}
 
       <div ref={logRef} role="log" aria-label="Terra Code" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-200 flex-col gap-3 px-6 py-6">
-          {status.hosted && (
-            <div role="note" className="flex items-start gap-2.5 rounded-lg border border-border bg-surface p-3 text-xs text-text-muted">
-              <KeyRound aria-hidden size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium text-text">Best with your own API key</div>
-                Coding takes many requests per task, which quickly reaches the free {status.providerName ?? 'scTerra AI'} limit. Add a Claude or OpenAI key in AI settings and choose a strong coding model.
-              </div>
-              <a href="sc://ai/" className="shrink-0 rounded-md px-2 py-1 font-medium text-accent hover:bg-surface-hover">
-                AI settings
+          {status.hosted && !hostedNoteClosed && (
+            <div role="note" className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-muted">
+              <KeyRound aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+              <span className="min-w-0 flex-1">Coding uses many requests. Your own API key avoids the free {status.providerName ?? 'scTerra AI'} daily limit.</span>
+              <a href="sc://ai/" className="shrink-0 font-medium text-accent hover:text-accent-hover">
+                Add a key
               </a>
+              <IconButton size="sm" label="Close this note" className="size-5!" onClick={closeHostedNote}>
+                <X size={12} strokeWidth={1.75} />
+              </IconButton>
             </div>
           )}
           {items.length === 0 && (
-            <div className="flex flex-col gap-3 py-10 text-center">
-              <div className="text-lg font-semibold tracking-[-0.02em]">What should we build?</div>
-              <p className="mx-auto max-w-120 text-sm text-text-muted">
-                {status.folder
-                  ? `Describe a change and Terra Code works on ${folderName(status.folder)}: it reads your files, edits them and runs commands such as tests. ${modeInfo.hint}`
-                  : 'Choose the project folder it may work in. It can only reach files inside that folder, and asks before running anything.'}
-              </p>
+            <div className="flex flex-col gap-5 pt-[12vh]">
+              <div className="flex flex-col gap-1.5">
+                <h2 className="text-xl font-semibold tracking-[-0.02em]">{status.folder ? `What should we do in ${folderName(status.folder)}?` : 'Pick a project to work on'}</h2>
+                <p className="max-w-130 text-sm text-text-muted">
+                  {status.folder ? 'Terra Code reads your files, edits them and runs commands such as tests.' : 'Terra Code can only reach files inside the folder you choose, and asks before running anything.'}
+                </p>
+              </div>
               {!status.folder && (
                 <div>
                   <Button variant="primary" onClick={pickFolder}>
@@ -472,22 +580,23 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
                 </div>
               )}
               {status.folder && status.ready && (
-                <div className="mx-auto flex max-w-140 flex-wrap justify-center gap-2 [&>button]:whitespace-nowrap">
+                <div className="flex flex-col border-t border-border">
                   {STARTERS.map((starter) => (
-                    <Button key={starter.label} onClick={() => send(starter.task)}>
+                    <button key={starter.label} type="button" onClick={() => send(starter.task)} className="group flex h-10 items-center justify-between border-b border-border px-1 text-left text-sm text-text-muted transition-colors hover:text-text">
                       {starter.label}
-                    </Button>
+                      <ArrowUp aria-hidden size={13} strokeWidth={1.75} className="rotate-45 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </button>
                   ))}
                 </div>
               )}
               {!status.ready && <p className="text-sm text-danger">Choose a model in AI settings first.</p>}
             </div>
           )}
-          {items.map((item, i) => {
+          {blocks.map((item, i) => {
             switch (item.kind) {
               case 'task':
                 return (
-                  <div key={i} className="ml-auto max-w-[85%] rounded-lg bg-surface-hover px-3.5 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] select-text">
+                  <div key={i} className="ml-auto max-w-[85%] rounded-lg bg-surface-hover px-3 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] select-text">
                     {item.text}
                   </div>
                 )
@@ -497,8 +606,8 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
                     <ReplyMarkdown text={item.text} onOpenLink={(href) => void api().invoke('browser:open', href)} />
                   </div>
                 )
-              case 'tool':
-                return <ToolRow key={item.id} item={item} />
+              case 'tools':
+                return <ToolGroup key={item.tools[0]!.id} tools={item.tools} />
               case 'approval':
                 return <ApprovalCard key={item.id} item={item} onAnswer={(choice) => answer(item.id, choice)} />
               case 'note':
@@ -528,9 +637,9 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col gap-2 border-t border-border p-3">
+      <div className="mx-auto flex w-full max-w-200 shrink-0 flex-col gap-1 px-6 pt-1 pb-3">
         {(todo.length > 0 || changes.length > 0) && (
-          <div className="sc-scroll-quiet mx-auto flex max-h-[30vh] w-full max-w-200 flex-col gap-2 overflow-y-auto">
+          <div className="sc-scroll-quiet flex max-h-[34vh] flex-col overflow-y-auto">
             {todo.length > 0 && <TodoList items={todo} />}
             {changes.length > 0 && (
               <ChangesPanel
@@ -545,7 +654,7 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
             )}
           </div>
         )}
-        <div className="mx-auto flex w-full max-w-200 items-end gap-2 rounded-lg border border-border bg-field p-1.5 focus-within:border-border-strong">
+        <div className="flex flex-col rounded-lg border border-border bg-field focus-within:border-border-strong">
           <textarea
             aria-label="Describe a change"
             value={draft}
@@ -558,21 +667,38 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
                 send()
               }
             }}
-            className="max-h-48 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
+            className="max-h-48 min-h-11 resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
           />
-          {working ? (
-            <IconButton size="sm" label="Stop" onClick={() => void api().invoke('coder:stop', session.current)}>
-              <Square size={12} strokeWidth={2} />
-            </IconButton>
-          ) : (
-            <IconButton size="sm" label="Send" disabled={!draft.trim() || !status.folder || !status.ready} className={draft.trim() ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={() => send()}>
-              <ArrowUp size={14} strokeWidth={2} />
-            </IconButton>
-          )}
+          <div className="flex items-center gap-2 p-1.5">
+            <div role="radiogroup" aria-label="Changes" className="flex shrink-0 items-center rounded-md bg-surface-hover p-0.5">
+              {MODES.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === option.id}
+                  title={option.hint}
+                  onClick={() => chooseMode(option.id)}
+                  className={cx('h-5.5 rounded-sm px-2 text-2xs font-medium transition-colors', mode === option.id ? 'bg-surface text-text shadow-(--sc-shadow-1)' : 'text-text-muted hover:text-text')}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <span title={`${modeInfo.hint} Commands you allow run with your own permissions.`} className="min-w-0 flex-1 truncate text-right text-2xs text-text-faint">
+              {status.model ?? ''}
+            </span>
+            {working ? (
+              <IconButton size="sm" label="Stop" onClick={() => void api().invoke('coder:stop', session.current)}>
+                <Square size={12} strokeWidth={2} />
+              </IconButton>
+            ) : (
+              <IconButton size="sm" label="Send" disabled={!draft.trim() || !status.folder || !status.ready} className={draft.trim() ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={() => send()}>
+                <ArrowUp size={14} strokeWidth={2} />
+              </IconButton>
+            )}
+          </div>
         </div>
-        <p className="mx-auto max-w-200 text-center text-2xs text-text-faint">
-          {status.model ? `${status.model} · ` : ''}Commands you allow run with your own permissions. Check changes before you rely on them.
-        </p>
       </div>
     </div>
   )

@@ -232,7 +232,7 @@ test('the coding agent works only in its folder and asks before changing a file'
     )
     await go(h, 'sc://code')
     const page = await h.page('sc://code')
-    await expect(page.getByRole('heading', { name: 'Code' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Terra Code' })).toBeVisible()
     await page.getByRole('textbox', { name: 'Describe a change' }).fill('Say goodbye instead')
     await page.getByRole('textbox', { name: 'Describe a change' }).press('Enter')
     const card = page.getByRole('group', { name: 'Edit greeting.txt' })

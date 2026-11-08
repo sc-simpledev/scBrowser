@@ -22,6 +22,8 @@ Tools:
 {"tool":"todo","items":[{"text":"Read the router","done":true},{"text":"Add the route","done":false}]} shows the person your plan as a checklist. Use it for any task with three or more steps, and send it again as you finish items
 {"tool":"web","query":"vite 7 config define env"} searches the web and returns the top results' text, for documentation and error messages you don't know
 
+Only tool blocks run. Commands in a bash block, or steps you only describe, do nothing. If you say you'll do something, do it in that same reply with a tool block, and never ask the person to run something you can run yourself. Always mark the fence as tool, and escape newlines inside JSON strings as \\n.
+
 When the task is done, or you need the person to answer something, reply without a tool block: say briefly what you changed, how you checked it, and anything they should look at.
 
 How to work:
@@ -79,14 +81,120 @@ function objectAt(text: string, from: number): { json: string; end: number } | n
 
 const str = (value: unknown, max: number) => (typeof value === 'string' && value.length <= max ? value : null)
 
+/** What models call our tools when they fall back on habits from other coding agents. */
+const TOOL_ALIASES: Record<string, CoderToolName> = Object.fromEntries(
+  (
+    [
+      ['list', 'list ls listfiles listdir listdirectory'],
+      ['glob', 'glob findfiles filesearch'],
+      ['read', 'read readfile cat view viewfile openfile'],
+      ['search', 'search grep rg ripgrep searchfiles grepsearch codebasesearch'],
+      ['write', 'write writefile writetofile createfile create'],
+      ['edit', 'edit editfile multiedit strreplace stringreplace replaceinfile strreplaceeditor'],
+      ['delete', 'delete deletefile remove removefile rm'],
+      ['move', 'move movefile rename renamefile mv'],
+      ['run', 'run bash sh zsh shell powershell terminal exec execute command cmd runcommand runshell shellcommand executecommand executebash runterminalcmd'],
+      ['todo', 'todo todos todowrite updatetodos checklist plan'],
+      ['web', 'web websearch searchweb internetsearch']
+    ] as const
+  ).flatMap(([tool, names]) => names.split(' ').map((name) => [name, tool as CoderToolName]))
+)
+
+const PATH_KEYS = ['path', 'file_path', 'filePath', 'filepath', 'file', 'filename', 'target_file', 'targetFile', 'absolute_path', 'directory', 'dir', 'folder']
+const FIND_KEYS = ['find', 'old_string', 'oldString', 'old_str', 'oldStr', 'old_text', 'oldText', 'old', 'search']
+const REPLACE_KEYS = ['replace', 'new_string', 'newString', 'new_str', 'newStr', 'new_text', 'newText', 'new', 'replacement']
+const TEXT_KEYS = ['text', 'content', 'title', 'task', 'description']
+
+/** The names each tool's fields go by, ours first. */
+const FIELD_ALIASES: Partial<Record<CoderToolName, Record<string, string[]>>> = {
+  list: { path: PATH_KEYS },
+  glob: { pattern: ['pattern', 'glob', 'query', 'name'] },
+  read: { path: PATH_KEYS, offset: ['offset', 'start_line', 'startLine', 'line'], limit: ['limit', 'max_lines', 'maxLines', 'lines', 'count'] },
+  search: { pattern: ['pattern', 'query', 'regex', 'search', 'q'], path: PATH_KEYS, glob: ['glob', 'include', 'file_pattern', 'filePattern'] },
+  write: { path: PATH_KEYS, content: ['content', 'contents', 'text', 'file_text', 'fileText', 'data', 'body'] },
+  edit: { path: PATH_KEYS, find: FIND_KEYS, replace: REPLACE_KEYS, edits: ['edits', 'changes', 'replacements'] },
+  delete: { path: PATH_KEYS },
+  move: { from: ['from', 'source', 'src', 'old_path', 'oldPath', 'path'], to: ['to', 'destination', 'dest', 'target', 'new_path', 'newPath'] },
+  run: { command: ['command', 'cmd', 'script', 'shell_command', 'bash', 'code'] },
+  todo: { items: ['items', 'todos', 'tasks', 'list'] },
+  web: { query: ['query', 'q', 'search', 'search_query', 'searchQuery', 'term'] }
+}
+
+const first = (d: Record<string, unknown>, keys: readonly string[]) => d[keys.find((key) => d[key] !== undefined) ?? '']
+
+const toolNamed = (value: unknown): CoderToolName | null =>
+  typeof value === 'string' ? (TOOL_ALIASES[(value.toLowerCase().split(/[.:/]/).at(-1) ?? '').replace(/[^a-z]/g, '')] ?? null) : null
+
+/** Parses JSON as models actually write it: raw newlines in strings, stray backslashes, trailing commas. */
+function looseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    // Mended below.
+  }
+  let out = ''
+  let inString = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (inString) {
+      if (c === '\\') {
+        const next = text[i + 1] ?? ''
+        if ('"\\/bfnrtu'.includes(next) && next) {
+          out += c + next
+          i++
+        } else out += '\\\\'
+      } else if (c === '\n') out += '\\n'
+      else if (c === '\r') out += '\\r'
+      else if (c === '\t') out += '\\t'
+      else {
+        if (c === '"') inString = false
+        out += c
+      }
+    } else if (c === ',' && /^\s*[}\]]/.test(text.slice(i + 1, i + 200))) continue
+    else {
+      if (c === '"') inString = true
+      out += c
+    }
+  }
+  try {
+    return JSON.parse(out)
+  } catch {
+    return undefined
+  }
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+
+/** Finds the tool and its fields, whichever of the common shapes a model used. */
+function unwrapTool(data: Record<string, unknown>): { tool: CoderToolName; fields: Record<string, unknown> } | null {
+  const fn = isObject(data.function) ? data.function : null
+  const rawNested = fn?.arguments ?? fn?.parameters ?? data.arguments ?? data.args ?? data.input ?? data.parameters ?? data.params
+  const parsedNested = typeof rawNested === 'string' ? looseJson(rawNested) : rawNested
+  const nested = isObject(parsedNested) ? parsedNested : null
+  const tool =
+    toolNamed(data.tool) ??
+    toolNamed(data.tool_name) ??
+    toolNamed(data.toolName) ??
+    toolNamed(fn?.name) ??
+    // A bare name could be anything, such as a package.json, so it needs its arguments alongside.
+    (nested ? toolNamed(data.name) : null) ??
+    (Object.keys(data).length > 1 ? (toolNamed(data.action) ?? toolNamed(data.function)) : null)
+  if (!tool) return null
+  const merged = { ...data, ...nested }
+  const aliases = FIELD_ALIASES[tool] ?? {}
+  const fields: Record<string, unknown> = {}
+  for (const [field, keys] of Object.entries(aliases)) fields[field] = first(merged, keys)
+  return { tool, fields }
+}
+
 function editsOf(d: Record<string, unknown>): { find: string; replace: string }[] | null {
   const list = Array.isArray(d.edits) ? d.edits : [{ find: d.find, replace: d.replace }]
   if (list.length === 0 || list.length > 50) return null
   const edits: { find: string; replace: string }[] = []
   for (const item of list) {
     if (!item || typeof item !== 'object') return null
-    const find = str((item as Record<string, unknown>).find, MAX_CONTENT)
-    const replace = str((item as Record<string, unknown>).replace, MAX_CONTENT)
+    const find = str(first(item as Record<string, unknown>, FIND_KEYS), MAX_CONTENT)
+    const replace = str(first(item as Record<string, unknown>, REPLACE_KEYS), MAX_CONTENT)
     if (!find || replace === null) return null
     edits.push({ find, replace })
   }
@@ -94,10 +202,11 @@ function editsOf(d: Record<string, unknown>): { find: string; replace: string }[
 }
 
 export function toCall(data: unknown): CoderCall | null {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
-  const d = data as Record<string, unknown>
+  if (!isObject(data)) return null
+  const found = unwrapTool(data)
+  if (!found) return null
+  const { tool, fields: d } = found
   const path = str(d.path, 1024)?.trim() || '.'
-  const tool = d.tool as CoderToolName
   switch (tool) {
     case 'list':
       return { tool, path }
@@ -131,14 +240,15 @@ export function toCall(data: unknown): CoderCall | null {
       return from && to && from !== '.' && to !== '.' ? { tool, from, to } : null
     }
     case 'run': {
-      const command = str(d.command, 4000)?.trim()
+      const command = str(Array.isArray(d.command) ? d.command.join(' ') : d.command, 4000)?.trim()
       return command ? { tool, command } : null
     }
     case 'todo': {
       if (!Array.isArray(d.items) || d.items.length > 40) return null
       const items = d.items.flatMap((item): CoderTodo[] => {
-        const text = item && typeof item === 'object' ? str((item as Record<string, unknown>).text, 300)?.trim() : null
-        return text ? [{ text, done: (item as Record<string, unknown>).done === true }] : []
+        if (!isObject(item)) return []
+        const text = str(first(item, TEXT_KEYS), 300)?.trim()
+        return text ? [{ text, done: item.done === true || item.completed === true || item.status === 'completed' || item.status === 'done' }] : []
       })
       return items.length > 0 ? { tool, items } : null
     }
@@ -151,42 +261,133 @@ export function toCall(data: unknown): CoderCall | null {
   }
 }
 
+const TOOL_KEY = /"(?:tool|tool_name|toolName|function|action|name)"\s*:/
+const SURELY_TOOL = /^\{\s*"(?:tool|tool_name|toolName)"\s*:/
+const INVOKE = /<invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/invoke>/g
+const INVOKE_PARAMETER = /<parameter\s+name="([^"]+)"\s*>([\s\S]*?)<\/parameter>/g
+const LEFTOVERS = /<\/?(?:tool_calls?|tool_use|function_calls)\s*>/g
+/** Stops a reply full of code from being walked over and over. */
+const MAX_OBJECTS_TRIED = 200
+
+interface Found {
+  start: number
+  end: number
+  call: CoderCall | null
+}
+
+/** Takes in the fence around a block, so none of it shows up as words. */
+function widened(reply: string, start: number, end: number): { start: number; end: number } {
+  const before = /```[\w-]*\s*$/.exec(reply.slice(Math.max(0, start - 30), start))
+  const after = /^\s*```/.exec(reply.slice(end, end + 12))
+  return { start: start - (before?.[0].length ?? 0), end: end + (after?.[0].length ?? 0) }
+}
+
 /**
- * Splits a reply into what it says and the tools it asks for, in order. A tool block that can't be
- * read is reported back to the model rather than treated as the end of the task.
+ * Splits a reply into what it says and the tools it asks for, in order. Models don't reliably keep
+ * to the format, so this accepts any fence or none, other agents' tool names and fields, and JSON
+ * that's slightly wrong. A tool block that can't be read is reported back to the model rather than
+ * treated as the end of the task.
  */
 export function parseCoderReply(reply: string): { text: string; calls: CoderCall[]; invalid: boolean } {
-  const fences = [...reply.matchAll(/```tool\b/g)].map((match) => match.index)
-  const starts = fences.length > 0 ? fences : [reply.search(/\{\s*"tool"\s*:/)].filter((at) => at !== -1)
-  if (starts.length === 0) return { text: reply.trim(), calls: [], invalid: false }
-  const calls: CoderCall[] = []
-  const said: string[] = [reply.slice(0, starts[0]).trim()]
-  let invalid = false
-  starts.forEach((at, index) => {
-    const found = objectAt(reply, at)
-    const next = starts[index + 1] ?? reply.length
-    if (!found || found.end > next) {
-      invalid = true
-      return
+  const found: Found[] = []
+  for (const match of reply.matchAll(INVOKE)) {
+    const fields = Object.fromEntries([...match[2]!.matchAll(INVOKE_PARAMETER)].map((parameter) => [parameter[1]!, parameter[2]!]))
+    found.push({ start: match.index, end: match.index + match[0].length, call: toCall({ tool: match[1], ...fields }) })
+  }
+  const invokes = [...found]
+  let invalid = found.some((item) => !item.call)
+
+  let tried = 0
+  for (let i = reply.indexOf('{'); i !== -1 && tried < MAX_OBJECTS_TRIED; i = reply.indexOf('{', i)) {
+    const within = invokes.find((item) => i >= item.start && i < item.end)
+    if (within) {
+      i = within.end
+      continue
     }
-    try {
-      const call = toCall(JSON.parse(found.json))
-      if (call) calls.push(call)
-      else invalid = true
-    } catch {
-      invalid = true
+    if (!TOOL_KEY.test(reply.slice(i, i + 300))) {
+      i++
+      continue
     }
-    // Words between and after blocks, without the fence that closes this one.
-    said.push(reply.slice(found.end, next).replace(/^\s*```/, '').trim())
-  })
-  return { text: said.filter(Boolean).join('\n\n'), calls: calls.slice(0, MAX_CALLS_PER_REPLY), invalid }
+    tried++
+    const object = objectAt(reply, i)
+    const surely = SURELY_TOOL.test(reply.slice(i, i + 80))
+    if (!object) {
+      if (surely) {
+        // Cut off, most likely by the reply's length limit. Nothing after it can be trusted.
+        invalid = true
+        found.push({ start: i, end: reply.length, call: null })
+        break
+      }
+      i++
+      continue
+    }
+    const data = looseJson(object.json)
+    const call = toCall(data)
+    if (call) {
+      found.push({ start: i, end: object.end, call })
+      i = object.end
+    } else if (surely) {
+      invalid = true
+      found.push({ start: i, end: object.end, call: null })
+      i = object.end
+    } else i++
+  }
+
+  // A fence marked as a tool always meant one, even if nothing in it could be read.
+  for (const fence of reply.matchAll(/```tool\b/g)) {
+    if (found.some((item) => item.start >= fence.index && item.start < fence.index + 30)) continue
+    const inside = found.some((item) => fence.index >= item.start && fence.index < item.end)
+    if (inside) continue
+    const close = reply.indexOf('```', fence.index + 7)
+    invalid = true
+    found.push({ start: fence.index, end: close === -1 ? reply.length : close + 3, call: null })
+  }
+
+  if (found.length === 0) return { text: reply.trim(), calls: [], invalid: false }
+  found.sort((a, b) => a.start - b.start)
+  const said: string[] = []
+  let from = 0
+  for (const item of found) {
+    const span = widened(reply, item.start, item.end)
+    said.push(reply.slice(from, Math.max(from, span.start)))
+    from = Math.max(from, span.end)
+  }
+  said.push(reply.slice(from))
+  const text = said
+    .map((part) => part.replace(LEFTOVERS, '').trim())
+    // What's left of a JSON array the blocks came in.
+    .filter((part) => part && !/^(?:```\w*|[[\],\s])+$/.test(part))
+    .join('\n\n')
+  return { text, calls: found.flatMap((item) => (item.call ? [item.call] : [])).slice(0, MAX_CALLS_PER_REPLY), invalid }
 }
 
 /** What's safe to show while a reply is still arriving: the words before its first tool block. */
 export function streamingText(partial: string): string {
-  const at = partial.search(/```tool\b|\{\s*"tool"\s*:/)
-  return (at === -1 ? partial.replace(/`{1,3}t?o?o?l?$/, '') : partial.slice(0, at)).trim()
+  const at = partial.search(/```(?:tool|json\w*)\b|<(?:tool_calls?|tool_use|function_calls|invoke)\b|\{\s*"(?:tool|tool_name|toolName|function|action)"\s*:/)
+  return (at === -1 ? partial.replace(/(?:`{1,3}\w*|<\w*)$/, '') : partial.slice(0, at)).replace(LEFTOVERS, '').trim()
 }
+
+/** The model's way of saying a nudge found nothing left to do. Never shown. */
+export const isDoneMarker = (text: string) => /^done\.?$/i.test(text.trim())
+
+/**
+ * Whether a reply with no tools reads like work that was meant to happen: it's empty, it trails off
+ * promising a step, or it ends on a shell block the model seems to expect to run.
+ */
+export function promisesAction(text: string): boolean {
+  const reply = text.trim()
+  if (!reply) return true
+  if (reply.endsWith('?')) return false
+  const lastPart = reply.split(/\n\s*\n/).at(-1) ?? reply
+  const promise = /\b(?:let me(?! know)|let's|i'll|i will|i'm going to|i am going to|i need to|next,? i|now,? i)\b/i
+  return reply.endsWith(':') || promise.test(lastPart) || /```(?:bash|sh|shell|zsh|console|terminal|powershell)\s*\n[\s\S]*```$/i.test(reply)
+}
+
+/** Told to the model when a reply promised work but ran nothing. */
+export const CODER_NUDGE = '(Your last reply had no tool block, so nothing ran. Only fenced tool blocks run: a command in a bash block, or a step you describe, does nothing. Carry on now with a tool block. If the task really is finished, reply with exactly DONE.)'
+
+/** Told to the model when a block couldn't be read. */
+export const CODER_BAD_BLOCK = 'A tool block could not be read, so it did not run. Use a fence marked tool holding one JSON object with all its fields, for example {"tool":"run","command":"npm test"}. Inside JSON strings, write newlines as \\n and escape double quotes. If a write was cut off for being long, write a smaller file and add to it with edit.'
 
 /** Stops output from closing its own tag and posing as the person. */
 export function toolResult(tool: string, body: string): string {

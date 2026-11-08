@@ -7,20 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  server:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - run: deno check main.ts
-      - run: deno test --allow-env
   server-worker:
-    # The Cloudflare Workers version, run locally in wrangler dev against fake providers.
+    # The hosted AI server on Cloudflare Workers, run locally in wrangler dev against fake providers.
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, realpath, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { CHANGING_TOOLS, CODER_PLAN_PROMPT, CODER_PROMPT, parseCoderReply, streamingText, toolResult, type CoderCall } from '@scbrowser/ai'
+import { CHANGING_TOOLS, CODER_BAD_BLOCK, CODER_NUDGE, CODER_PLAN_PROMPT, CODER_PROMPT, isDoneMarker, parseCoderReply, promisesAction, streamingText, toolResult, type CoderCall } from '@scbrowser/ai'
 import { CODER_MAX_STEPS, type AssistantMessage, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode } from '@scbrowser/shared'
 import { applyEdits, clip, deleteFile, globFiles, inside, lineDiff, listFiles, moveFile, readLines, readText, runCommand, searchFiles, shown, ToolError, writeText } from './coderTools'
 
@@ -11,6 +11,10 @@ const MAX_CONTEXT_CHARS = 350_000
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', '.cursorrules', 'README.md']
 const INSTRUCTION_CHARS = 6000
 const STREAM_EVERY_MS = 80
+/** Times in a row a reply may promise work without doing it before that's taken as the answer. */
+const MAX_NUDGES = 2
+/** Times in a row every tool block may be unreadable before giving up, rather than spending the step limit. */
+const MAX_BAD_REPLIES = 4
 
 type Emit = (event: CoderEvent) => void
 
@@ -127,6 +131,8 @@ export class Coder {
       const modeNote = mode === 'plan' ? '\n\n(Plan mode: look and plan only.)' : ''
       session.messages.push({ role: 'user', content: first ? `${await projectContext(folder)}\n\nTask:\n${task}${modeNote}` : `${task}${modeNote}` })
       const system = mode === 'plan' ? CODER_PROMPT + CODER_PLAN_PROMPT : CODER_PROMPT
+      let nudges = 0
+      let badReplies = 0
       for (let step = 1; ; step++) {
         if (signal.aborted) return emit({ sessionId, type: 'done', reason: 'stopped' })
         if (step > CODER_MAX_STEPS) {
@@ -146,8 +152,16 @@ export class Coder {
         if (signal.aborted) return emit({ sessionId, type: 'done', reason: 'stopped' })
         session.messages.push({ role: 'assistant', content: reply })
         const { text, calls, invalid } = parseCoderReply(reply)
-        if (text) emit({ sessionId, type: 'text', text })
-        if (calls.length === 0 && !invalid) return emit({ sessionId, type: 'done', reason: 'finished' })
+        if (text && !isDoneMarker(text)) emit({ sessionId, type: 'text', text })
+        if (calls.length === 0 && !invalid) {
+          if (isDoneMarker(text) || nudges >= MAX_NUDGES || !promisesAction(text)) return emit({ sessionId, type: 'done', reason: 'finished' })
+          nudges++
+          session.messages.push({ role: 'user', content: CODER_NUDGE })
+          continue
+        }
+        nudges = 0
+        badReplies = calls.length === 0 ? badReplies + 1 : 0
+        if (badReplies >= MAX_BAD_REPLIES) throw new ToolError('The model keeps sending tool requests that can\'t be read. Try again, or choose a stronger coding model in AI settings.')
         const results: string[] = []
         let declined = false
         for (const call of calls) {
@@ -160,7 +174,7 @@ export class Coder {
           declined = outcome.declined
           results.push(toolResult(call.tool, outcome.output))
         }
-        if (invalid) results.push(toolResult('error', 'A tool block could not be read. Use one JSON object per block in the format shown, with all required fields.'))
+        if (invalid) results.push(toolResult('error', CODER_BAD_BLOCK))
         session.messages.push({ role: 'user', content: results.join('\n') })
       }
     } catch (error) {
