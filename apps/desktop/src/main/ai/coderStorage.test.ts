@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -33,7 +33,7 @@ function scripted(replies: string[], deps = storage()) {
 describe('command undo', () => {
   it('finds and puts back files a command changed, created and deleted', async () => {
     await writeFile(join(root, 'gone.txt'), 'keep me\n')
-    const coder = scripted([tool({ tool: 'run', command: 'printf changed > a.txt; printf new > made.txt; rm gone.txt' }), 'Finished.'])
+    const coder = scripted([tool({ tool: 'run', command: 'echo changed> a.txt && echo new> made.txt && (rm gone.txt || del gone.txt)' }), 'Finished.'])
     await coder.run('s', root, 'go', 'edits', allow(coder))
     const changes = await coder.changes('s')
     expect(changes.map((file) => [file.path, file.status])).toEqual([['a.txt', 'modified'], ['gone.txt', 'deleted'], ['made.txt', 'created']])
@@ -230,7 +230,7 @@ describe('native tools', () => {
 
   it('answers calls left open by a stop before asking again', async () => {
     const deps = storage()
-    await deps.checkpoints.save('s', { version: 1, folder: root, native: true, introduced: true, messages: [{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolUses: [{ id: 'open', name: 'read', input: { path: 'a.txt' } }] }], originals: [], opaque: [], seen: [] })
+    await deps.checkpoints.save('s', { version: 1, folder: await realpath(root), native: true, introduced: true, messages: [{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolUses: [{ id: 'open', name: 'read', input: { path: 'a.txt' } }] }], originals: [], opaque: [], seen: [] })
     const { coder, calls } = nativeCoder([], [], deps)
     await coder.run('s', root, 'carry on', 'ask', allow(coder))
     expect(calls[0]!.messages[2]!.toolResults![0]!.id).toBe('open')
