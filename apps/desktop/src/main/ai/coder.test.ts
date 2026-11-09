@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CoderEvent } from '@scbrowser/shared'
-import { Coder, trimContext } from './coder'
+import { Coder, transcriptOf, trimContext } from './coder'
 
 let root = ''
 beforeEach(async () => {
@@ -128,5 +128,104 @@ describe('Coder 0.4.7', () => {
     await coder.run('s', root, 'x', 'ask', () => undefined)
     expect(seen[0]![0]).toContain('a.txt')
     expect(seen[0]![0]).toContain('Use tabs.')
+  })
+})
+
+describe('Coder agent behaviour', () => {
+  const finish = () => undefined
+
+  it('tries again when the model is briefly unavailable, but not on a daily limit', async () => {
+    let calls = 0
+    const events: CoderEvent[] = []
+    const coder = new Coder({ retrySeconds: [0, 0], chat: async () => (++calls < 3 ? Promise.reject(new Error('503 overloaded')) : 'All done.') })
+    await coder.run('s', root, 'go', 'ask', (event) => events.push(event))
+    expect(calls).toBe(3)
+    expect(events.filter((event) => event.type === 'retrying')).toHaveLength(2)
+    let limited = 0
+    const out: CoderEvent[] = []
+    await new Coder({ retrySeconds: [0], chat: async () => (limited++, Promise.reject(new Error('429 daily limit reached'))) }).run('t', root, 'go', 'ask', (event) => out.push(event))
+    expect(limited).toBe(1)
+    expect(out.at(-1)?.type).toBe('error')
+  })
+
+  it('reads a message sent during a run at its next step', async () => {
+    const seen: string[] = []
+    const replies = [tool({ tool: 'list', path: '.' }), 'Finished.']
+    const coder = new Coder({
+      chat: async (messages) => {
+        seen.push(messages.at(-1)!.content)
+        if (seen.length === 1) expect(coder.steer('s', 'use tabs please')).toBe(true)
+        return replies.shift() ?? 'Finished.'
+      }
+    })
+    await coder.run('s', root, 'go', 'ask', finish)
+    expect(seen.join('\n')).toContain('use tabs please')
+    expect(coder.steer('s', 'too late')).toBe(false)
+  })
+
+  it('refuses an edit to a file that changed since it was read', async () => {
+    const seen: string[][] = []
+    const replies = [tool({ tool: 'read', path: 'a.txt' }), tool({ tool: 'edit', path: 'a.txt', find: 'hello', replace: 'bye' }), 'Stopping.']
+    const coder = new Coder({
+      chat: async (messages) => {
+        seen.push(messages.map((m) => m.content))
+        if (seen.length === 2) {
+          await new Promise((done) => setTimeout(done, 15))
+          await writeFile(join(root, 'a.txt'), 'hello from someone else\n')
+        }
+        return replies.shift() ?? 'Stopping.'
+      }
+    })
+    await coder.run('s', root, 'go', 'edits', finish)
+    expect(seen.at(-1)!.at(-1)).toContain('changed since you read it')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hello from someone else\n')
+  })
+
+  it('stops repeating the same step', async () => {
+    const same = tool({ tool: 'list', path: '.' })
+    const { coder, seen } = scripted([same, same, same, same, 'Giving up.'])
+    await coder.run('s', root, 'go', 'ask', finish)
+    expect(seen.at(-1)!.at(-1)).toContain('already done exactly this 3 times')
+  })
+
+  it('runs an explore helper that can only look, and keeps its reading out of the main chat', async () => {
+    const systems: string[] = []
+    const replies = [tool({ tool: 'explore', task: 'What is in a.txt?' }), tool({ tool: 'read', path: 'a.txt' }), 'a.txt holds a greeting.', 'Finished.']
+    const seen: string[] = []
+    await new Coder({
+      chat: async (messages, system) => {
+        systems.push(system)
+        seen.push(messages.map((m) => m.content).join('\n'))
+        return replies.shift() ?? 'Finished.'
+      }
+    }).run('s', root, 'go', 'ask', finish)
+    expect(systems[1]).toContain('research helper')
+    expect(seen.at(-1)).toContain('a.txt holds a greeting.')
+    expect(seen.at(-1)).not.toContain('    1  hello')
+  })
+
+  it('asks for a check when files changed and the project has checks, once', async () => {
+    await writeFile(join(root, 'package.json'), '{"scripts":{"test":"vitest"}}')
+    const { coder, seen } = scripted([tool({ tool: 'write', path: 'b.txt', content: 'x' }), 'Wrote it.', 'DONE'])
+    await coder.run('s', root, 'go', 'edits', finish)
+    expect(seen).toHaveLength(3)
+    expect(seen.at(-1)!.at(-1)).toContain('ran nothing to check them')
+  })
+
+  it('undoes one file and leaves the others', async () => {
+    const { coder } = scripted([tool({ tool: 'write', path: 'a.txt', content: 'one' }) + '\n' + tool({ tool: 'write', path: 'b.txt', content: 'two' }), 'Done it.'])
+    await coder.run('s', root, 'go', 'edits', finish)
+    expect(await coder.undo('s', 'a.txt')).toBe(1)
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hello\n')
+    expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('two')
+    expect((await coder.changes('s')).map((file) => file.path)).toEqual(['b.txt'])
+  })
+
+  it('rebuilds a conversation from a saved screen', () => {
+    expect(transcriptOf([{ kind: 'task', text: 'Fix it' }, { kind: 'tool', summary: 'Read a.txt', ok: true }, { kind: 'text', text: 'Fixed.' }, { kind: 'note', text: 'x' }])).toEqual([
+      { role: 'user', content: 'Fix it' },
+      { role: 'assistant', content: '(Steps I took: Read a.txt.)\n\nFixed.' }
+    ])
+    expect(transcriptOf('nonsense')).toEqual([])
   })
 })

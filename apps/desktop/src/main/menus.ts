@@ -398,7 +398,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { type: 'separator' },
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
     { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
-    { label: 'Terra Code (beta)', click: () => actions.openPage('code') },
+    { label: 'Terra Code (beta)', click: () => actions.openCode() },
     { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
     { label: 'VPN', click: () => actions.openPage('vpn') },
     { type: 'separator' },

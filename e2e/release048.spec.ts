@@ -57,8 +57,8 @@ test('Terra Code runs tools however the model writes them, and keeps them out of
       '<tool_call>{"name":"write_file","arguments":{"path":"c.txt","content":"three"}}</tool_call>',
       'All three steps are finished.'
     )
-    await go(h, 'sc://code')
-    const page = await h.page('sc://code')
+    await go(h, 'sc://assistant/?mode=code')
+    const page = await h.page('sc://assistant')
     await page.getByRole('textbox', { name: 'Describe a change' }).fill('Make the files')
     await page.getByRole('textbox', { name: 'Describe a change' }).press('Enter')
     await expect(page.getByText('All three steps are finished.')).toBeVisible()

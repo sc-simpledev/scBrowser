@@ -1,4 +1,8 @@
-/** Terra Code, agentic coding (beta): the assistant works on files in a folder the person picks, on sc://code and in sc://assistant. */
+/** Terra Code, agentic coding (beta): the assistant works on files in a folder the person picks, in sc://assistant. */
+
+/** Terra Code's chats share the assistant's list, and are told apart by this start to their id. */
+export const CODE_CHAT_PREFIX = 'code-'
+export const isCodeChat = (id: string) => id.startsWith(CODE_CHAT_PREFIX)
 
 /**
  * `plan` only looks and plans; `ask` asks before every change and command; `edits` changes files
@@ -6,7 +10,7 @@
  */
 export type CoderMode = 'plan' | 'ask' | 'edits'
 
-export type CoderToolName = 'list' | 'glob' | 'read' | 'search' | 'write' | 'edit' | 'delete' | 'move' | 'run' | 'todo' | 'web'
+export type CoderToolName = 'list' | 'glob' | 'read' | 'search' | 'write' | 'edit' | 'delete' | 'move' | 'run' | 'todo' | 'web' | 'explore'
 
 export interface CoderTodo {
   text: string
@@ -31,6 +35,8 @@ export type CoderEvent =
   /** A change or command waiting for the person. `detail` is a diff or the command itself. */
   | { sessionId: string; type: 'approval'; id: string; kind: 'change' | 'command'; summary: string; detail: string }
   | { sessionId: string; type: 'thinking'; step: number }
+  /** The model couldn't be reached or was busy, and it's trying again shortly. */
+  | { sessionId: string; type: 'retrying'; seconds: number }
   /** The model's plan, as a checklist. */
   | { sessionId: string; type: 'todo'; items: CoderTodo[] }
   /** Every file this session has changed so far. */
@@ -51,4 +57,4 @@ export interface CoderStatus {
 export type CoderAnswer = 'allow' | 'always' | 'deny'
 
 export const CODER_MAX_TASK_CHARS = 20_000
-export const CODER_MAX_STEPS = 80
+export const CODER_MAX_STEPS = 150

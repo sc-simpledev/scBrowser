@@ -1,7 +1,7 @@
 import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { conversationFiles, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
 import { CopyReply, latestReport, ReplyContent, Thinking, type OpenSource } from '../../shared/ReplyContent'
 import { ReportPane, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
@@ -64,12 +64,12 @@ const dayLabel = (time: number) => {
   return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
-/** Saved conversations, newest first. */
-function ChatList({ chats, current, onDelete }: { chats: ChatSummary[]; current: string | null; onDelete: (id: string) => void }) {
+/** Saved conversations and Terra Code sessions together, newest first. */
+function ChatList({ chats, current, onDelete, newHref = 'sc://assistant/' }: { chats: ChatSummary[]; current: string | null; onDelete: (id: string) => void; newHref?: string }) {
   return (
     <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border p-3">
     <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-2">
-      <Button onClick={() => (location.href = 'sc://assistant/')}>
+      <Button onClick={() => (location.href = newHref)}>
         <Plus aria-hidden size={14} strokeWidth={1.75} />
         New chat
       </Button>
@@ -84,9 +84,11 @@ function ChatList({ chats, current, onDelete }: { chats: ChatSummary[]; current:
               <a
                 href={`sc://assistant/?chat=${encodeURIComponent(chat.id)}`}
                 aria-current={chat.id === current ? 'page' : undefined}
-                className={cx('min-w-0 flex-1 truncate px-2 py-1.5 pr-8', chat.id === current ? 'font-medium text-text' : 'text-text-muted')}
+                title={isCodeChat(chat.id) ? `Terra Code: ${chat.title}` : chat.title}
+                className={cx('flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 pr-8', chat.id === current ? 'font-medium text-text' : 'text-text-muted')}
               >
-                {chat.title}
+                {isCodeChat(chat.id) && <SquareTerminal aria-label="Terra Code" size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />}
+                <span className="min-w-0 flex-1 truncate">{chat.title}</span>
               </a>
               <IconButton size="sm" label="Delete chat" className="absolute right-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onClick={() => onDelete(chat.id)}>
                 <Trash2 size={12} strokeWidth={1.75} />
@@ -120,15 +122,26 @@ export function AssistantPage() {
   useEffect(() => {
     void api().invoke('settings:get').then((settings) => setReportWidth(Math.max(REPORT_START_WIDTH, settings.reportWidth)))
   }, [])
-  const chatId = useRef<string | null>(new URLSearchParams(location.search).get('chat'))
-  const [view, setViewState] = useState<View>(new URLSearchParams(location.search).get('mode') === 'code' ? 'code' : 'chat')
+  const opened = new URLSearchParams(location.search).get('chat')
+  const openedCode = opened !== null && isCodeChat(opened) ? opened : null
+  const chatId = useRef<string | null>(openedCode ? null : opened)
+  const [codeChat] = useState(openedCode)
+  const [codeId, setCodeId] = useState(openedCode)
+  const codeIdRef = useRef(openedCode)
+  const [view, setViewState] = useState<View>(openedCode || new URLSearchParams(location.search).get('mode') === 'code' ? 'code' : 'chat')
+  // Only made once it's first shown, then kept, so going to Chat and back doesn't lose a run in progress.
+  const [codeOpened, setCodeOpened] = useState(view === 'code')
   const [codeTask, setCodeTask] = useState<string | null>(null)
   const takeCodeTask = useCallback(() => setCodeTask(null), [])
   const setView = useCallback((next: View) => {
     setViewState(next)
+    if (next === 'code') setCodeOpened(true)
     const url = new URL(location.href)
     if (next === 'code') url.searchParams.set('mode', 'code')
     else url.searchParams.delete('mode')
+    const shown = next === 'code' ? codeIdRef.current : chatId.current
+    if (shown) url.searchParams.set('chat', shown)
+    else url.searchParams.delete('chat')
     history.replaceState(null, '', url)
     document.title = next === 'code' ? 'Terra Code' : 'Assistant'
   }, [])
@@ -189,9 +202,24 @@ export function AssistantPage() {
   const refreshChats = useCallback(() => void api().invoke('chats:list').then(setChats), [])
   useEffect(refreshChats, [refreshChats])
 
+  // The chat Terra Code is showing, kept in the address so a reload comes back to it.
+  const onCodeChat = useCallback((id: string | null) => {
+    codeIdRef.current = id
+    setCodeId(id)
+    if (new URLSearchParams(location.search).get('mode') === 'code' || id === null) {
+      const url = new URL(location.href)
+      if (id) url.searchParams.set('chat', id)
+      else url.searchParams.delete('chat')
+      history.replaceState(null, '', url)
+    }
+    if (id) refreshChats()
+  }, [refreshChats])
+
   const deleteChat = (id: string) => {
+    if (isCodeChat(id)) void api().invoke('coder:reset', id)
     void api().invoke('chats:delete', id).then(refreshChats)
     if (id === chatId.current) location.href = 'sc://assistant/'
+    if (id === codeIdRef.current) location.href = 'sc://assistant/?mode=code'
   }
 
   useEffect(() => {
@@ -280,7 +308,7 @@ export function AssistantPage() {
   }
 
   // Saved chats can still be read with no AI set up.
-  if (status && !status.ready && turns.length === 0) {
+  if (view === 'chat' && !codeOpened && status && !status.ready && turns.length === 0) {
     return (
       <div className="flex h-full">
         <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />
@@ -373,19 +401,28 @@ export function AssistantPage() {
     </div>
   )
 
-  if (view === 'code') {
-    return (
-      <div className="flex h-full">
-        <div className="flex min-w-72 flex-1 flex-col">
-          <CodeWorkspace embedded initialTask={codeTask} onInitialTaskTaken={takeCodeTask} leading={<ViewSwitch view={view} onChange={setView} />} />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-full">
-      {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
+      {listOpen && <ChatList chats={chats} current={view === 'code' ? codeId : chatId.current} onDelete={deleteChat} newHref={view === 'code' ? 'sc://assistant/?mode=code' : 'sc://assistant/'} />}
+      {codeOpened && (
+        <div className={cx('min-w-72 flex-1 flex-col', view === 'code' ? 'flex' : 'hidden')}>
+          <CodeWorkspace
+            chat={codeChat}
+            onChat={onCodeChat}
+            initialTask={codeTask}
+            onInitialTaskTaken={takeCodeTask}
+            leading={
+              <>
+                <IconButton size="sm" label={listOpen ? 'Hide chats' : 'Show chats'} aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
+                  <PanelLeft size={15} strokeWidth={1.75} />
+                </IconButton>
+                <ViewSwitch view={view} onChange={setView} />
+              </>
+            }
+          />
+        </div>
+      )}
+      {view === 'chat' && <>
       <div className="relative flex min-w-72 flex-1 flex-col">
         <IconButton label={listOpen ? 'Hide chats' : 'Show chats'} side="right" className="absolute top-2 left-2 z-10" aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
           <PanelLeft size={15} strokeWidth={1.75} />
@@ -508,6 +545,7 @@ export function AssistantPage() {
           onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}
         />
       )}
+      </>}
     </div>
   )
 }

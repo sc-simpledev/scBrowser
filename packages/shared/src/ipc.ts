@@ -531,11 +531,17 @@ export interface InternalCommands {
   /** Opens the group's tabs again in the window it's asked from, and takes it off the list. */
   'groups:reopen': (id: string) => void
   'groups:forget': (id: string) => void
-  /** Terra Code, agentic coding (beta). Only sc://code and sc://assistant may call these. */
+  /** Terra Code, agentic coding (beta). Only sc://assistant may call these. */
   'coder:status': () => CoderStatus
   'coder:pick-folder': () => string | null
   'coder:open-folder': () => void
   'coder:run': (sessionId: string, task: string) => void
+  /** A message for a run already under way, read at its next step. False if nothing is running. */
+  'coder:steer': (sessionId: string, text: string) => boolean
+  /** Keeps what the chat shows. The folder is recorded by the main process, not taken from the page. */
+  'coder:save': (sessionId: string, title: string, data: string) => void
+  /** Goes back to a saved chat and its folder. `data` is what was given to coder:save. */
+  'coder:open': (sessionId: string) => { data: string; folder: string } | null
   'coder:answer': (approvalId: string, answer: CoderAnswer) => void
   'coder:stop': (sessionId: string) => void
   'coder:reset': (sessionId: string) => void
@@ -543,7 +549,7 @@ export interface InternalCommands {
   'coder:changes': (sessionId: string) => CoderChange[]
   'coder:diff': (sessionId: string, path: string) => string
   /** Puts every file the session changed back as it was. Returns how many. */
-  'coder:undo': (sessionId: string) => number
+  'coder:undo': (sessionId: string, path?: string) => number
   'highlights:list': () => Highlight[]
   'highlights:note': (id: string, note: string) => void
   'highlights:remove': (id: string) => void
@@ -725,6 +731,9 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:pick-folder',
   'coder:open-folder',
   'coder:run',
+  'coder:steer',
+  'coder:save',
+  'coder:open',
   'coder:answer',
   'coder:stop',
   'coder:reset',

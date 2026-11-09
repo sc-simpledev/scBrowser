@@ -231,8 +231,8 @@ test('the coding agent works only in its folder and asks before changing a file'
       'Changed the greeting to goodbye.'
     )
     await go(h, 'sc://code')
-    const page = await h.page('sc://code')
-    await expect(page.getByRole('heading', { name: 'Terra Code' })).toBeVisible()
+    const page = await h.page('sc://assistant')
+    await expect(page.getByRole('tab', { name: 'Code' })).toHaveAttribute('aria-selected', 'true')
     await page.getByRole('textbox', { name: 'Describe a change' }).fill('Say goodbye instead')
     await page.getByRole('textbox', { name: 'Describe a change' }).press('Enter')
     const card = page.getByRole('group', { name: 'Edit greeting.txt' })
@@ -250,7 +250,7 @@ test('the coding agent works only in its folder and asks before changing a file'
       return h.page('sc://settings')
     })()
     const refused = await other.evaluate(() => (window as unknown as { scbInternal: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> } }).scbInternal.invoke('coder:run', 'x', 'delete everything').then(() => 'ran', (error: Error) => error.message))
-    expect(refused).toContain('Only sc://code')
+    expect(refused).toContain('Only sc://assistant')
   } finally {
     rmSync(folder, { recursive: true, force: true })
   }

@@ -4,8 +4,7 @@ import { WebContentsView, type BaseWindow } from 'electron'
 import {
   EMPTY_OVERLAY,
   type LinkPreviewState,
-  overlayRegions,
-  unionRect,
+  overlayBounds,
   type AccentId,
   type AppLinkPromptState,
   type AuthPopupState,
@@ -450,7 +449,7 @@ export class Overlay {
 
   private render(): void {
     if (this.destroyed) return
-    const bounds = unionRect(overlayRegions(this.current()))
+    const bounds = overlayBounds(this.current())
     if (!bounds) {
       this.view.setVisible(false)
       this.send()

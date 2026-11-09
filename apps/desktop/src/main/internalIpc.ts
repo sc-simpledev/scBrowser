@@ -1,3 +1,4 @@
+import { transcriptOf } from './ai/coder'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
@@ -122,14 +123,27 @@ type Dispatch = (event: IpcMainInvokeEvent, channel: unknown, args: unknown[]) =
 /** One per window. A page's calls go to the window holding its tab. */
 const dispatchers = new Map<TabManager, Dispatch>()
 
+const MAX_CODE_CHAT_CHARS = 6_000_000
+
 export function registerInternalIpc(services: InternalServices): () => void {
   const { core, window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
+
+  /** Picks a saved Terra Code chat back up after a restart, from what its screen showed. */
+  const savedCodeMessages = (id: string) => {
+    const saved = chats.getCode(id)
+    if (!saved) return undefined
+    try {
+      return transcriptOf((JSON.parse(saved.data) as { items?: unknown }).items)
+    } catch {
+      return undefined
+    }
+  }
 
   // Set for each call, so replies go back to the page that asked.
   let caller: WebContents | null = null
   /** It works on the person's files and runs commands, so no other page may drive it. */
   const coderOnly = (): WebContents => {
-    if (!caller || !/^sc:\/\/(code|assistant)(\/|$|\?|#)/.test(caller.getURL())) throw new Error('Only sc://code and sc://assistant can use Terra Code.')
+    if (!caller || !/^sc:\/\/assistant(\/|$|\?|#)/.test(caller.getURL())) throw new Error('Only sc://assistant can use Terra Code.')
     return caller
   }
 
@@ -510,9 +524,32 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const sender = coderOnly()
       const { coderFolder, coderMode } = settings.get()
       if (!coderFolder) throw new Error('Choose a project folder first.')
-      void ai.coder.run(text(sessionId, 64), coderFolder, text(task, CODER_MAX_TASK_CHARS), coderMode, (event) => {
-        if (!sender.isDestroyed()) sender.send('coder:event', event)
-      })
+      const id = text(sessionId, 64)
+      // Leaving the page leaves nobody to answer its questions, so the run ends with it. Going to a saved chat is one such move.
+      const stop = () => ai.coder.stop(id)
+      sender.once('did-navigate', stop)
+      void ai.coder
+        .run(id, coderFolder, text(task, CODER_MAX_TASK_CHARS), coderMode, (event) => {
+          if (!sender.isDestroyed()) sender.send('coder:event', event)
+        }, savedCodeMessages(id))
+        .finally(() => {
+          if (!sender.isDestroyed()) sender.off('did-navigate', stop)
+        })
+    },
+    'coder:steer': (sessionId, message) => {
+      coderOnly()
+      return ai.coder.steer(text(sessionId, 64), text(message, CODER_MAX_TASK_CHARS))
+    },
+    'coder:save': (sessionId, title, data) => {
+      coderOnly()
+      const { saveChats, coderFolder } = settings.get()
+      if (saveChats && coderFolder) chats.saveCode(text(sessionId, 64), text(title, 20_000), coderFolder, text(data, MAX_CODE_CHAT_CHARS))
+    },
+    'coder:open': (sessionId) => {
+      coderOnly()
+      const saved = chats.getCode(text(sessionId, 64))
+      if (saved && saved.folder !== settings.get().coderFolder) settings.set({ coderFolder: saved.folder })
+      return saved
     },
     'coder:answer': (id, answer) => {
       coderOnly()
@@ -535,9 +572,9 @@ export function registerInternalIpc(services: InternalServices): () => void {
       coderOnly()
       return ai.coder.diff(text(sessionId, 64), text(path, 1024))
     },
-    'coder:undo': (sessionId) => {
+    'coder:undo': (sessionId, path) => {
       coderOnly()
-      return ai.coder.undo(text(sessionId, 64))
+      return ai.coder.undo(text(sessionId, 64), path === undefined ? undefined : text(path, 1024))
     },
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {

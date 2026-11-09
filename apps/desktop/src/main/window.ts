@@ -321,6 +321,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     toggleBookmarksBar: () => settings.set({ bookmarksBar: settings.get().bookmarksBar === 'always' ? 'bookmarks-page' : 'always' }),
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page, part) => tabs.openInternal(`sc://${page}${part ? `/#${part}` : ''}`),
+    openCode: () => tabs.openInternal('sc://assistant/?mode=code'),
     toggleAssistant: () => send('ui:assistant-toggle'),
     passwordMenu: () => openPasswordMenu(),
     toggleReader: () => {
@@ -849,7 +850,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     highlights: () => actions.openPage('highlights'),
     'watched-pages': () => actions.openPage('watching'),
     'archived-tabs': () => actions.openPage('archive'),
-    code: () => actions.openPage('code'),
+    code: () => actions.openCode(),
     'reopen-group': () => {
       const [latest] = actions.closedGroups()
       if (latest) actions.reopenGroup(latest.id)

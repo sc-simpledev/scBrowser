@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_OVERLAY, LINK_PREVIEW, linkPreviewLayout, overlayRegions, type OverlayView } from './overlay'
+import { EMPTY_OVERLAY, LINK_PREVIEW, linkPreviewLayout, overlayBounds, overlayRegions, type OverlayView } from './overlay'
 
 const view = (patch: Partial<OverlayView>): OverlayView => ({ ...EMPTY_OVERLAY, permission: null, palette: null, tabSearch: null, appLink: null, extensionsPopup: null, extensionFrame: null, accent: 'teal', performance: false, toast: null, bookmarkEditor: null, auth: null, passwordPrompt: null, passwordSuggest: null, cleanup: null, workspaceEditor: null, linkPreview: null, siteControls: null, ...patch })
 
@@ -32,5 +32,18 @@ describe('link preview layout', () => {
   it('makes the whole page take clicks, so clicking beside it closes it', () => {
     const backdrop = { x: 240, y: 80, width: 1200, height: 800 }
     expect(overlayRegions(view({ linkPreview: { backdrop, card: backdrop, title: '', url: 'https://a.com', loading: false } }))).toContainEqual(backdrop)
+  })
+})
+
+describe('overlayBounds', () => {
+  const tooltip = { anchor: { x: 10, y: 5, width: 100, height: 30 }, label: 'Tab' }
+  const toast = { text: 'Saved', x: 900, y: 600 }
+  it('never stretches over the tabs and page to hold two popups far apart', () => {
+    const both = overlayBounds({ ...EMPTY_OVERLAY, tooltip, toast } as unknown as OverlayView)!
+    expect(both.x).toBeGreaterThan(800)
+    expect(both.width).toBeLessThan(500)
+  })
+  it('is empty with nothing to show', () => {
+    expect(overlayBounds(EMPTY_OVERLAY as unknown as OverlayView)).toBeNull()
   })
 })

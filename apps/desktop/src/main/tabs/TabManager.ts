@@ -534,6 +534,8 @@ export class TabManager {
   activate(id: TabId): void {
     const next = this.tabs.get(id)
     if (!next) return
+    // A drag whose release got lost mustn't leave every tab unable to take its place.
+    if (this.resizing) this.setResizing(false)
     this.workspaceId = next.state.workspace
     if (this.split?.includes(id)) {
       this.activeId = id

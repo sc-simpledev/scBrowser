@@ -1,5 +1,5 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
-import { shownMessage, type ChatSummary, type SavedChat, type SavedTurn } from '@scbrowser/shared'
+import { CODE_CHAT_PREFIX, shownMessage, type ChatSummary, type SavedChat, type SavedTurn } from '@scbrowser/shared'
 
 const TITLE_LENGTH = 80
 
@@ -32,11 +32,24 @@ export class ChatsRepo {
     this.upsert.run(id, first.slice(0, TITLE_LENGTH), JSON.stringify(turns), now)
   }
 
+  /** A Terra Code chat: what its screen showed, and the folder it was working in. */
+  saveCode(id: string, title: string, folder: string, data: string, now = Date.now()): void {
+    if (!id.startsWith(CODE_CHAT_PREFIX)) throw new Error('Invalid chat')
+    this.upsert.run(id, title.replace(/\s+/g, ' ').trim().slice(0, TITLE_LENGTH) || 'Code', JSON.stringify({ folder, data }), now)
+  }
+
+  getCode(id: string): { folder: string; data: string } | null {
+    if (!id.startsWith(CODE_CHAT_PREFIX)) return null
+    const row = this.getQuery.get(id) as (Row & { turns: string }) | undefined
+    return row ? (JSON.parse(row.turns) as { folder: string; data: string }) : null
+  }
+
   list(): ChatSummary[] {
     return (this.listQuery.all() as unknown as Row[]).map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at }))
   }
 
   get(id: string): SavedChat | null {
+    if (id.startsWith(CODE_CHAT_PREFIX)) return null
     const row = this.getQuery.get(id) as (Row & { turns: string }) | undefined
     if (!row) return null
     return { id: row.id, title: row.title, updatedAt: row.updated_at, turns: JSON.parse(row.turns) as SavedTurn[] }

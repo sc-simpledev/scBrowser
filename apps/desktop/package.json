@@ -1,7 +1,7 @@
 {
   "name": "@scbrowser/desktop",
   "productName": "scTerra",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "private": true,
   "license": "UNLICENSED",
   "description": "A modern, AI-native browser for Linux, Windows and macOS.",

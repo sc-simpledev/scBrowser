@@ -1,4 +1,4 @@
-import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, SquareTerminal, type LucideIcon } from 'lucide-react'
+import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { Fragment, lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -23,7 +23,6 @@ const WatchingPage = lazy(() => import('./pages/WatchingPage').then((m) => ({ de
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then((m) => ({ default: m.HighlightsPage })))
 const ReadingPage = lazy(() => import('./pages/ReadingPage').then((m) => ({ default: m.ReadingPage })))
 const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
-const CodePage = lazy(() => import('./pages/CodePage').then((m) => ({ default: m.CodePage })))
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
@@ -40,14 +39,13 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   highlights: { title: 'Highlights', icon: Highlighter, component: HighlightsPage },
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
-  flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage },
-  code: { title: 'Terra Code (beta)', icon: SquareTerminal, component: CodePage }
+  flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
 /** The sidebar, in clusters of related pages, so the long list reads at a glance. */
 const NAV: InternalPage[][] = [
   ['settings', 'history', 'bookmarks', 'downloads', 'passwords'],
-  ['assistant', 'ai', 'code'],
+  ['assistant', 'ai'],
   ['reading', 'highlights', 'watching', 'archive'],
   ['blocker', 'vpn', 'tasks', 'flags']
 ]
@@ -65,6 +63,11 @@ export function InternalApp() {
 }
 
 function InternalPage() {
+  // Terra Code moved into the assistant. Old bookmarks and restored tabs still come here.
+  if (location.host === 'code') {
+    location.replace('sc://assistant/?mode=code')
+    return null
+  }
   if (location.host === 'blocked') return <BlockedPage />
   if (location.host === 'pdf') return <PdfPage />
   if (location.host === 'welcome') return <WelcomePage />
@@ -122,7 +125,7 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && current !== 'code' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
+        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
           {NAV.map((cluster, index) => (
             <Fragment key={cluster[0]}>
               {index > 0 && <div aria-hidden className="mx-2.5 my-1.5 h-px shrink-0 bg-border" />}
@@ -150,7 +153,7 @@ function PageFrame() {
             </Fragment>
           ))}
         </nav>}
-        {current === 'assistant' || current === 'code' ? (
+        {current === 'assistant' ? (
           <main className="min-w-0 flex-1">
             <Page />
           </main>

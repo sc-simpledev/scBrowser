@@ -330,6 +330,29 @@ export function overlayRegions(state: OverlayView): PageRect[] {
   return regions
 }
 
+/** Most important first: anything that needs an answer outranks what's only passing through. */
+const OVERLAY_LAYERS: (keyof OverlayView)[] = ['linkPreview', 'auth', 'permission', 'passwordPrompt', 'appLink', 'palette', 'tabSearch', 'bookmarkEditor', 'workspaceEditor', 'cleanup', 'siteControls', 'extensionFrame', 'extensionsPopup', 'omnibox', 'passwordSuggest', 'toast', 'tooltip']
+
+const touches = (a: PageRect, b: PageRect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/**
+ * Where the overlay view goes. It's one rectangle that takes every click inside it, so two popups
+ * far apart must never share it: the empty space between them would be an invisible sheet over the
+ * tabs and the page, which also keeps the pointer from ever clearing a tooltip. Only what touches
+ * the most important popup is shown; anything else waits its turn, clipped outside the view.
+ */
+export function overlayBounds(state: OverlayView): PageRect | null {
+  let bounds: PageRect | null = null
+  for (const key of OVERLAY_LAYERS) {
+    if (!state[key]) continue
+    const layer = unionRect(overlayRegions({ [key]: state[key] } as unknown as OverlayView))
+    if (!layer) continue
+    if (!bounds) bounds = layer
+    else if (touches(bounds, layer)) bounds = unionRect([bounds, layer])
+  }
+  return bounds
+}
+
 export function unionRect(rects: PageRect[]): PageRect | null {
   if (rects.length === 0) return null
   const left = Math.min(...rects.map((r) => r.x))

@@ -3,6 +3,7 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
+  Compass,
   FileMinus,
   FilePen,
   FilePlus,
@@ -15,7 +16,6 @@ import {
   Move,
   Plus,
   Search,
-  Settings,
   Square,
   SquareTerminal,
   Trash2,
@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CODER_MAX_STEPS, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode, type CoderStatus, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
+import { CODE_CHAT_PREFIX, CODER_MAX_STEPS, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode, type CoderStatus, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
@@ -48,7 +48,8 @@ const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   move: Move,
   run: SquareTerminal,
   todo: ListChecks,
-  web: Globe
+  web: Globe,
+  explore: Compass
 }
 
 const DONE_NOTES: Record<string, string | null> = { finished: null, stopped: 'Stopped.', 'step-limit': `Stopped after ${CODER_MAX_STEPS} steps. Send a message to carry on.` }
@@ -138,7 +139,8 @@ const TOOL_WORDS: Partial<Record<CoderToolName, [string, string]>> = {
   search: ['Searched', 'time'],
   web: ['Searched the web', 'time'],
   run: ['Ran', 'command'],
-  todo: ['Updated the plan', 'time']
+  todo: ['Updated the plan', 'time'],
+  explore: ['Explored', 'question']
 }
 
 /** "Read 3 files, ran 1 command": a run of steps in a few words. */
@@ -246,7 +248,7 @@ function TodoList({ items }: { items: CoderTodo[] }) {
 const STATUS_ICONS: Record<CoderChange['status'], LucideIcon> = { created: FilePlus, modified: FilePen, deleted: FileMinus }
 
 /** Every file the session changed, each with its diff, and a way to put them all back. */
-function ChangesPanel({ session, files, busy, onUndone }: { session: string; files: CoderChange[]; busy: boolean; onUndone: (count: number) => void }) {
+function ChangesPanel({ session, files, busy, onUndone }: { session: string; files: CoderChange[]; busy: boolean; onUndone: (count: number, remaining: CoderChange[]) => void }) {
   const [open, setOpen] = useState<string | null>(null)
   const [diff, setDiff] = useState('')
   const [confirming, setConfirming] = useState(false)
@@ -259,7 +261,7 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
   return (
     <section aria-label="Changed files" className="flex flex-col">
-      <div className="flex h-7 items-center gap-2 text-xs">
+      <div className="flex h-8 items-center gap-2 text-xs">
         <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-surface-hover">
           <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', expanded && 'rotate-90')} />
           <FilePen aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
@@ -279,7 +281,7 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
               variant="primary"
               onClick={() => {
                 setConfirming(false)
-                void api().invoke('coder:undo', session).then(onUndone)
+                void api().invoke('coder:undo', session).then((count) => onUndone(count, []))
               }}
             >
               Undo all
@@ -304,6 +306,24 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
                 <span className="shrink-0 text-success">+{file.added}</span>
                 <span className="shrink-0 text-danger">−{file.removed}</span>
               </button>
+              {open === file.path && !busy && (
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      void api()
+                        .invoke('coder:undo', session, file.path)
+                        .then((count) => {
+                          setOpen(null)
+                          onUndone(count, files.filter((other) => other.path !== file.path))
+                        })
+                    }
+                  >
+                    <Undo2 aria-hidden size={13} strokeWidth={1.75} />
+                    Undo this file
+                  </Button>
+                </div>
+              )}
               {open === file.path && diff && (
                 <div className="[&>pre]:max-h-48">
                   <Detail text={diff} diff />
@@ -318,17 +338,28 @@ function ChangesPanel({ session, files, busy, onUndone }: { session: string; fil
 }
 
 export interface CodeWorkspaceProps {
-  /** Inside sc://assistant, which has its own heading and layout. */
-  embedded?: boolean
+  /** A saved chat to open. */
+  chat?: string | null
+  /** Called as the chat on screen changes (null: a new one, not saved yet) and whenever it's saved. */
+  onChat?: (id: string | null) => void
   /** A task to start with as soon as everything is ready, such as one typed as /code in the assistant. */
   initialTask?: string | null
   onInitialTaskTaken?: () => void
-  /** Drawn at the start of the embedded bar, such as the assistant's Chat and Code switch. */
+  /** Drawn at the start of the bar, such as the assistant's Chat and Code switch. */
   leading?: ReactNode
 }
 
+/** What's kept of a chat: long output is cut, and nothing can still be waiting for an answer. */
+function savedItems(items: Item[]): Item[] {
+  return items.map((item) => {
+    if (item.kind === 'tool') return { ...item, ok: item.ok ?? false, output: item.output.slice(0, 4000) }
+    if (item.kind === 'approval') return { ...item, answer: item.answer ?? 'deny', detail: item.detail.slice(0, 4000) }
+    return item
+  })
+}
+
 /** Terra Code (beta): a model works on files in one folder, and asks before changing anything. */
-export function CodeWorkspace({ embedded = false, initialTask = null, onInitialTaskTaken, leading }: CodeWorkspaceProps) {
+export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading }: CodeWorkspaceProps) {
   const [status, setStatus] = useState<CoderStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [mode, setMode] = useState<CoderMode>('ask')
@@ -340,7 +371,10 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
   const [todo, setTodo] = useState<CoderTodo[]>([])
   const [changes, setChanges] = useState<CoderChange[]>([])
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
-  const session = useRef(crypto.randomUUID())
+  const [retrySeconds, setRetrySeconds] = useState<number | null>(null)
+  const session = useRef(chat ?? `${CODE_CHAT_PREFIX}${crypto.randomUUID()}`)
+  const onChatRef = useRef(onChat)
+  onChatRef.current = onChat
   const lastTask = useRef<string | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -356,18 +390,49 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
     []
   )
   useEffect(() => {
-    if (!embedded) document.title = 'Terra Code'
     refresh()
     void api().invoke('settings:get').then((settings) => setMode(settings.coderMode))
     const onVisible = () => document.visibilityState === 'visible' && refresh()
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [refresh, embedded])
+  }, [refresh])
+
+  // Going back to a saved chat brings its folder and what was on screen.
+  useEffect(() => {
+    if (!chat) return
+    let cancelled = false
+    void api()
+      .invoke('coder:open', chat)
+      .then(async (saved) => {
+        if (cancelled || !saved) return
+        const { items: shown, todo: plan } = JSON.parse(saved.data) as { items: Item[]; todo: CoderTodo[] }
+        setItems(shown)
+        setTodo(plan)
+        refresh()
+        // Still known if it ran since the browser started, so undo keeps working.
+        setChanges(await api().invoke('coder:changes', chat))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chat, refresh])
+
+  useEffect(() => {
+    const first = items.find((item) => item.kind === 'task')
+    if (!first) return
+    const id = session.current
+    const timer = setTimeout(() => {
+      void api().invoke('coder:save', id, first.text, JSON.stringify({ items: savedItems(items), todo })).then(() => onChatRef.current?.(id))
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [items, todo])
 
   useEffect(
     () =>
       window.scbInternal.onCoderEvent((event: CoderEvent) => {
         if (event.sessionId !== session.current) return
+        if (event.type === 'retrying') return setRetrySeconds(event.seconds)
+        setRetrySeconds(null)
         if (event.type === 'thinking') setStep(event.step)
         else if (event.type !== 'stream') setStep(null)
         if (event.type === 'stream') return setStreaming(event.text)
@@ -424,9 +489,16 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
 
   const send = (text = draft) => {
     const task = text.trim()
-    if (!task || working || !status?.folder || !status.ready) return
+    if (!task || !status?.folder || !status.ready) return
     setDraft('')
-    start(task)
+    if (!working) return start(task)
+    // It reads this at its next step. If it has only just finished, this starts it again instead.
+    setItems((current) => [...current, { kind: 'task', text: task }])
+    void api()
+      .invoke('coder:steer', session.current, task)
+      .then((taken) => {
+        if (!taken) start(task, { show: false })
+      })
   }
 
   // A task handed over from the chat (/code …) starts once the folder and model are known to be ready.
@@ -454,7 +526,8 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
 
   const newSession = () => {
     void api().invoke('coder:reset', session.current)
-    session.current = crypto.randomUUID()
+    session.current = `${CODE_CHAT_PREFIX}${crypto.randomUUID()}`
+    onChatRef.current?.(null)
     lastTask.current = null
     setItems([])
     setTodo([])
@@ -462,6 +535,7 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
     setStreaming('')
     setWorking(false)
     setStep(null)
+    setRetrySeconds(null)
   }
 
   const pickFolder = () =>
@@ -524,30 +598,16 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
         <IconButton size="sm" label="New session" onClick={newSession}>
           <Plus size={14} strokeWidth={1.75} />
         </IconButton>
-        {!embedded && (
-          <a href="sc://ai/" aria-label="AI settings" title="AI settings" className="grid size-7 place-items-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text">
-            <Settings aria-hidden size={14} strokeWidth={1.75} />
-          </a>
-        )}
       </div>
     </>
   )
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      {embedded ? (
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-          {leading}
-          {controls}
-        </div>
-      ) : (
-        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-          <SquareTerminal aria-hidden size={15} strokeWidth={1.75} className="text-accent" />
-          <h1 className="text-sm font-semibold">Terra Code</h1>
-          <span className="rounded-sm border border-border px-1.5 text-2xs font-medium tracking-[0.04em] text-text-muted uppercase">Beta</span>
-          <div className="ml-2 flex min-w-0 flex-1 items-center gap-2">{controls}</div>
-        </header>
-      )}
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        {leading}
+        {controls}
+      </div>
 
       <div ref={logRef} role="log" aria-label="Terra Code" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-200 flex-col gap-3 px-6 py-6">
@@ -633,7 +693,7 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
               <ReplyMarkdown text={streaming} onOpenLink={(href) => void api().invoke('browser:open', href)} />
             </div>
           )}
-          {working && step !== null && !waiting && !streaming && <Thinking label={step > 1 ? `Working · step ${step}` : 'Working'} />}
+          {working && step !== null && !waiting && !streaming && <Thinking label={retrySeconds !== null ? `Couldn’t reach the model. Trying again in ${retrySeconds} s` : step > 1 ? `Working · step ${step}` : 'Working'} />}
         </div>
       </div>
 
@@ -646,8 +706,8 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
                 session={session.current}
                 files={changes}
                 busy={working}
-                onUndone={(count) => {
-                  setChanges([])
+                onUndone={(count, remaining) => {
+                  setChanges(remaining)
                   setItems((current) => [...current, { kind: 'note', text: `Put ${count} ${count === 1 ? 'file' : 'files'} back as they were.`, error: false }])
                 }}
               />
@@ -659,7 +719,7 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
             aria-label="Describe a change"
             value={draft}
             disabled={!status.folder}
-            placeholder={status.folder ? (working ? 'It is working. Stop it to change course.' : mode === 'plan' ? 'What should it plan?' : 'Describe a change, or ask about the code') : 'Choose a project folder first'}
+            placeholder={status.folder ? (working ? 'Add something while it works' : mode === 'plan' ? 'What should it plan?' : 'Describe a change, or ask about the code') : 'Choose a project folder first'}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -688,6 +748,11 @@ export function CodeWorkspace({ embedded = false, initialTask = null, onInitialT
             <span title={`${modeInfo.hint} Commands you allow run with your own permissions.`} className="min-w-0 flex-1 truncate text-right text-2xs text-text-faint">
               {status.model ?? ''}
             </span>
+            {working && draft.trim() && (
+              <IconButton size="sm" label="Send to Terra Code" className="bg-text! text-surface! hover:opacity-85" onClick={() => send()}>
+                <ArrowUp size={14} strokeWidth={2} />
+              </IconButton>
+            )}
             {working ? (
               <IconButton size="sm" label="Stop" onClick={() => void api().invoke('coder:stop', session.current)}>
                 <Square size={12} strokeWidth={2} />
