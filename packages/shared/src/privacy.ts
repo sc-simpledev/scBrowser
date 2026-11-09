@@ -45,6 +45,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'bookmark', label: 'Bookmark this page', shortcut: 'Ctrl D' },
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', shortcut: 'Ctrl Shift B' },
   { id: 'reader', label: 'Reader view', shortcut: 'F9' },
+  { id: 'read-aloud', label: 'Read this page aloud' },
   { id: 'focus-mode', label: 'Turn Focus Mode on or off' },
   { id: 'focus-15', label: 'Focus for 15 minutes' },
   { id: 'focus-25', label: 'Focus for 25 minutes' },

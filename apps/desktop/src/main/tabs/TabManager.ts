@@ -135,6 +135,7 @@ export function countSelfLoad(times: number[], now = Date.now()): { times: numbe
 }
 
 export class TabManager {
+  private readonly blockedHosts = new Map<TabId, Map<string, number>>()
   private readonly tabs = new Map<TabId, Tab>()
   private order: TabId[] = []
   private activeId: TabId | null = null
@@ -394,6 +395,15 @@ export class TabManager {
   }
 
   /** Returns what the group held, so it can be kept and opened again. */
+  /** Every web page open in this workspace, to save as a named set. */
+  openTabList(): { url: string; title: string; container: string | null }[] {
+    return this.visible.flatMap((id) => {
+      const tab = this.tabs.get(id)
+      const url = tab && effectiveUrl(tab.state.url)
+      return tab && url && /^(https?|file):/i.test(url) ? [{ url, title: tab.state.title || tab.saved?.title || '', container: tab.state.container }] : []
+    })
+  }
+
   closeGroup(name: string): { url: string; title: string; container: string | null }[] {
     const ids = this.visible.filter((other) => this.tabs.get(other)?.state.group === name)
     const kept = ids.flatMap((id) => {
@@ -878,10 +888,21 @@ export class TabManager {
     return this.contents(id)
   }
 
-  noteBlocked(webContentsId: number): void {
-    for (const tab of this.tabs.values()) {
+  /** What was blocked on a tab's current page, most first. */
+  blockedHostsOf(id: TabId): { host: string; count: number }[] {
+    return [...(this.blockedHosts.get(id) ?? [])].map(([host, count]) => ({ host, count })).sort((a, b) => b.count - a.count || a.host.localeCompare(b.host))
+  }
+
+  noteBlocked(webContentsId: number, url?: string): void {
+    for (const [id, tab] of this.tabs) {
       if (tab.view && !tab.view.webContents.isDestroyed() && tab.view.webContents.id === webContentsId) {
         tab.state.blockedCount++
+        if (url && URL.canParse(url)) {
+          const hosts = this.blockedHosts.get(id) ?? new Map<string, number>()
+          const { host } = new URL(url)
+          hosts.set(host, (hosts.get(host) ?? 0) + 1)
+          this.blockedHosts.set(id, hosts)
+        }
         this.emitChange()
       }
     }
@@ -1218,6 +1239,7 @@ export class TabManager {
     contents.on('did-start-navigation', ({ isMainFrame, isSameDocument, url }) => {
       if (!isMainFrame || isSameDocument) return
       sync({ blockedCount: 0 })
+      this.blockedHosts.delete(tab.state.id)
       if (!/^https?:/i.test(url)) return
       // A page that keeps reloading itself (a sign-in or consent loop, or a script that never settles)
       // would otherwise spin forever and take the processor with it.

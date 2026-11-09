@@ -196,6 +196,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     if (sourcePage) {
       groups.push([
         { label: 'Reader view', click: actions.toggleReader },
+        { label: 'Read aloud', click: actions.readAloud },
         {
           label: 'Summarise page',
           click: () => actions.askAssistant({ text: summarisePromptFor(params.pageURL), selection: null, includePage: true })

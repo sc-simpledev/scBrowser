@@ -1,11 +1,20 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider } from '@scbrowser/ai'
-import { effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
+import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
+import { memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { webContext } from './webSearch'
 import { Coder } from './coder'
+import { CoderCheckpoints, CoderSnapshots } from './coderStorage'
+import { join } from 'node:path'
 import type { AiStore } from './store'
+
+/**
+ * Whether the hosted server takes real tool calls. Turn on in a release after the Worker with tool
+ * support (server/src/app.ts) is deployed: the older one ignores `tools`, and the model would be
+ * told to use tools it hasn't got.
+ */
+const HOSTED_NATIVE_TOOLS = false
 
 const MAX_OUTPUT_TOKENS = 16_000
 const TASK_OUTPUT_TOKENS = 4_000
@@ -37,8 +46,47 @@ export class AiService {
   constructor(
     private readonly store: AiStore,
     private readonly contentsFor: (tabId: number) => WebContents | undefined,
-    private readonly tabIdOf: (contents: WebContents) => number | null = () => null
-  ) {}
+    private readonly tabIdOf: (contents: WebContents) => number | null = () => null,
+    /** Where Terra Code keeps checkpoints, and whether it may. Absent for background work. */
+    coderHome?: { dir: string; keep: () => boolean },
+    private readonly memoryOn: () => boolean = () => false
+  ) {
+    const checkpoints = coderHome && new CoderCheckpoints(join(coderHome.dir, 'checkpoints'))
+    const snapshots = coderHome && new CoderSnapshots(join(coderHome.dir, 'snapshots'))
+    void checkpoints?.prune()
+    void snapshots?.prune()
+    this.coder = new Coder({
+      chat: (messages, system, signal, onText) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS, onText),
+      native: {
+        available: () => {
+          const chat = this.store.roles().chat
+          const provider = chat && this.store.provider(chat.providerId)
+          return !!provider && (!provider.hosted || HOSTED_NATIVE_TOOLS)
+        },
+        chat: async (messages, system, tools, signal, onText) => {
+          const ref = this.chatRef()
+          const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: MAX_OUTPUT_TOKENS, signal, tools })
+          let text = ''
+          const uses: ToolUse[] = []
+          for await (const event of stream) {
+            if (event.type === 'text') {
+              text += event.text
+              onText?.(text)
+            } else if (event.type === 'tool') uses.push(event.use)
+            else if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+          }
+          return { text, uses }
+        }
+      },
+      webSearch: async (query) => {
+        const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
+        const pages = await webContext(query, isSiteOff)
+        if (pages.length === 0) return 'No results.'
+        return pages.map((page, index) => `[${index + 1}] ${page.title}\n${page.url}\n${page.text.slice(0, 5000)}`).join('\n\n')
+      },
+      ...(checkpoints && snapshots ? { checkpoints, snapshots, keepOnDisk: coderHome.keep } : {})
+    })
+  }
 
   private async provider(id: string): Promise<Provider> {
     const config = this.store.provider(id)
@@ -76,15 +124,7 @@ export class AiService {
   }
 
   /** Agentic coding (beta), on the chat model. Long replies, as it writes whole files. */
-  readonly coder = new Coder({
-    chat: (messages, system, signal, onText) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS, onText),
-    webSearch: async (query) => {
-      const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
-      const pages = await webContext(query, isSiteOff)
-      if (pages.length === 0) return 'No results.'
-      return pages.map((page, index) => `[${index + 1}] ${page.title}\n${page.url}\n${page.text.slice(0, 5000)}`).join('\n\n')
-    }
-  })
+  readonly coder: Coder
 
   coderStatus(folder: string): CoderStatus {
     const chat = this.store.roles().chat
@@ -93,7 +133,7 @@ export class AiService {
     return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running }
   }
 
-  private async collect(ref: ModelRef, system: string, messages: AssistantMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void): Promise<string> {
+  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void): Promise<string> {
     let text = ''
     const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal })
     for await (const event of stream) {
@@ -157,7 +197,7 @@ export class AiService {
       let stopReason: string | null = null
       const stream = provider.chat({
         model: chat.model,
-        system: files ? WORKSPACE_PROMPT : SYSTEM_PROMPT,
+        system: (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : ''),
         messages: withContext(request.messages, pages, request.selection),
         maxTokens: MAX_OUTPUT_TOKENS,
         signal: controller.signal

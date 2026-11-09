@@ -43,7 +43,7 @@ async function loadEngine(level: Level): Promise<FiltersEngine | null> {
 }
 
 interface PrivacyOptions {
-  onBlocked: (webContentsId: number) => void
+  onBlocked: (webContentsId: number, url?: string) => void
   /** Checks a page about to load in a tab. Returns why it's blocked, or null to carry on. */
   screen: (url: string, contents: WebContents) => string | null | Promise<string | null>
   /** The load was stopped, so the tab needs to show why. */
@@ -189,7 +189,7 @@ export class PrivacyService {
     const { match } = this.engine.match(
       Request.fromRawDetails({ url, sourceUrl: source, type: resourceType as Parameters<typeof Request.fromRawDetails>[0]['type'] })
     )
-    if (match && webContentsId !== undefined) this.options.onBlocked(webContentsId)
+    if (match && webContentsId !== undefined) this.options.onBlocked(webContentsId, url)
     return match
   }
 

@@ -1,3 +1,4 @@
+import { MAX_MEMORY_NOTES, type MemoryNote } from '@scbrowser/shared'
 import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import type { ProviderSecret } from '@scbrowser/ai'
@@ -14,6 +15,7 @@ import {
 } from '@scbrowser/shared'
 import type { KeyValueRepo } from '../storage/kv'
 
+const MEMORY_KEY = 'ai:memory'
 const PROVIDERS = 'ai:providers'
 const ROLES = 'ai:roles'
 const USAGE = 'ai:usage'
@@ -54,6 +56,29 @@ const isFirstParty = (baseUrl: string, protocol: ProviderProtocol) =>
 
 /** Provider settings. Secrets are encrypted with the OS keychain and stay in the main process. */
 export class AiStore {
+  memory(): MemoryNote[] {
+    const saved = this.kv.get(MEMORY_KEY)
+    return Array.isArray(saved) ? (saved as MemoryNote[]) : []
+  }
+
+  addMemory(text: string, now = Date.now()): MemoryNote | null {
+    const trimmed = text.trim()
+    const all = this.memory()
+    if (!trimmed || all.length >= MAX_MEMORY_NOTES) return null
+    const note = { id: randomUUID(), text: trimmed, createdAt: now }
+    this.kv.set(MEMORY_KEY, [note, ...all])
+    return note
+  }
+
+  updateMemory(id: string, text: string): void {
+    const trimmed = text.trim()
+    if (trimmed) this.kv.set(MEMORY_KEY, this.memory().map((note) => (note.id === id ? { ...note, text: trimmed } : note)))
+  }
+
+  removeMemory(id: string): void {
+    this.kv.set(MEMORY_KEY, this.memory().filter((note) => note.id !== id))
+  }
+
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly kv: KeyValueRepo) {

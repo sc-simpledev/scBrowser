@@ -29,6 +29,10 @@ import type { ProxyPorts, SystemProxy } from './systemProxy'
 import type { Tunnel, TunnelHandle } from './tun'
 import type { KeyValueRepo } from './storage/kv'
 
+const HEALTH_EVERY_MS = 30_000
+const HEALTH_TIMEOUT_MS = 5000
+/** Checks in a row a server may miss before it's taken as dead, so one dropped packet doesn't move anyone. */
+const HEALTH_MISSES = 3
 const KEY = 'vpn:store'
 /** The starting connections offered to anyone who hasn't added their own: a public list of free servers in Australia. */
 export const DEFAULT_VPN_URL = 'https://raw.githubusercontent.com/rtwo2/FastNodes/main/sub/countries/AU.txt'
@@ -67,6 +71,8 @@ interface VpnDeps {
   corePath: () => string
   /** The person's choice of how much the VPN covers. */
   route: () => { scope: VpnScope; method: VpnMethod }
+  /** Whether to move to another server when this one stops answering. */
+  failover?: () => boolean
   /** Turning on first looks for the fastest working connection. */
   autoFastest: () => boolean
   /** Null where this desktop has no system proxy we know how to set. */
@@ -188,6 +194,9 @@ interface SavedProxy {
  * Links hold passwords, so they're kept encrypted and never reach a renderer.
  */
 export class VpnService {
+  private healthTimer: ReturnType<typeof setInterval> | undefined
+  private healthMisses = 0
+  private failingOver = false
   private store: Stored = { connections: [], groups: [], activeId: null }
   /** Settles once the saved connections have been decrypted. */
   readonly ready: Promise<void>
@@ -565,7 +574,64 @@ export class VpnService {
   }
 
   /** Checks again every so often, only while the VPN is on. */
+  /** Once connected, looks every so often at whether the server still answers. Only with failover on. */
+  private syncHealthTimer(): void {
+    clearInterval(this.healthTimer)
+    this.healthTimer = undefined
+    this.healthMisses = 0
+    if (!this.enabled || !this.deps.failover?.()) return
+    this.healthTimer = setInterval(() => void this.checkHealth(), HEALTH_EVERY_MS)
+    this.healthTimer.unref?.()
+  }
+
+  private activeConnection() {
+    return this.store.connections.find((connection) => connection.id === this.store.activeId)
+  }
+
+  private async checkHealth(): Promise<void> {
+    const parsed = this.enabled && !this.connecting && this.activeConnection() ? parseVpnLink(this.activeConnection()!.link) : null
+    if (!parsed) return
+    if ((await pingHost(parsed.host, parsed.port, HEALTH_TIMEOUT_MS)) !== null) {
+      this.healthMisses = 0
+      return
+    }
+    if (++this.healthMisses >= HEALTH_MISSES) await this.failOver()
+  }
+
+  /** Moves to the quickest answering server in the same group. If none answers, stays closed and says so. */
+  async failOver(): Promise<void> {
+    const dead = this.activeConnection()
+    if (!dead || this.failingOver || this.connecting || !this.deps.failover?.()) return
+    this.failingOver = true
+    this.healthMisses = 0
+    try {
+      const others = this.store.connections.filter((connection) => connection.id !== dead.id && connection.groupId === dead.groupId)
+      const answers = await Promise.all(
+        others.map(async (connection) => {
+          const parsed = parseVpnLink(connection.link)
+          return { connection, ms: parsed ? await pingHost(parsed.host, parsed.port, HEALTH_TIMEOUT_MS) : null }
+        })
+      )
+      const best = answers.filter((answer) => answer.ms !== null).sort((a, b) => a.ms! - b.ms!)[0]?.connection
+      if (!best) {
+        this.error = `${dead.name} stopped answering, and no other server in its group did either.`
+        this.deps.onChange()
+        return
+      }
+      this.store.activeId = best.id
+      await this.save()
+      await this.applyEnabled(true, { stayClosed: true })
+      if (this.enabled) {
+        this.error = `${dead.name} stopped answering, so scTerra moved to ${best.name}.`
+        this.deps.onChange()
+      }
+    } finally {
+      this.failingOver = false
+    }
+  }
+
   private syncToggleTimer(): void {
+    this.syncHealthTimer()
     if (!this.enabled) {
       clearInterval(this.toggleTimer)
       this.toggleTimer = undefined
@@ -593,7 +659,7 @@ export class VpnService {
     }
   }
 
-  private async applyEnabled(on: boolean): Promise<void> {
+  private async applyEnabled(on: boolean, { stayClosed = false }: { stayClosed?: boolean } = {}): Promise<void> {
     this.error = null
     await this.stopEverything()
     if (!on) {
@@ -627,7 +693,8 @@ export class VpnService {
     } catch (error) {
       await this.stopEverything()
       this.enabled = false
-      await this.deps.applyProxy(null)
+      // Nobody is at the controls during a failover, so a failure must not quietly go direct.
+      await this.deps.applyProxy(stayClosed ? HOLD_RULE : null)
       this.error = error instanceof Error ? error.message : "That connection didn't start."
     } finally {
       this.connecting = false
@@ -734,6 +801,7 @@ export class VpnService {
         ? 'The connection stopped. Other apps are back on your normal connection, and pages won’t load in scTerra until you turn the VPN off or pick another connection.'
         : 'The connection stopped. Pages won’t load until you turn the VPN off or pick another connection.'
       this.deps.onChange()
+      void this.failOver()
     })
     core.stdin?.on('error', () => undefined)
     core.stdin?.end(JSON.stringify(config(port)))
@@ -764,6 +832,7 @@ export class VpnService {
   /** Closes everything with the browser, so nothing is left listening or pointing at a closed port. */
   stop(): void {
     clearInterval(this.toggleTimer)
+    clearInterval(this.healthTimer)
     this.stopped = true
     this.releaseSystemProxy()
     this.stopCore()

@@ -62,7 +62,7 @@ function ClockWidget({ config }: { config: NewTabConfig }) {
   })
   return (
     <div role="timer" aria-label="Clock" className="sc-newtab-text flex flex-col items-center gap-1 text-center">
-      <div className="font-medium tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 2.25)', lineHeight: 1.1, letterSpacing: '-0.035em' }}>
+      <div className="font-medium tabular-nums" style={{ fontSize: 'calc(var(--sc-text-xl) * 1.75)', lineHeight: 1.1, letterSpacing: '-0.035em' }}>
         {time}
       </div>
       <div className="opacity-75">{now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
@@ -326,17 +326,15 @@ function ShortcutsWidget({ config }: { config: NewTabConfig }) {
 
   const chosen = new Set(config.links.map((link) => link.url))
   const links = [...config.links, ...frequent.filter((link) => !chosen.has(link.url))].slice(0, Math.max(MAX_SHORTCUTS, config.links.length))
+  // Nothing to show on a new profile, so no empty card either.
+  if (links.length === 0) return null
   return (
     <Card title="Shortcuts">
-      {links.length === 0 ? (
-        <p className="text-text-muted">Sites you add or visit often will appear here.</p>
-      ) : (
-        <div className="grid grid-cols-4 gap-1">
-          {links.map((link) => (
-            <SiteTile key={link.url} link={link} />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-4 gap-1">
+        {links.map((link) => (
+          <SiteTile key={link.url} link={link} />
+        ))}
+      </div>
     </Card>
   )
 }

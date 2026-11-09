@@ -1,3 +1,4 @@
+import type { SiteFont } from './siteFont'
 import type { BookmarkGroup, PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
 import type { AccentId } from './privacy'
@@ -157,6 +158,10 @@ export interface SiteControlsState {
   /** Null while tracking protection is off everywhere. */
   tracking: boolean | null
   blocked: number
+  /** What was blocked on this page, most first. */
+  blockedHosts: { host: string; count: number }[]
+  blockedOpen: boolean
+  font: SiteFont
   ai: boolean
   forgetOnClose: boolean
   zoom: number
@@ -165,16 +170,17 @@ export interface SiteControlsState {
   y: number
 }
 
-export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | `permission:${string}`
+export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | 'blocked-toggle' | `font:${SiteFont}` | `permission:${string}`
 
 export const isSiteAction = (value: unknown): value is SiteAction =>
-  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings)$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value))
+  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings|blocked-toggle|font:(?:default|sans|serif|mono))$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value))
 
-export const SITE_POPUP = { width: 320, header: 58, row: 44, permissionRow: 36, footer: 48 }
+export const SITE_POPUP = { width: 320, header: 58, row: 44, permissionRow: 36, footer: 48, blockedRow: 24, maxBlockedRows: 6 }
 
-export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'>): number {
+export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'> & Partial<Pick<SiteControlsState, 'blockedOpen' | 'blockedHosts'>>): number {
   const permissions = state.permissions.length > 0 ? 28 + state.permissions.length * SITE_POPUP.permissionRow : 0
-  return SITE_POPUP.header + 4 * SITE_POPUP.row + permissions + SITE_POPUP.footer + 10
+  const blocked = state.blockedOpen ? Math.min(state.blockedHosts?.length ?? 0, SITE_POPUP.maxBlockedRows) * SITE_POPUP.blockedRow + 8 : 0
+  return SITE_POPUP.header + 5 * SITE_POPUP.row + blocked + permissions + SITE_POPUP.footer + 10
 }
 
 export interface WorkspaceEdit {

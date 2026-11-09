@@ -9,6 +9,51 @@ const dayLabel = (time: number) => new Date(time).toLocaleDateString(undefined, 
 const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') || url : url)
 const choiceLabel = (days: number) => (days === 0 ? 'Never' : days === 1 ? 'After a day unused' : `After ${days} days unused`)
 
+/** Named sets of the tabs open now, to open again whenever. Opening one keeps it on the list. */
+function SavedTabSets() {
+  const [sets, setSets] = useState<ClosedGroup[]>([])
+  const [name, setName] = useState('')
+  const load = useCallback(() => void api().invoke('tabsets:list').then(setSets), [])
+  useEffect(load, [load])
+  return (
+    <section aria-label="Saved tab sets" className="flex flex-col gap-3 rounded-lg bg-surface p-4 shadow-1">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!name.trim()) return
+          void api().invoke('tabsets:save', name).then(load)
+          setName('')
+        }}
+      >
+        <Input aria-label="Name for this set of tabs" className="min-w-0 flex-1" maxLength={80} placeholder="Save the open tabs as…" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button type="submit" disabled={!name.trim()}>
+          Save
+        </Button>
+      </form>
+      {sets.length > 0 && (
+        <ul className="flex flex-col">
+          {sets.map((set) => (
+            <li key={set.id} className="flex h-9 items-center gap-2 rounded-md px-1.5 hover:bg-surface-hover">
+              <Layers aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+              <span className="min-w-0 flex-1 truncate">{set.name}</span>
+              <span className="shrink-0 text-xs text-text-faint">
+                {set.tabs.length} {set.tabs.length === 1 ? 'tab' : 'tabs'}
+              </span>
+              <Button variant="ghost" onClick={() => void api().invoke('tabsets:open', set.id)}>
+                Open
+              </Button>
+              <IconButton size="sm" label={`Remove ${set.name}`} onClick={() => void api().invoke('tabsets:remove', set.id).then(load)}>
+                <X size={13} strokeWidth={1.75} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 /** Tabs closed after going unused, or by hand, to bring back. */
 export function ArchivePage() {
   const [tabs, setTabs] = useState<ArchivedTab[]>([])
@@ -36,6 +81,7 @@ export function ArchivePage() {
 
   return (
     <>
+      <SavedTabSets />
       <section aria-label="Archive options" className="flex flex-col gap-2 rounded-lg bg-surface p-4 shadow-1">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">

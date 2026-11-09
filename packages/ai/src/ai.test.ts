@@ -1,3 +1,6 @@
+import { toAnthropicMessages } from './anthropic'
+import { toOpenAiMessages } from './openai'
+import { CODER_TOOLS, flattenToolTurns, nativeCall, parseCoderReply } from './coder'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAnthropicProvider } from './anthropic'
 import { formatTranscript, MAX_PAGE_CHARS, SYSTEM_PROMPT, trimPage, withContext } from './context'
@@ -175,5 +178,54 @@ describe('Anthropic provider', () => {
     vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'env-secret')
     const headers = await capture('')
     expect([...headers.values()].join(' ')).not.toContain('env-secret')
+  })
+})
+
+describe('native tool messages', () => {
+  const uses = [{ id: 'c1', name: 'read', input: { path: 'a' } }]
+  const results = [{ id: 'c1', tool: 'read', output: 'text' }]
+  const turns = [{ role: 'assistant' as const, content: 'Looking', toolUses: uses }, { role: 'user' as const, content: '', toolResults: results }]
+
+  it('become Anthropic content blocks', () => {
+    expect(toAnthropicMessages(turns)).toEqual([
+      { role: 'assistant', content: [{ type: 'text', text: 'Looking' }, { type: 'tool_use', id: 'c1', name: 'read', input: { path: 'a' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: 'text' }] }
+    ])
+  })
+
+  it('become OpenAI tool messages', () => {
+    expect(toOpenAiMessages(turns)).toEqual([
+      { role: 'assistant', content: 'Looking', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"path":"a"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: 'text' }
+    ])
+  })
+
+  it('reassembles streamed OpenAI tool calls', async () => {
+    const lines = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'x', function: { name: 'read', arguments: '{"pa' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a"}' } }] }, finish_reason: 'tool_calls' }] }
+    ]
+    const body = lines.map((line) => `data: ${JSON.stringify(line)}\n\n`).join('') + 'data: [DONE]\n\n'
+    let sent: { tools?: unknown } = {}
+    const fetch = (async (_url: string, init: RequestInit) => ((sent = JSON.parse(init.body as string)), new Response(body, { headers: { 'content-type': 'text/event-stream' } }))) as unknown as typeof globalThis.fetch
+    const provider = createOpenAiProvider({ config: { name: 'x', baseUrl: 'http://x/v1' } as never, secret: { apiKey: 'k', headers: {} }, fetch })
+    const events = []
+    for await (const event of provider.chat({ model: 'm', system: 's', messages: [{ role: 'user', content: 'hi' }], maxTokens: 10, tools: [{ name: 'read', description: 'd', parameters: {} }] })) events.push(event)
+    expect(events).toContainEqual({ type: 'tool', use: { id: 'x', name: 'read', input: { path: 'a' } } })
+    expect(sent.tools).toEqual([{ type: 'function', function: { name: 'read', description: 'd', parameters: {} } }])
+  })
+})
+
+describe('tool turns', () => {
+  it('flatten to the text protocol, and that parses back', () => {
+    const flat = flattenToolTurns([{ role: 'assistant', content: 'Hi', toolUses: [{ id: 'a', name: 'read', input: { path: 'x' } }] }, { role: 'user', content: '', toolResults: [{ id: 'a', tool: 'read', output: 'body' }] }])
+    expect(parseCoderReply(flat[0]!.content).calls[0]).toMatchObject({ tool: 'read', path: 'x' })
+    expect(flat[1]!.content).toContain('<tool-result tool="read">')
+  })
+
+  it('every tool spec produces a valid call shape', () => {
+    expect(CODER_TOOLS.map((tool) => tool.name).sort()).toEqual(['delete', 'edit', 'explore', 'glob', 'list', 'move', 'read', 'run', 'search', 'todo', 'web', 'write'])
+    expect(nativeCall({ id: 'a', name: 'edit', input: { path: 'x', edits: [{ find: 'a', replace: 'b' }] } })).toMatchObject({ tool: 'edit' })
+    expect(nativeCall({ id: 'a', name: 'edit', input: null })).toBeNull()
   })
 })

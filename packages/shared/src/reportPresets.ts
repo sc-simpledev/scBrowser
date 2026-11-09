@@ -15,6 +15,14 @@ export interface ReportPreset {
 /** Ready-made kinds of report. Each picks a design and tells the model what to put where. */
 export const REPORT_PRESETS: ReportPreset[] = [
   {
+    id: 'compare',
+    name: 'Compare these tabs',
+    description: 'A side-by-side table of the pages you picked',
+    icon: 'Columns3',
+    theme: 'clean',
+    shape: 'Open with a callout naming the best choice and why, in two sentences. Then one table with a column for each page and a row for each thing worth comparing (price, features, limits and so on, whatever these pages share); write "not stated" where a page does not say, and never guess. Then proscons for each page if they differ meaningfully, and finish with a section on who should pick which.'
+  },
+  {
     id: 'brief',
     name: 'Research brief',
     description: 'What it is, what matters, and what to read next',

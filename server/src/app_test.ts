@@ -177,3 +177,33 @@ Deno.test('a slot that was never released frees itself after 15 minutes', async 
   time += 15 * 60_000
   assertEquals((await limiter.admit('1.1.1.1')).allowed, true)
 })
+
+Deno.test('passes tools through and streams tool calls back', async () => {
+  const log: { tools?: unknown[]; messages: { toolCalls?: unknown; toolResults?: unknown }[] }[] = []
+  const upstream: Upstream = {
+    async *stream(request) {
+      log.push(request as never)
+      yield { type: 'tool', call: { id: 'c1', name: 'read', arguments: '{"path":"a"}' } }
+      yield { type: 'done', inputTokens: 1, outputTokens: 1, stopReason: 'tool_use' }
+    }
+  }
+  const { handle } = setup({}, upstream)
+  const tools = [{ type: 'function', function: { name: 'read', description: 'd', parameters: { type: 'object' } } }]
+  const messages = [
+    { role: 'user', content: 'Hi' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c0', type: 'function', function: { name: 'list', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c0', content: 'files' }
+  ]
+  const response = await handle(chat({ messages, tools }), '1.1.1.1')
+  assertEquals(response.status, 200)
+  assertStringIncludes(await response.text(), '"tool_calls":[{"index":0,"id":"c1"')
+  assertEquals(log[0]!.tools!.length, 1)
+  assertEquals(log[0]!.messages[1]!.toolCalls, [{ id: 'c0', name: 'list', arguments: '{}' }])
+  assertEquals(log[0]!.messages[2]!.toolResults, [{ id: 'c0', content: 'files' }])
+})
+
+Deno.test('refuses malformed tools', async () => {
+  const { handle } = setup()
+  const response = await handle(chat({ messages: [{ role: 'user', content: 'Hi' }], tools: [{ type: 'nope' }] }), '1.1.1.1')
+  assertEquals(response.status, 400)
+})

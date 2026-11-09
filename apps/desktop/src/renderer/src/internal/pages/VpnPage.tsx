@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { ChevronRight, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -163,7 +163,7 @@ function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (
 
 /** Saved as it changes, so there's nothing to forget to press. */
 function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWide: boolean }) {
-  const [settings, setSettings] = useState<Pick<Settings, 'vpnAutoConnect' | 'vpnAutoFastest' | 'vpnBypass' | 'vpnDirectContainers'> | null>(null)
+  const [settings, setSettings] = useState<Pick<Settings, 'vpnAutoConnect' | 'vpnAutoFastest' | 'vpnFailover' | 'vpnBypass' | 'vpnDirectContainers'> | null>(null)
   const [bypass, setBypass] = useState('')
   useEffect(() => {
     void api().invoke('settings:get').then((next) => {
@@ -192,6 +192,13 @@ function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWid
           <div className="text-xs text-text-faint">Pings the first 300 connections in the same group, and uses the quickest that works.</div>
         </div>
         <Switch label="Pick the fastest when turning on" checked={settings.vpnAutoFastest} onChange={(vpnAutoFastest) => change({ vpnAutoFastest })} />
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div>Move to another server if this one dies</div>
+          <div className="text-xs text-text-faint">Checks every 30 seconds, and only moves within the same group.</div>
+        </div>
+        <Switch label="Move to another server if this one dies" checked={settings.vpnFailover} onChange={(vpnFailover) => change({ vpnFailover })} />
       </div>
       <label className="flex flex-col gap-1.5">
         <span>Sites that skip the VPN</span>
@@ -352,7 +359,7 @@ export function VpnPage() {
         <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Add connections</h2>
         <textarea
           aria-label="Connection links"
-          rows={4}
+          rows={3}
           spellCheck={false}
           placeholder="Paste vless://, vmess://, trojan://, ss://, socks5:// or http:// links, one per line"
           className="w-full resize-y rounded-md border border-border bg-field p-2 font-mono text-xs outline-none placeholder:text-text-faint focus-visible:outline-2 focus-visible:outline-focus-ring"
@@ -384,6 +391,12 @@ export function VpnPage() {
             Add links
           </Button>
         </div>
+        <details className="group">
+          <summary className="flex h-7 cursor-default list-none items-center gap-1.5 text-xs text-text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+            <ChevronRight aria-hidden size={12} strokeWidth={1.75} className="transition-transform group-open:rotate-90" />
+            Subscriptions and groups
+          </summary>
+          <div className="flex flex-col gap-2 pt-1">
         <form
           className="flex gap-2"
           onSubmit={(e) => {
@@ -423,8 +436,10 @@ export function VpnPage() {
             Add group
           </Button>
         </form>
+          </div>
+        </details>
         {note && <p role="status" className="text-xs text-text-muted">{note}</p>}
-        <p className="text-xs text-text-faint">Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>
+        {state.connections.length > 0 && <p className="text-xs text-text-faint">Whoever runs a server can see your unencrypted traffic and which sites you visit, so avoid signing in to anything on free servers.</p>}
       </section>
 
       {progress.running && (

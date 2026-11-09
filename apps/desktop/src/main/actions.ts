@@ -22,6 +22,7 @@ export interface BrowserActions {
   toggleAssistant: () => void
   passwordMenu: () => void
   toggleReader: () => void
+  readAloud: () => void
   screenshot: () => void
   organiseTabs: () => void
   cleanupTabs: () => void

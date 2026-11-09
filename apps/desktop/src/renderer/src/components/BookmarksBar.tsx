@@ -135,10 +135,12 @@ export function BookmarksBar() {
     )
   }
 
+  // No row of its own until there's something to put in it.
+  if (items.length === 0) return null
+
   return (
     <div role="toolbar" aria-label="Bookmarks" className="relative flex h-8 shrink-0 items-center px-1.5 pb-1">
       <div ref={rowRef} className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-        {items.length === 0 && <span className="px-2 text-xs text-text-faint">Press Ctrl D to bookmark a page</span>}
         {items.map((entry) => (entry.kind === 'group' ? groupButton(entry.item) : bookmarkButton(entry.item)))}
       </div>
       {hiddenItems.length > 0 && (

@@ -1,6 +1,6 @@
 import type { Config } from './config.ts'
 import { clientAddress, type Limiter } from './limits.ts'
-import type { Upstream, UpstreamMessage } from './upstream.ts'
+import type { Upstream, UpstreamMessage, UpstreamTool, UpstreamToolCall } from './upstream.ts'
 
 /** The only model apps can name; which real model runs is our choice. */
 export const PUBLIC_MODEL = 'scterra-chat'
@@ -19,6 +19,30 @@ interface ChatBody {
   system: string
   messages: UpstreamMessage[]
   maxTokens: number
+  tools?: UpstreamTool[]
+}
+
+const MAX_TOOLS = 32
+
+function parseTools(value: unknown): UpstreamTool[] | null {
+  if (!Array.isArray(value) || value.length > MAX_TOOLS) return null
+  const tools: UpstreamTool[] = []
+  for (const item of value as { type?: unknown; function?: { name?: unknown; description?: unknown; parameters?: unknown } }[]) {
+    const fn = item?.function
+    if (item?.type !== 'function' || typeof fn?.name !== 'string' || fn.name.length > 64 || typeof fn.description !== 'string' || typeof fn.parameters !== 'object' || fn.parameters === null) return null
+    tools.push({ name: fn.name, description: fn.description, parameters: fn.parameters as Record<string, unknown> })
+  }
+  return tools
+}
+
+function parseToolCalls(value: unknown): UpstreamToolCall[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const calls: UpstreamToolCall[] = []
+  for (const item of value as { id?: unknown; function?: { name?: unknown; arguments?: unknown } }[]) {
+    if (typeof item?.id !== 'string' || typeof item.function?.name !== 'string' || typeof item.function.arguments !== 'string') return null
+    calls.push({ id: item.id, name: item.function.name, arguments: item.function.arguments })
+  }
+  return calls
 }
 
 function parseChat(text: string, config: Config): ChatBody | string {
@@ -28,13 +52,34 @@ function parseChat(text: string, config: Config): ChatBody | string {
   } catch {
     return 'The request is not valid JSON.'
   }
-  const { messages, max_tokens: maxTokens } = (body ?? {}) as { messages?: unknown; max_tokens?: unknown }
+  const { messages, max_tokens: maxTokens, tools: rawTools } = (body ?? {}) as { messages?: unknown; max_tokens?: unknown; tools?: unknown }
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 500) return 'messages is required.'
 
   const system: string[] = []
   const conversation: UpstreamMessage[] = []
   let characters = 0
-  for (const message of messages as { role?: unknown; content?: unknown }[]) {
+  const tools = rawTools === undefined ? undefined : parseTools(rawTools)
+  if (tools === null) return 'tools is not valid.'
+  if (tools) characters += JSON.stringify(tools).length
+  for (const message of messages as { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown }[]) {
+    if (message?.role === 'tool') {
+      if (typeof message.content !== 'string' || typeof message.tool_call_id !== 'string') return 'Each tool result needs text content and an id.'
+      characters += message.content.length
+      const result = { id: message.tool_call_id, content: message.content }
+      const last = conversation.at(-1)
+      // Several results in a row answer one reply, and go up as one turn.
+      if (last?.toolResults) last.toolResults.push(result)
+      else conversation.push({ role: 'user', content: '', toolResults: [result] })
+      continue
+    }
+    if (message?.role === 'assistant' && message.tool_calls !== undefined) {
+      const toolCalls = parseToolCalls(message.tool_calls)
+      if (!toolCalls || (message.content !== null && typeof message.content !== 'string')) return 'tool_calls is not valid.'
+      const content = message.content ?? ''
+      characters += (content as string).length + toolCalls.reduce((sum, call) => sum + call.arguments.length, 0)
+      conversation.push({ role: 'assistant', content: content as string, toolCalls })
+      continue
+    }
     if (typeof message?.content !== 'string') return 'Each message needs text content.'
     characters += message.content.length
     if (message.role === 'system') system.push(message.content)
@@ -45,7 +90,7 @@ function parseChat(text: string, config: Config): ChatBody | string {
   if (conversation[0]?.role !== 'user' || conversation.at(-1)?.role !== 'user') return 'The conversation must start and end with a user message.'
 
   const requested = typeof maxTokens === 'number' && maxTokens > 0 ? Math.floor(maxTokens) : config.maxOutputTokens
-  return { system: system.join('\n\n'), messages: conversation, maxTokens: Math.min(requested, config.maxOutputTokens) }
+  return { system: system.join('\n\n'), messages: conversation, maxTokens: Math.min(requested, config.maxOutputTokens), ...(tools?.length ? { tools } : {}) }
 }
 
 async function readBody(request: Request, limit: number): Promise<string | null> {
@@ -78,14 +123,18 @@ function streamReply(chat: ChatBody, upstream: Upstream, finish: (tokens: number
       const send = (data: unknown) => out.enqueue(encoder.encode(chunk(data)))
       // If the reply is cut short there's no usage report, so charge an estimate:
       // otherwise cancelling every reply would dodge the daily limits.
-      const inputChars = chat.system.length + chat.messages.reduce((sum, m) => sum + m.content.length, 0)
+      const inputChars = chat.system.length + chat.messages.reduce((sum, m) => sum + m.content.length + (m.toolResults ?? []).reduce((n, r) => n + r.content.length, 0), 0)
       let outputChars = 0
+      let toolIndex = 0
       let tokens: number | null = null
       try {
         for await (const event of upstream.stream(chat, controller.signal)) {
           if (event.type === 'text') {
             outputChars += event.text.length
             send({ ...base, choices: [{ index: 0, delta: { content: event.text } }] })
+          } else if (event.type === 'tool') {
+            outputChars += event.call.arguments.length
+            send({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: toolIndex++, id: event.call.id, type: 'function', function: { name: event.call.name, arguments: event.call.arguments } }] } }] })
           } else {
             tokens = event.inputTokens + event.outputTokens
             send({ ...base, choices: [{ index: 0, delta: {}, finish_reason: event.stopReason }] })

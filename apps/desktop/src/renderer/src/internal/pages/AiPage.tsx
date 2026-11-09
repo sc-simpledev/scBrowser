@@ -1,7 +1,7 @@
 import { Plus, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { HOSTED_PROVIDER_ID, isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol, type Skill } from '@scbrowser/shared'
+import { Button, IconButton, Input, Select, Switch } from '@scbrowser/ui'
+import { HOSTED_PROVIDER_ID, MAX_MEMORY_CHARS, type MemoryNote, isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol, type Skill } from '@scbrowser/shared'
 import { api } from '../api'
 
 const CUSTOM = 'custom'
@@ -17,6 +17,65 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <span className="text-xs text-text-faint">{hint}</span>}
     </label>
+  )
+}
+
+/** Notes for the assistant: written here or with /remember, and sent with each message while on. */
+function MemoryEditor() {
+  const [notes, setNotes] = useState<MemoryNote[]>([])
+  const [on, setOn] = useState(true)
+  const [draft, setDraft] = useState('')
+  const load = () => void api().invoke('memory:list').then(setNotes)
+  useEffect(() => {
+    load()
+    void api().invoke('settings:get').then((settings) => setOn(settings.aiMemory))
+  }, [])
+  const add = () => {
+    if (!draft.trim()) return
+    void api().invoke('memory:add', draft).then(load)
+    setDraft('')
+  }
+  return (
+    <section aria-label="Memory" className="flex flex-col gap-3 rounded-lg p-3 shadow-1">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="font-medium">Memory</h2>
+          <p className="text-xs text-text-faint">Notes the assistant is told with every message. It never adds any itself. Type /remember in the assistant to add one.</p>
+        </div>
+        <Switch
+          label="Use memory"
+          checked={on}
+          onChange={(aiMemory) => {
+            setOn(aiMemory)
+            void api().invoke('settings:set', { aiMemory })
+          }}
+        />
+      </div>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          add()
+        }}
+      >
+        <Input aria-label="New note" className="min-w-0 flex-1" maxLength={MAX_MEMORY_CHARS} placeholder="I prefer short answers" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <Button type="submit" disabled={!draft.trim()}>
+          Add
+        </Button>
+      </form>
+      {notes.length > 0 && (
+        <ul aria-label="Notes" className="flex flex-col">
+          {notes.map((note) => (
+            <li key={note.id} className="flex items-center gap-1">
+              <Input aria-label="Note" className="min-w-0 flex-1 border-transparent bg-transparent" maxLength={MAX_MEMORY_CHARS} defaultValue={note.text} onBlur={(e) => e.target.value.trim() && e.target.value !== note.text && void api().invoke('memory:update', note.id, e.target.value).then(load)} />
+              <IconButton size="sm" label="Remove note" onClick={() => void api().invoke('memory:remove', note.id).then(load)}>
+                <X size={13} strokeWidth={1.75} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -312,8 +371,21 @@ export function AiPage() {
           ))}
         </ul>
       )}
-      <AddProvider onSaved={load} />
+      {state.providers.length === 0 ? (
+        <AddProvider onSaved={load} />
+      ) : (
+        <details>
+          <summary className="flex h-8 cursor-default list-none items-center gap-1.5 text-text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+            <Plus aria-hidden size={14} strokeWidth={1.75} />
+            Add another provider
+          </summary>
+          <div className="pt-2">
+            <AddProvider onSaved={load} />
+          </div>
+        </details>
+      )}
       <SkillsEditor skills={state.skills} onChange={load} />
+      <MemoryEditor />
       {state.disabledHosts.length > 0 && (
         <section aria-label="Sites with AI off" className="flex flex-col gap-1">
           <h2 className="text-xs font-medium text-text-muted">AI is off for these sites</h2>

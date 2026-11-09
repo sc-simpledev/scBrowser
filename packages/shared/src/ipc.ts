@@ -1,3 +1,4 @@
+import type { MemoryNote } from './memory'
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ExtensionPanelState, ExtensionSummary, ImportResult, ImportSource } from './containers'
 import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision, TaskList, WebApp } from './library'
@@ -10,7 +11,7 @@ import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval } from './watch'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderChange, CoderEvent, CoderStatus } from './coder'
+import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderReview, CoderStatus } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -528,6 +529,15 @@ export interface InternalCommands {
   'archive:remove': (id: string) => void
   'archive:clear': () => void
   'groups:closed': () => ClosedGroup[]
+  /** Named sets of tabs the person saved to come back to. */
+  'tabsets:list': () => ClosedGroup[]
+  'tabsets:save': (name: string) => ClosedGroup | null
+  'tabsets:open': (id: string) => void
+  'tabsets:remove': (id: string) => void
+  'memory:list': () => MemoryNote[]
+  'memory:add': (text: string) => MemoryNote | null
+  'memory:update': (id: string, text: string) => void
+  'memory:remove': (id: string) => void
   /** Opens the group's tabs again in the window it's asked from, and takes it off the list. */
   'groups:reopen': (id: string) => void
   'groups:forget': (id: string) => void
@@ -550,6 +560,10 @@ export interface InternalCommands {
   'coder:diff': (sessionId: string, path: string) => string
   /** Puts every file the session changed back as it was. Returns how many. */
   'coder:undo': (sessionId: string, path?: string) => number
+  /** One changed file, split into its separate changes. */
+  'coder:review': (sessionId: string, path: string) => CoderReview | null
+  /** Keeps or puts back one change, or the whole file with a null hunk. Returns what's left to review. */
+  'coder:decide': (sessionId: string, path: string, hunk: string | null, decision: CoderDecision) => CoderChange[]
   'highlights:list': () => Highlight[]
   'highlights:note': (id: string, note: string) => void
   'highlights:remove': (id: string) => void
@@ -725,6 +739,14 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'archive:remove',
   'archive:clear',
   'groups:closed',
+  'tabsets:list',
+  'tabsets:save',
+  'tabsets:open',
+  'tabsets:remove',
+  'memory:list',
+  'memory:add',
+  'memory:update',
+  'memory:remove',
   'groups:reopen',
   'groups:forget',
   'coder:status',
@@ -740,6 +762,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:changes',
   'coder:diff',
   'coder:undo',
+  'coder:review',
+  'coder:decide',
   'highlights:list',
   'highlights:note',
   'highlights:remove',

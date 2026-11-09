@@ -1,7 +1,7 @@
-import { Lock, Minus, Plus, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, Lock, Minus, Plus, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { Button, Switch } from '@scbrowser/ui'
-import { SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState } from '@scbrowser/shared'
+import { Button, Select, Switch } from '@scbrowser/ui'
+import { SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState, type SiteFont } from '@scbrowser/shared'
 
 const act = (action: SiteAction) => void window.scbOverlay.invoke('overlay:site-action', action)
 const close = () => void window.scbOverlay.invoke('overlay:site-close')
@@ -51,9 +51,30 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
         </button>
       </div>
       <div className="flex flex-col py-1">
-        <Line label="Tracking protection" hint={state.tracking === null ? 'Off everywhere, in Settings' : state.tracking ? `${state.blocked} blocked on this page` : 'Off for this site'}>
+        <div className="flex items-center justify-between gap-3 px-3" style={{ height: SITE_POPUP.row }}>
+          <div className="min-w-0">
+            <div className="truncate">Tracking protection</div>
+            {state.tracking && state.blocked > 0 ? (
+              <button type="button" aria-expanded={state.blockedOpen} onClick={() => act('blocked-toggle')} className="flex items-center gap-0.5 text-xs text-text-faint hover:text-text">
+                {state.blocked} blocked on this page
+                <ChevronRight aria-hidden size={11} strokeWidth={2} className={state.blockedOpen ? 'rotate-90' : ''} />
+              </button>
+            ) : (
+              <div className="truncate text-xs text-text-faint">{state.tracking === null ? 'Off everywhere, in Settings' : state.tracking ? 'Nothing blocked on this page' : 'Off for this site'}</div>
+            )}
+          </div>
           {state.tracking !== null && <Switch label="Tracking protection on this site" checked={state.tracking} onChange={() => act('tracking')} />}
-        </Line>
+        </div>
+        {state.blockedOpen && (
+          <ul aria-label="Blocked on this page" className="flex flex-col pb-2">
+            {state.blockedHosts.map(({ host, count }) => (
+              <li key={host} className="flex items-center justify-between gap-3 px-3 text-xs text-text-muted" style={{ height: SITE_POPUP.blockedRow }}>
+                <span className="min-w-0 truncate">{host}</span>
+                <span className="shrink-0 text-text-faint tabular-nums">{count}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         <Line label="AI on this site" hint={state.ai ? 'Pages can be sent when you ask' : 'Never sent to AI'}>
           <Switch label="Allow AI on this site" checked={state.ai} onChange={() => act('ai')} />
         </Line>
@@ -72,6 +93,14 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
               <Plus aria-hidden size={13} strokeWidth={2} />
             </button>
           </div>
+        </Line>
+        <Line label="Font">
+          <Select aria-label="Font on this site" className="w-28" value={state.font} onChange={(e) => act(`font:${e.target.value as SiteFont}`)}>
+            <option value="default">Site’s own</option>
+            <option value="sans">Sans</option>
+            <option value="serif">Serif</option>
+            <option value="mono">Mono</option>
+          </Select>
         </Line>
       </div>
       {state.permissions.length > 0 && (

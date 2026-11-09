@@ -1,10 +1,29 @@
 import { readServerEvents } from './sse'
-import { AiError, errorForStatus, type ChatEvent, type ChatRequest, type Provider, type ProviderOptions } from './types'
+import { AiError, errorForStatus, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
 
 interface ChatChunk {
-  choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[]
+  choices?: { delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string | null }[]
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null
   error?: { message?: string }
+}
+
+/** Tool results are messages of their own in this format, one per call. */
+export function toOpenAiMessages(messages: ChatMessage[]): unknown[] {
+  return messages.flatMap(({ role, content, toolUses, toolResults }): unknown[] => {
+    if (toolUses?.length) {
+      return [{ role, content: content || null, tool_calls: toolUses.map(({ id, name, input }) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(input ?? {}) } })) }]
+    }
+    if (toolResults?.length) return [...toolResults.map(({ id, output }) => ({ role: 'tool', tool_call_id: id, content: output })), ...(content ? [{ role, content }] : [])]
+    return [{ role, content }]
+  })
+}
+
+function parsedArguments(text: string): unknown {
+  try {
+    return JSON.parse(text || '{}')
+  } catch {
+    return null
+  }
 }
 
 /** Speaks the OpenAI chat format, which OpenRouter, Gemini, Ollama and most gateways also accept. */
@@ -40,7 +59,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
       return (body.data ?? []).flatMap((m) => (typeof m.id === 'string' ? [m.id] : []))
     },
 
-    async *chat({ model, system, messages, maxTokens, signal }: ChatRequest): AsyncGenerator<ChatEvent> {
+    async *chat({ model, system, messages, maxTokens, signal, tools }: ChatRequest): AsyncGenerator<ChatEvent> {
       const response = await send('/chat/completions', {
         method: 'POST',
         signal,
@@ -50,12 +69,14 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
           stream: true,
           stream_options: { include_usage: true },
           max_tokens: maxTokens,
-          messages: [{ role: 'system', content: system }, ...messages]
+          messages: [{ role: 'system', content: system }, ...toOpenAiMessages(messages)],
+          ...(tools?.length ? { tools: tools.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } })) } : {})
         })
       })
       if (!response.body) throw new AiError('server', `${config.name} sent an empty response.`)
 
       let stopReason: string | null = null
+      const calls = new Map<number, { id: string; name: string; args: string }>()
       for await (const event of readServerEvents(response.body)) {
         if (event === '[DONE]') break
         let chunk: ChatChunk
@@ -67,6 +88,14 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
         if (chunk.error) throw new AiError('server', `${config.name} stopped with an error.`)
         const choice = chunk.choices?.[0]
         if (choice?.delta?.content) yield { type: 'text', text: choice.delta.content }
+        for (const part of choice?.delta?.tool_calls ?? []) {
+          const index = part.index ?? calls.size
+          const call = calls.get(index) ?? { id: '', name: '', args: '' }
+          call.id ||= part.id ?? ''
+          call.name ||= part.function?.name ?? ''
+          call.args += part.function?.arguments ?? ''
+          calls.set(index, call)
+        }
         if (choice?.finish_reason) stopReason = choice.finish_reason
         if (chunk.usage) {
           yield {
@@ -76,6 +105,8 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
           }
         }
       }
+      // Some gateways leave the id out, and a result has to name the call it answers.
+      for (const [index, call] of [...calls].sort(([a], [b]) => a - b)) if (call.name) yield { type: 'tool', use: { id: call.id || `call_${index}`, name: call.name, input: parsedArguments(call.args) } }
       yield { type: 'stop', reason: stopReason }
     }
   }

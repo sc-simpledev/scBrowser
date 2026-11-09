@@ -60,6 +60,15 @@ export const SUGGESTION_SOURCES = [
 
 export type SuggestionSourceId = (typeof SUGGESTION_SOURCES)[number]['id']
 
+/** Encrypted DNS services to choose from. */
+export const SECURE_DNS = {
+  default: { name: 'Automatic', url: null },
+  cloudflare: { name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
+  quad9: { name: 'Quad9', url: 'https://dns.quad9.net/dns-query' },
+  google: { name: 'Google', url: 'https://dns.google/dns-query' }
+} as const
+export type SecureDns = keyof typeof SECURE_DNS
+
 export interface Settings {
   searchEngine: string
   /** Send typed text to the search engine for completions. */
@@ -126,6 +135,12 @@ export interface Settings {
   vpnMethod: VpnMethod
   /** Connect as soon as scTerra starts, holding pages back until it has. */
   vpnAutoConnect: boolean
+  /** Moves to another server in the same group when the connected one stops answering. */
+  vpnFailover: boolean
+  /** Who answers DNS lookups, encrypted. `default` leaves it to Chromium and the system. */
+  secureDns: SecureDns
+  /** Adds the notes on sc://ai to what the model is told. */
+  aiMemory: boolean
   /** Turning the VPN on first picks the fastest working connection in the same group. */
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
@@ -214,6 +229,9 @@ export const DEFAULT_SETTINGS: Settings = {
   vpnScope: 'browser',
   vpnMethod: 'proxy',
   vpnAutoConnect: false,
+  vpnFailover: false,
+  secureDns: 'default',
+  aiMemory: true,
   vpnAutoFastest: false,
   vpnBypass: [],
   vpnDirectContainers: [],
@@ -295,6 +313,9 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   vpnScope: (v) => v === 'browser' || v === 'computer',
   vpnMethod: (v) => v === 'proxy' || v === 'tun',
   vpnAutoConnect: (v) => typeof v === 'boolean',
+  vpnFailover: (v) => typeof v === 'boolean',
+  secureDns: (v) => typeof v === 'string' && v in SECURE_DNS,
+  aiMemory: (v) => typeof v === 'boolean',
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
   vpnDirectContainers: (v) => Array.isArray(v) && v.every((id) => CONTAINERS.some((container) => container.id === id)),

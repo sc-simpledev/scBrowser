@@ -8,6 +8,7 @@ import {
   PERFORMANCE_SLEEP_MINUTES,
   PERMISSION_LABELS,
   SEARCH_ENGINES,
+  SECURE_DNS,
   SUGGESTION_SOURCES,
   TOOLBAR_ITEMS,
   TOOLBAR_SLOTS,
@@ -544,6 +545,15 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
         </Row>
         <Row setting="httpsOnly" label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one." keywords="secure ssl">
           <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
+        </Row>
+        <Row setting="secureDns" label="Encrypted DNS" hint="Hides which sites you look up from your network. If you pick a service and it can't be reached, pages won't load." keywords="doh dns over https cloudflare quad9 google">
+          <Select aria-label="Encrypted DNS" className="w-40" value={settings.secureDns} onChange={(e) => update({ secureDns: e.target.value as Settings['secureDns'] })}>
+            {Object.entries(SECURE_DNS).map(([id, { name }]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
         </Row>
         <Row setting="rejectCookieBanners" label="Reject cookie banners" hint="Presses Reject or Only necessary on cookie banners for you. It never accepts. Sites with tracking protection off are left alone." keywords="consent gdpr">
           <Switch label="Reject cookie banners" checked={settings.rejectCookieBanners} onChange={(rejectCookieBanners) => update({ rejectCookieBanners })} />

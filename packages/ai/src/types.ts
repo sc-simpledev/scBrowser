@@ -2,16 +2,41 @@ import type { AssistantMessage, ProviderConfig } from '@scbrowser/shared'
 
 export type FetchLike = typeof fetch
 
+/** A tool offered to the model through the provider's own tool calling. `parameters` is JSON Schema. */
+export interface ToolSpec {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export interface ToolUse {
+  id: string
+  name: string
+  /** What the model sent. Null when its arguments couldn't be read, such as a reply cut off by its length limit. */
+  input: unknown
+}
+
+export interface ToolOutput {
+  id: string
+  tool: string
+  output: string
+}
+
+/** A conversation turn, which may carry the provider-native tool calls and their results. */
+export type ChatMessage = AssistantMessage & { toolUses?: ToolUse[]; toolResults?: ToolOutput[] }
+
 export interface ChatRequest {
   model: string
   system: string
-  messages: AssistantMessage[]
+  messages: ChatMessage[]
   maxTokens: number
   signal?: AbortSignal
+  tools?: ToolSpec[]
 }
 
 export type ChatEvent =
   | { type: 'text'; text: string }
+  | { type: 'tool'; use: ToolUse }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
   | { type: 'stop'; reason: string | null }
 

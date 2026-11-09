@@ -1,5 +1,5 @@
 import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
-import { Fragment, lazy, Suspense, useEffect, type ComponentType } from 'react'
+import { lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { applyPerformance, applyTint } from './api'
@@ -42,13 +42,33 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
-/** The sidebar, in clusters of related pages, so the long list reads at a glance. */
-const NAV: InternalPage[][] = [
-  ['settings', 'history', 'bookmarks', 'downloads', 'passwords'],
-  ['assistant', 'ai'],
-  ['reading', 'highlights', 'watching', 'archive'],
-  ['blocker', 'vpn', 'tasks', 'flags']
+/** The sidebar in quiet labelled sections. The rarely needed ones sit apart at the bottom. */
+const NAV: { label: string | null; pages: InternalPage[] }[] = [
+  { label: null, pages: ['settings'] },
+  { label: 'Library', pages: ['history', 'bookmarks', 'downloads', 'reading', 'highlights', 'watching', 'archive'] },
+  { label: 'AI', pages: ['assistant', 'ai'] },
+  { label: 'Privacy', pages: ['passwords', 'vpn', 'blocker'] }
 ]
+const NAV_ADVANCED: InternalPage[] = ['tasks', 'flags']
+
+function NavLink({ page, current }: { page: InternalPage; current: InternalPage }) {
+  const { title, icon: Icon } = pages[page]
+  return (
+    <>
+      <a
+        href={`sc://${page}/`}
+        aria-label={title}
+        title={title}
+        aria-current={page === current ? 'page' : undefined}
+        className={cx('flex h-7.5 shrink-0 items-center gap-2.5 rounded-md px-2 transition-colors', page === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
+      >
+        <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0" />
+        <span className="truncate max-[720px]:sr-only">{title}</span>
+      </a>
+      {page === 'settings' && current === 'settings' && <SettingsSections />}
+    </>
+  )
+}
 
 /**
  * Each page is loaded only when it's shown, so a new tab doesn't parse the PDF viewer, the assistant
@@ -125,33 +145,20 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-bg p-3 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
-          {NAV.map((cluster, index) => (
-            <Fragment key={cluster[0]}>
-              {index > 0 && <div aria-hidden className="mx-2.5 my-1.5 h-px shrink-0 bg-border" />}
-              {cluster.map((page) => {
-                const { title, icon: Icon } = pages[page]
-                return (
-                  <Fragment key={page}>
-                    <a
-                      href={`sc://${page}/`}
-                      aria-label={title}
-                      title={title}
-                      aria-current={page === current ? 'page' : undefined}
-                      className={cx(
-                        'flex h-8 shrink-0 items-center gap-2.5 rounded-lg px-2.5 transition-colors',
-                        page === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text'
-                      )}
-                    >
-                      <Icon aria-hidden size={15} strokeWidth={1.75} className="shrink-0" />
-                      <span className="truncate max-[720px]:sr-only">{title}</span>
-                    </a>
-                    {page === 'settings' && current === 'settings' && <SettingsSections />}
-                  </Fragment>
-                )
-              })}
-            </Fragment>
+        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg p-2.5 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
+          {NAV.map(({ label, pages: section }) => (
+            <div key={section[0]} className="flex shrink-0 flex-col gap-px">
+              {label && <h2 className="px-2 pt-3.5 pb-1 text-2xs font-medium text-text-faint max-[720px]:sr-only">{label}</h2>}
+              {section.map((page) => (
+                <NavLink key={page} page={page} current={current} />
+              ))}
+            </div>
           ))}
+          <div className="mt-auto flex shrink-0 flex-col gap-px pt-3.5">
+            {NAV_ADVANCED.map((page) => (
+              <NavLink key={page} page={page} current={current} />
+            ))}
+          </div>
         </nav>}
         {current === 'assistant' ? (
           <main className="min-w-0 flex-1">

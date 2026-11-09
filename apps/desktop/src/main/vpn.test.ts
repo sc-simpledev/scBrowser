@@ -409,3 +409,45 @@ describe('TUN toggle', () => {
     for (const text of ['', 'true', 'maybe off']) expect(readTunToggle(text)).toBeNull()
   })
 })
+
+describe('failover', () => {
+  const listening = () => new Promise<ReturnType<typeof createServer>>((done) => {
+    const server = createServer()
+    server.listen(0, '127.0.0.1', () => done(server))
+  })
+  const portOf = (server: ReturnType<typeof createServer>) => (server.address() as AddressInfo).port
+
+  it('moves to a server that answers, and says so', async () => {
+    const live = await listening()
+    const { vpn, deps, proxies } = setup()
+    Object.assign(deps, { failover: () => true })
+    await vpn.add(`socks5://127.0.0.1:1#Dead\nsocks5://127.0.0.1:${portOf(live)}#Alive`, null)
+    await vpn.select(vpn.state().connections.find(({ name }) => name === 'Dead')!.id)
+    await vpn.setEnabled(true)
+    await vpn.failOver()
+    expect(proxies.at(-1)).toContain(String(portOf(live)))
+    expect(vpn.summary().error).toContain('moved to Alive')
+    live.close()
+  })
+
+  it('stays put and says so when nothing else answers', async () => {
+    const { vpn, deps, proxies } = setup()
+    Object.assign(deps, { failover: () => true })
+    await vpn.add('socks5://127.0.0.1:1#Dead\nsocks5://127.0.0.1:2#AlsoDead', null)
+    await vpn.select(vpn.state().connections.find(({ name }) => name === 'Dead')!.id)
+    await vpn.setEnabled(true)
+    const before = proxies.at(-1)
+    await vpn.failOver()
+    expect(proxies.at(-1)).toBe(before)
+    expect(vpn.summary().error).toContain('no other server')
+  })
+
+  it('does nothing with failover off', async () => {
+    const { vpn, proxies } = setup()
+    await vpn.add('socks5://127.0.0.1:1#Dead\nsocks5://127.0.0.1:2#Other', null)
+    await vpn.setEnabled(true)
+    const count = proxies.length
+    await vpn.failOver()
+    expect(proxies).toHaveLength(count)
+  })
+})

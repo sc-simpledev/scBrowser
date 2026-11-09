@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFile, realpath, stat, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
-import { CHANGING_TOOLS, CODER_BAD_BLOCK, CODER_EXPLORE_PROMPT, CODER_NUDGE, CODER_PLAN_PROMPT, CODER_PROMPT, CODER_VERIFY_NUDGE, isDoneMarker, parseCoderReply, promisesAction, streamingText, toolResult, type CoderCall } from '@scbrowser/ai'
-import { CODER_MAX_STEPS, type AssistantMessage, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode } from '@scbrowser/shared'
+import { mkdir, readFile, realpath, stat, unlink, writeFile } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
+import { AiError, CHANGING_TOOLS, closeToolTurns, CODER_BAD_BLOCK, CODER_BAD_TOOL, CODER_EXPLORE_NATIVE_PROMPT, CODER_EXPLORE_PROMPT, CODER_LOOK_TOOLS, CODER_NATIVE_NUDGE, CODER_NATIVE_PROMPT, CODER_NATIVE_VERIFY_NUDGE, CODER_NUDGE, CODER_PLAN_PROMPT, CODER_PLAN_TOOLS, CODER_PROMPT, CODER_TOOLS, CODER_VERIFY_NUDGE, flattenToolTurns, isDoneMarker, MAX_CALLS_PER_REPLY, nativeCall, parseCoderReply, promisesAction, streamingText, toolResult, type ChatMessage, type CoderCall, type ToolOutput, type ToolSpec, type ToolUse } from '@scbrowser/ai'
+import { acceptHunk, CODER_MAX_STEPS, fileHunks, rejectHunk, type AssistantMessage, type CoderAnswer, type CoderChange, type CoderDecision, type CoderEvent, type CoderMode, type CoderReview } from '@scbrowser/shared'
+import { asText, MAX_COMMAND_FILES, type CoderCheckpoints, type CoderSnapshots } from './coderStorage'
 import { applyEdits, clip, commandEnv, deleteFile, globFiles, inside, lineDiff, listFiles, moveFile, readLines, readText, runCommand, searchFiles, shown, ToolError, writeText } from './coderTools'
 
 /** Older tool output is emptied once the conversation grows past this, keeping recent work whole. */
@@ -30,7 +31,9 @@ const READ_ONLY = new Set<CoderCall['tool']>(['list', 'glob', 'read', 'search'])
 type Emit = (event: CoderEvent) => void
 
 interface Session {
-  messages: AssistantMessage[]
+  messages: ChatMessage[]
+  /** Using the provider's own tool calling, rather than tools written as text in replies. */
+  native: boolean
   controller: AbortController | null
   /** Commands the person said to always allow, exactly as written, for this session only. */
   allowed: Set<string>
@@ -43,6 +46,21 @@ interface Session {
   queue: string[]
   /** When each file was last seen by the model, so it can't overwrite something newer than it read. */
   seen: Map<string, number>
+  /** Files whose earlier version isn't text, as the snapshot object that holds them. Also listed in `originals`. */
+  opaque: Map<string, string>
+  /** Set once a snapshot fails, so a folder too big to scan doesn't slow down every command. */
+  noSnapshots: boolean
+}
+
+interface Reply {
+  text: string
+  uses: ToolUse[]
+}
+
+/** One step a reply asked for. `use` is set when it came through the provider's tool calling. */
+interface Step {
+  use: ToolUse | null
+  call: CoderCall | null
 }
 
 export interface CoderDependencies {
@@ -51,6 +69,15 @@ export interface CoderDependencies {
   webSearch?: (query: string) => Promise<string>
   /** Seconds to wait before each new try after a failed request. */
   retrySeconds?: number[]
+  /** The provider's own tool calling, when the chat model's provider can do it. */
+  native?: {
+    available: () => boolean
+    chat: (messages: ChatMessage[], system: string, tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void) => Promise<Reply>
+  }
+  checkpoints?: CoderCheckpoints
+  snapshots?: CoderSnapshots
+  /** False when the person has turned saved chats off, so nothing is kept on disk. */
+  keepOnDisk?: () => boolean
 }
 
 /**
@@ -58,8 +85,8 @@ export interface CoderDependencies {
  * anything inside it, but every change asks first (unless they let edits through) and every command
  * asks first (unless they always allowed that exact command in this session). Plan mode only looks.
  * Nothing outside the folder is reachable through its tools, though a command the person approves
- * runs with their own permissions. Every file it changes is remembered as it was, so the session's
- * changes can be undone.
+ * runs with their own permissions. Every file it or a command changes is remembered as it was, so
+ * the session's changes can be reviewed and undone, including after a restart.
  */
 export class Coder {
   private readonly sessions = new Map<string, Session>()
@@ -87,17 +114,69 @@ export class Coder {
     return true
   }
 
+  /** Lets go of a session in memory. Its checkpoint stays, so going back to the saved chat still works. */
   reset(sessionId: string): void {
     this.stop(sessionId)
     this.sessions.delete(sessionId)
   }
 
+  /** Forgets a session everywhere, for when its chat is deleted. */
+  async forget(sessionId: string): Promise<void> {
+    this.reset(sessionId)
+    await Promise.all([this.deps.checkpoints?.remove(sessionId), this.deps.snapshots?.remove(sessionId)])
+  }
+
+  /** For clearing every saved chat. Sessions that are working carry on in memory. */
+  async forgetAll(): Promise<void> {
+    await Promise.all([this.deps.checkpoints?.clear(), this.deps.snapshots?.clear()])
+  }
+
+  private async persist(sessionId: string, session: Session): Promise<void> {
+    if (!this.deps.checkpoints || this.deps.keepOnDisk?.() === false) return
+    await this.deps.checkpoints
+      .save(sessionId, { version: 1, folder: session.folder, native: session.native, introduced: session.introduced, messages: session.messages, originals: [...session.originals], opaque: [...session.opaque], seen: [...session.seen] })
+      .catch(() => undefined)
+  }
+
+  /** The session in memory, or picked back up from disk after a restart. */
+  private async loaded(sessionId: string): Promise<Session | undefined> {
+    const live = this.sessions.get(sessionId)
+    if (live) return live
+    const saved = await this.deps.checkpoints?.load(sessionId)
+    if (!saved) return undefined
+    // Another call may have got here first while this one was reading.
+    const raced = this.sessions.get(sessionId)
+    if (raced) return raced
+    const within = ([full]: [string, unknown]) => full.startsWith(saved.folder + sep)
+    const session: Session = {
+      messages: saved.messages,
+      native: saved.native && !!this.deps.native?.available(),
+      controller: null,
+      allowed: new Set(),
+      originals: new Map(saved.originals.filter(within)),
+      folder: saved.folder,
+      introduced: saved.introduced,
+      queue: [],
+      seen: new Map((saved.seen ?? []).filter(within)),
+      opaque: new Map((saved.opaque ?? []).filter(within)),
+      noSnapshots: false
+    }
+    if (saved.native && !session.native) session.messages = flattenToolTurns(session.messages)
+    this.sessions.set(sessionId, session)
+    return session
+  }
+
   /** Every file the session changed, against how it was before. */
   async changes(sessionId: string): Promise<CoderChange[]> {
-    const session = this.sessions.get(sessionId)
+    const session = await this.loaded(sessionId)
     if (!session) return []
     const files: CoderChange[] = []
     for (const [full, before] of session.originals) {
+      if (session.opaque.has(full)) {
+        const exists = await stat(full).then(() => true, () => false)
+        files.push({ path: shown(session.folder, full), status: exists ? 'modified' : 'deleted', added: 0, removed: 0 })
+        continue
+      }
       const after = await readFile(full, 'utf8').catch(() => null)
       if (after === before) continue
       const status = before === null ? 'created' : after === null ? 'deleted' : 'modified'
@@ -109,10 +188,10 @@ export class Coder {
 
   /** A diff of one changed file against how it was before the session. */
   async diff(sessionId: string, path: string): Promise<string> {
-    const session = this.sessions.get(sessionId)
+    const session = await this.loaded(sessionId)
     if (!session) return ''
     const full = await inside(session.folder, path)
-    if (!session.originals.has(full)) return ''
+    if (!session.originals.has(full) || session.opaque.has(full)) return ''
     const before = session.originals.get(full) ?? ''
     const after = await readFile(full, 'utf8').catch(() => '')
     return lineDiff(before, after)
@@ -120,13 +199,23 @@ export class Coder {
 
   /** Puts back every file the session changed, or just `path`, and forgets those changes. Only while it isn't working. */
   async undo(sessionId: string, path?: string): Promise<number> {
-    const session = this.sessions.get(sessionId)
+    const session = await this.loaded(sessionId)
     if (!session) return 0
     if (session.controller) throw new Error('Stop Terra Code before undoing its changes.')
     let restored = 0
     const only = path === undefined ? null : await inside(session.folder, path)
     for (const [full, before] of [...session.originals]) {
       if (only && full !== only) continue
+      const object = session.opaque.get(full)
+      if (object !== undefined) {
+        const bytes = await this.deps.snapshots?.show(sessionId, session.folder, object)
+        if (!bytes) continue
+        await mkdir(dirname(full), { recursive: true })
+        await writeFile(full, bytes)
+        session.opaque.delete(full)
+        restored++
+        continue
+      }
       const now = await readFile(full, 'utf8').catch(() => null)
       if (now === before) continue
       if (before === null) await unlink(full).catch(() => undefined)
@@ -134,22 +223,72 @@ export class Coder {
       restored++
     }
     if (only) session.originals.delete(only)
-    else session.originals.clear()
+    else {
+      for (const full of session.originals.keys()) if (!session.opaque.has(full)) session.originals.delete(full)
+    }
     session.seen.clear()
     session.messages.push({ role: 'user', content: only ? `(The person undid your changes to ${path}. It's back as it was before.)` : '(The person undid every change made so far in this session. The files are back as they were before.)' })
     session.messages.push({ role: 'assistant', content: 'Understood: those changes were undone.' })
+    await this.persist(sessionId, session)
     return restored
+  }
+
+  /** One changed file, split into its separate changes for reviewing. */
+  async review(sessionId: string, path: string): Promise<CoderReview | null> {
+    const session = await this.loaded(sessionId)
+    if (!session) return null
+    const full = await inside(session.folder, path)
+    if (!session.originals.has(full)) return null
+    const name = shown(session.folder, full)
+    if (session.opaque.has(full)) return { path: name, status: 'modified', whole: true, binary: true, hunks: [] }
+    const before = session.originals.get(full) ?? null
+    const after = await readFile(full, 'utf8').catch(() => null)
+    const status = before === null ? 'created' : after === null ? 'deleted' : 'modified'
+    return { path: name, status, whole: status !== 'modified', binary: false, hunks: fileHunks(before ?? '', after ?? '').map(({ id, line, rows }) => ({ id, line, rows: rows.slice(0, 2000) })) }
+  }
+
+  /** Keeps a change for good, or puts it back. With no hunk, it's the whole file. */
+  async decide(sessionId: string, path: string, hunk: string | null, decision: CoderDecision): Promise<CoderChange[]> {
+    const session = await this.loaded(sessionId)
+    if (!session) return []
+    if (session.controller) throw new Error('Stop Terra Code before reviewing its changes.')
+    const full = await inside(session.folder, path)
+    if (!session.originals.has(full)) return this.changes(sessionId)
+    if (hunk === null) {
+      if (decision === 'reject') await this.undo(sessionId, path)
+      session.originals.delete(full)
+      session.opaque.delete(full)
+    } else {
+      const before = session.originals.get(full) ?? ''
+      const after = await readFile(full, 'utf8')
+      const found = fileHunks(before, after).find((candidate) => candidate.id === hunk)
+      if (!found) throw new ToolError('That change has moved on. Look at the file again.')
+      if (decision === 'accept') {
+        const kept = acceptHunk(before, after, found.range)
+        if (kept === after) session.originals.delete(full)
+        else session.originals.set(full, kept)
+      } else {
+        const putBack = rejectHunk(before, after, found.range)
+        await writeText(full, putBack)
+        if (putBack === before) session.originals.delete(full)
+        session.seen.delete(full)
+        session.messages.push({ role: 'user', content: `(The person put back one of your changes to ${path}, around line ${found.line}. Read the file again before changing it.)` })
+        session.messages.push({ role: 'assistant', content: 'Understood: that change was put back.' })
+      }
+    }
+    await this.persist(sessionId, session)
+    return this.changes(sessionId)
   }
 
   async run(sessionId: string, folder: string, task: string, mode: CoderMode, emit: Emit, resume?: AssistantMessage[]): Promise<void> {
     // Its real path, so names shown to the model and the person match what `inside` resolves.
     folder = await realpath(folder).catch(() => folder)
-    let session = this.sessions.get(sessionId)
+    let session = await this.loaded(sessionId)
     if (session && session.folder !== folder) {
       this.reset(sessionId)
       session = undefined
     }
-    session ??= { messages: resume ?? [], controller: null, allowed: new Set<string>(), originals: new Map(), folder, introduced: false, queue: [], seen: new Map() }
+    session ??= { messages: resume ?? [], native: !!this.deps.native?.available(), controller: null, allowed: new Set<string>(), originals: new Map(), folder, introduced: false, queue: [], seen: new Map(), opaque: new Map(), noSnapshots: false }
     this.sessions.set(sessionId, session)
     if (session.controller) throw new Error('This session is already working.')
     const controller = new AbortController()
@@ -162,7 +301,7 @@ export class Coder {
       session.introduced = true
       const modeNote = mode === 'plan' ? '\n\n(Plan mode: look and plan only.)' : ''
       session.messages.push({ role: 'user', content: first ? `${await projectContext(folder)}\n\nTask:\n${task}${modeNote}` : `${task}${modeNote}` })
-      const system = mode === 'plan' ? CODER_PROMPT + CODER_PLAN_PROMPT : CODER_PROMPT
+      session.messages = closeToolTurns(session.messages)
       let nudges = 0
       let badReplies = 0
       // Files changed since a command last ran, and whether it's been told to check them this task.
@@ -174,46 +313,65 @@ export class Coder {
         if (signal.aborted) return emit({ sessionId, type: 'done', reason: 'stopped' })
         if (step > CODER_MAX_STEPS) {
           session.messages.push({ role: 'assistant', content: '(Stopped: step limit reached.)' })
+        await this.persist(sessionId, session)
           return emit({ sessionId, type: 'done', reason: 'step-limit' })
         }
         emit({ sessionId, type: 'thinking', step })
         for (const text of session.queue.splice(0)) session.messages.push({ role: 'user', content: `(The person added this while you were working:)\n${text}` })
         trimContext(session.messages)
         let lastStream = 0
-        const reply = await this.askModel(session.messages, system, signal, sessionId, emit, (partial) => {
+        const reply = await this.askModel(session, mode, signal, sessionId, emit, (partial) => {
           const now = Date.now()
           if (now - lastStream < STREAM_EVERY_MS) return
           lastStream = now
-          const text = streamingText(partial)
-          if (text) emit({ sessionId, type: 'stream', text })
+          const shownSoFar = streamingText(partial)
+          if (shownSoFar) emit({ sessionId, type: 'stream', text: shownSoFar })
         })
         if (signal.aborted) return emit({ sessionId, type: 'done', reason: 'stopped' })
-        session.messages.push({ role: 'assistant', content: reply })
-        const { text, calls, invalid } = parseCoderReply(reply)
+        const usedNative = reply.uses.length > 0
+        session.messages.push(usedNative ? { role: 'assistant', content: reply.text, toolUses: reply.uses } : { role: 'assistant', content: reply.text })
+        // A model given real tools can still write one as text, so that keeps working.
+        const parsed = usedNative ? { text: reply.text.trim(), calls: [] as CoderCall[], invalid: false } : parseCoderReply(reply.text)
+        const { text, invalid } = parsed
+        const steps: Step[] = usedNative ? reply.uses.map((use) => ({ use, call: nativeCall(use) })) : parsed.calls.map((call) => ({ use: null, call }))
         if (text && !isDoneMarker(text)) emit({ sessionId, type: 'text', text })
-        if (calls.length === 0 && !invalid) {
+        if (steps.length === 0 && !invalid) {
           if (session.queue.length > 0) continue
           const promised = !isDoneMarker(text) && nudges < MAX_NUDGES && promisesAction(text)
           if (!promised && unchecked && !verifyAsked && !isDoneMarker(text) && mode !== 'plan' && (await hasChecks(folder))) {
             verifyAsked = true
-            session.messages.push({ role: 'user', content: CODER_VERIFY_NUDGE })
+            session.messages.push({ role: 'user', content: session.native ? CODER_NATIVE_VERIFY_NUDGE : CODER_VERIFY_NUDGE })
             continue
           }
-          if (!promised) return emit({ sessionId, type: 'done', reason: 'finished' })
+          if (!promised) {
+            await this.persist(sessionId, session)
+            return emit({ sessionId, type: 'done', reason: 'finished' })
+          }
           nudges++
-          session.messages.push({ role: 'user', content: CODER_NUDGE })
+          session.messages.push({ role: 'user', content: session.native ? CODER_NATIVE_NUDGE : CODER_NUDGE })
           continue
         }
         nudges = 0
-        badReplies = calls.length === 0 ? badReplies + 1 : 0
+        const usable = steps.filter((step) => step.call).length
+        badReplies = usable === 0 ? badReplies + 1 : 0
         if (badReplies >= MAX_BAD_REPLIES) throw new ToolError('The model keeps sending tool requests that can\'t be read. Try again, or choose a stronger coding model in AI settings.')
-        const results: string[] = []
+        const results: ToolOutput[] = []
+        const answerStep = (step: Step, tool: string, output: string) => results.push({ id: step.use?.id ?? '', tool, output })
         let declined = false
-        for (let i = 0; i < calls.length; i++) {
+        for (let i = 0; i < steps.length; i++) {
           if (signal.aborted) break
-          const call = calls[i]!
+          const step = steps[i]!
+          const call = step.call
+          if (!call) {
+            answerStep(step, step.use?.name ?? 'error', CODER_BAD_TOOL)
+            continue
+          }
+          if (i >= MAX_CALLS_PER_REPLY) {
+            answerStep(step, call.tool, `Skipped: only ${MAX_CALLS_PER_REPLY} tools run per reply. Send this one again.`)
+            continue
+          }
           if (declined) {
-            results.push(toolResult(call.tool, 'Skipped, because the person declined an earlier step in this reply.'))
+            answerStep(step, call.tool, 'Skipped, because the person declined an earlier step in this reply.')
             continue
           }
           if (call.tool !== 'todo') {
@@ -222,30 +380,36 @@ export class Coder {
             repeats.set(key, count)
             if (count > MAX_REPEATS) {
               if (++refusedRepeats >= MAX_REFUSED_REPEATS) throw new ToolError('Terra Code kept repeating the same steps without getting anywhere, so it was stopped. Try rewording the task, or a stronger model.')
-              results.push(toolResult(call.tool, `Not run: you've already done exactly this ${count - 1} times and nothing has changed since. Try a different approach, or tell the person what's blocking you.`))
+              answerStep(step, call.tool, `Not run: you've already done exactly this ${count - 1} times and nothing has changed since. Try a different approach, or tell the person what's blocking you.`)
               continue
             }
           }
           // Steps that only look don't depend on each other, so a run of them goes at once.
           let end = i + 1
-          if (READ_ONLY.has(call.tool)) while (end < calls.length && READ_ONLY.has(calls[end]!.tool)) end++
-          const batch = calls.slice(i, end)
-          const outcomes = await Promise.all(batch.map((one) => this.use(sessionId, folder, one, mode, session, signal, emit)))
+          const looks = (candidate: Step | undefined) => !!candidate?.call && READ_ONLY.has(candidate.call.tool)
+          if (READ_ONLY.has(call.tool)) while (end < steps.length && end < MAX_CALLS_PER_REPLY && looks(steps[end])) end++
+          const batch = steps.slice(i, end)
+          const outcomes = await Promise.all(batch.map((one) => this.use(sessionId, folder, one.call!, mode, session, signal, emit)))
           outcomes.forEach((outcome, index) => {
             const used = batch[index]!
             declined ||= outcome.declined
-            results.push(toolResult(used.tool, outcome.output))
+            answerStep(used, used.call!.tool, outcome.output)
             if (outcome.changed) {
               // Something changed, so the same step could now turn out differently.
               repeats.clear()
-              if (used.tool === 'run') unchecked = false
+              if (used.call!.tool === 'run') unchecked = false
               else unchecked = true
             }
           })
           i = end - 1
         }
-        if (invalid) results.push(toolResult('error', CODER_BAD_BLOCK))
-        session.messages.push({ role: 'user', content: results.join('\n') })
+        if (usedNative) session.messages.push({ role: 'user', content: '', toolResults: results })
+        else {
+          const lines = results.map(({ tool, output }) => toolResult(tool, output))
+          if (invalid) lines.push(toolResult('error', CODER_BAD_BLOCK))
+          session.messages.push({ role: 'user', content: lines.join('\n') })
+        }
+        await this.persist(sessionId, session)
       }
     } catch (error) {
       if (signal.aborted) return emit({ sessionId, type: 'done', reason: 'stopped' })
@@ -253,17 +417,26 @@ export class Coder {
       emit({ sessionId, type: 'error', message: error instanceof Error ? error.message : 'Something went wrong.', ...(network ? { network: true } : {}) })
     } finally {
       session.controller = null
+      await this.persist(sessionId, session)
     }
   }
 
   /** Asks the model, trying again a few times if it's busy or a connection drops. */
-  private async askModel(messages: AssistantMessage[], system: string, signal: AbortSignal, sessionId: string, emit: Emit, onText?: (text: string) => void): Promise<string> {
+  private async askModel(session: Session, mode: CoderMode, signal: AbortSignal, sessionId: string, emit: Emit, onText?: (text: string) => void): Promise<Reply> {
     const waits = this.deps.retrySeconds ?? RETRY_SECONDS
-    for (let attempt = 0; ; attempt++) {
+    for (let attempt = 0; ; ) {
       try {
-        return await this.deps.chat(messages, system, signal, onText)
+        const plan = mode === 'plan'
+        if (session.native && this.deps.native) return await this.deps.native.chat(session.messages, plan ? CODER_NATIVE_PROMPT + CODER_PLAN_PROMPT : CODER_NATIVE_PROMPT, plan ? CODER_PLAN_TOOLS : CODER_TOOLS, signal, onText)
+        return { text: await this.deps.chat(session.messages, plan ? CODER_PROMPT + CODER_PLAN_PROMPT : CODER_PROMPT, signal, onText), uses: [] }
       } catch (error) {
-        const seconds = waits[attempt]
+        if (session.native && !signal.aborted && error instanceof AiError && error.kind === 'bad-request') {
+          // Most likely a model or gateway without tool calling. The text protocol works with anything.
+          session.native = false
+          session.messages = flattenToolTurns(session.messages)
+          continue
+        }
+        const seconds = waits[attempt++]
         if (signal.aborted || seconds === undefined || !isTemporary(error)) throw error
         emit({ sessionId, type: 'retrying', seconds })
         await new Promise<void>((done) => {
@@ -276,20 +449,60 @@ export class Coder {
   }
 
   /** A helper with its own short conversation, which can only look, and reports what it found. */
-  private async explore(root: string, question: string, signal: AbortSignal): Promise<string> {
-    const messages: AssistantMessage[] = [{ role: 'user', content: `Project folder: ${root}\n\nQuestion:\n${question}` }]
+  private async explore(root: string, question: string, signal: AbortSignal, native: boolean): Promise<string> {
+    const messages: ChatMessage[] = [{ role: 'user', content: `Project folder: ${root}\n\nQuestion:\n${question}` }]
+    const ask = async (): Promise<Reply> =>
+      native && this.deps.native ? this.deps.native.chat(messages, CODER_EXPLORE_NATIVE_PROMPT, CODER_LOOK_TOOLS, signal) : { text: await this.deps.chat(messages, CODER_EXPLORE_PROMPT, signal), uses: [] }
+    const look = async (call: CoderCall | null) => (call ? lookOnly(root, call).catch((error: Error) => (error instanceof ToolError ? error.message : 'Failed.')) : CODER_BAD_TOOL)
     for (let step = 1; step <= EXPLORE_STEPS; step++) {
       if (signal.aborted) throw new Error('Stopped')
-      const reply = await this.deps.chat(messages, CODER_EXPLORE_PROMPT, signal)
-      messages.push({ role: 'assistant', content: reply })
-      const { text, calls } = parseCoderReply(reply)
-      if (calls.length === 0) return text || 'The helper found nothing to report.'
-      const results = await Promise.all(calls.map(async (call) => toolResult(call.tool, await lookOnly(root, call).catch((error: Error) => (error instanceof ToolError ? error.message : 'Failed.')))))
-      messages.push({ role: 'user', content: results.join('\n') })
+      const reply = await ask()
+      if (reply.uses.length > 0) {
+        messages.push({ role: 'assistant', content: reply.text, toolUses: reply.uses })
+        const toolResults = await Promise.all(reply.uses.map(async (use) => ({ id: use.id, tool: use.name, output: await look(nativeCall(use)) })))
+        messages.push({ role: 'user', content: '', toolResults })
+      } else {
+        messages.push({ role: 'assistant', content: reply.text })
+        const { text, calls } = parseCoderReply(reply.text)
+        if (calls.length === 0) return text || 'The helper found nothing to report.'
+        const results = await Promise.all(calls.map(async (call) => toolResult(call.tool, await look(call))))
+        messages.push({ role: 'user', content: results.join('\n') })
+      }
       trimContext(messages, 120_000)
     }
-    messages.push({ role: 'user', content: 'That was your last step. Report what you found now, without a tool block.' })
-    return parseCoderReply(await this.deps.chat(messages, CODER_EXPLORE_PROMPT, signal)).text || 'The helper ran out of steps.'
+    messages.push({ role: 'user', content: native ? 'That was your last step. Report what you found now, without calling a tool.' : 'That was your last step. Report what you found now, without a tool block.' })
+    const last = await ask()
+    return (last.uses.length > 0 ? last.text : parseCoderReply(last.text).text) || 'The helper ran out of steps.'
+  }
+
+  /** Records everything a command changed, so it can be reviewed and undone. Returns a note for the model. */
+  private async trackCommand(sessionId: string, session: Session, before: string | null, emit: Emit): Promise<string> {
+    const { snapshots } = this.deps
+    if (!snapshots || before === null) return ''
+    const after = await snapshots.take(sessionId, session.folder)
+    if (after === null) {
+      session.noSnapshots = true
+      return ''
+    }
+    const found = await snapshots.changed(sessionId, session.folder, before, after)
+    if (found.length === 0) return ''
+    for (const { path, status } of found.slice(0, MAX_COMMAND_FILES)) {
+      const full = join(session.folder, path)
+      if (session.originals.has(full)) continue
+      if (status === 'added') {
+        session.originals.set(full, null)
+        continue
+      }
+      const object = `${before}:${path}`
+      const bytes = await snapshots.show(sessionId, session.folder, object)
+      if (!bytes) continue
+      const text = asText(bytes)
+      session.originals.set(full, text ?? '')
+      if (text === null) session.opaque.set(full, object)
+    }
+    await this.publishChanges(sessionId, emit)
+    const names = found.slice(0, 20).map((file) => file.path).join(', ')
+    return `\n\n(This command changed ${found.length} ${found.length === 1 ? 'file' : 'files'}: ${names}${found.length > 20 ? ', …' : ''})`
   }
 
   /** Remembers a file as it was before the session first changed it. */
@@ -350,7 +563,7 @@ export class Coder {
         }
         case 'explore':
           announce(`Explore ${call.task}`)
-          return report(true, clip(await this.explore(root, call.task, signal), 16_000))
+          return report(true, clip(await this.explore(root, call.task, signal, session.native), 16_000))
         case 'write':
         case 'edit': {
           announce(`${call.tool === 'write' ? 'Write' : 'Edit'} ${call.path}`)
@@ -403,10 +616,18 @@ export class Coder {
           if (!session.allowed.has(call.command) && !(await approve('command', `Run a command in ${root}`, call.command))) {
             return report(false, 'The person declined to run this command.', true)
           }
-          const { ok, output } = await runCommand(root, call.command, signal, call.timeout ? call.timeout * 1000 : undefined)
-          // A command can change files too, but those aren't tracked: only Terra Code's own edits can be undone.
-          session.seen.clear()
-          return report(ok, output, false, true)
+          const before = session.noSnapshots ? null : ((await this.deps.snapshots?.take(sessionId, root)) ?? null)
+          if (before === null && this.deps.snapshots) session.noSnapshots = true
+          let result: { ok: boolean; output: string }
+          let note = ''
+          try {
+            result = await runCommand(root, call.command, signal, call.timeout ? call.timeout * 1000 : undefined)
+          } finally {
+            // Also when it was stopped halfway, as it may have changed things by then.
+            note = await this.trackCommand(sessionId, session, before, emit).catch(() => '')
+            session.seen.clear()
+          }
+          return report(result.ok, result.output + note, false, true)
         }
       }
     } catch (error) {
@@ -532,14 +753,24 @@ export async function projectContext(folder: string): Promise<string> {
   return parts.join('\n\n')
 }
 
+const sizeOf = (message: ChatMessage) => message.content.length + (message.toolResults ?? []).reduce((sum, result) => sum + result.output.length, 0) + (message.toolUses ?? []).reduce((sum, use) => sum + JSON.stringify(use.input ?? '').length, 0)
+
 /** Empties the oldest tool output first, so long sessions keep fitting the model's context. */
-export function trimContext(messages: AssistantMessage[], max = MAX_CONTEXT_CHARS): void {
-  let total = messages.reduce((sum, message) => sum + message.content.length, 0)
+export function trimContext(messages: ChatMessage[], max = MAX_CONTEXT_CHARS): void {
+  let total = messages.reduce((sum, message) => sum + sizeOf(message), 0)
+  const REMOVED = '(Older output removed to save space. Run the tool again if you need it.)'
   for (let i = 1; i < messages.length - 6 && total > max; i++) {
     const message = messages[i]!
+    if (message.toolResults) {
+      const before = sizeOf(message)
+      if (before < 400) continue
+      messages[i] = { ...message, toolResults: message.toolResults.map((result) => ({ ...result, output: result.output.length > 200 ? REMOVED : result.output })) }
+      total -= before - sizeOf(messages[i]!)
+      continue
+    }
     if (message.role !== 'user' || !message.content.startsWith('<tool-result') || message.content.length < 400) continue
     const tool = /tool="(\w+)"/.exec(message.content)?.[1] ?? 'tool'
-    const short = toolResult(tool, '(Older output removed to save space. Run the tool again if you need it.)')
+    const short = toolResult(tool, REMOVED)
     total -= message.content.length - short.length
     messages[i] = { role: 'user', content: short }
   }

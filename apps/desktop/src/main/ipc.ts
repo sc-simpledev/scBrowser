@@ -448,7 +448,10 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'chats:save': (id, turns) => {
       if (settings.get().saveChats) chats.save(id, turns)
     },
-    'chats:delete': (id) => chats.delete(id),
+    'chats:delete': (id) => {
+      chats.delete(id)
+      void ai.coder.forget(id)
+    },
     'report:save': (name, format, content) => saveReport(window, name, format, content),
     'privacy:toggle-site': (host) => {
       privacy.toggleSite(host)

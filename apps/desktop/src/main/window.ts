@@ -1,9 +1,11 @@
+import { isSiteFont, siteFontOf, withSiteFont } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
+import { READ_ALOUD, READ_ALOUD_WORLD } from './readAloud'
 import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, shell, type Rectangle } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
@@ -324,6 +326,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     openCode: () => tabs.openInternal('sc://assistant/?mode=code'),
     toggleAssistant: () => send('ui:assistant-toggle'),
     passwordMenu: () => openPasswordMenu(),
+    readAloud: () => {
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      if (!contents) return
+      void contents.executeJavaScriptInIsolatedWorld(READ_ALOUD_WORLD, [{ code: READ_ALOUD }], true).then((result: unknown) => {
+        if (result === 'no-voices') notify('No text-to-speech voices are installed on this computer')
+      }, () => notify('This page can’t be read aloud'))
+    },
     toggleReader: () => {
       const active = tabs.active
       if (!active) return
@@ -575,7 +584,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     for (const contents of tabs.allContents()) void applySiteTweaks(contents, next)
   })
   const stopSidebarPrune = settings.subscribe((next) => sidebarSites.prune(next.sidebarSites.map((site) => site.url)))
-  const ai = new AiService(aiStore, (id) => core.contentsFor(id), (contents) => core.tabIdFor(contents))
+  const ai = new AiService(aiStore, (id) => core.contentsFor(id), (contents) => core.tabIdFor(contents), { dir: join(app.getPath('userData'), 'terra-code'), keep: () => settings.get().saveChats }, () => settings.get().aiMemory)
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
@@ -774,6 +783,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       secure: url.startsWith('https:'),
       tracking: current.trackingProtection === 'off' ? null : !privacy.isOff(host),
       blocked: active.blockedCount,
+      blockedHosts: tabs.blockedHostsOf(active.id).slice(0, SITE_POPUP.maxBlockedRows),
+      blockedOpen: siteBlockedOpen && active.blockedCount > 0,
+      font: siteFontOf(current.siteCss[site] ?? ''),
       ai: !aiStore.disabledHosts().includes(host),
       forgetOnClose: current.forgetOnClose.includes(site),
       zoom: active.zoomPercent,
@@ -797,6 +809,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       y: Math.round(Math.max(8, Math.min(height - siteControlsHeight(state) - 8, y)))
     })
   }
+  let siteBlockedOpen = false
   const siteAction = (action: SiteAction) => {
     const state = siteControls()
     const active = tabs.active
@@ -811,6 +824,16 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       settings.set({ forgetOnClose: state.forgetOnClose ? others : [...others, state.site].sort() })
     } else if (action === 'zoom-in' || action === 'zoom-out') tabs.zoomBy(active.id, action === 'zoom-in' ? 1 : -1)
     else if (action === 'zoom-reset') tabs.setZoom(active.id, 1)
+    else if (action === 'blocked-toggle') siteBlockedOpen = !siteBlockedOpen
+    else if (action.startsWith('font:')) {
+      const font = action.slice('font:'.length)
+      if (isSiteFont(font)) {
+        const { siteCss } = settings.get()
+        const css = withSiteFont(siteCss[state.site] ?? '', font)
+        const { [state.site]: _old, ...others } = siteCss
+        settings.set({ siteCss: css ? { ...others, [state.site]: css } : others })
+      }
+    }
     else if (action === 'forget-now') {
       overlay.closeSiteControls()
       return actions.forgetSite()
@@ -833,6 +856,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     bookmark: actions.toggleBookmark,
     'bookmarks-bar': actions.toggleBookmarksBar,
     reader: actions.toggleReader,
+    'read-aloud': () => actions.readAloud(),
     assistant: actions.toggleAssistant,
     summarise: () => actions.askAssistant({ text: summarisePromptFor(tabs.active?.url ?? ''), selection: null, includePage: true }),
     split: () => tabs.toggleSplit(),

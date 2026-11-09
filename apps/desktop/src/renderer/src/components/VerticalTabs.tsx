@@ -124,9 +124,11 @@ export function VerticalTabs() {
           </button>
         )}
       </div>
-      <div className={cx('shrink-0 border-t border-border pt-1', collapsed && 'self-center')}>
-        <WorkspaceBar direction={collapsed ? 'column' : 'row'} showAdd />
-      </div>
+      {collapsed && (
+        <div className="shrink-0 self-center border-t border-border pt-1">
+          <WorkspaceBar direction="column" showAdd />
+        </div>
+      )}
       {collapsed ? (
         <>
           <IconButton label="Search tabs" shortcut="Ctrl Shift E" className="size-9 self-center" onClick={searchTabs}>
@@ -139,26 +141,24 @@ export function VerticalTabs() {
           )}
         </>
       ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            aria-label="Collapse tabs"
-            onClick={toggle}
-            className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <span className="grid size-5 place-items-center">
-              <PanelLeftClose aria-hidden size={15} strokeWidth={1.75} />
-            </span>
-            <span className="truncate">Collapse</span>
-          </button>
-          <IconButton label="Search tabs" shortcut="Ctrl Shift E" onClick={searchTabs}>
-            <Search size={15} strokeWidth={1.75} />
+        <div className="group/footer flex shrink-0 items-center gap-0.5 border-t border-border pt-1">
+          <div className="min-w-0 flex-1">
+            <WorkspaceBar direction="row" showAdd />
+          </div>
+          {/* The two less used ones stay out of sight until the pointer is here. */}
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/footer:opacity-100 group-hover/footer:opacity-100">
+            <IconButton size="sm" label="Clean up tabs" onClick={() => void window.scb.invoke('tabs:cleanup')}>
+              <BrushCleaning size={14} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton size="sm" label="Organise tabs" onClick={() => void window.scb.invoke('tabs:organise')}>
+              <Layers size={14} strokeWidth={1.75} />
+            </IconButton>
+          </div>
+          <IconButton size="sm" label="Search tabs" shortcut="Ctrl Shift E" onClick={searchTabs}>
+            <Search size={14} strokeWidth={1.75} />
           </IconButton>
-          <IconButton label="Clean up tabs" onClick={() => void window.scb.invoke('tabs:cleanup')}>
-            <BrushCleaning size={15} strokeWidth={1.75} />
-          </IconButton>
-          <IconButton label="Organise tabs" onClick={() => void window.scb.invoke('tabs:organise')}>
-            <Layers size={15} strokeWidth={1.75} />
+          <IconButton size="sm" label="Collapse tabs" onClick={toggle}>
+            <PanelLeftClose size={14} strokeWidth={1.75} />
           </IconButton>
         </div>
       )}

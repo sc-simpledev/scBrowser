@@ -16,7 +16,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   { className, ...rest },
   ref
 ) {
-  return <select ref={ref} className={cx(control, className)} {...rest} />
+  return <select ref={ref} className={cx(control, 'sc-select', className)} {...rest} />
 })
 
 interface SwitchProps {

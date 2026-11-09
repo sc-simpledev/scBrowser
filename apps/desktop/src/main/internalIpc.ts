@@ -1,7 +1,7 @@
 import { transcriptOf } from './ai/coder'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { SiteBlocker } from './blocker'
@@ -282,14 +282,20 @@ export function registerInternalIpc(services: InternalServices): () => void {
       aiStore.setRole(role, { providerId: text(providerId, 64), model: text(model, 256) })
     },
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
-    'chats:clear': () => chats.clear(),
+    'chats:clear': () => {
+      chats.clear()
+      void ai.coder.forgetAll()
+    },
     'chats:list': () => chats.list(),
     'chats:get': (id) => chats.get(text(id, 64)),
     'chats:save': (id, turns) => {
       if (!isTurns(turns)) throw new Error('Invalid chat')
       if (settings.get().saveChats) chats.save(text(id, 64), turns)
     },
-    'chats:delete': (id) => chats.delete(text(id, 64)),
+    'chats:delete': (id) => {
+      chats.delete(text(id, 64))
+      void ai.coder.forget(text(id, 64))
+    },
     'ai:status': () => aiStore.status(),
     'ai:send': async (streamId, request) => {
       if (!isAssistantRequest(request)) throw new Error('Invalid request')
@@ -576,12 +582,32 @@ export function registerInternalIpc(services: InternalServices): () => void {
       coderOnly()
       return ai.coder.undo(text(sessionId, 64), path === undefined ? undefined : text(path, 1024))
     },
+    'coder:review': (sessionId, path) => {
+      coderOnly()
+      return ai.coder.review(text(sessionId, 64), text(path, 1024))
+    },
+    'coder:decide': (sessionId, path, hunk, decision) => {
+      coderOnly()
+      if (decision !== 'accept' && decision !== 'reject') throw new Error('Invalid decision')
+      return ai.coder.decide(text(sessionId, 64), text(path, 1024), hunk === null ? null : text(hunk, 64), decision)
+    },
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {
       const group = core.closedGroups.take(text(id, 64))
       if (group) tabs.openGroup(group.name, group.tabs)
     },
     'groups:forget': (id) => void core.closedGroups.take(text(id, 64)),
+    'tabsets:list': () => core.tabSets.list(),
+    'tabsets:save': (name) => core.tabSets.add(text(name, 80).trim() || 'Saved tabs', tabs.openTabList()),
+    'tabsets:open': (id) => {
+      const set = core.tabSets.list().find((candidate) => candidate.id === text(id, 64))
+      if (set) tabs.openGroup(set.name, set.tabs)
+    },
+    'tabsets:remove': (id) => void core.tabSets.take(text(id, 64)),
+    'memory:list': () => aiStore.memory(),
+    'memory:add': (note) => aiStore.addMemory(text(note, MAX_MEMORY_CHARS)),
+    'memory:update': (id, note) => aiStore.updateMemory(text(id, 64), text(note, MAX_MEMORY_CHARS)),
+    'memory:remove': (id) => aiStore.removeMemory(text(id, 64)),
     'highlights:list': () => core.highlights?.list() ?? [],
     'highlights:note': (id, note) => core.highlights?.setNote(text(id, 64), text(note, MAX_NOTE_CHARS)),
     'highlights:remove': (id) => core.highlights?.remove(text(id, 64)),

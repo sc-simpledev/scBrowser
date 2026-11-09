@@ -25,6 +25,25 @@ export interface CoderChange {
   removed: number
 }
 
+/** One separate change within a file, as `lineDiff`-style rows: two spaces, or "- ", or "+ ", before each line. */
+export interface CoderHunk {
+  /** Names this exact change, so a decision can't land on a different one if the file has moved on. */
+  id: string
+  line: number
+  rows: string[]
+}
+
+export interface CoderReview {
+  path: string
+  status: CoderChange['status']
+  /** Whole-file decisions only: the file was created or deleted, or isn't text. */
+  whole: boolean
+  binary: boolean
+  hunks: CoderHunk[]
+}
+
+export type CoderDecision = 'accept' | 'reject'
+
 export type CoderEvent =
   /** What the model said this step, before any tool it uses. */
   | { sessionId: string; type: 'text'; text: string }

@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer } from './focusTimer'
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -141,6 +141,8 @@ export class BrowserCore {
   readonly watcher: PageWatcher | null
   readonly archive: TabArchive
   readonly closedGroups: ClosedGroups
+  /** Sets of tabs saved by name, which stay on the list when opened. */
+  readonly tabSets: ClosedGroups
   /** Private windows keep neither. */
   readonly highlights: HighlightStore | null
   readonly readingList: ReadingList | null
@@ -207,7 +209,7 @@ export class BrowserCore {
       complete: (system, user) => backgroundAi.complete(system, user)
     })
     this.privacy = new PrivacyService(settings, kv, {
-      onBlocked: (id) => this.windows.forEach((handle) => handle.tabs.noteBlocked(id)),
+      onBlocked: (id, url) => this.windows.forEach((handle) => handle.tabs.noteBlocked(id, url)),
       screen: (url, contents): string | null | Promise<string | null> => (this.ownerOf(contents) || this.extraPages.has(contents) ? this.blocker.screen(url) : null),
       onScreenedOut: (url, reason, contents) => {
         // Only a tab can show the block page, as it's an sc:// page that needs the tab's bridge.
@@ -247,6 +249,7 @@ export class BrowserCore {
       corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
       autoFastest: () => settings.get().vpnAutoFastest,
       route: () => ({ scope: settings.get().vpnScope, method: settings.get().vpnMethod }),
+      failover: () => settings.get().vpnFailover,
       setMethod: (vpnMethod) => settings.set({ vpnMethod }),
       readToggle: async () => {
         // Through the default session first, so it still gets there where only the VPN can reach GitHub.
@@ -337,6 +340,18 @@ export class BrowserCore {
     if (!isPrivate) this.forgetOnClose()
     this.archive = new TabArchive(kv, () => undefined)
     this.closedGroups = new ClosedGroups(kv)
+    this.tabSets = new ClosedGroups(kv, 'tabs:saved-sets')
+    const applyDns = ({ secureDns }: AppSettings) => {
+      const url = SECURE_DNS[secureDns].url
+      app.configureHostResolver(url ? { secureDnsMode: 'secure', secureDnsServers: [url] } : { secureDnsMode: 'automatic', secureDnsServers: [] })
+    }
+    let lastDns = settings.get().secureDns
+    if (lastDns !== 'default') applyDns(settings.get())
+    settings.subscribe((next) => {
+      if (next.secureDns === lastDns) return
+      lastDns = next.secureDns
+      applyDns(next)
+    })
     this.highlights = isPrivate ? null : new HighlightStore(kv)
     this.readingList = isPrivate ? null : new ReadingList(kv)
     this.miniApps = new MiniApps(kv)

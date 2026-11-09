@@ -1,7 +1,7 @@
 import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { rememberCommand, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
 import { CopyReply, latestReport, ReplyContent, Thinking, type OpenSource } from '../../shared/ReplyContent'
 import { ReportPane, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
@@ -132,6 +132,7 @@ export function AssistantPage() {
   // Only made once it's first shown, then kept, so going to Chat and back doesn't lose a run in progress.
   const [codeOpened, setCodeOpened] = useState(view === 'code')
   const [codeTask, setCodeTask] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const takeCodeTask = useCallback(() => setCodeTask(null), [])
   const setView = useCallback((next: View) => {
     setViewState(next)
@@ -295,6 +296,13 @@ export function AssistantPage() {
 
   const submit = () => {
     if (streamId || !draft.trim()) return
+    setNotice(null)
+    const note = rememberCommand(draft)
+    if (note !== null) {
+      setDraft('')
+      void api().invoke('memory:add', note).then((saved) => setNotice(saved ? 'Remembered. You can see and edit notes in AI settings.' : 'Your notes are full. Remove some in AI settings.'))
+      return
+    }
     const task = codeCommand(draft)
     if (task !== null) {
       setDraft('')
@@ -336,6 +344,7 @@ export function AssistantPage() {
         />
       )}
       {picking && <TabPicker load={loadTabs} picked={research} onChange={setResearch} onClose={() => setPicking(false)} />}
+      {notice && <p role="status" className="px-1 pb-1 text-xs text-text-muted">{notice}</p>}
       {preset && <PresetChip preset={preset} onRemove={() => setPreset(null)} />}
       <PickedTabs tabs={researchTabs} onRemove={(id) => setResearch(research.filter((other) => other !== id))} />
       <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">

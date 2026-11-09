@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ArrowUp,
   Check,
   ChevronRight,
@@ -25,7 +26,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CODE_CHAT_PREFIX, CODER_MAX_STEPS, type CoderAnswer, type CoderChange, type CoderEvent, type CoderMode, type CoderStatus, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
+import { CODE_CHAT_PREFIX, CODER_MAX_STEPS, type CoderAnswer, type CoderChange, type CoderDecision, type CoderEvent, type CoderHunk, type CoderMode, type CoderReview, type CoderStatus, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
@@ -247,93 +248,150 @@ function TodoList({ items }: { items: CoderTodo[] }) {
 
 const STATUS_ICONS: Record<CoderChange['status'], LucideIcon> = { created: FilePlus, modified: FilePen, deleted: FileMinus }
 
-/** Every file the session changed, each with its diff, and a way to put them all back. */
-function ChangesPanel({ session, files, busy, onUndone }: { session: string; files: CoderChange[]; busy: boolean; onUndone: (count: number, remaining: CoderChange[]) => void }) {
-  const [open, setOpen] = useState<string | null>(null)
-  const [diff, setDiff] = useState('')
-  const [confirming, setConfirming] = useState(false)
-  const [expanded, setExpanded] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    void api().invoke('coder:diff', session, open).then(setDiff)
-  }, [open, session, files])
+/** A line above the box saying what changed, which opens the review screen. */
+function ChangesBar({ files, onReview }: { files: CoderChange[]; onReview: () => void }) {
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
   return (
-    <section aria-label="Changed files" className="flex flex-col">
-      <div className="flex h-8 items-center gap-2 text-xs">
-        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-surface-hover">
-          <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', expanded && 'rotate-90')} />
-          <FilePen aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
-          <span className="font-medium">
-            {files.length} {files.length === 1 ? 'file' : 'files'} changed
-          </span>
-          <span className="text-success">+{added}</span>
-          <span className="text-danger">−{removed}</span>
-        </button>
-        {confirming ? (
-          <>
-            <span className="text-text-muted">Put every file back?</span>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setConfirming(false)
-                void api().invoke('coder:undo', session).then((count) => onUndone(count, []))
-              }}
-            >
-              Undo all
-            </Button>
-          </>
-        ) : (
-          <Button variant="ghost" disabled={busy} title={busy ? 'Stop it first' : 'Puts every file Terra Code changed back as it was'} onClick={() => setConfirming(true)}>
-            <Undo2 aria-hidden size={13} strokeWidth={1.75} />
-            Undo changes
-          </Button>
-        )}
-      </div>
-      {expanded && <ul className="flex flex-col pb-1">
-        {files.map((file) => {
-          const Icon = STATUS_ICONS[file.status]
-          return (
-            <li key={file.path} className="flex flex-col gap-1">
-              <button type="button" aria-expanded={open === file.path} onClick={() => setOpen(open === file.path ? null : file.path)} className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors hover:bg-surface-hover">
-                <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open === file.path && 'rotate-90')} />
-                <Icon aria-label={file.status} size={13} strokeWidth={1.75} className={cx('shrink-0', file.status === 'created' ? 'text-success' : file.status === 'deleted' ? 'text-danger' : 'text-text-muted')} />
-                <span className="min-w-0 flex-1 truncate font-mono">{file.path}</span>
-                <span className="shrink-0 text-success">+{file.added}</span>
-                <span className="shrink-0 text-danger">−{file.removed}</span>
-              </button>
-              {open === file.path && !busy && (
-                <div className="flex justify-end">
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      void api()
-                        .invoke('coder:undo', session, file.path)
-                        .then((count) => {
-                          setOpen(null)
-                          onUndone(count, files.filter((other) => other.path !== file.path))
-                        })
-                    }
-                  >
-                    <Undo2 aria-hidden size={13} strokeWidth={1.75} />
-                    Undo this file
-                  </Button>
-                </div>
-              )}
-              {open === file.path && diff && (
-                <div className="[&>pre]:max-h-48">
-                  <Detail text={diff} diff />
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>}
+    <section aria-label="Changed files" className="flex h-8 items-center gap-2 px-1.5 text-xs">
+      <FilePen aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+      <span className="font-medium">
+        {files.length} {files.length === 1 ? 'file' : 'files'} changed
+      </span>
+      <span className="text-success">+{added}</span>
+      <span className="text-danger">−{removed}</span>
+      <Button variant="ghost" className="ml-auto" onClick={onReview}>
+        Review
+      </Button>
     </section>
+  )
+}
+
+function HunkView({ hunk, busy, onDecide }: { hunk: CoderHunk; busy: boolean; onDecide: (decision: CoderDecision) => void }) {
+  return (
+    <div className="overflow-hidden rounded-md border border-border">
+      <div className="flex h-8 items-center gap-1 border-b border-border bg-surface pr-1 pl-2.5 text-2xs text-text-faint">
+        <span className="mr-auto tabular-nums">Line {hunk.line}</span>
+        <Button variant="ghost" disabled={busy} onClick={() => onDecide('reject')}>
+          Put back
+        </Button>
+        <Button variant="ghost" disabled={busy} onClick={() => onDecide('accept')}>
+          Keep
+        </Button>
+      </div>
+      <div className="sc-scroll-quiet overflow-x-auto bg-bg py-1 font-mono text-2xs leading-normal whitespace-pre select-text">
+        {hunk.rows.map((row, i) => (
+          <div key={i} className={cx('w-max min-w-full px-2.5', row.startsWith('+ ') && 'bg-success/10 text-success', row.startsWith('- ') && 'bg-danger/10 text-danger', row.startsWith('  ') && 'text-text-muted')}>
+            {row || ' '}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Every file the session changed, one at a time, with each change to keep or put back. */
+function ReviewScreen({ session, files, busy, onChange, onClose }: { session: string; files: CoderChange[]; busy: boolean; onChange: (files: CoderChange[], note?: string) => void; onClose: () => void }) {
+  const [chosen, setChosen] = useState<string | null>(null)
+  const [review, setReview] = useState<CoderReview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const path = files.some((file) => file.path === chosen) ? chosen : (files[0]?.path ?? null)
+  useEffect(() => {
+    if (!files.length) onClose()
+  }, [files.length, onClose])
+  useEffect(() => {
+    if (!path) return setReview(null)
+    let stale = false
+    void api().invoke('coder:review', session, path).then((next) => {
+      if (!stale) setReview(next)
+    })
+    return () => {
+      stale = true
+    }
+  }, [path, session, files])
+  const decide = (hunk: string | null, decision: CoderDecision) => {
+    if (!path) return
+    setError(null)
+    void api().invoke('coder:decide', session, path, hunk, decision).then(onChange, (failure: Error) => setError(cleanError(failure.message)))
+  }
+  const keepAll = async () => {
+    for (const file of files) await api().invoke('coder:decide', session, file.path, null, 'accept')
+    onChange([], 'Kept every change.')
+  }
+  return (
+    <div role="region" aria-label="Review changes" className="flex min-h-0 flex-1">
+      <div className="flex w-64 shrink-0 flex-col border-r border-border">
+        <div className="flex h-10 shrink-0 items-center gap-1 px-2">
+          <IconButton size="sm" label="Back to the conversation" onClick={onClose}>
+            <ArrowLeft size={14} strokeWidth={1.75} />
+          </IconButton>
+          <h2 className="text-sm font-medium">Review</h2>
+          <span className="ml-auto pr-1 text-2xs text-text-faint tabular-nums">{files.length}</span>
+        </div>
+        <ul className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
+          {files.map((file) => {
+            const Icon = STATUS_ICONS[file.status]
+            return (
+              <li key={file.path}>
+                <button type="button" aria-current={file.path === path} onClick={() => setChosen(file.path)} className={cx('flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors', file.path === path ? 'bg-surface-hover' : 'hover:bg-surface-hover')}>
+                  <Icon aria-label={file.status} size={13} strokeWidth={1.75} className={cx('shrink-0', file.status === 'created' ? 'text-success' : file.status === 'deleted' ? 'text-danger' : 'text-text-muted')} />
+                  <span dir="rtl" title={file.path} className="min-w-0 flex-1 truncate text-left font-mono text-2xs">
+                    {file.path}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="flex shrink-0 items-center gap-1 border-t border-border p-1.5">
+          {confirming ? (
+            <>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="ml-auto"
+                onClick={() => {
+                  setConfirming(false)
+                  void api().invoke('coder:undo', session).then((count) => onChange([], `Put ${count} ${count === 1 ? 'file' : 'files'} back as they were.`), (failure: Error) => setError(cleanError(failure.message)))
+                }}
+              >
+                Put all back
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" disabled={busy} onClick={() => setConfirming(true)}>
+                <Undo2 aria-hidden size={13} strokeWidth={1.75} />
+                Undo all
+              </Button>
+              <Button variant="ghost" className="ml-auto" disabled={busy} onClick={() => void keepAll()}>
+                Keep all
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-2 pl-4">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+          <Button variant="ghost" disabled={busy} onClick={() => decide(null, 'reject')}>
+            Put back file
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => decide(null, 'accept')}>
+            Keep file
+          </Button>
+        </div>
+        <div className="sc-scroll-quiet flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          {busy && <p className="text-xs text-text-muted">Terra Code is still working. Stop it to keep or put back changes.</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
+          {review?.binary && <p className="text-sm text-text-muted">This file isn’t text, so there’s nothing to show. You can still keep it or put it back.</p>}
+          {review?.hunks.map((hunk) => (review.whole ? <Detail key={hunk.id} text={hunk.rows.join('\n')} diff /> : <HunkView key={hunk.id} hunk={hunk} busy={busy} onDecide={(decision) => decide(hunk.id, decision)} />))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -370,6 +428,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const [streaming, setStreaming] = useState('')
   const [todo, setTodo] = useState<CoderTodo[]>([])
   const [changes, setChanges] = useState<CoderChange[]>([])
+  const [reviewing, setReviewing] = useState(false)
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const [retrySeconds, setRetrySeconds] = useState<number | null>(null)
   const session = useRef(chat ?? `${CODE_CHAT_PREFIX}${crypto.randomUUID()}`)
@@ -409,7 +468,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         setItems(shown)
         setTodo(plan)
         refresh()
-        // Still known if it ran since the browser started, so undo keeps working.
+        // Checkpoints keep these across restarts, so review and undo keep working.
         setChanges(await api().invoke('coder:changes', chat))
       })
     return () => {
@@ -524,6 +583,8 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     void api().invoke('coder:answer', id, choice)
   }
 
+  const closeReview = useCallback(() => setReviewing(false), [])
+
   const newSession = () => {
     void api().invoke('coder:reset', session.current)
     session.current = `${CODE_CHAT_PREFIX}${crypto.randomUUID()}`
@@ -532,6 +593,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     setItems([])
     setTodo([])
     setChanges([])
+    setReviewing(false)
     setStreaming('')
     setWorking(false)
     setStep(null)
@@ -609,7 +671,20 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         {controls}
       </div>
 
-      <div ref={logRef} role="log" aria-label="Terra Code" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
+      {reviewing && (
+        <ReviewScreen
+          session={session.current}
+          files={changes}
+          busy={working}
+          onClose={closeReview}
+          onChange={(files, note) => {
+            setChanges(files)
+            if (note) setItems((current) => [...current, { kind: 'note', text: note, error: false }])
+          }}
+        />
+      )}
+
+      <div ref={logRef} hidden={reviewing} role="log" aria-label="Terra Code" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-200 flex-col gap-3 px-6 py-6">
           {status.hosted && !hostedNoteClosed && (
             <div role="note" className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-muted">
@@ -649,7 +724,14 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                   ))}
                 </div>
               )}
-              {!status.ready && <p className="text-sm text-danger">Choose a model in AI settings first.</p>}
+              {!status.ready && (
+                <p className="text-sm text-text-muted">
+                  It needs a model first.{' '}
+                  <a href="sc://ai/" className="text-accent hover:text-accent-hover">
+                    Open AI settings
+                  </a>
+                </p>
+              )}
             </div>
           )}
           {blocks.map((item, i) => {
@@ -697,21 +779,11 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-200 shrink-0 flex-col gap-1 px-6 pt-1 pb-3">
+      <div className={cx('mx-auto w-full max-w-200 shrink-0 flex-col gap-1 px-6 pt-1 pb-3', reviewing ? 'hidden' : 'flex')}>
         {(todo.length > 0 || changes.length > 0) && (
           <div className="sc-scroll-quiet flex max-h-[34vh] flex-col overflow-y-auto">
             {todo.length > 0 && <TodoList items={todo} />}
-            {changes.length > 0 && (
-              <ChangesPanel
-                session={session.current}
-                files={changes}
-                busy={working}
-                onUndone={(count, remaining) => {
-                  setChanges(remaining)
-                  setItems((current) => [...current, { kind: 'note', text: `Put ${count} ${count === 1 ? 'file' : 'files'} back as they were.`, error: false }])
-                }}
-              />
-            )}
+            {changes.length > 0 && <ChangesBar files={changes} onReview={() => setReviewing(true)} />}
           </div>
         )}
         <div className="flex flex-col rounded-lg border border-border bg-field focus-within:border-border-strong">
