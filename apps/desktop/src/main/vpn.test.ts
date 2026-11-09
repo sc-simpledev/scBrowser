@@ -2,7 +2,8 @@ import { createServer as createHttp } from 'node:http'
 import { createServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
-import { describe, expect, it } from 'vitest'
+import { readTunToggle } from '@scbrowser/shared'
+import { describe, expect, it, vi } from 'vitest'
 import { migrate } from './storage/database'
 import { KeyValueRepo } from './storage/kv'
 import { bypassRules, parseBypassList, type VpnMethod, type VpnScope } from '@scbrowser/shared'
@@ -316,5 +317,95 @@ describe('VPN bypass list', () => {
   it('tidies what was typed, and covers subdomains', () => {
     expect(parseBypassList('https://Example.com/path\nbank.example.org, *.corp.test\nnot a si!te\nexample.com')).toEqual(['example.com', 'bank.example.org', '*.corp.test', 'not', 'a'])
     expect(bypassRules(['example.com', '*.corp.test'])).toBe('example.com;*.example.com;*.corp.test')
+  })
+})
+
+describe('TUN toggle', () => {
+  const tun = { resolve: async () => '1.1.1.1', start: async () => ({ stop: async () => undefined }) }
+  const ready = (toggle: () => boolean | null, route: { scope: VpnScope; method: VpnMethod }) => {
+    const reconnects: boolean[] = []
+    const vpn = new VpnService({ ...setup(undefined, route).deps, tun, readToggle: async () => toggle(), setMethod: (method) => void (route.method = method) })
+    Object.assign(vpn, { enabled: true })
+    Object.assign(vpn, { applyEnabled: async (on: boolean) => void reconnects.push(on) })
+    return { vpn, reconnects }
+  }
+
+  it('moves a connected TUN user to the system proxy when off, and offers TUN again when on', async () => {
+    let allowed = false
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'computer', method: 'tun' }
+    const { vpn, reconnects } = ready(() => allowed, route)
+    await vpn.checkTunToggle()
+    expect(route.method).toBe('proxy')
+    expect(reconnects).toEqual([true])
+    expect(vpn.state().unavailable.tun).toBe('TUN is off for now.')
+    expect(vpn.state().error).toContain('moved to the system proxy')
+    allowed = true
+    await vpn.checkTunToggle()
+    expect(vpn.state().unavailable.tun).toBeNull()
+    expect(route.method).toBe('proxy')
+  })
+
+  it('leaves anyone not using TUN alone', async () => {
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'browser', method: 'proxy' }
+    const { reconnects, vpn } = ready(() => false, route)
+    await vpn.checkTunToggle()
+    expect(reconnects).toEqual([])
+  })
+
+  it('changes nothing when the file can\'t be read', async () => {
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'computer', method: 'tun' }
+    const { vpn } = ready(() => null, route)
+    await vpn.checkTunToggle()
+    expect(route.method).toBe('tun')
+    expect(vpn.state().unavailable.tun).toBeNull()
+  })
+
+  it('checks once when turning on, and moves off TUN first if it says off', async () => {
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'computer', method: 'tun' }
+    const { vpn } = ready(() => false, route)
+    const used: VpnMethod[] = []
+    Object.assign(vpn, { enabled: false, applyEnabled: async () => void used.push(route.method) })
+    await vpn.setEnabled(true)
+    expect(used).toEqual(['proxy'])
+    expect(vpn.state().error).toContain('moved to the system proxy')
+  })
+
+  it('just connects if the check fails', async () => {
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'computer', method: 'tun' }
+    const made = setup(undefined, route)
+    const vpn = new VpnService({ ...made.deps, tun, readToggle: async () => Promise.reject(new Error('offline')) })
+    const used: VpnMethod[] = []
+    Object.assign(vpn, { applyEnabled: async () => void used.push(route.method) })
+    await vpn.setEnabled(true)
+    expect(used).toEqual(['tun'])
+    expect(vpn.state().error).toBeNull()
+  })
+
+  it('checks every two minutes only while the VPN is on', async () => {
+    vi.useFakeTimers()
+    try {
+      let reads = 0
+      const vpn = new VpnService({ ...setup().deps, readToggle: async () => (reads++, true) })
+      await vpn.add('socks5://127.0.0.1:1080#one', null)
+      await vpn.select(vpn.state().connections[0]!.id)
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(reads).toBe(0)
+      await vpn.setEnabled(true)
+      expect(vpn.state().enabled).toBe(true)
+      expect(reads).toBe(1)
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(reads).toBe(2)
+      await vpn.setEnabled(false)
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(reads).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads only a first line of on or off', () => {
+    for (const text of ['on', ' ON\n', '\n`on`\nnotes']) expect(readTunToggle(text)).toBe(true)
+    for (const text of ['off', 'OFF\n']) expect(readTunToggle(text)).toBe(false)
+    for (const text of ['', 'true', 'maybe off']) expect(readTunToggle(text)).toBeNull()
   })
 })

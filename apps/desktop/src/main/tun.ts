@@ -57,7 +57,8 @@ trap 'exit 0' HUP INT TERM
 # A run that was killed outright can't have tidied up after itself.
 rules del
 IFS= read -r config || exit 0
-dir=$(mktemp -d /run/scterra-XXXXXX) || exit 10
+# Not /run or /tmp, which are usually mounted so that nothing can be run from them.
+dir=$(mktemp -d /var/lib/scterra-XXXXXX) || exit 10
 # Copied where only root can write, then checked, as what's about to run as root came from a user's folder.
 cp "$source" "$dir/xray" || exit 11
 [ "$(sha256sum "$dir/xray" | cut -d' ' -f1)" = "$hash" ] || exit 12
@@ -88,11 +89,27 @@ const REASONS: Record<number, string> = {
   126: 'Whole-computer TUN needs your permission, and the request was cancelled.',
   11: "The VPN core couldn't be set up to run.",
   10: "A safe folder for the VPN core couldn't be made.",
-  127: "This account isn't allowed to set up TUN.",
   12: "The VPN core didn't match its check, so it wasn't started.",
   13: "That connection didn't start. Its settings may not work with TUN.",
   14: "The network device didn't appear in time.",
   15: "The network routes couldn't be set."
+}
+
+/** Why pkexec said no. It exits 127 for all of these, so its own words are what tell them apart. */
+export function refusedReason(stderr: string, isAdmin: boolean): string {
+  if (/no authentication agent/i.test(stderr)) return "TUN needs a password, but nothing on this desktop can ask for one. Start your desktop's polkit agent, or use the system proxy instead."
+  if (!isAdmin) return "TUN needs an administrator's password, and this account isn't an administrator on this computer. Enter an administrator's password when asked, have one add you to the sudo group, or use the system proxy instead."
+  return "Linux didn't accept that password, so TUN wasn't set up. Try again, or use the system proxy instead."
+}
+
+/** Whether polkit counts this account as an administrator, which is membership of these groups on most systems. */
+async function isAdministrator(): Promise<boolean> {
+  const groups = await readFile('/etc/group', 'utf8').catch(() => '')
+  const ids = new Set(process.getgroups?.() ?? [])
+  return groups.split('\n').some((line) => {
+    const [name, , id] = line.split(':')
+    return (name === 'sudo' || name === 'wheel' || name === 'admin') && ids.has(Number(id))
+  })
 }
 
 const onPath = (command: string) =>
@@ -111,7 +128,9 @@ async function start({ corePath, config, onExit, isCancelled }: TunnelStart): Pr
   const copy = join(folder, 'xray')
   await copyFile(corePath, copy)
   const hash = createHash('sha256').update(await readFile(copy)).digest('hex')
-  const child = spawn('pkexec', ['/bin/sh', '-c', TUN_SCRIPT, 'scterra-tun', copy, hash, DEVICE, String(MARK), String(TABLE)], { stdio: ['pipe', 'pipe', 'ignore'] })
+  const child = spawn('pkexec', ['/bin/sh', '-c', TUN_SCRIPT, 'scterra-tun', copy, hash, DEVICE, String(MARK), String(TABLE)], { stdio: ['pipe', 'pipe', 'pipe'] })
+  let errors = ''
+  child.stderr.on('data', (data: Buffer) => (errors = (errors + data.toString()).slice(-400)))
   child.stdin.on('error', () => undefined)
   // It holds passwords, so it goes through the pipe rather than the command line.
   child.stdin.write(`${Buffer.from(JSON.stringify(config({ device: DEVICE, mark: MARK }))).toString('base64')}\n`)
@@ -133,9 +152,9 @@ async function start({ corePath, config, onExit, isCancelled }: TunnelStart): Pr
         clearTimeout(timer)
         resolve()
       })
-      void exited.then((code) => {
+      void exited.then(async (code) => {
         clearTimeout(timer)
-        reject(new Error(REASONS[code ?? -1] ?? "TUN didn't start."))
+        reject(new Error(code === 127 ? refusedReason(errors, await isAdministrator()) : (REASONS[code ?? -1] ?? "TUN didn't start.")))
       })
     })
   } catch (error) {

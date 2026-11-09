@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer } from './focusTimer'
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -247,6 +247,17 @@ export class BrowserCore {
       corePath: () => xrayPath(process.resourcesPath, app.getAppPath(), app.isPackaged),
       autoFastest: () => settings.get().vpnAutoFastest,
       route: () => ({ scope: settings.get().vpnScope, method: settings.get().vpnMethod }),
+      setMethod: (vpnMethod) => settings.set({ vpnMethod }),
+      readToggle: async () => {
+        // Through the default session first, so it still gets there where only the VPN can reach GitHub.
+        const url = process.env.SCB_E2E ? process.env.SCB_VPN_TOGGLE_URL : TUN_TOGGLE_URL
+        if (!url) return null
+        const address = `${url}?t=${Date.now()}`
+        const options = { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(5_000) }
+        // The VPN's own servers may be what's down, so a failed try goes again outside the VPN.
+        const response = await session.defaultSession.fetch(address, options).catch(() => fetch(address, options))
+        return response.ok ? readTunToggle(await response.text()) : null
+      },
       systemProxy: systemProxyFor(),
       tun: tunnelFor(),
       applyProxy: async (rules) => {

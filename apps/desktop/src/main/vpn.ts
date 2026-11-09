@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { createServer, connect, type AddressInfo, type Socket } from 'node:net'
 import { join } from 'node:path'
-import {
+import { TUN_OFF_REASON, TUN_SWITCHED_NOTE, TUN_TOGGLE_EVERY_MS,
   byPing,
   coreRefuses,
   isDirectProxy,
@@ -76,6 +76,10 @@ interface VpnDeps {
   /** Points every browser session at a proxy, or back to a direct connection. */
   applyProxy: (rules: string | null) => Promise<void>
   fetchText: (url: string) => Promise<string>
+  /** Whether TOGGLE.md lets TUN work. Null when that couldn't be found out. */
+  readToggle?: () => Promise<boolean | null>
+  /** Changes the person's saved way of covering the whole computer. */
+  setMethod?: (method: VpnMethod) => void
   /** A small page that answers with an empty 204, requested through each connection. */
   probeTarget: ProbeTarget
   onChange: () => void
@@ -238,10 +242,13 @@ export class VpnService {
     return this.saving
   }
 
+  private tunOff = false
+  private toggleTimer: ReturnType<typeof setInterval> | undefined
+
   private unavailable(): VpnState['unavailable'] {
     return {
       proxy: this.deps.systemProxy ? null : "scTerra can't set the system proxy on this desktop.",
-      tun: this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux, Windows and macOS.'
+      tun: this.tunOff ? TUN_OFF_REASON : this.deps.tun ? null : process.platform === 'linux' ? 'TUN needs polkit (pkexec) to ask for your password.' : 'TUN is only available on Linux, Windows and macOS.'
     }
   }
 
@@ -537,11 +544,62 @@ export class VpnService {
     }
   }
 
+  /** Reads TOGGLE.md. If that fails or makes no sense, nothing changes, so a network problem can't take TUN away. */
+  async checkTunToggle(): Promise<void> {
+    const allowed = await this.deps.readToggle?.().catch(() => null)
+    if (allowed === null || allowed === undefined) return
+    const changed = this.tunOff === allowed
+    this.tunOff = !allowed
+    if (this.tunOff) await this.leaveTun()
+    if (changed) this.deps.onChange()
+  }
+
+  /** Moves someone using TUN to the system proxy, and reconnects them if they were connected. */
+  private async leaveTun(): Promise<void> {
+    const { scope, method } = this.deps.route()
+    if (method !== 'tun') return
+    this.deps.setMethod?.('proxy')
+    if (scope !== 'computer' || !this.enabled) return
+    await this.applyEnabled(true)
+    if (!this.error) this.error = TUN_SWITCHED_NOTE
+  }
+
+  /** Checks again every so often, only while the VPN is on. */
+  private syncToggleTimer(): void {
+    if (!this.enabled) {
+      clearInterval(this.toggleTimer)
+      this.toggleTimer = undefined
+    } else if (!this.toggleTimer) {
+      this.toggleTimer = setInterval(() => {
+        if (this.enabled) void this.checkTunToggle()
+        else this.syncToggleTimer()
+      }, TUN_TOGGLE_EVERY_MS)
+      this.toggleTimer.unref?.()
+    }
+  }
+
+  /** Looks at TOGGLE.md once when turning on. If that fails, it just carries on and connects. */
   async setEnabled(on: boolean): Promise<void> {
+    if (!on) return this.applyEnabled(false)
+    this.connecting = true
+    this.deps.onChange()
+    const before = this.deps.route().method
+    await this.checkTunToggle()
+    const moved = before === 'tun' && this.deps.route().method !== 'tun'
+    await this.applyEnabled(true)
+    if (moved && !this.error) {
+      this.error = TUN_SWITCHED_NOTE
+      this.deps.onChange()
+    }
+  }
+
+  private async applyEnabled(on: boolean): Promise<void> {
     this.error = null
     await this.stopEverything()
     if (!on) {
       this.enabled = false
+      this.connecting = false
+      this.syncToggleTimer()
       await this.deps.applyProxy(null)
       this.deps.onChange()
       return
@@ -550,6 +608,7 @@ export class VpnService {
     const parsed = active && parseVpnLink(active.link)
     if (!parsed) {
       this.error = 'Choose a connection first.'
+      this.connecting = false
       this.deps.onChange()
       return
     }
@@ -572,6 +631,7 @@ export class VpnService {
       this.error = error instanceof Error ? error.message : "That connection didn't start."
     } finally {
       this.connecting = false
+      this.syncToggleTimer()
       this.deps.onChange()
     }
   }
@@ -630,7 +690,7 @@ export class VpnService {
 
   private async startTunnel(link: ParsedLink): Promise<string> {
     const tun = this.deps.tun
-    if (!tun) throw new Error(this.unavailable().tun!)
+    if (!tun || this.tunOff) throw new Error(this.unavailable().tun!)
     this.checkCoreCanCarry(link)
     const socksPort = await freePort()
     const cancelled = this.startRun
@@ -703,6 +763,7 @@ export class VpnService {
 
   /** Closes everything with the browser, so nothing is left listening or pointing at a closed port. */
   stop(): void {
+    clearInterval(this.toggleTimer)
     this.stopped = true
     this.releaseSystemProxy()
     this.stopCore()

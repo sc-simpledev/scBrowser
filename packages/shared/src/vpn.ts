@@ -45,6 +45,18 @@ export interface VpnState {
   groups: VpnGroup[]
 }
 
+/** A file in the public release repo. A first line of `on` lets TUN work, and `off` turns it off for everybody. */
+export const TUN_TOGGLE_URL = 'https://raw.githubusercontent.com/sc-simpledev/scTerra/main/TOGGLE.md'
+export const TUN_TOGGLE_EVERY_MS = 120_000
+export const TUN_OFF_REASON = 'TUN is off for now.'
+export const TUN_SWITCHED_NOTE = 'TUN is off for now, so the VPN moved to the system proxy.'
+
+/** True for on, false for off, and null for anything else, so a typo can't turn TUN off. */
+export function readTunToggle(text: string): boolean | null {
+  const line = (text.split('\n').find((candidate) => candidate.trim()) ?? '').replace(/[`*#\s]/g, '').toLowerCase()
+  return line === 'on' ? true : line === 'off' ? false : null
+}
+
 /** The short form the toolbar needs. */
 export interface VpnSummary {
   available: boolean

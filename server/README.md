@@ -52,9 +52,8 @@ To deploy on each push instead, connect the repository under the Worker's **Sett
 ### The live Worker
 
 It runs at `https://scterra-ai.scspace-dev.workers.dev`, and the browser's `HOSTED_AI_URL` in
-`packages/shared/src/ai.ts` points at it, including `/v1`. Versions released before the switch
-use `https://sc-delta-ai.scspacedev.deno.net/v1`, so leave the Deno Deploy app running until
-people have updated.
+`packages/shared/src/ai.ts` points at it, including `/v1`. The Deno Deploy app that versions
+up to 0.4.6 used was deleted in November 2026, so hosted AI doesn't work on those versions.
 
 ### Testing
 
@@ -83,8 +82,7 @@ To share limits across instances, go to **Databases**, press **Provision Databas
 Deno KV, press **Assign** next to it and pick the app, then set `USE_KV=true`. Without it,
 limits are kept per instance and reset when an instance restarts.
 
-Older browser versions use this one, at `https://sc-delta-ai.scspacedev.deno.net`. Newer
-ones use the Worker.
+The live Deno Deploy app has been deleted, and the browser uses the Worker.
 
 ## Reports
 

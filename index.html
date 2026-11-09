@@ -1,1268 +1,280 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>scTerra — Browse the World</title>
-    <meta name="description" content="scTerra is a browser for Linux, Windows and macOS with AI built in.">
-
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            padding: 40px 18px;
-            background: #101114;
-            color: #f1f1f1;
-            font-family: system-ui, sans-serif;
-        }
-
-        main {
-            max-width: 650px;
-            margin: auto;
-        }
-
-        h1 {
-            font-size: 2.6rem;
-            letter-spacing: -1.5px;
-            margin: 0;
-        }
-
-        .subtitle {
-            color: #999;
-            margin-top: 5px;
-        }
-
-        .version {
-            display: inline-block;
-            margin-top: 18px;
-            padding: 5px 12px;
-            border-radius: 20px;
-            background: #24262c;
-            color: #bbb;
-            font-size: .85rem;
-        }
-
-        .downloads {
-            display: grid;
-            gap: 26px;
-            margin-top: 38px;
-        }
-
-        .platform h2 {
-            color: #aaa;
-            font-size: 1rem;
-            font-weight: 600;
-            margin: 0 0 10px;
-        }
-
-        .download {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-            padding: 16px;
-            margin-top: 8px;
-            border: 1px solid #303239;
-            border-radius: 10px;
-            background: #1b1d22;
-            color: inherit;
-            text-align: left;
-            text-decoration: none;
-            cursor: pointer;
-            transition: .15s;
-        }
-
-        .download:hover {
-            background: #252830;
-            border-color: #777;
-        }
-
-        .download strong {
-            display: block;
-            font-size: .95rem;
-        }
-
-        .download small {
-            display: block;
-            margin-top: 4px;
-            color: #999;
-        }
-
-        .arrow {
-            color: #aaa;
-            font-size: 1.2rem;
-        }
-
-        #status {
-            margin-top: 25px;
-            color: #999;
-            font-size: .9rem;
-        }
-
-        .error {
-            color: #ff7777 !important;
-        }
-
-        /* Setup instructions */
-
-        #setup {
-            display: none;
-            margin-top: 35px;
-            padding: 22px;
-            background: #1b1d22;
-            border: 1px solid #393c45;
-            border-radius: 12px;
-            animation: appear .2s ease;
-        }
-
-        #setup h2 {
-            margin: 0 0 5px;
-            font-size: 1.25rem;
-        }
-
-        #setup-description {
-            color: #aaa;
-            margin-top: 5px;
-            font-size: .9rem;
-        }
-
-        #setup ol {
-            padding-left: 22px;
-            line-height: 1.8;
-        }
-
-        #setup li {
-            padding-left: 4px;
-            margin-bottom: 8px;
-        }
-
-        .notice {
-            margin-top: 18px;
-            padding: 13px;
-            border-radius: 8px;
-            background: #292a30;
-            color: #ccc;
-            font-size: .88rem;
-            line-height: 1.6;
-        }
-
-        .notice a {
-            color: #ddd;
-        }
-
-        .close {
-            margin-top: 18px;
-            padding: 9px 14px;
-            background: #303239;
-            color: #ddd;
-            border: 0;
-            border-radius: 7px;
-            cursor: pointer;
-        }
-
-        .close:hover {
-            background: #41434b;
-        }
-
-        footer {
-            margin-top: 40px;
-            color: #777;
-            font-size: .85rem;
-        }
-
-        footer a {
-            color: #aaa;
-        }
-
-        /* Guides */
-
-        button.download {
-            font: inherit;
-        }
-
-        #setup li.now {
-            color: #fff;
-        }
-
-        #setup li.now::marker {
-            color: #4fc4ba;
-            font-weight: 600;
-        }
-
-        #setup li[data-step] {
-            cursor: pointer;
-            color: #aaa;
-            transition: color .15s;
-        }
-
-        #setup li[data-step]:hover,
-        #setup li.now {
-            color: #fff;
-        }
-
-        code {
-            padding: 2px 6px;
-            border-radius: 5px;
-            background: #101114;
-            font-size: .85em;
-            overflow-wrap: anywhere;
-        }
-
-        #demo {
-            display: none;
-            margin-top: 16px;
-        }
-
-        #demo.on {
-            display: block;
-        }
-
-        .stage {
-            position: relative;
-            overflow: hidden;
-            aspect-ratio: 16 / 10;
-            border: 1px solid #303239;
-            border-radius: 10px;
-            background: #101114;
-            font-size: clamp(9px, 2.5vw, 13px);
-            user-select: none;
-        }
-
-        @media (max-width: 480px) {
-            .stage { aspect-ratio: 4 / 3; }
-        }
-
-        .scene {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 5%;
-            animation: appear .25s ease;
-        }
-
-        .pointer {
-            position: absolute;
-            z-index: 5;
-            width: 1.5em;
-            height: 1.5em;
-            margin: -.1em 0 0 -.1em;
-            pointer-events: none;
-            filter: drop-shadow(0 1px 2px #0009);
-            transition: left .85s cubic-bezier(.65, 0, .35, 1), top .85s cubic-bezier(.65, 0, .35, 1), transform .12s;
-        }
-
-        .pointer.down {
-            transform: scale(.82);
-        }
-
-        .ripple {
-            position: absolute;
-            z-index: 4;
-            width: 2.6em;
-            height: 2.6em;
-            margin: -1.3em 0 0 -1.3em;
-            border-radius: 50%;
-            background: #4fc4ba66;
-            pointer-events: none;
-            animation: ripple .5s ease-out forwards;
-        }
-
-        @keyframes ripple {
-            from { transform: scale(.2); opacity: 1; }
-            to { transform: scale(1.3); opacity: 0; }
-        }
-
-        .controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 10px;
-            color: #999;
-            font-size: .85rem;
-        }
-
-        .controls button {
-            padding: 6px 11px;
-            border: 0;
-            border-radius: 7px;
-            background: #303239;
-            color: #ddd;
-            font: inherit;
-            cursor: pointer;
-        }
-
-        .controls button:hover {
-            background: #41434b;
-        }
-
-        .controls span {
-            margin-left: auto;
-            font-variant-numeric: tabular-nums;
-        }
-
-        /* What's drawn in the walkthroughs */
-
-        .win {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            border: 1px solid #393c45;
-            border-radius: .7em;
-            background: #1b1d22;
-        }
-
-        .win-bar {
-            display: flex;
-            align-items: center;
-            gap: .4em;
-            flex: none;
-            padding: .55em .8em;
-            border-bottom: 1px solid #303239;
-            color: #aaa;
-        }
-
-        .win-bar i {
-            width: .7em;
-            height: .7em;
-            border-radius: 50%;
-            background: #41434b;
-        }
-
-        .win-bar b {
-            margin-left: .6em;
-            font-weight: 500;
-        }
-
-        .app-icon {
-            display: grid;
-            place-items: center;
-            width: 4em;
-            height: 4em;
-            border-radius: 22%;
-            background: linear-gradient(145deg, #4fc4ba, #236f69);
-            color: #fff;
-            font-weight: 700;
-            font-size: 1em;
-            transition: transform .85s cubic-bezier(.65, 0, .35, 1), opacity .3s .7s;
-        }
-
-        .folder {
-            display: grid;
-            place-items: center;
-            width: 4em;
-            height: 3.4em;
-            border-radius: .5em;
-            background: #3c6d9e;
-            font-size: 1em;
-        }
-
-        .file-label {
-            margin-top: .5em;
-            color: #ccc;
-            text-align: center;
-            font-size: .92em;
-        }
-
-        .row-center {
-            display: flex;
-            flex: 1;
-            align-items: center;
-            justify-content: space-around;
-        }
-
-        .col-center {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .pick { padding: .6em .9em; border-radius: .6em; transition: background .15s; }
-        .clicked .pick { background: #2b5a72; }
-
-        .drag .app-icon { transform: none; }
-        .clicked.drag .app-icon { opacity: 0; transition: opacity .25s; }
-
-        .dialog {
-            width: min(70%, 24em);
-            padding: 1.2em;
-            border: 1px solid #393c45;
-            border-radius: .9em;
-            background: #24262c;
-            box-shadow: 0 1em 3em #000a;
-            text-align: center;
-        }
-
-        .dialog .app-icon { width: 3em; height: 3em; margin: 0 auto .7em; }
-        .dialog strong { display: block; margin-bottom: .4em; }
-        .dialog p { margin: 0 0 .9em; color: #aaa; line-height: 1.4; }
-
-        .mock-btn {
-            display: inline-block;
-            padding: .4em .9em;
-            border-radius: .5em;
-            background: #393c45;
-            color: #eee;
-            white-space: nowrap;
-        }
-
-        .mock-btn.go { background: #2f8f87; color: #fff; }
-        .clicked .mock-btn.go { background: #236f69; }
-        .mock-btns { display: flex; flex-direction: column; gap: .4em; }
-
-        .settings {
-            display: flex;
-            flex: 1;
-            min-height: 0;
-        }
-
-        .settings aside {
-            flex: none;
-            width: 34%;
-            padding: .7em;
-            border-right: 1px solid #303239;
-            color: #999;
-            line-height: 2;
-        }
-
-        .settings aside b {
-            display: block;
-            margin: 0 -.3em;
-            padding: 0 .3em;
-            border-radius: .4em;
-            background: #2f8f87;
-            color: #fff;
-            font-weight: 500;
-        }
-
-        .settings section {
-            flex: 1;
-            padding: 1em;
-            color: #ccc;
-        }
-
-        .settings section h4 { margin: 0 0 .7em; font-size: 1.1em; }
-        .settings section p { margin: 0 0 .7em; line-height: 1.4; }
-
-        .toolbar {
-            display: flex;
-            align-items: center;
-            gap: .5em;
-            flex: none;
-            padding: .5em .7em;
-            border-bottom: 1px solid #303239;
-            color: #888;
-        }
-
-        .toolbar .address {
-            flex: 1;
-            padding: .3em .7em;
-            border: 1px solid #393c45;
-            border-radius: .5em;
-            background: #101114;
-            color: #bbb;
-        }
-
-        .toolbar .globe { position: relative; opacity: .35; transition: opacity .2s; }
-        .toolbar .globe::after {
-            content: "";
-            position: absolute;
-            right: -.1em;
-            bottom: 0;
-            width: .45em;
-            height: .45em;
-            border-radius: 50%;
-            background: transparent;
-        }
-
-        .clicked.connects .toolbar .globe { opacity: 1; color: #4fc4ba; }
-        .clicked.connects .toolbar .globe::after { background: #4fc4ba; }
-
-        .menu {
-            position: absolute;
-            top: 3em;
-            right: 5%;
-            width: 40%;
-            padding: .35em;
-            border: 1px solid #393c45;
-            border-radius: .6em;
-            background: #24262c;
-            color: #ccc;
-            line-height: 1.9;
-        }
-
-        .menu div { padding: 0 .6em; border-radius: .35em; }
-        .clicked .menu .hit { background: #2f8f87; color: #fff; }
-
-        .page {
-            display: flex;
-            flex: 1;
-            flex-direction: column;
-            gap: .7em;
-            min-height: 0;
-            padding: .8em 1em;
-        }
-
-        .card {
-            padding: .7em .8em;
-            border: 1px solid #303239;
-            border-radius: .6em;
-            color: #ccc;
-        }
-
-        .card small { display: block; margin-bottom: .4em; color: #888; font-size: .85em; letter-spacing: .05em; text-transform: uppercase; }
-
-        .paste {
-            height: 3em;
-            margin-bottom: .5em;
-            padding: .4em .6em;
-            overflow: hidden;
-            border: 1px solid #393c45;
-            border-radius: .4em;
-            background: #101114;
-            color: #8fd8d2;
-            font-family: ui-monospace, monospace;
-            white-space: nowrap;
-        }
-
-        .paste span { display: inline-block; overflow: hidden; vertical-align: bottom; max-width: 100%; }
-        .typing span { width: 0; animation: typing 1.5s steps(26) .5s forwards; }
-        @keyframes typing { to { width: 100%; } }
-
-        .conn { display: flex; align-items: center; gap: .6em; }
-        .conn .dot { flex: none; width: .8em; height: .8em; border: .22em solid #4fc4ba; border-radius: 50%; }
-        .conn div { flex: 1; min-width: 0; }
-        .conn em { display: block; color: #888; font-style: normal; font-size: .9em; }
-        .conn .ms { opacity: 0; color: #4fc4ba; transition: opacity .2s; }
-        .clicked .conn .ms { opacity: 1; }
-        .clicked .no-ms .ms { opacity: 0; }
-
-        .reveal { opacity: 0; transition: opacity .25s; }
-        .clicked .reveal { opacity: 1; }
-        .hide-after { transition: opacity .15s; }
-        .clicked .hide-after { display: none; }
-
-        .status { display: flex; align-items: center; justify-content: space-between; gap: 1em; }
-        .switch { flex: none; position: relative; width: 2.4em; height: 1.3em; border-radius: 1em; background: #41434b; transition: background .2s; }
-        .switch::after { content: ""; position: absolute; top: .15em; left: .15em; width: 1em; height: 1em; border-radius: 50%; background: #ddd; transition: left .2s; }
-        .clicked .switch { background: #2f8f87; }
-        .clicked .switch::after { left: 1.25em; }
-
-        .welcome-text { margin-top: .7em; color: #ccc; }
-
-        @media (prefers-reduced-motion: reduce) {
-            .pointer, .app-icon, .switch, .switch::after, .scene { transition: none; animation: none; }
-            .typing span { width: 100%; animation: none; }
-        }
-
-        @keyframes appear {
-            from {
-                opacity: 0;
-                transform: translateY(8px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-    
-        /* Landing page: everything below is the opening, the download page's own styles are above. */
-        html { scroll-behavior: smooth; background: #05070a; }
-        body { padding: 0; background: #05070a; overflow-x: hidden; }
-        :root { --teal: oklch(.78 .11 200); --teal-deep: oklch(.65 .105 200); }
-
-        .film { position: relative; height: 260vh; height: 260svh; }
-        .film-frame { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; background: radial-gradient(120% 70% at 50% 118%, #0d4a55 0%, #06161c 45%, #05070a 75%); }
-        #terra { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-        .bars::before, .bars::after { content: ""; position: absolute; left: 0; right: 0; z-index: 3; height: 11vh; background: #000; transition: transform 2.4s cubic-bezier(.7, 0, .2, 1) 2.6s; }
-        .bars::before { top: 0; } .bars::after { bottom: 0; }
-        .rolling.bars::before { transform: translateY(-100%); } .rolling.bars::after { transform: translateY(100%); }
-
-        .site-bar { position: absolute; z-index: 4; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 22px clamp(16px, 4vw, 44px); font-size: .9rem; opacity: 0; transition: opacity 1.4s ease 4.4s; }
-        .rolling .site-bar { opacity: 1; }
-        .site-bar b { font-weight: 600; letter-spacing: -.02em; font-size: 1.05rem; }
-        .site-bar a { color: #d8e4e6; text-decoration: none; padding: 8px 14px; border: 1px solid #ffffff2e; border-radius: 6px; transition: background .2s; }
-        .site-bar a:hover { background: #ffffff1a; }
-
-        .title { position: absolute; z-index: 2; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px 14vh; text-align: center; will-change: transform, opacity; }
-        .title h1 { font-size: clamp(4rem, 15vw, 13rem); font-weight: 500; letter-spacing: -.055em; line-height: .95; margin: 0; }
-        .title h1 span { display: inline-block; opacity: 0; filter: blur(18px); transform: translateY(.14em); transition: opacity 1.5s ease, filter 1.5s ease, transform 1.8s cubic-bezier(.2, .7, .1, 1); transition-delay: calc(1.2s + var(--i) * 90ms); }
-        .rolling .title h1 span { opacity: 1; filter: none; transform: none; }
-        .title h1 .sc { color: var(--teal); }
-        .line { margin: 22px 0 0; font-size: clamp(1.1rem, 2.6vw, 1.75rem); letter-spacing: -.02em; color: #e4eeef; opacity: 0; transition: opacity 1.6s ease 2.9s; }
-        .cta { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 34px; opacity: 0; transform: translateY(10px); transition: opacity 1.2s ease 3.7s, transform 1.2s ease 3.7s; }
-        .rolling .line { opacity: 1; } .rolling .cta { opacity: 1; transform: none; }
-        .cta a { padding: 13px 22px; border-radius: 6px; font-weight: 600; font-size: .95rem; text-decoration: none; transition: opacity .2s, background .2s; }
-        .cta .go { background: #f1f6f6; color: #05070a; } .cta .go:hover { opacity: .85; }
-        .cta .more { color: #e4eeef; border: 1px solid #ffffff38; } .cta .more:hover { background: #ffffff14; }
-
-        .scroll-hint { position: absolute; z-index: 2; bottom: 28px; left: 0; right: 0; text-align: center; color: #ffffff80; font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; opacity: 0; transition: opacity 1s ease 5s; }
-        .rolling .scroll-hint { opacity: 1; }
-
-        .chapter { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 clamp(16px, 8vw, 120px); text-align: center; opacity: 0; pointer-events: none; font-size: clamp(1.9rem, 5.4vw, 4.4rem); font-weight: 500; letter-spacing: -.04em; line-height: 1.08; text-shadow: 0 2px 34px #000c, 0 0 90px #000a; }
-        .chapter em { font-style: normal; color: var(--teal); }
-
-        .features { background: #05070a; padding: clamp(70px, 12vh, 140px) clamp(16px, 5vw, 60px) 40px; }
-        .features ul { list-style: none; margin: 0 auto; padding: 0; max-width: 1120px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); border-top: 1px solid #ffffff1f; }
-        .features li { padding: 28px 24px 34px 0; border-bottom: 1px solid #ffffff1f; opacity: 0; transform: translateY(18px); transition: opacity .9s ease, transform .9s ease; }
-        .features li.seen { opacity: 1; transform: none; }
-        .features h3 { margin: 0 0 8px; font-size: 1.15rem; font-weight: 600; letter-spacing: -.02em; }
-        .features p { margin: 0; color: #93a3a6; line-height: 1.55; font-size: .95rem; }
-
-        #download { padding: clamp(50px, 10vh, 110px) 16px 50px; background: linear-gradient(#05070a, #101114 240px); }
-        .dl-title { margin: 0; font-size: 2.6rem; letter-spacing: -1.5px; }
-
-        @media (prefers-reduced-motion: reduce) {
-            html { scroll-behavior: auto; }
-            .bars::before, .bars::after { display: none; }
-            .film { height: auto; } .film-frame { position: relative; }
-            .title h1 span, .line, .cta, .site-bar, .scroll-hint, .features li { transition: none; }
-            .chapter { display: none; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scTerra — Browse the World</title>
+<meta name="description" content="scTerra is a browser for Linux, Windows and macOS with AI built in.">
+<link rel="preload" href="assets/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face { font-family: Geist; src: url(assets/geist-latin.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+:root { --ink: #eef2f2; --dim: #8b9698; --line: #ffffff24; --night: #05070a; --gutter: clamp(16px, 4.5vw, 64px); }
+* { box-sizing: border-box; }
+html { background: var(--night); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--night); color: var(--ink); font-family: Geist, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: clip; }
+a { color: inherit; text-decoration: none; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+
+.bar { position: fixed; z-index: 5; inset: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline; padding: 24px var(--gutter); font-size: 15px; mix-blend-mode: difference; }
+.bar b { font-weight: 600; letter-spacing: -.02em; }
+.bar a:last-child, .end a { border-bottom: 1px solid currentColor; padding-bottom: 1px; }
+
+.film { position: relative; height: 760vh; height: 760svh; }
+.stage { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; background: linear-gradient(#05070a 62%, #0a2a31); }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.layer { position: absolute; inset: 0; padding: 0 var(--gutter); display: flex; flex-direction: column; justify-content: center; padding-bottom: 22vh; will-change: opacity, transform; }
+h1, h2 { margin: 0; font-weight: 500; letter-spacing: -.045em; line-height: 1.06; font-size: clamp(44px, 8.6vw, 136px); }
+
+#hero p { margin: 18px 0 0; max-width: 30em; font-size: clamp(17px, 1.6vw, 22px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
+#explore { opacity: 0; visibility: hidden; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: clamp(24px, 4vw, 64px); align-items: center; align-content: center; padding-bottom: 8vh; }
+h2 { font-size: clamp(38px, 5.6vw, 88px); }
+.notes { position: relative; display: block; margin-top: 18px; height: 9em; font-size: clamp(16px, 1.35vw, 19px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
+.notes p { position: absolute; inset: 0 auto auto 0; margin: 0; max-width: 27em; }
+.frame { position: relative; aspect-ratio: 1320 / 860; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #17191c; }
+.frame img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; will-change: opacity, transform; }
+.reel { display: block; height: 1.06em; overflow: hidden; }
+.reel-track { display: block; will-change: transform; }
+.reel-track span { display: block; height: 1.06em; }
+.index { position: absolute; right: var(--gutter); bottom: 44px; display: flex; gap: 22px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.index button { all: unset; cursor: pointer; color: var(--ink); opacity: .45; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.end { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; padding: 26px var(--gutter); border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+.end nav { display: flex; gap: 24px; color: var(--ink); }
+
+@media (max-width: 640px) {
+  #explore { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 72px; padding-bottom: 96px; }
+  .notes { height: 8.6em; margin-top: 10px; font-size: 15px; }
+  .index { left: var(--gutter); right: auto; flex-wrap: wrap; gap: 8px 18px; bottom: 28px; }
+}
+</style>
 </head>
-
 <body>
-<div class="film" id="film">
-    <div class="film-frame bars">
-        <canvas id="terra" aria-hidden="true"></canvas>
-        <nav class="site-bar" aria-label="Site"><b>scTerra</b><a href="#download">Download</a></nav>
-        <div class="title" id="title">
-            <h1 aria-label="scTerra"><span aria-hidden="true" class="sc" style="--i:0">s</span><span aria-hidden="true" class="sc" style="--i:1">c</span><span aria-hidden="true" style="--i:2">T</span><span aria-hidden="true" style="--i:3">e</span><span aria-hidden="true" style="--i:4">r</span><span aria-hidden="true" style="--i:5">r</span><span aria-hidden="true" style="--i:6">a</span></h1>
-            <p class="line">Browse the World.</p>
-            <div class="cta"><a class="go" href="#download">Download scTerra</a><a class="more" href="#features">See what it does</a></div>
-        </div>
-        <p class="chapter" id="chapter"><span>A browser with AI built in, <em>on your terms.</em></span></p>
-        <div class="scroll-hint" aria-hidden="true">Scroll</div>
-    </div>
-</div>
+<header class="bar"><b>scTerra</b><a href="/downloads">Downloads</a></header>
 
-<section class="features" id="features" aria-label="Features">
-    <ul>
-        <li><h3>An assistant beside every page</h3><p>Ask about what you're reading, research across your tabs, and get reports with sources you can click.</p></li>
-        <li><h3>Terra Code</h3><p>An agent that works on a project folder: it reads, edits and runs your tests, and asks first.</p></li>
-        <li><h3>A VPN in the browser</h3><p>Bring your own connections, for just the browser or your whole computer.</p></li>
-        <li><h3>Passwords, built in</h3><p>A sealed vault with autofill, two-step codes and leak checks.</p></li>
-        <li><h3>Quieter pages</h3><p>Trackers blocked and cookie banners rejected for you.</p></li>
-        <li><h3>Tabs that keep up</h3><p>Groups, workspaces, split view, and sleeping tabs that hand back your memory.</p></li>
-    </ul>
-</section>
-
-<div id="download">
 <main>
-
-    <header>
-        <h2 class="dl-title">Get scTerra</h2>
-        <p class="subtitle">Download the latest version.</p>
-        <span class="version" id="version">Loading version...</span>
-    </header>
-
-    <section class="downloads">
-
-        <div class="platform">
-            <h2>Linux</h2>
-
-            <a class="download" id="linux-deb" href="#" target="_blank" rel="noopener">
-                <span>
-                    <strong>Debian / Ubuntu</strong>
-                    <small>.deb · x86_64</small>
-                </span>
-                <span class="arrow">↓</span>
-            </a>
-
-            <a class="download" id="linux-appimage" href="#" target="_blank" rel="noopener">
-                <span>
-                    <strong>AppImage</strong>
-                    <small>Universal Linux · x86_64</small>
-                </span>
-                <span class="arrow">↓</span>
-            </a>
+  <div class="film" id="film">
+    <div class="stage" id="stage">
+      <canvas id="terra" aria-hidden="true"></canvas>
+      <section class="layer" id="hero"><h1>scTerra</h1><p>A browser for Linux, Windows and macOS, with AI built in.</p></section>
+      <section class="layer" id="explore" aria-label="What scTerra does">
+        <div>
+          <h2><span aria-hidden="true">Browse the</span><span class="reel" aria-hidden="true"><span class="reel-track" id="reel"></span></span><span class="sr" id="said"></span></h2>
+          <div class="notes" id="notes"></div>
         </div>
-
-        <div class="platform">
-            <h2>macOS</h2>
-
-            <a class="download" id="mac-arm" href="#" target="_blank" rel="noopener">
-                <span>
-                    <strong>Apple Silicon</strong>
-                    <small>.dmg · ARM64</small>
-                </span>
-                <span class="arrow">↓</span>
-            </a>
-
-            <a class="download" id="mac-intel" href="#" target="_blank" rel="noopener">
-                <span>
-                    <strong>Intel</strong>
-                    <small>.dmg · x86_64</small>
-                </span>
-                <span class="arrow">↓</span>
-            </a>
-        </div>
-
-        <div class="platform">
-            <h2>Windows</h2>
-
-            <a class="download" id="windows" href="#" target="_blank" rel="noopener">
-                <span>
-                    <strong>Windows Installer</strong>
-                    <small>.exe · x64</small>
-                </span>
-                <span class="arrow">↓</span>
-            </a>
-        </div>
-
-        <div class="platform">
-            <h2>Guides</h2>
-
-            <button class="download" type="button" id="guide-mac">
-                <span>
-                    <strong>Open scTerra on a Mac</strong>
-                    <small>Get past the first-launch warning, step by step</small>
-                </span>
-                <span class="arrow">→</span>
-            </button>
-
-            <button class="download" type="button" id="guide-vpn">
-                <span>
-                    <strong>Add a VPN connection</strong>
-                    <small>Paste a link, check it works, switch it on</small>
-                </span>
-                <span class="arrow">→</span>
-            </button>
-        </div>
-
-    </section>
-
-    <p id="status">Fetching latest version...</p>
-
-    <section id="setup">
-        <h2 id="setup-title">Installation instructions</h2>
-        <p id="setup-description"></p>
-
-        <div id="demo">
-            <div class="stage" id="stage" aria-hidden="true"></div>
-            <div class="controls">
-                <button type="button" id="demo-back">Back</button>
-                <button type="button" id="demo-play">Pause</button>
-                <button type="button" id="demo-next">Next</button>
-                <span id="demo-count"></span>
-            </div>
-        </div>
-
-        <ol id="setup-steps"></ol>
-        <div class="notice" id="setup-notice"></div>
-
-        <button class="close" type="button" onclick="closeSetup()">
-            Close instructions
-        </button>
-    </section>
-
-    <footer>
-        © 2026 sc-simpledev. All Rights Reserved.
-        <a href="https://github.com/sc-simpledev/scTerra/releases" target="_blank" rel="noopener">
-            All releases
-        </a>
-    </footer>
-
+        <div class="frame" id="frame"></div>
+      </section>
+      <ul class="index" id="index" aria-label="Features"></ul>
+    </div>
+  </div>
 </main>
-</div>
 
-<script>
-    const API =
-        "https://api.github.com/repos/sc-simpledev/scTerra/releases/latest";
-
-    const RELEASES =
-        "https://github.com/sc-simpledev/scTerra/releases";
-
-    /* Pictures for the walkthroughs. They're drawings, so wording on a real Mac can differ a little. */
-    const ICON = '<div class="app-icon">sc</div>';
-    const win = (title, body) =>
-        `<div class="win"><div class="win-bar"><i></i><i></i><i></i><b>${title}</b></div>${body}</div>`;
-    const browser = (address, body) =>
-        `<div class="win"><div class="toolbar"><span>←</span><span>→</span><div class="address">${address}</div><span class="globe">◍</span><span>⋮</span></div>${body}</div>`;
-    const dialog = (title, text, buttons) =>
-        `<div class="dialog">${ICON}<strong>${title}</strong><p>${text}</p><div class="mock-btns">${buttons}</div></div>`;
-    const addCard = (typing, filled) =>
-        `<div class="card"><small>Add connections</small><div class="paste ${typing ? "typing" : ""}"><span>${filled ? "vless://your-server…#My VPN" : ""}</span></div><span class="mock-btn go">Add links</span> <span class="reveal">&nbsp;Added 1.</span></div>`;
-    const connection =
-        '<div class="card conn"><span class="dot"></span><div>My VPN<em>vless · your-server:443</em></div><span class="ms">48 ms</span><span class="mock-btn go">Ping</span></div>';
-
-    const macDemo = [
-        { scene: win("Downloads", `<div class="row-center"><div class="col-center pick">${ICON}<div class="file-label">scTerra.dmg</div></div></div>`), from: [80, 85], target: ".pick" },
-        { scene: win("scTerra", `<div class="row-center"><div class="col-center">${ICON}<div class="file-label">scTerra</div></div><div style="color:#777">→</div><div class="col-center"><div class="folder">▤</div><div class="file-label">Applications</div></div></div>`), extra: "drag", grab: ".app-icon", target: ".folder" },
-        { scene: dialog("“scTerra” Not Opened", "Apple could not verify “scTerra” is free of malware.", '<span class="mock-btn go">Done</span><span class="mock-btn">Move to Trash</span>'), from: [85, 20], target: ".mock-btn.go" },
-        { scene: win("Privacy &amp; Security", '<div class="settings"><aside>General<br>Appearance<b>Privacy &amp; Security</b>Desktop &amp; Dock<br>Displays</aside><section><h4>Security</h4><p>“scTerra” was blocked to protect your Mac.</p><span class="mock-btn go">Open Anyway</span></section></div>'), from: [20, 45], target: ".mock-btn.go" },
-        { scene: dialog("Open “scTerra”?", "Only do this if you downloaded it from this page. You'll be asked for your Mac password.", '<span class="mock-btn go">Open Anyway</span><span class="mock-btn">Done</span>'), from: [20, 25], target: ".mock-btn.go" },
-        { scene: win("scTerra", `<div class="row-center"><div class="col-center">${ICON}<div class="welcome-text">Browse the World</div></div></div>`) }
-    ];
-
-    const vpnDemo = [
-        { scene: browser("Search or enter address", '<div class="menu"><div>New tab</div><div>History</div><div class="hit">VPN</div><div>Settings</div></div><div class="page"></div>'), from: [50, 80], target: ".hit" },
-        { scene: browser("sc://vpn", `<div class="page">${addCard(true, true)}</div>`), from: [75, 40], target: ".paste", press: false },
-        { scene: browser("sc://vpn", `<div class="page">${addCard(false, true)}<div class="reveal no-ms">${connection}</div></div>`), from: [40, 42], target: ".mock-btn.go" },
-        { scene: browser("sc://vpn", `<div class="page">${connection}</div>`), from: [50, 70], target: ".conn .mock-btn.go" },
-        { scene: browser("sc://vpn", '<div class="page"><div class="card status"><div><span class="hide-after">Off</span><span class="reveal">Connected</span></div><div class="switch"></div></div></div>'), extra: "connects", from: [50, 70], target: ".switch" }
-    ];
-
-    const setupInstructions = {
-
-        linuxDeb: {
-            title: "Install on Debian / Ubuntu",
-            description: "Installing the scTerra Debian package.",
-            steps: [
-                "Wait for the .deb file to finish downloading.",
-                "Open your Downloads folder.",
-                "Double-click the downloaded .deb file.",
-                "Open it with your software installer.",
-                "Click Install and follow the prompts.",
-                "Launch scTerra from your applications menu."
-            ],
-            notice:
-                "This package is intended for 64-bit Debian-based Linux distributions, including Ubuntu and Kubuntu."
-        },
-
-        linuxAppImage: {
-            title: "Run the Linux AppImage",
-            description: "AppImages can run without a traditional installation.",
-            steps: [
-                "Wait for the AppImage to finish downloading.",
-                "Open your Downloads folder.",
-                "Right-click the downloaded file and select Properties.",
-                "Find the Permissions tab.",
-                "Enable the option labelled 'Is executable' or 'Allow executing file as program'.",
-                "Close Properties and double-click the AppImage."
-            ],
-            notice:
-                "If your desktop environment asks whether to execute the file, choose to execute it."
-        },
-
-        mac: {
-            title: "Install and trust scTerra on a Mac",
-            description: "scTerra doesn't have an Apple certificate yet, so macOS stops it the first time. You only have to do this once.",
-            demo: macDemo,
-            steps: [
-                "Open the DMG you downloaded. Pick Apple Silicon for an M-series Mac, and Intel otherwise: Apple menu → About This Mac tells you which.",
-                "Drag scTerra onto Applications, then eject the disk image.",
-                "Open scTerra from Applications. macOS refuses the first time, so press Done, not Move to Trash.",
-                "Open System Settings → Privacy & Security, scroll down to Security, and press Open Anyway beside scTerra.",
-                "Press Open Anyway again, and enter your Mac password or use Touch ID.",
-                "scTerra opens. macOS remembers your choice from now on."
-            ],
-            notice: `
-                <strong>Only trust a copy from this page.</strong>
-                This tells your Mac to run one app that Apple hasn't
-                checked, so make sure the DMG came from here. Stop and
-                delete it if macOS says it contains malware.<br><br>
-
-                <strong>On macOS 14 or older:</strong> you can also
-                Control-click scTerra in Applications, choose Open, then
-                press Open.<br><br>
-
-                <strong>If macOS says scTerra "is damaged":</strong>
-                that's usually the download's quarantine mark on an
-                uncertified app. Move scTerra to Applications, open
-                Terminal, and run<br>
-                <code>xattr -dr com.apple.quarantine /Applications/scTerra.app</code><br><br>
-
-                <a href="https://support.apple.com/en-au/102445"
-                   target="_blank" rel="noopener">Apple's own instructions</a>.
-            `
-        },
-
-        windows: {
-            title: "Install on Windows",
-            description: "Installing scTerra using the Windows installer.",
-            steps: [
-                "Wait for the .exe installer to finish downloading.",
-                "Open your Downloads folder.",
-                "Double-click the scTerra installer.",
-                "Follow the installation wizard.",
-                "Once installation finishes, launch scTerra from the Start menu."
-            ],
-            notice: `
-                <strong>Windows SmartScreen</strong><br><br>
-
-                Windows may display a "Windows protected your PC"
-                warning for an unfamiliar installer.<br><br>
-
-                This can happen when an application has little download
-                history or is not digitally signed. It does not
-                automatically mean the file is malicious.<br><br>
-
-                Verify that the installer came from the official
-                scTerra GitHub repository. If you cannot establish
-                that it is trustworthy, do not run it.<br><br>
-
-                <a href="https://learn.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-smartscreen/microsoft-defender-smartscreen-overview"
-                   target="_blank" rel="noopener">Microsoft's SmartScreen explanation</a>.
-            `
-        },
-
-        vpn: {
-            title: "Add a VPN connection",
-            description: "scTerra has a VPN built in, but no servers of its own. You bring a link from a VPN provider or your own server.",
-            demo: vpnDemo,
-            steps: [
-                "In scTerra, press the ⋮ menu at the top right and choose VPN. You can also type sc://vpn in the address bar.",
-                "Copy the connection link from your provider, and paste it under Add connections.",
-                "Press Add links. Your connection appears, and the first one you add is chosen for you.",
-                "Press Ping to check it works. A time in milliseconds means it's working, and Not working means it isn't. With several, pick one with the button beside it.",
-                "Turn on the switch at the top of the page. When it says Connected, scTerra is using the VPN."
-            ],
-            notice: `
-                <strong>Links it understands:</strong> vless://, vmess://,
-                trojan://, ss://, socks5:// and http://, one per line. If
-                you were given a subscription address, paste it into
-                Subscription address and press Subscribe.<br><br>
-
-                <strong>Afterwards:</strong> a globe button appears in the
-                toolbar, for switching it on and off or changing connection.
-                The VPN covers just scTerra until you choose This whole
-                computer on the same page.<br><br>
-
-                <strong>Choose servers you trust.</strong> Whoever runs a
-                server can see your unencrypted traffic and which sites you
-                visit, so avoid signing in to anything on free servers.
-            `
-        }
-    };
-
-    const STEP_MS = 3400;
-    const PRESS_MS = 1000;
-    const stage = document.getElementById("stage");
-    const stillMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let demo = null;
-    let demoStep = 0;
-    let playing = false;
-    let timers = [];
-
-    function clearTimers() {
-        timers.forEach(clearTimeout);
-        timers = [];
-    }
-
-    function pointerAt(pointer, [x, y]) {
-        pointer.style.left = x + "%";
-        pointer.style.top = y + "%";
-    }
-
-    /* The middle of something in the scene, as a position on the stage. */
-    function spot(element) {
-        const box = stage.getBoundingClientRect();
-        const { left, top, width, height } = element.getBoundingClientRect();
-        return [(left + width / 2 - box.left) / box.width * 100, (top + height / 2 - box.top) / box.height * 100];
-    }
-
-    function showStep(index) {
-        clearTimers();
-        demoStep = (index + demo.length) % demo.length;
-        const { scene, extra, from, grab, target, press = true } = demo[demoStep];
-
-        stage.innerHTML = `<div class="scene ${extra || ""}">${scene}</div>`;
-        const root = stage.firstElementChild;
-
-        document.querySelectorAll("#setup-steps li").forEach((li, i) => {
-            li.classList.toggle("now", i === demoStep);
-        });
-        document.getElementById("demo-count").textContent =
-            `Step ${demoStep + 1} of ${demo.length}`;
-
-        if (target && stillMotion) {
-            if (press) root.classList.add("clicked");
-        } else if (target) {
-            const at = spot(root.querySelector(target));
-            const start = grab ? spot(root.querySelector(grab)) : from;
-            if (grab) {
-                const box = stage.getBoundingClientRect();
-                root.style.setProperty("--drag", ((at[0] - start[0]) / 100 * box.width) + "px");
-            }
-            const pointer = document.createElement("div");
-            pointer.className = "pointer";
-            pointer.innerHTML = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#fff" stroke="#111" stroke-width="1.5" d="M5 3l14 9-6 1.5L10 20z"/></svg>';
-            pointerAt(pointer, start);
-            stage.appendChild(pointer);
-
-            timers.push(setTimeout(() => {
-                pointerAt(pointer, at);
-                if (grab) root.querySelector(grab).style.transform = "translateX(var(--drag))";
-            }, 80));
-            if (press) timers.push(setTimeout(() => {
-                pointer.classList.add("down");
-                const ripple = document.createElement("div");
-                ripple.className = "ripple";
-                pointerAt(ripple, at);
-                stage.appendChild(ripple);
-                root.classList.add("clicked");
-            }, PRESS_MS));
-            timers.push(setTimeout(() => pointer.classList.remove("down"), PRESS_MS + 160));
-        }
-
-        if (playing) {
-            timers.push(setTimeout(() => showStep(demoStep + 1), STEP_MS));
-        }
-    }
-
-    function setPlaying(next) {
-        playing = next;
-        document.getElementById("demo-play").textContent = playing ? "Pause" : "Play";
-        showStep(demoStep);
-    }
-
-    function step(by) {
-        playing = false;
-        document.getElementById("demo-play").textContent = "Play";
-        showStep(demoStep + by);
-    }
-
-    document.getElementById("demo-back").addEventListener("click", () => step(-1));
-    document.getElementById("demo-next").addEventListener("click", () => step(1));
-    document.getElementById("demo-play").addEventListener("click", () => setPlaying(!playing));
-
-    function showSetup(type) {
-        const info = setupInstructions[type];
-
-        document.getElementById("setup-title").textContent =
-            info.title;
-
-        document.getElementById("setup-description").textContent =
-            info.description;
-
-        const steps = document.getElementById("setup-steps");
-        steps.innerHTML = "";
-
-        info.steps.forEach((text, i) => {
-            const li = document.createElement("li");
-            li.textContent = text;
-            if (info.demo) {
-                li.dataset.step = i;
-                li.addEventListener("click", () => {
-                    playing = false;
-                    document.getElementById("demo-play").textContent = "Play";
-                    showStep(i);
-                });
-            }
-            steps.appendChild(li);
-        });
-
-        document.getElementById("setup-notice").innerHTML =
-            info.notice;
-
-        clearTimers();
-        demo = info.demo || null;
-        document.getElementById("demo").classList.toggle("on", !!demo);
-        if (demo) {
-            demoStep = 0;
-            setPlaying(!stillMotion);
-        }
-
-        const section = document.getElementById("setup");
-        section.style.display = "block";
-
-        section.scrollIntoView({
-            behavior: stillMotion ? "auto" : "smooth",
-            block: "start"
-        });
-    }
-
-    function closeSetup() {
-        clearTimers();
-        demo = null;
-        document.getElementById("setup").style.display = "none";
-    }
-
-    const DOWNLOADS = {
-        "linux-deb": { match: /_amd64\.deb$/, type: "linuxDeb" },
-        "linux-appimage": { match: /\.AppImage$/, type: "linuxAppImage" },
-        "mac-arm": { match: /-arm64-mac\.dmg$/, type: "mac" },
-        "mac-intel": { match: /-x64-mac\.dmg$/, type: "mac" },
-        "windows": { match: /Setup-.*\.exe$/, type: "windows" }
-    };
-
-    /* Always usable, even before the version arrives or if GitHub won't answer. */
-    for (const [id, item] of Object.entries(DOWNLOADS)) {
-        const link = document.getElementById(id);
-        link.href = RELEASES + "/latest";
-        link.addEventListener("click", () => showSetup(item.type));
-    }
-
-    document.getElementById("guide-mac").addEventListener("click", () => showSetup("mac"));
-    document.getElementById("guide-vpn").addEventListener("click", () => showSetup("vpn"));
-
-    /* Links straight to a guide: index.html#mac or index.html#vpn */
-    const opened = location.hash.slice(1);
-    if (opened === "mac" || opened === "vpn") showSetup(opened);
-
-    async function loadDownloads() {
-        const status = document.getElementById("status");
-
-        try {
-            const response = await fetch(API);
-
-            if (!response.ok) {
-                throw new Error(`GitHub API error: ${response.status}`);
-            }
-
-            const release = await response.json();
-
-            for (const [id, item] of Object.entries(DOWNLOADS)) {
-                const asset = (release.assets || []).find(({ name }) => item.match.test(name));
-                const link = document.getElementById(id);
-
-                if (asset) {
-                    link.href = asset.browser_download_url;
-                } else {
-                    /* Some releases went out without every build. */
-                    link.href = RELEASES;
-                    link.querySelector("small").textContent += " · not in this release, see all releases";
-                }
-            }
-
-            document.getElementById("version").textContent = release.tag_name;
-            status.textContent = "Latest downloads are ready.";
-
-        } catch (error) {
-            console.error(error);
-
-            document.getElementById("version").textContent =
-                "Unavailable";
-
-            status.textContent =
-                "Couldn't reach GitHub for the version. The buttons go to the latest release page instead.";
-
-            status.classList.add("error");
-        }
-    }
-
-    loadDownloads();
-</script>
+<footer class="end">
+  <span>© 2026 sc-simpledev. All Rights Reserved.</span>
+  <nav aria-label="Links"><a href="/downloads">Downloads</a><a href="https://github.com/sc-simpledev/scTerra/releases" rel="noopener">Releases</a></nav>
+</footer>
 
 <script>
 (function () {
-    var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var film = document.getElementById('film');
-    var frame = film.firstElementChild;
-    var title = document.getElementById('title');
-    var chapter = document.getElementById('chapter');
-    requestAnimationFrame(function () { requestAnimationFrame(function () { frame.classList.add('rolling'); }); });
+  var SCENES = [
+    ['World', 'world', 'Everyday browsing without the clutter. Trackers are blocked and cookie banners are rejected for you, while groups, workspaces, split view and sleeping tabs keep a long session tidy and light on memory.', 'An article open in scTerra, with tabs down the side.'],
+    ['Sidebar', 'sidebar', 'Ask about the page you’re on without leaving it. The assistant summarises articles and videos, answers with citations that jump to the exact words, and can work through a page for you, with your approval at every step.', 'The assistant summarising a page in the sidebar.'],
+    ['AI', 'ai', 'Research across up to eight tabs or the web, and turn it into a report with sources you can click. Reports come in several designs, and download as PDF, Word, HTML or Markdown.', 'A report written by the assistant, open beside the chat.'],
+    ['Code', 'code', 'Terra Code works in a project folder you choose. It reads your files, makes edits and runs your tests, asks before commands and, unless you say otherwise, before changes, and can undo what it did.', 'Terra Code after fixing a bug, with its plan and changed files.'],
+    ['VPN', 'vpn', 'Bring your own VLESS, VMess, Trojan, Shadowsocks or proxy connections, or subscribe to a list. Cover just the browser or the whole computer, and let scTerra pick the fastest server.', 'The VPN page with a list of connections.'],
+    ['Vault', 'vault', 'Passwords, addresses and two-step codes, sealed with a master password or your system keychain. It fills in your saved logins, flags weak or reused passwords, and checks for leaks when you ask.', 'The password vault with saved logins.']
+  ];
+  var WORDS = SCENES.map(function (scene) { return scene[0]; });
+  var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var $ = function (id) { return document.getElementById(id); };
+  var film = $('film'), hero = $('hero'), explore = $('explore'), reel = $('reel'), said = $('said'), index = $('index');
 
-    var seen = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('seen'); seen.unobserve(e.target); } });
-    }, { threshold: .2 });
-    document.querySelectorAll('.features li').forEach(function (li, i) { li.style.transitionDelay = (i % 3) * 90 + 'ms'; seen.observe(li); });
+  // Where each part of the page sits along the one scroll.
+  var HERO_OUT = [.015, .1], EXPLORE_IN = [.08, .15], REEL = [.15, .95];
 
-    var scrolled = 0;
-    function onScroll() {
-        var room = film.offsetHeight - innerHeight;
-        scrolled = room > 0 ? Math.min(1, Math.max(0, scrollY / room)) : 0;
-        if (still) return;
-        var out = Math.min(1, scrolled / .32);
-        title.style.opacity = 1 - out;
-        title.style.transform = 'translateY(' + (-70 * out) + 'px) scale(' + (1 + .06 * out) + ')';
-        title.style.pointerEvents = out > .6 ? 'none' : '';
-        var c = scrolled < .62 ? (scrolled - .36) / .14 : (.92 - scrolled) / .14;
-        chapter.style.opacity = Math.max(0, Math.min(1, c));
-        frame.querySelector('.scroll-hint').style.visibility = scrolled > .03 ? 'hidden' : '';
+  WORDS.forEach(function (word) {
+    var line = document.createElement('span');
+    line.textContent = word;
+    reel.appendChild(line);
+  });
+  var lines = [].slice.call(reel.children);
+  var notes = SCENES.map(function (scene) {
+    var p = document.createElement('p');
+    p.textContent = scene[2];
+    $('notes').appendChild(p);
+    return p;
+  });
+  var shots = SCENES.map(function (scene) {
+    var img = new Image(1320, 860);
+    img.src = 'assets/shots/' + scene[1] + '.webp';
+    img.alt = scene[3];
+    img.decoding = 'async';
+    $('frame').appendChild(img);
+    return img;
+  });
+  var marks = WORDS.map(function (word, i) {
+    var li = document.createElement('li'), button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = word;
+    button.addEventListener('click', function () { scrollTo({ top: progressOf(i) * room(), behavior: still ? 'auto' : 'smooth' }); });
+    li.appendChild(button);
+    index.appendChild(li);
+    return button;
+  });
+
+  var clamp = function (v) { return v < 0 ? 0 : v > 1 ? 1 : v; };
+  var range = function (r, v) { var t = clamp((v - r[0]) / (r[1] - r[0])); return t * t * (3 - 2 * t); };
+  var room = function () { return Math.max(1, film.offsetHeight - innerHeight); };
+  function progressOf(i) { return REEL[0] + (REEL[1] - REEL[0]) * (i + .001) / (WORDS.length - 1); }
+
+  /** Rests on each word, and moves between them without a hard start or stop. */
+  function reelPosition(p) {
+    var v = clamp((p - REEL[0]) / (REEL[1] - REEL[0])) * (WORDS.length - 1);
+    var whole = Math.floor(v), t = v - whole;
+    var moving = clamp((t - .22) / .56);
+    return whole + moving * moving * moving * (moving * (6 * moving - 15) + 10);
+  }
+
+  var shown = -1, spoken = -1;
+  function layout(p) {
+    var out = range(HERO_OUT, p);
+    hero.style.opacity = 1 - out;
+    hero.style.transform = 'translate3d(0,' + (-36 * out) + 'px,0)';
+    hero.style.visibility = out >= 1 ? 'hidden' : 'visible';
+
+    var seen = range(EXPLORE_IN, p);
+    explore.style.opacity = seen;
+    explore.style.visibility = seen <= 0 ? 'hidden' : 'visible';
+    index.style.opacity = seen;
+    index.style.visibility = seen <= 0 ? 'hidden' : 'visible';
+
+    var at = reelPosition(p);
+    if (at !== shown) {
+      shown = at;
+      reel.style.transform = 'translate3d(0,' + (-at * 100 / WORDS.length) + '%,0)';
+      lines.forEach(function (line, i) { line.style.opacity = 1 - .85 * clamp(Math.abs(i - at)); });
+      marks.forEach(function (mark, i) { mark.style.opacity = .45 + .55 * (1 - clamp(Math.abs(i - at))); });
+      notes.forEach(function (note, i) { note.style.opacity = clamp(1 - Math.abs(i - at) * 1.6); });
+      shots.forEach(function (shot, i) {
+        var away = i - at, off = Math.abs(away) >= 1;
+        shot.style.visibility = off ? 'hidden' : 'visible';
+        shot.style.opacity = clamp(1 - Math.abs(away));
+        shot.style.transform = 'translate3d(0,' + (away * 18) + 'px,0)';
+      });
+      var near = Math.round(at);
+      if (near !== spoken) { spoken = near; said.textContent = 'Browse the ' + WORDS[near]; }
     }
-    addEventListener('scroll', onScroll, { passive: true });
-    addEventListener('resize', onScroll);
-    onScroll();
+  }
 
-    var canvas = document.getElementById('terra');
+  var target = 0, current = 0;
+  function read() { target = clamp(scrollY / room()); }
+  addEventListener('scroll', read, { passive: true });
+  addEventListener('resize', read);
+  read();
+  current = target;
+  layout(current);
+
+  // One loop drives the text and the planet, so they can't drift apart.
+  var draw = setupPlanet();
+  var last = performance.now(), started = last, visible = true, slow = 0;
+  new IntersectionObserver(function (e) {
+    var was = visible;
+    visible = e[0].isIntersecting;
+    if (visible && !was) { last = performance.now(); requestAnimationFrame(frame); }
+  }).observe($('stage'));
+
+  var title = hero.firstElementChild, canvas = $('terra'), arrived = false;
+  function arrive(t) {
+    var light = range([.1, 2.6], t), text = range([.9, 2.6], t);
+    canvas.style.opacity = light;
+    title.style.opacity = text;
+    title.style.transform = 'translate3d(0,' + (14 * (1 - text)) + 'px,0)';
+    if (t > 2.6) { arrived = true; canvas.style.opacity = title.style.opacity = title.style.transform = ''; }
+  }
+
+  function frame(now) {
+    var dt = Math.min(.25, (now - last) / 1000);
+    last = now;
+    // Frame-rate independent easing towards where the page has been scrolled to.
+    current = still ? target : current + (target - current) * (1 - Math.exp(-dt * 6.5));
+    if (Math.abs(target - current) < .00002) current = target;
+    layout(current);
+    if (!still && !arrived) arrive((now - started) / 1000);
+    if (draw) {
+      draw(current, still ? 20 : (now - started) / 1000 + 20, still ? 1 : clamp((now - started) / 3200));
+      if (dt > .026) { if (++slow > 40) { draw.lower(); slow = 0; } } else if (slow > 0) slow--;
+    }
+    if (visible) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function setupPlanet() {
+    var canvas = $('terra');
     var gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' });
-    if (!gl) return;
-
-    var vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+    if (!gl) return null;
     var fs = [
-        'precision highp float;uniform vec2 R;uniform float T,S,I;',
-        'float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
-        'float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}',
-        'float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<5;i++){v+=a*n(p);p=p*2.03+vec2(17.3,9.1);a*=.5;}return v;}',
-        'void main(){',
-        ' vec2 u=(gl_FragCoord.xy-.5*R)/R.y;',
-        ' vec3 teal=vec3(.22,.78,.82),sun=vec3(1.,.93,.82);',
-        ' float ease=smoothstep(0.,1.,I);',
-        ' float r=1.75;float top=mix(-.78,-.30,ease)+S*.62;',
-        ' vec2 c=vec2(0.,top-r);vec2 d=u-c;float l=length(d);',
-        ' vec2 g=floor(gl_FragCoord.xy/1.5);float st=step(.9972,h(g))*h(g+3.)*smoothstep(-.1,.45,u.y-top+.1);',
-        ' vec3 col=vec3(st)*(.45+.55*sin(T*.7+h(g)*40.))*(1.-S);',
-        ' float dawn=ease*(1.-S*.4);',
-        ' float over=l-r;',
-        ' if(over>0.){',
-        '  float halo=exp(-over*9.)*.75+exp(-over*2.6)*.20;',
-        '  float arc=exp(-abs(d.x)*(1.5-S*.7));',
-        '  col+=teal*halo*arc*dawn;',
-        '  col+=sun*exp(-over*46.)*exp(-d.x*d.x*9.)*1.5*dawn;',
-        '  col+=sun*.14*exp(-length(u-vec2(0.,top))*3.2)*dawn;',
-        ' }else{',
-        '  float z=sqrt(max(0.,r*r-dot(d,d)))/r;vec3 N=vec3(d/r,z);',
-        '  vec2 m=vec2(atan(N.x,N.z)+T*.012,asin(N.y))*3.6;',
-        '  float land=smoothstep(.49,.56,fbm(m+fbm(m*1.4)*.35));',
-        '  float cloud=smoothstep(.55,.82,fbm(m*1.7+vec2(T*.02,0.)));',
-        '  float lit=max(0.,dot(N,normalize(vec3(0.,.92,.22))));',
-        '  vec3 ground=mix(vec3(.012,.05,.075),vec3(.03,.17,.15),land);',
-        '  col=ground*(.25+lit*1.3)*dawn+vec3(.75,.9,.95)*cloud*lit*.5*dawn;',
-        '  float city=land*step(.93,h(floor(m*70.)))*(1.-smoothstep(.1,.55,lit));',
-        '  col+=vec3(.5,.9,.9)*city*.75*ease;',
-        '  float rim=pow(1.-z,3.2);col+=teal*rim*(.5+lit)*1.25*dawn;',
-        '  col+=sun*pow(1.-z,14.)*exp(-d.x*d.x*9.)*dawn*1.1;',
-        ' }',
-        ' col*=1.-.42*dot(u,u);',
-        ' col=mix(col,vec3(.02,.028,.04),smoothstep(.78,1.,S));',
-        ' col=col/(1.+col*.25);col=pow(col,vec3(.86));',
-        ' col+=(h(gl_FragCoord.xy+T)-.5)*.018;',
-        ' gl_FragColor=vec4(col,1.);}'
+      'precision highp float;uniform vec2 R;uniform float T,S,I;',
+      'float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+      'float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}',
+      'float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<4;i++){v+=a*n(p);p=p*2.03+vec2(17.3,9.1);a*=.5;}return v;}',
+      'void main(){',
+      ' vec2 u=(gl_FragCoord.xy-.5*R)/R.y;',
+      ' vec3 air=vec3(.25,.66,.74),sun=vec3(1.,.93,.84);',
+      ' float e=I*I*(3.-2.*I);',
+      ' float r=2.4,top=mix(-.62,-.33,e)+.1*sin(S*3.14159);',
+      ' vec2 c=vec2(.34*S-.1,top-r),d=u-c;float l=length(d),o=l-r;',
+      ' vec2 g=floor(gl_FragCoord.xy/1.5);',
+      ' vec3 col=vec3(step(.9978,h(g))*h(g+3.))*(.5+.5*sin(T*.5+h(g)*40.))*smoothstep(-.05,.3,o);',
+      ' float x=(d.x-.25*S)*(d.x-.25*S);',
+      ' if(o>0.){',
+      '  col+=air*(exp(-o*11.)*.55+exp(-o*3.2)*.11)*exp(-x*1.6)*e;',
+      '  col+=sun*exp(-o*60.)*exp(-x*7.)*.9*e;',
+      ' }else{',
+      '  float z=sqrt(max(0.,r*r-dot(d,d)))/r;vec3 N=vec3(d/r,z);',
+      '  vec2 m=vec2(atan(N.x,N.z)+T*.006+S*2.4,asin(N.y))*4.2;',
+      '  float land=smoothstep(.5,.58,fbm(m+fbm(m*1.4)*.3));',
+      '  float cloud=smoothstep(.58,.84,fbm(m*1.7+vec2(T*.012,0.)));',
+      '  float lit=max(0.,dot(N,normalize(vec3(.1*S,.95,.2))));',
+      '  vec3 ground=mix(vec3(.01,.035,.055),vec3(.035,.1,.085),land);',
+      '  col=(ground*(.2+lit*1.05)+vec3(.62,.72,.76)*cloud*lit*.3)*e;',
+      '  col+=air*pow(1.-z,3.6)*(.35+lit)*.75*e;',
+      ' }',
+      ' col*=1.-.3*dot(u,u);',
+      ' col=pow(col/(1.+col*.22),vec3(.88));',
+      ' col+=(h(gl_FragCoord.xy+fract(T))-.5)*.012;',
+      ' gl_FragColor=vec4(col,1.);}'
     ].join('\n');
-
     function shader(type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; }
     var prog = gl.createProgram();
-    gl.attachShader(prog, shader(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
     gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(prog, 0, 'p');
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
     gl.useProgram(prog);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
-    gl.bindAttribLocation(prog, 0, 'p');
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     var uR = gl.getUniformLocation(prog, 'R'), uT = gl.getUniformLocation(prog, 'T'), uS = gl.getUniformLocation(prog, 'S'), uI = gl.getUniformLocation(prog, 'I');
-
+    var scale = Math.min(devicePixelRatio || 1, 1.25);
     function size() {
-        var scale = Math.min(devicePixelRatio || 1, 1.5);
-        canvas.width = Math.round(canvas.clientWidth * scale);
-        canvas.height = Math.round(canvas.clientHeight * scale);
-        gl.viewport(0, 0, canvas.width, canvas.height);
+      canvas.width = Math.max(1, Math.round(canvas.clientWidth * scale));
+      canvas.height = Math.max(1, Math.round(canvas.clientHeight * scale));
+      gl.viewport(0, 0, canvas.width, canvas.height);
     }
     addEventListener('resize', size);
     size();
-
-    var showing = true, began = performance.now(), smooth = 0;
-    new IntersectionObserver(function (e) {
-        var was = showing; showing = e[0].isIntersecting;
-        if (showing && !was) requestAnimationFrame(draw);
-    }).observe(frame);
-
-    function draw(now) {
-        var t = (now - began) / 1000;
-        smooth += (scrolled - smooth) * .08;
-        gl.uniform2f(uR, canvas.width, canvas.height);
-        gl.uniform1f(uT, still ? 12 : t + 12);
-        gl.uniform1f(uS, smooth);
-        gl.uniform1f(uI, still ? 1 : Math.min(1, t / 4.5));
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
-        if (!still && showing) requestAnimationFrame(draw);
-    }
-    requestAnimationFrame(draw);
-    if (still) addEventListener('resize', function () { requestAnimationFrame(draw); });
+    var render = function (s, t, i) {
+      gl.uniform2f(uR, canvas.width, canvas.height);
+      gl.uniform1f(uT, t); gl.uniform1f(uS, s); gl.uniform1f(uI, i);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
+    // A slow graphics chip gets fewer pixels rather than a stuttering page.
+    render.lower = function () { if (scale > .55) { scale *= .8; size(); } };
+    return render;
+  }
 })();
 </script>
 </body>
