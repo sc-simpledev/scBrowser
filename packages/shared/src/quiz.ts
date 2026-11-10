@@ -106,3 +106,12 @@ body { margin: 0; padding: 40px 24px; background: #fff; color: #1f2328; font-fam
 </html>
 `
 }
+
+/** One field of a CSV row: quoted when it holds a comma, a quote or a line break. */
+const csvField = (text: string) => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text)
+
+/**
+ * A report's practice questions as question,answer rows, which Anki, Quizlet and spreadsheets all
+ * import. There is no header row, as Anki would take it for a card.
+ */
+export const quizCsv = (report: Report): string => quizCardsOf(report).map((card) => `${csvField(card.question)},${csvField(card.answer)}`).join('\r\n') + '\r\n'

@@ -95,6 +95,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
           call.name ||= part.function?.name ?? ''
           call.args += part.function?.arguments ?? ''
           calls.set(index, call)
+          if (call.name && part.function?.arguments) yield { type: 'tool-delta', index, name: call.name, text: part.function.arguments }
         }
         if (choice?.finish_reason) stopReason = choice.finish_reason
         if (chunk.usage) {

@@ -119,7 +119,7 @@ weight.
 | `GLOBAL_TOKENS_PER_DAY` | 5000000 | Across everyone; the cap on what a day can cost |
 | `CONCURRENT_PER_IP` | 2 | Requests at once, per IP address; per instance on Deno. A reply that never finishes frees its slot after 15 minutes |
 | `MAX_INPUT_CHARS` | 300000 | Per request |
-| `MAX_OUTPUT_TOKENS` | 8000 | Per reply |
+| `MAX_OUTPUT_TOKENS` | 16000 | Per reply |
 | `MAX_BODY_BYTES` | 1000000 | Per request |
 | `TRUSTED_PROXY_HOPS` | 0 | Proxies in front of the server; see below. Leave at 0 on Workers |
 | `USE_KV` | off | Deno only: `true` shares limits between instances with Deno KV |

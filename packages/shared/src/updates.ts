@@ -42,6 +42,22 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.5.5',
+    date: '2026-11-11',
+    items: [
+      'A report appears beside the chat while it is being written, filling in section by section.',
+      'A reply that hits its length limit offers Continue, and the two halves become one reply and one report.',
+      'A report that comes back unreadable is asked for once more by itself. Any newest reply has a Try again button.',
+      'Present a report as slides inside scTerra, from the report\'s ⋮ menu, with speaker notes from your AI on request.',
+      'Jump between a long report\'s sections from the list button beside its title.',
+      'See what changed between two versions of a report: added parts are marked green, removed ones red.',
+      'Save a report\'s quiz as cards for Anki or Quizlet, from Download.',
+      'Select text on a page, right-click, Ask AI, Make study notes from this.',
+      'With your own API key, reports are written through the provider\'s tool calling where it has it, which keeps their format valid.',
+      'More report shapes are understood, a renamed report stays with its earlier versions, and the report gallery no longer squeezes the conversation.'
+    ]
+  },
+  {
     version: '0.5.4',
     date: '2026-11-10',
     items: [

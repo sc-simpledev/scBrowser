@@ -71,7 +71,9 @@ test('a report with miscounted brackets still opens as a report, whole', async (
 })
 
 test('a report nothing can be made of says so, and a stopped reply stops waiting', async () => {
-  mock.queue = ['Here it is.\n\n```scterra-report\nI could not write this one.\n```']
+  // It is asked for once more by itself, so it takes two to leave the card showing.
+  const unreadable = 'Here it is.\n\n```scterra-report\nI could not write this one.\n```'
+  mock.queue = [unreadable, unreadable]
   await ask('Study notes')
   const log = page.getByRole('log', { name: 'Conversation' })
   await expect(log.getByText('This report couldn’t be read')).toBeVisible()

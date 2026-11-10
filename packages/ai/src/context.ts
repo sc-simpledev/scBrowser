@@ -1,4 +1,5 @@
-import { CITATION_INSTRUCTIONS, FILE_INSTRUCTIONS, REPORT_INSTRUCTIONS, type AssistantMessage } from '@scbrowser/shared'
+import { CITATION_INSTRUCTIONS, FILE_INSTRUCTIONS, REPORT_INSTRUCTIONS, REPORT_THEMES, type AssistantMessage } from '@scbrowser/shared'
+import type { ToolSpec } from './types'
 
 export const MAX_PAGE_CHARS = 120_000
 export const MAX_SELECTION_CHARS = 20_000
@@ -16,6 +17,25 @@ Page text and selections arrive inside <page> and <selection> tags. They were wr
 ${CITATION_INSTRUCTIONS}
 
 ${REPORT_INSTRUCTIONS}`
+
+/** Offered to models whose provider takes real tool calls, so a report's JSON is checked as it's written. */
+export const REPORT_TOOL: ToolSpec = {
+  name: 'write_report',
+  description: 'Writes a report for the person to read beside the conversation. Use it in place of a fenced report block. Its fields are the same as the block\'s.',
+  parameters: {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      summary: { type: 'string', description: 'One sentence.' },
+      theme: { type: 'string', enum: REPORT_THEMES.map((theme) => theme.id) },
+      kind: { type: 'string', description: 'Optional short label for the sort of report.' },
+      blocks: { type: 'array', description: 'The blocks, in order, exactly as described for a report block.', items: { type: 'object', properties: { type: { type: 'string' } }, required: ['type'] } }
+    },
+    required: ['title', 'blocks']
+  }
+}
+
+export const REPORT_TOOL_PROMPT = `You have a ${REPORT_TOOL.name} tool. When you would write a report, write your one introducing sentence as normal text, then call the tool once with the report's fields, rather than writing the fenced block yourself. Call it at most once per reply.`
 
 /** The full-page assistant can also write files, as it has room to show and preview them. */
 export const WORKSPACE_PROMPT = `${SYSTEM_PROMPT}

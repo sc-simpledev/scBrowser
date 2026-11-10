@@ -165,7 +165,9 @@ export function presetPrompt(preset: ReportPreset, topic: string, aboutPage: boo
 /** What to show for a preset message: the kind and the topic, not the layout instructions. */
 export function shownPresetMessage(content: string): string | null {
   const asked = PRESET_ASK.exec(content)
-  return asked ? `${asked[1]}: ${asked[4]}` : null
+  if (!asked) return null
+  // A topic that already starts with the kind, like "Study notes: slide 1", doesn't need it twice.
+  return asked[4]!.toLowerCase().startsWith(`${asked[1]!.toLowerCase()}:`) ? asked[4]! : `${asked[1]}: ${asked[4]}`
 }
 
 /** Report kinds people made themselves, from a report whose layout they liked. */

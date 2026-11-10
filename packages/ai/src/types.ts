@@ -37,6 +37,8 @@ export interface ChatRequest {
 export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; use: ToolUse }
+  /** A piece of a tool call's arguments as they arrive, for calls worth showing while they're written. */
+  | { type: 'tool-delta'; index: number; name: string; text: string }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
   | { type: 'stop'; reason: string | null }
 

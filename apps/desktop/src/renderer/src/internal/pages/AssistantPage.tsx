@@ -1,8 +1,9 @@
 import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
-import { CopyReply, latestReport, ReplyContent, Thinking, type OpenSource } from '../../shared/ReplyContent'
+import { CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { CopyReply, latestReport, ReplyContent, RetryReply, Thinking, type OpenSource } from '../../shared/ReplyContent'
+import { CUT_OFF, STOP_NOTES } from '../../shared/stopNotes'
 import { ReportPane, type QuizMemory, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
 import { PresetChip, PresetGallery } from '../../shared/PresetGallery'
@@ -18,14 +19,6 @@ interface Turn extends SavedTurn {
   network?: boolean
   /** Why the reply ended early, in words. */
   note?: string
-}
-
-const STOP_NOTES: Record<string, string> = {
-  max_tokens: 'The reply hit its length limit. Ask it to continue, or to be shorter.',
-  length: 'The reply hit its length limit. Ask it to continue, or to be shorter.',
-  refusal: 'The model declined to answer this.',
-  content_filter: 'The provider filtered this reply.',
-  cancelled: 'Stopped.'
 }
 
 const toSave = (turns: Turn[]) => turns.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
@@ -69,6 +62,7 @@ const quizMemory: QuizMemory = {
   record: (key, knew) => api().invoke('quiz:record', key, knew)
 }
 const loadHighlights = () => api().invoke('highlights:list').then((list) => list.map(({ text, title, url }) => ({ text, title, url })))
+const loadNotes = (report: Report) => api().invoke('report:notes', JSON.stringify(report))
 const askReport = (report: Report) => (question: string) => api().invoke('ai:ask-report', reportMarkdown(report), question)
 const previewFile: PreviewFile = (name, content) => api().invoke('files:preview', name, content)
 const saveFile: SaveFile = (name, content) => api().invoke('files:save', name, content)
@@ -139,6 +133,8 @@ export function AssistantPage() {
   const [streamId, setStreamId] = useState<string | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [report, setReport] = useState<Report | null>(null)
+  // A report being written shows beside the conversation as it arrives, unless it's been closed.
+  const [draftHidden, setDraftHidden] = useState(false)
   const [file, setFile] = useState<FileVersion | null>(null)
   const [preset, setPreset] = useState<ReportPreset | null>(() => presetById(new URLSearchParams(location.search).get('preset') ?? '') ?? null)
   const [gallery, setGallery] = useState(false)
@@ -214,6 +210,7 @@ export function AssistantPage() {
     const id = crypto.randomUUID()
     chatId.current ??= crypto.randomUUID()
     setStreamId(id)
+    setDraftHidden(false)
     const history = [...turnsRef.current.filter((t) => t.content && !t.error), { role: 'user' as const, content: question }]
     setTurns([...history, { role: 'assistant', content: '' }])
     void api().invoke('ai:send', id, {
@@ -236,8 +233,19 @@ export function AssistantPage() {
     if (next) setReport(null)
     if (next && innerWidth < ROOM_FOR_ALL) setListOpen(false)
   }, [])
+  // While a cut-off reply is being continued, the two halves already read as one.
+  const thread = useMemo(() => {
+    const [earlier, asked, last] = turns.slice(-3)
+    if (!streamId || !earlier || !last || earlier.role !== 'assistant' || asked?.content !== CONTINUE_PROMPT) return turns
+    return [...turns.slice(0, -3), { ...earlier, note: undefined, content: stitchReply(earlier.content, last.content) }]
+  }, [turns, streamId])
+  const reportDraft = useMemo(() => (streamId && thread.at(-1)?.role === 'assistant' ? (splitReply(thread.at(-1)!.content, false).draft ?? null) : null), [thread, streamId])
+  const drafting = reportDraft !== null && !draftHidden
+  useEffect(() => {
+    if (drafting && innerWidth < ROOM_FOR_ALL) setListOpen(false)
+  }, [drafting])
   // Files only count once their reply has finished.
-  const { files, changes } = useMemo(() => conversationFiles(streamId ? turns.slice(0, -1) : turns), [turns, streamId])
+  const { files, changes } = useMemo(() => conversationFiles(streamId ? thread.slice(0, -1) : thread), [thread, streamId])
 
   const refreshChats = useCallback(() => void api().invoke('chats:list').then(setChats), [])
   useEffect(refreshChats, [refreshChats])
@@ -276,9 +284,16 @@ export function AssistantPage() {
       }
       if (event.type === 'done') {
         setStreamId(null)
+        // A continued reply joins the one it carried on, and a report asked for again replaces the unreadable one.
+        const settled = settleReply(turnsRef.current)
         const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
-        if (note) update((last) => ({ ...last, note }))
+        setTurns(settled.turns.map((turn, index) => (index === settled.turns.length - 1 ? { ...turn, note } : turn)))
         const current = turnsRef.current
+        // One more try, by itself, for a report that came back unreadable.
+        if (settled.repair && !note) {
+          send(REPAIR_PROMPT)
+          return
+        }
         const saved = toSave(current)
         if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
         const written = latestReport(current.slice(-1))
@@ -288,7 +303,7 @@ export function AssistantPage() {
       }
     }
     return api().onAssistantEvent(onEvent)
-  }, [refreshChats, showReport, showFile, setTurns])
+  }, [refreshChats, showReport, showFile, setTurns, send])
 
   // Loads what this page was opened for, once the status says whether AI is ready.
   useEffect(() => {
@@ -325,7 +340,7 @@ export function AssistantPage() {
   }, [turns])
 
   // The reply that wrote the open report: its sources are the report's, and edits are made in it.
-  const reportTurn = report ? turns.findIndex((turn) => turn.role === 'assistant' && repliesReports(turn.content).some((found) => JSON.stringify(found) === JSON.stringify(report))) : -1
+  const reportTurn = report ? thread.findIndex((turn) => turn.role === 'assistant' && repliesReports(turn.content).some((found) => JSON.stringify(found) === JSON.stringify(report))) : -1
   const editReport = (next: Report) => {
     if (!report || reportTurn === -1 || streamId) return
     const content = replaceReport(turns[reportTurn]!.content, report, next)
@@ -373,6 +388,7 @@ export function AssistantPage() {
     setDraft('')
   }
 
+  const empty = turns.length === 0
   // Saved chats can still be read with no AI set up.
   if (view === 'chat' && !codeOpened && status && !status.ready && turns.length === 0) {
     return (
@@ -388,10 +404,11 @@ export function AssistantPage() {
     )
   }
 
-  const empty = turns.length === 0
   const composer = (
-    <div className="mx-auto flex w-full max-w-180 shrink-0 flex-col gap-2 px-8 pb-6" hidden={!status?.ready}>
+    <div className="relative mx-auto flex w-full max-w-180 shrink-0 flex-col gap-2 px-8 pb-6" hidden={!status?.ready}>
       {gallery && (
+        // Over the conversation rather than taking its room, once there is one.
+        <div className={empty ? '' : 'absolute inset-x-8 bottom-full z-20 pb-2'}>
         <PresetGallery
           wide
           custom={customPresets}
@@ -402,6 +419,7 @@ export function AssistantPage() {
             setGallery(false)
           }}
         />
+        </div>
       )}
       {picking && <TabPicker load={loadTabs} picked={research} onChange={setResearch} onClose={() => setPicking(false)} />}
       {notice && <p role="status" className="px-1 pb-1 text-xs text-text-muted">{notice}</p>}
@@ -535,8 +553,9 @@ export function AssistantPage() {
           <>
             <div ref={logRef} role="log" aria-label="Conversation" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto flex max-w-180 flex-col gap-7 px-8 pt-4 pb-10">
-                {turns.map((turn, index) => {
-                  const streaming = streamId !== null && index === turns.length - 1
+                {thread.map((turn, index) => {
+                  const newest = index === thread.length - 1
+                  const streaming = streamId !== null && newest
                   return turn.role === 'user' ? (
                     <div key={index} className="ml-16 self-end rounded-lg bg-surface-hover px-3.5 py-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
                       {shownMessage(turn.content)}
@@ -555,6 +574,7 @@ export function AssistantPage() {
                           openFile={file}
                           sources={turn.sources}
                           onOpenSource={openSource}
+                          onRetry={newest && status?.ready ? retry : undefined}
                         />
                       )}
                       {!turn.content && !turn.error && (streaming ? <Thinking /> : <p className="text-text-faint">{turn.note ?? 'No reply came back.'}</p>)}
@@ -572,10 +592,20 @@ export function AssistantPage() {
                             {turn.error}
                           </p>
                         ))}
-                      {turn.content && turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
+                      {turn.content && turn.note && (
+                        <p className="flex items-center gap-2 text-xs text-text-muted">
+                          {turn.note}
+                          {turn.note === CUT_OFF && newest && !streaming && status?.ready && (
+                            <Button className="h-6 px-2 text-xs" onClick={() => send(CONTINUE_PROMPT)}>
+                              Continue
+                            </Button>
+                          )}
+                        </p>
+                      )}
                       {!streaming && turn.content && (
                         <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
                           <CopyReply text={turn.content} />
+                          {newest && status?.ready && !turn.error && <RetryReply onRetry={retry} />}
                         </div>
                       )}
                     </div>
@@ -587,16 +617,19 @@ export function AssistantPage() {
           </>
         )}
       </div>
-      {report && (
+      {drafting && reportDraft && (
+        <ReportPane report={reportDraft} versions={[]} onSelect={() => undefined} busy save={saveReport} onClose={() => setDraftHidden(true)} width={reportWidth} onWidth={setReportWidth} onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })} />
+      )}
+      {report && !drafting && (
         <ReportPane
           report={report}
-          versions={reportVersions(turns, report.title)}
+          versions={reportVersions(thread, report.title)}
           onSelect={setReport}
           onRevise={status?.ready ? (change) => send(reviseReportPrompt(report.title, change)) : undefined}
           busy={streamId !== null}
           save={saveReport}
           onClose={() => setReport(null)}
-          sources={reportTurn === -1 ? undefined : turns[reportTurn]!.sources}
+          sources={reportTurn === -1 ? undefined : thread[reportTurn]!.sources}
           onOpenSource={openSource}
           onEdit={reportTurn === -1 ? undefined : editReport}
           design={designs[report.title] ?? null}
@@ -605,6 +638,7 @@ export function AssistantPage() {
           quizMemory={quizMemory}
           loadHighlights={loadHighlights}
           speakerNotes={!!status?.ready}
+          loadNotes={status?.ready ? loadNotes : undefined}
           onSaveTemplate={(name) =>
             api()
               .invoke('presets:save', templateFrom(report, name))
@@ -618,7 +652,7 @@ export function AssistantPage() {
           onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}
         />
       )}
-      {file && (
+      {file && !drafting && (
         <CodePane
           files={files}
           file={file}

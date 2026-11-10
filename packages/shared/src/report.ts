@@ -54,8 +54,12 @@ export const REPORT_FORMATS = {
   pptx: { extension: 'pptx', label: 'Slides (PowerPoint)' },
   docx: { extension: 'docx', label: 'Word document' },
   html: { extension: 'html', label: 'Web page (HTML)' },
-  md: { extension: 'md', label: 'Markdown' }
+  md: { extension: 'md', label: 'Markdown' },
+  csv: { extension: 'csv', label: 'Quiz cards for Anki (CSV)' }
 } as const
+
+/** The ways to save the report itself. Quiz cards are offered apart, and only when there are some. */
+export const DOCUMENT_FORMATS: ReportFormat[] = ['pdf', 'pptx', 'docx', 'html', 'md']
 
 /** Formats rebuilt in the main process from the report's own blocks, so they're sent as its JSON. */
 export const STRUCTURED_FORMATS: ReportFormat[] = ['docx', 'pptx']
@@ -296,6 +300,8 @@ type Closer = '}' | ']'
 
 /** What can follow a comma or colon in JSON. Anything else means the quote before it was part of the text. */
 const AFTER_QUOTE = /^\s*[,:]\s*(?:$|["{[\]}\-\d/]|true\b|false\b|null\b)/
+/** Inside an object only a key, a comment or the end can follow a comma, so `"yes", 5 times` is still text. */
+const AFTER_QUOTE_IN_OBJECT = /^\s*(?:,\s*(?:$|["}/])|:\s*(?:$|["{[\-\d/]|true\b|false\b|null\b))/
 
 /**
  * How many brackets a run of closing brackets should really close. Models lose count after nested
@@ -345,7 +351,7 @@ function scanJson(source: string): { candidates: string[]; end: number } {
         const rest = source.slice(i + 1, i + 60)
         const after = /^\s*(.?)/.exec(rest)![1]!
         // A real closing quote is followed by punctuation; anything else is a stray quote.
-        const real = after === '' || '}]'.includes(after) || ((after === ',' || after === ':') && AFTER_QUOTE.test(rest))
+        const real = after === '' || '}]'.includes(after) || ((after === ',' || after === ':') && (stack.at(-1) === '}' ? AFTER_QUOTE_IN_OBJECT : AFTER_QUOTE).test(rest))
         if (real) {
           inString = false
           out += char
@@ -394,6 +400,25 @@ function scanJson(source: string): { candidates: string[]; end: number } {
   return { candidates: [tidy + closing(), ...checkpoints.reverse().map((point) => out.slice(0, point.length) + point.closers)], end: source.length }
 }
 
+/**
+ * Every reading of hand-written JSON worth trying, best first: as written and mended, then with
+ * curly quotes straightened, then unwrapped where the whole thing was written as one JSON string.
+ */
+function readings(source: string): { candidates: string[]; end: number } {
+  const scan = scanJson(source)
+  const candidates = [...scan.candidates]
+  if (/[“”]/.test(source)) candidates.push(...scanJson(source.replace(/[“”]/g, '"')).candidates)
+  if (/^\s*\{\s*\\"/.test(source)) {
+    try {
+      const inner = JSON.parse(`"${source.trim().replace(/"\s*$/, '')}"`) as unknown
+      if (typeof inner === 'string') candidates.push(...scanJson(inner).candidates)
+    } catch {
+      // Not a string after all.
+    }
+  }
+  return { candidates, end: scan.end }
+}
+
 const parses = (json: string) => {
   try {
     JSON.parse(json)
@@ -410,7 +435,7 @@ export function repairJson(source: string): string {
 }
 
 function parseJson(json: string, repair: boolean): Record<string, unknown> | null {
-  for (const attempt of [json, ...(repair ? scanJson(json).candidates : [])]) {
+  for (const attempt of [json, ...(repair ? readings(json).candidates : [])]) {
     try {
       const data = JSON.parse(attempt) as unknown
       if (typeof data === 'object' && data !== null) return data as Record<string, unknown>
@@ -449,6 +474,8 @@ export interface ReplyParts {
   report: Report | null
   /** The report is still being written. */
   writing: boolean
+  /** While it is being written: what there is of the report so far, to show filling in. */
+  draft?: Report
   /** A report was written under our own tag but couldn't be read at all: what was written, to show on request. */
   unread?: string
 }
@@ -475,7 +502,7 @@ function jsonEnd(text: string, start: number): number {
  */
 function findOpening(text: string): { index: number; start: number; fence: string; tagged: boolean } | null {
   const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCES + '[^\\n{]*', 'i').exec(text)
-  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:kind|title|summary|theme|blocks|report)")', 'i').exec(text)
+  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{(?:\\s*"(?:kind|title|summary|theme|blocks|report)"|[\\s\\S]{0,300}?"blocks"\\s*:\\s*\\[\\s*\\{\\s*"type"))', 'i').exec(text)
   const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:kind|title|summary|theme|blocks|report)")/.exec(text)
   const match = tagged ?? named ?? bare
   if (!match) return null
@@ -500,7 +527,7 @@ export function splitReply(text: string, complete = false): ReplyParts {
   const open = findOpening(text)
   if (!open) return { before: text, after: '', report: null, writing: false }
   const before = text.slice(0, open.index).trimEnd()
-  const writing = { before, after: '', report: null, writing: true }
+  const writing: ReplyParts = { before, after: '', report: null, writing: true }
   // Only our own tag is surely a report. Anything else is left as the code block it may well be.
   const unread = open.tagged ? { before, after: '', report: null, writing: false, unread: text.slice(open.index).trim() } : { before: text, after: '', report: null, writing: false }
   const brace = text.indexOf('{', open.start)
@@ -520,10 +547,21 @@ export function splitReply(text: string, complete = false): ReplyParts {
   // Otherwise the JSON has mistakes or was cut off. Its fence says where it ends, since its own
   // brackets can't be trusted: one stray bracket would end the report early and spill the rest.
   const closing = open.fence ? closingFence(text, brace, open.fence) : null
-  if (!complete && (open.fence ? !closing : end === -1)) return writing
   const body = text.slice(brace, closing?.index)
-  const scan = scanJson(body)
-  const report = scan.candidates.map((candidate) => toReport(candidate, false)).find((found) => found !== null) ?? null
+  const read = (candidates: string[]) => {
+    for (const candidate of candidates) {
+      const found = toReport(candidate, false)
+      if (found) return found
+    }
+    return null
+  }
+  if (!complete && (open.fence ? !closing : end === -1)) {
+    // Still arriving: what has been written so far can already be shown.
+    const draft = read(scanJson(body).candidates)
+    return draft ? { ...writing, draft } : writing
+  }
+  const scan = readings(body)
+  const report = read(scan.candidates)
   // A report that can't be read still shows what was written rather than nothing.
   if (!report) return unread
   return { before, after: strayFence(closing ? text.slice(closing.end) : body.slice(scan.end)), report, writing: false }
@@ -693,15 +731,81 @@ export function conversationReports(turns: { role: string; content: string }[]):
   return turns.flatMap((turn) => (turn.role === 'assistant' ? repliesReports(turn.content) : []))
 }
 
-/** Earlier and later drafts of a report: asking for changes keeps its title. */
-export const reportVersions = (turns: { role: string; content: string }[], title: string) => conversationReports(turns).filter((report) => report.title === title)
-
 const REVISE_ASK = /^Rewrite the report titled "(.*)" with this change: ([\s\S]*)\n\nReply with one short sentence, then the complete updated report/
+
+/**
+ * Earlier and later drafts of a report. Asking for changes is meant to keep its title, but a model
+ * may rename it, so a report written in answer to a change request belongs with the one it changed.
+ */
+export function reportVersions(turns: { role: string; content: string }[], title: string): Report[] {
+  const roots = new Map<string, string>()
+  const rootOf = (name: string) => roots.get(name) ?? name
+  const found: { report: Report; root: string }[] = []
+  let changing: string | null = null
+  for (const turn of turns) {
+    if (turn.role === 'user') {
+      const asked = REVISE_ASK.exec(turn.content)
+      changing = asked ? rootOf(asked[1]!) : null
+      continue
+    }
+    for (const report of repliesReports(turn.content)) {
+      if (changing !== null && !roots.has(report.title) && !found.some((earlier) => earlier.report.title === report.title)) roots.set(report.title, changing)
+      found.push({ report, root: rootOf(report.title) })
+    }
+    changing = null
+  }
+  const wanted = rootOf(title)
+  return found.filter((entry) => entry.root === wanted).map((entry) => entry.report)
+}
+
+/** Asks for the rest of a reply that hit its length limit. The two halves are then joined into one. */
+export const CONTINUE_PROMPT = 'Your last reply was cut off by its length limit. Carry on from exactly where it stopped, starting with the very next character. Do not repeat anything, add an introduction, or open a new code fence.'
+
+/** Asks once more for a report whose JSON couldn't be read. */
+export const REPAIR_PROMPT = `The report in your last reply couldn't be read, because its JSON was not valid. Write the same report again, complete, as one ${FENCE} block of valid JSON. Check that every bracket and brace you open is closed, in order, and that quotes inside text are escaped.`
+
+/** The two halves of a reply that was continued, as one. */
+export function stitchReply(first: string, rest: string): string {
+  let next = rest
+  // A model told not to open a fence may still open one.
+  const inFence = (first.match(/^[ \t]*(?:`{3,}|~{3,})/gm) ?? []).length % 2 === 1
+  if (inFence) next = next.replace(/^\s*(?:`{3,}|~{3,})[^\n]*\n/, '')
+  // Or begin by repeating the last words it wrote.
+  const tail = first.slice(-200)
+  for (let length = Math.min(tail.length, next.length); length >= 12; length--) {
+    if (tail.endsWith(next.slice(0, length))) {
+      next = next.slice(length)
+      break
+    }
+  }
+  return first + next
+}
+
+/**
+ * Tidies a conversation once a reply has finished. A continued reply joins the one it carried on,
+ * and a report asked for again takes the place of the one that couldn't be read, so neither leaves
+ * its request behind. `repair` says the newest reply holds an unreadable report not yet asked for again.
+ */
+export function settleReply<T extends { role: string; content: string }>(turns: T[]): { turns: T[]; repair: boolean } {
+  const last = turns.at(-1)
+  const asked = turns.at(-2)
+  const earlier = turns.at(-3)
+  if (!last || last.role !== 'assistant') return { turns, repair: false }
+  const helper = asked?.role === 'user' && (asked.content === CONTINUE_PROMPT || asked.content === REPAIR_PROMPT) && earlier?.role === 'assistant'
+  if (helper) {
+    if (!last.content) return { turns: turns.slice(0, -2), repair: false }
+    const content = asked.content === CONTINUE_PROMPT ? stitchReply(earlier.content, last.content) : last.content
+    return { turns: [...turns.slice(0, -3), { ...earlier, ...last, content }], repair: false }
+  }
+  return { turns, repair: !!last.content && splitReply(last.content, true).unread !== undefined }
+}
 
 /** What to show for a message in the conversation: a change request reads as what the person asked for. */
 export function shownMessage(content: string): string {
   const asked = REVISE_ASK.exec(content)
   if (asked) return `Change to “${asked[1]}”: ${asked[2]}`
+  if (content === CONTINUE_PROMPT) return 'Continue'
+  if (content === REPAIR_PROMPT) return 'Write that report again'
   return shownPresetMessage(content) ?? shownFileMessage(content) ?? content
 }
 

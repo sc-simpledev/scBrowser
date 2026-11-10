@@ -1,5 +1,7 @@
-import type { Report, ReportBlock, ReportThemeId } from '@scbrowser/shared'
+import { reportSlides, slideWeight as weight, type Report, type ReportThemeId, type Slide, type SlideLine as Line } from '@scbrowser/shared'
 import { xml, zip } from './reportDocx'
+
+export { reportSlides, slideText, type Slide } from '@scbrowser/shared'
 
 /**
  * A report as a slide deck. Each level-two heading starts a slide, so a report written as
@@ -10,9 +12,6 @@ import { xml, zip } from './reportDocx'
 const WIDTH = 12_192_000
 const HEIGHT = 6_858_000
 const MARGIN = 640_080
-/** Roughly what fits in the body at 18 pt before a slide carries on to the next. */
-const LINES_PER_SLIDE = 11
-const CHARS_PER_LINE = 88
 
 interface Palette {
   accent: string
@@ -32,111 +31,6 @@ const PALETTES: Record<ReportThemeId, Palette> = {
   magazine: { accent: 'C2410C', text: '1C1917', muted: '6B625C', surface: 'FFFBF7', soft: 'FCE9DC', font: 'Georgia' },
   academic: { accent: '1E3A5F', text: '1A1A1A', muted: '555555', surface: 'FFFFFF', soft: 'E8EDF3', font: 'Times New Roman' },
   notebook: { accent: '2A8C99', text: '23262B', muted: '5F6670', surface: 'FFFDF6', soft: 'E3F1F2', font: 'Segoe UI' }
-}
-
-interface Line {
-  text: string
-  /** A bold lead-in before the rest of the line, like a card's title. */
-  lead?: string
-  bullet?: boolean
-  numbered?: boolean
-  level?: 0 | 1
-  bold?: boolean
-  italic?: boolean
-  accent?: boolean
-}
-
-export type Slide =
-  | { kind: 'title'; title: string; subtitle: string; label: string }
-  | { kind: 'text'; title: string; lines: Line[] }
-  | { kind: 'table'; title: string; headers: string[]; rows: string[][] }
-  | { kind: 'stats'; title: string; items: { value: string; label: string }[] }
-
-const weight = (line: Line) => Math.max(1, Math.ceil(((line.lead?.length ?? 0) + line.text.length + 2) / CHARS_PER_LINE))
-
-function linesOf(block: ReportBlock): Line[] {
-  switch (block.type) {
-    case 'heading':
-      return [{ text: block.text, bold: true }]
-    case 'paragraph':
-      return [{ text: block.text }]
-    case 'quote':
-      return [{ text: `“${block.text}”`, italic: true }]
-    case 'callout':
-      return [{ text: block.text, accent: true, bold: true }]
-    case 'list':
-      return block.items.map((text) => ({ text, bullet: !block.ordered, numbered: block.ordered }))
-    case 'timeline':
-      return block.items.map((item) => ({ lead: item.when, text: item.text, bullet: true }))
-    case 'cards':
-      return block.items.map((item) => ({ lead: item.title, text: item.text, bullet: true }))
-    case 'steps':
-      return block.items.map((item) => ({ lead: item.title, text: item.text, numbered: true }))
-    case 'proscons':
-      return [
-        ...(block.pros.length ? [{ text: 'Pros', bold: true }, ...block.pros.map((text) => ({ text, bullet: true, level: 1 as const }))] : []),
-        ...(block.cons.length ? [{ text: 'Cons', bold: true }, ...block.cons.map((text) => ({ text, bullet: true, level: 1 as const }))] : [])
-      ]
-    case 'quiz':
-      return block.items.flatMap((item) => [
-        { text: item.question, numbered: true },
-        { text: item.answer, bullet: true, level: 1 as const, italic: true }
-      ])
-    case 'stats':
-    case 'table':
-    case 'spacer':
-    case 'divider':
-      return []
-  }
-}
-
-/** Splits a report into slides, carrying long sections on to more slides rather than shrinking them. */
-export function reportSlides(report: Report): Slide[] {
-  const slides: Slide[] = [{ kind: 'title', title: report.title, subtitle: report.summary, label: report.kind ?? '' }]
-  let title = 'Overview'
-  let lines: Line[] = []
-  let used = 0
-  let part = 0
-  const flush = () => {
-    if (lines.length === 0) return
-    slides.push({ kind: 'text', title: part > 0 ? `${title} (continued)` : title, lines })
-    lines = []
-    used = 0
-    part++
-  }
-  for (const block of report.blocks) {
-    if (block.type === 'heading' && block.level === 2) {
-      flush()
-      title = block.text
-      part = 0
-      continue
-    }
-    if (block.type === 'table') {
-      flush()
-      // Big tables go over several slides, with the header on each.
-      for (let start = 0; start < Math.max(1, block.rows.length); start += 8) {
-        slides.push({ kind: 'table', title: part > 0 ? `${title} (continued)` : title, headers: block.headers, rows: block.rows.slice(start, start + 8) })
-        part++
-      }
-      continue
-    }
-    if (block.type === 'stats') {
-      flush()
-      slides.push({ kind: 'stats', title: part > 0 ? `${title} (continued)` : title, items: block.items.slice(0, 4) })
-      part++
-      continue
-    }
-    for (const line of linesOf(block)) {
-      if (used + weight(line) > LINES_PER_SLIDE && lines.length > 0) flush()
-      lines.push(line)
-      used += weight(line)
-    }
-  }
-  flush()
-  if (report.sources?.length) {
-    slides.push({ kind: 'text', title: 'Sources', lines: report.sources.map((source) => ({ lead: `${source.n}.`, text: `${source.title ? `${source.title}, ` : ''}${source.url}` })) })
-  }
-  return slides
 }
 
 const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -235,20 +129,6 @@ const MASTER = `${HEAD}<p:sldMaster ${NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:s
 const LAYOUT = `${HEAD}<p:sldLayout ${NS} type="blank" preserve="1"><p:cSld name="Blank">${EMPTY_TREE}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`
 const rels = (items: [string, string][]) =>
   `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${items.map(([type, target], index) => `<Relationship Id="rId${index + 1}" Type="${REL}/${type}" Target="${target}"/>`).join('')}</Relationships>`
-
-/** A slide as plain text, for the model writing its speaker notes. */
-export function slideText(slide: Slide): string {
-  switch (slide.kind) {
-    case 'title':
-      return [slide.label, slide.title, slide.subtitle].filter(Boolean).join('\n')
-    case 'text':
-      return [slide.title, ...slide.lines.map((line) => `${line.bullet || line.numbered ? '- ' : ''}${line.lead ? `${line.lead}: ` : ''}${line.text}`)].join('\n')
-    case 'table':
-      return [slide.title, slide.headers.join(' | '), ...slide.rows.map((row) => row.join(' | '))].join('\n')
-    case 'stats':
-      return [slide.title, ...slide.items.map((item) => `${item.value}: ${item.label}`)].join('\n')
-  }
-}
 
 const notesBody = (text: string) =>
   text

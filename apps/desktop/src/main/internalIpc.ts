@@ -1,4 +1,6 @@
 import { transcriptOf } from './ai/coder'
+import { speakerNotes } from './reportNotes'
+import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
@@ -374,6 +376,11 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const answer = (await ai.complete(REPORT_QUESTION_PROMPT, `<selection>\n${material}\n</selection>\n\nQuestion: ${asked}`)).trim()
       if (!answer) throw new Error('The AI sent back nothing.')
       return answer.slice(0, 8000)
+    },
+    'report:notes': async (content) => {
+      const report = toReport(text(content, 400_000))
+      if (!report) throw new Error('Invalid report')
+      return speakerNotes(report, (system, user) => ai.complete(system, user))
     },
     'chats:delete': (id) => {
       clearDesigns(core.services.kv, text(id, 64))

@@ -792,6 +792,29 @@
   color: var(--sc-text);
 }
 
+/* Comparing two drafts: what the newer one added, and what it dropped. */
+.sc-report .change {
+  display: flex;
+  flex-direction: column;
+  gap: var(--report-gap);
+  margin-left: calc(var(--sc-space) * -3);
+  padding: var(--sc-space) 0 var(--sc-space) calc(var(--sc-space) * 2.5);
+  border-left: 2px solid var(--mark);
+  border-radius: 0 var(--sc-radius-sm) var(--sc-radius-sm) 0;
+  background: color-mix(in oklab, var(--mark) 8%, transparent);
+}
+
+.sc-report .change[data-change='added'] {
+  --mark: var(--sc-success);
+}
+
+.sc-report .change[data-change='removed'] {
+  --mark: var(--sc-danger);
+  color: var(--sc-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--sc-danger) 60%, transparent);
+}
+
 /* Notebook: study notes on faintly ruled paper, with highlighted headings. */
 .sc-report[data-theme='notebook'] {
   --report-gap: calc(var(--sc-space) * 3);

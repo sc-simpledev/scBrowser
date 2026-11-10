@@ -1,10 +1,11 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
+import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
 import { memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { webContext } from './webSearch'
 import { Coder } from './coder'
+import { reportCallText } from './reportCall'
 import { CoderCheckpoints, CoderSnapshots } from './coderStorage'
 import { join } from 'node:path'
 import type { AiStore } from './store'
@@ -38,6 +39,8 @@ export function errorDetails(error: unknown): { message: string; network?: true 
 
 export class AiService {
   private readonly running = new Map<string, AbortController>()
+  /** Models that turned down a request carrying tools, which then go without for the session. */
+  private readonly noReportTool = new Set<string>()
   private readonly agent = new Agent({
     chat: (messages, system, signal) => this.collect(this.chatRef(), system, messages, signal),
     isSiteOff: (url) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -195,19 +198,49 @@ export class AiService {
       if (controller.signal.aborted) return
 
       let stopReason: string | null = null
-      const stream = provider.chat({
-        model: chat.model,
-        system: (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : ''),
-        messages: withContext(request.messages, pages, request.selection),
-        maxTokens: MAX_OUTPUT_TOKENS,
-        signal: controller.signal
-      })
-      for await (const event of stream) {
-        if (event.type === 'text') emit({ streamId, type: 'text', text: event.text })
-        if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
-        if (event.type === 'stop') stopReason = event.reason
+      const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : '')
+      const messages = withContext(request.messages, pages, request.selection)
+      const key = `${chat.providerId}\n${chat.model}`
+      // The hosted server takes tools only once its Worker with tool support is deployed.
+      const hosted = !!this.store.provider(chat.providerId)?.hosted
+      for (;;) {
+        const withTool = (!hosted || HOSTED_NATIVE_TOOLS) && !this.noReportTool.has(key)
+        const call = reportCallText()
+        let sent = false
+        const text = (piece: string) => {
+          if (!piece) return
+          sent = true
+          emit({ streamId, type: 'text', text: piece })
+        }
+        try {
+          const stream = provider.chat({
+            model: chat.model,
+            system: withTool ? `${system}\n\n${REPORT_TOOL_PROMPT}` : system,
+            messages,
+            maxTokens: MAX_OUTPUT_TOKENS,
+            signal: controller.signal,
+            ...(withTool ? { tools: [REPORT_TOOL] } : {})
+          })
+          for await (const event of stream) {
+            if (event.type === 'text') text(event.text)
+            if (event.type === 'tool-delta' && event.name === REPORT_TOOL.name) text(call.delta(event.index, event.text))
+            if (event.type === 'tool' && event.use.name === REPORT_TOOL.name) text(call.whole(event.use.input))
+            if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
+            if (event.type === 'stop') stopReason = event.reason
+          }
+          text(call.end())
+          break
+        } catch (error) {
+          // A provider or model that doesn't take tools says so at once. The report is then written as text.
+          if (withTool && !sent && !controller.signal.aborted && error instanceof AiError && error.kind === 'bad-request') {
+            this.noReportTool.add(key)
+            continue
+          }
+          throw error
+        }
       }
-      emit({ streamId, type: 'done', stopReason })
+      // Ending on the tool call is an ordinary ending here, as the report is the reply.
+      emit({ streamId, type: 'done', stopReason: stopReason === 'tool_use' || stopReason === 'tool_calls' ? null : stopReason })
     } catch (error) {
       if (controller.signal.aborted) emit({ streamId, type: 'done', stopReason: 'cancelled' })
       else emit({ streamId, type: 'error', ...errorDetails(error) })

@@ -29,7 +29,7 @@ const updater = vi.hoisted(() => {
   return { emitter, Token }
 })
 
-vi.mock('electron', () => ({ app: { isPackaged: true, getVersion: () => '0.5.4', quit: () => undefined, once: () => undefined }, shell: { openExternal: async () => undefined } }))
+vi.mock('electron', () => ({ app: { isPackaged: true, getVersion: () => '0.5.5', quit: () => undefined, once: () => undefined }, shell: { openExternal: async () => undefined } }))
 vi.mock('electron-updater', () => ({ autoUpdater: updater.emitter, CancellationToken: updater.Token }))
 vi.mock('./macUpdate', () => ({ canReplaceApp: () => true, stageUpdate: async () => '', swapOnExit: () => undefined, zipForArch: () => null }))
 vi.mock('./private', () => ({ isPrivate: false }))
@@ -173,11 +173,11 @@ describe('UpdateService', () => {
       return { get: (key: string) => data.get(key), set: (key: string, value: unknown) => void data.set(key, value), delete: (key: string) => void data.delete(key) }
     }
     expect(new UpdateService(settings, () => undefined, store({})).state().whatsNew).toBeNull()
-    expect(new UpdateService(settings, () => undefined, store({ 'app:last-version': '0.5.4' })).state().whatsNew).toBeNull()
-    expect(new UpdateService(settings, () => undefined, store({ 'app:last-version': '0.5.1' })).state().whatsNew).toBe('0.5.4')
+    expect(new UpdateService(settings, () => undefined, store({ 'app:last-version': '0.5.5' })).state().whatsNew).toBeNull()
+    expect(new UpdateService(settings, () => undefined, store({ 'app:last-version': '0.5.1' })).state().whatsNew).toBe('0.5.5')
     const old = store({ session: { tabs: [] } })
     const first = new UpdateService(settings, () => undefined, old)
-    expect(first.state().whatsNew).toBe('0.5.4')
+    expect(first.state().whatsNew).toBe('0.5.5')
     first.seenWhatsNew()
     expect(new UpdateService(settings, () => undefined, old).state().whatsNew).toBeNull()
   })

@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -143,6 +143,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
           { label: 'Ask about selection…', click: () => actions.askAssistant({ text: '', selection: params.selectionText, includePage: false }) },
           { type: 'separator' as const },
           ...SELECTION_PROMPTS.map(({ label, text }) => ({ label, click: () => actions.askAssistant({ text, selection: params.selectionText, includePage: false }) })),
+          // Only the selected words go along, as the material for the notes.
+          { label: 'Make study notes from this', click: () => actions.askAssistant({ text: presetPrompt(presetById('study')!, 'the selected text', false), selection: params.selectionText, includePage: false }) },
           { label: 'Explain with the page for context', click: () => actions.askAssistant({ text: 'Explain the selected text, using the rest of the page for context.', selection: params.selectionText, includePage: true }) }
         ]
       },

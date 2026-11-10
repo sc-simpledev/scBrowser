@@ -1,10 +1,11 @@
 import { ArrowUp, AtSign, Check, Columns2, FileText, Globe, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
+import { CONTINUE_PROMPT, isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
 import { splitPartner, useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
-import { CopyReply, ReplyContent, Thinking, type OpenSource } from '../shared/ReplyContent'
+import { CopyReply, ReplyContent, RetryReply, Thinking, type OpenSource } from '../shared/ReplyContent'
+import { CUT_OFF } from '../shared/stopNotes'
 import { ReportPane } from '../shared/ReportPane'
 import { pasteCleanly } from '../shared/pasteCleanly'
 import { ResizeHandle } from '../shared/ResizeHandle'
@@ -121,7 +122,8 @@ export function AssistantReport() {
   )
 }
 
-function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
+function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; newest: boolean }) {
+  const ready = useAssistant((s) => s.status.ready)
   const report = useAssistant((s) => s.report)
   const { showReport } = useAssistant.getState()
   if (turn.role === 'user') {
@@ -153,15 +155,26 @@ function Message({ turn, streaming }: { turn: Turn; streaming: boolean }) {
           streaming={streaming}
           sources={turn.sources}
           onOpenSource={openSource}
+          onRetry={newest && ready ? () => useAssistant.getState().retry() : undefined}
         />
       )}
       {streaming && !turn.content && <Thinking />}
       {!streaming && turn.content && (
         <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
           <CopyReply text={turn.content} />
+          {newest && ready && !turn.error && <RetryReply onRetry={() => useAssistant.getState().retry()} />}
         </div>
       )}
-      {turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
+      {turn.note && (
+        <p className="flex items-center gap-2 text-xs text-text-muted">
+          {turn.note}
+          {turn.note === CUT_OFF && turn.content && newest && !streaming && ready && (
+            <Button className="h-6 px-2 text-xs" onClick={() => useAssistant.getState().sendPlain(CONTINUE_PROMPT)}>
+              Continue
+            </Button>
+          )}
+        </p>
+      )}
       {turn.error &&
         (turn.network ? (
           <AiNetworkHelp
@@ -333,7 +346,7 @@ export function AssistantPanel() {
                 </div>
               )}
               {turns.map((turn, index) => (
-                <Message key={index} turn={turn} streaming={!!streamId && index === turns.length - 1} />
+                <Message key={index} turn={turn} streaming={!!streamId && index === turns.length - 1} newest={index === turns.length - 1} />
               ))}
             </div>
 

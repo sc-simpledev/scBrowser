@@ -61,9 +61,14 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
         { signal }
       )
       try {
+        const calls = new Map<number, string>()
         for await (const event of stream) {
+          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') calls.set(event.index, event.content_block.name)
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
             yield { type: 'text', text: event.delta.text }
+          }
+          if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta' && calls.has(event.index) && event.delta.partial_json) {
+            yield { type: 'tool-delta', index: event.index, name: calls.get(event.index)!, text: event.delta.partial_json }
           }
         }
         const message = await stream.finalMessage()

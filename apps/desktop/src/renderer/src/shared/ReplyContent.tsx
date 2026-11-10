@@ -1,9 +1,9 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Check, ChevronRight, Copy, FileCode2, FileText, TriangleAlert } from 'lucide-react'
-import { cx, IconButton } from '@scbrowser/ui'
-import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, splitFiles, splitReply, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
+import { Check, ChevronRight, Copy, FileCode2, FileText, RotateCcw, TriangleAlert } from 'lucide-react'
+import { Button, cx, IconButton } from '@scbrowser/ui'
+import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, splitFiles, splitReply, type BlockChange, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
 
 /** Follows a citation to its page, or a time to its moment in the video. */
 export type OpenSource = (source: CitationSource, target: CitationTarget) => void
@@ -291,10 +291,12 @@ interface ReportViewProps {
   onOpenSource?: OpenSource
   /** Makes every piece of text editable, reporting each change as a whole new report. */
   onEdit?: (next: Report) => void
+  /** When comparing drafts: whether each block is new, gone or unchanged. */
+  changes?: BlockChange[]
 }
 
 /** All text is set as React text, and the only styling is the theme chosen from our own set. */
-export function ReportView({ report, sources, onOpenSource, onEdit }: ReportViewProps) {
+export function ReportView({ report, sources, onOpenSource, onEdit, changes }: ReportViewProps) {
   const edit = useMemo(() => (onEdit ? (path: Path, text: string) => onEdit(editReport(report, path, text)) : null), [onEdit, report])
   const transcript = sources?.find((source) => source.kind === 'transcript')
   const video = useMemo(() => (transcript && onOpenSource ? { source: transcript, open: onOpenSource } : null), [transcript, onOpenSource])
@@ -305,9 +307,15 @@ export function ReportView({ report, sources, onOpenSource, onEdit }: ReportView
         {report.kind && <T as="p" className="kind" path={['kind']} text={report.kind} />}
         <T as="h1" path={['title']} text={report.title} />
         {(report.summary || onEdit) && <T as="p" className="summary" path={['summary']} text={report.summary} />}
-        {report.blocks.map((block, index) => (
-          <Block key={`${index}-${block.type}`} block={block} path={['blocks', index]} />
-        ))}
+        {report.blocks.map((block, index) =>
+          changes?.[index] ? (
+            <div key={`${index}-${block.type}`} className="change" data-change={changes[index]} aria-label={changes[index] === 'added' ? 'Added' : 'Removed'}>
+              <Block block={block} path={['blocks', index]} />
+            </div>
+          ) : (
+            <Block key={`${index}-${block.type}`} block={block} path={['blocks', index]} />
+          )
+        )}
         {sources && sources.length > 0 && (
           <section className="sources" aria-label="Sources">
             <h2>Sources</h2>
@@ -345,6 +353,15 @@ export function Thinking({ label = 'Thinking' }: { label?: string }) {
       </span>
       {label}…
     </span>
+  )
+}
+
+/** Asks for the newest reply again, in place of the one there. */
+export function RetryReply({ onRetry }: { onRetry: () => void }) {
+  return (
+    <IconButton size="sm" label="Try again" side="bottom" onClick={onRetry}>
+      <RotateCcw size={12} strokeWidth={1.75} />
+    </IconButton>
   )
 }
 
@@ -440,6 +457,8 @@ interface ReplyContentProps {
   /** The pages this reply was given, so its citations can link back to them. */
   sources?: CitationSource[]
   onOpenSource?: OpenSource
+  /** Asks for this reply again, offered where a report couldn't be read. */
+  onRetry?: () => void
 }
 
 /** A reply's text, reports and files, in the order they were written. */
@@ -469,14 +488,14 @@ export const ReplyContent = memo(function ReplyContent({ text, fileChanges = [],
   )
 })
 
-const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, openReport, streaming = false, sources, onOpenSource }: ReplyContentProps) {
-  const { before, after, report, writing, unread } = splitReply(text, !streaming)
+const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, openReport, streaming = false, sources, onOpenSource, onRetry }: ReplyContentProps) {
+  const { before, after, report, writing, unread, draft } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
       {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} sources={sources} onOpenSource={onOpenSource} />}
       {writing && (
         <div className="flex items-center gap-3 rounded-lg border border-border p-3">
-          <Thinking label="Writing a report" />
+          <Thinking label={draft ? `Writing “${draft.title}”` : 'Writing a report'} />
         </div>
       )}
       {unread && (
@@ -489,12 +508,24 @@ const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, open
               <span className="block font-medium text-text">This report couldn’t be read</span>
               <span className="block text-xs">It came back in a form the browser doesn’t understand. Ask for it again, or select this to see what was written.</span>
             </span>
+            {onRetry && !streaming && (
+              <Button
+                className="shrink-0"
+                onClick={(event) => {
+                  event.preventDefault()
+                  onRetry()
+                }}
+              >
+                <RotateCcw aria-hidden size={14} strokeWidth={1.75} />
+                Ask again
+              </Button>
+            )}
           </summary>
           <pre className="sc-scroll-quiet max-h-60 overflow-auto border-t border-border p-3 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere]">{unread}</pre>
         </details>
       )}
       {report && (onOpenReport ? <ReportCard report={report} active={!!openReport && JSON.stringify(openReport) === JSON.stringify(report)} onOpen={() => onOpenReport(report)} /> : <ReportView report={report} />)}
-      {after && <ReplyText text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} sources={sources} onOpenSource={onOpenSource} />}
+      {after && <ReplyText text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} sources={sources} onOpenSource={onOpenSource} onRetry={onRetry} />}
       {sources && sources.length > 0 && onOpenSource && !streaming && !after && <SourceList sources={sources} onOpenSource={onOpenSource} />}
     </div>
   )

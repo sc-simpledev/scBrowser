@@ -32,6 +32,7 @@ export function loadConfig(env: (name: string) => string | undefined): Config {
     concurrentPerIp: number(env, 'CONCURRENT_PER_IP', 2),
     maxBodyBytes: number(env, 'MAX_BODY_BYTES', 1_000_000),
     maxInputChars: number(env, 'MAX_INPUT_CHARS', 300_000),
-    maxOutputTokens: number(env, 'MAX_OUTPUT_TOKENS', 8_000)
+    // What the app asks for. A lower cap cuts long reports off part-way.
+    maxOutputTokens: number(env, 'MAX_OUTPUT_TOKENS', 16_000)
   }
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { conversationReports, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
+import { STOP_NOTES } from '../shared/stopNotes'
 
 /** In split view the page being read is both halves, so the other one goes along with the active one. */
 export function splitPartner(activeId: number | null, splitIds: number[]): number | null {
@@ -62,18 +63,12 @@ interface AssistantStore {
   openChat: (id: string) => void
   deleteChat: (id: string) => void
   send: (text: string) => void
+  /** Sends a message that needs only the conversation, not the page or the agent: a change, a continuation. */
+  sendPlain: (text: string) => void
   /** Sends the last message again, after a failure. */
   retry: () => void
   stop: () => void
   applyPrompt: (prompt: AssistantPrompt) => void
-}
-
-const STOP_NOTES: Record<string, string> = {
-  max_tokens: 'The reply hit its length limit.',
-  length: 'The reply hit its length limit.',
-  refusal: 'The model declined to answer this.',
-  content_filter: 'The provider filtered this reply.',
-  cancelled: 'Stopped.'
 }
 
 export const useAssistant = create<AssistantStore>((set, get) => ({
@@ -96,10 +91,13 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   close: () => set({ open: false, report: null }),
   showReport: (report) => set({ report }),
   reviseReport: (change) => {
-    const { report, includePage, agentMode, send } = get()
-    if (!report) return
+    const { report, sendPlain } = get()
+    if (report) sendPlain(reviseReportPrompt(report.title, change))
+  },
+  sendPlain: (text) => {
+    const { includePage, agentMode, send } = get()
     set({ includePage: false, agentMode: false })
-    send(reviseReportPrompt(report.title, change))
+    send(text)
     set({ includePage, agentMode })
   },
   setIncludePage: (includePage) => set({ includePage }),
@@ -215,12 +213,16 @@ function onEvent(event: AssistantEvent) {
     useAssistant.setState({ approval: { id: event.approvalId, text: event.text, reason: event.reason } })
   } else {
     const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
-    const finished = update(note ? { note } : {})
+    // A continued reply joins the one it carried on, and a report asked for again replaces the unreadable one.
+    const settled = settleReply(update({}))
+    const finished = settled.turns.map((turn, index) => (index === settled.turns.length - 1 ? { ...turn, note } : turn))
     // A new draft takes over from the one being read.
     const { report } = useAssistant.getState()
     const newest = report ? conversationReports(finished).at(-1) : undefined
     useAssistant.setState({ turns: finished, streamId: null, approval: null, ...(newest ? { report: newest } : {}) })
     saveChat()
+    // One more try, by itself, for a report that came back unreadable. It needs only the conversation.
+    if (settled.repair && !note) useAssistant.getState().sendPlain(REPAIR_PROMPT)
   }
 }
 

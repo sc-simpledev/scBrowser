@@ -424,6 +424,8 @@ export interface InternalCommands {
   'presets:delete': (id: string) => ReportPreset[]
   /** A question about a report, answered beside it without making a new draft. */
   'ai:ask-report': (report: string, question: string) => string
+  /** What to say for each slide of a report being presented, written by the person's AI. */
+  'report:notes': (report: string) => string[]
   'ai:status': () => AiStatus
   'ai:send': (streamId: string, request: AssistantRequest) => void
   'ai:cancel': (streamId: string) => void
@@ -666,6 +668,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'presets:save',
   'presets:delete',
   'ai:ask-report',
+  'report:notes',
   'ai:status',
   'ai:send',
   'ai:cancel',

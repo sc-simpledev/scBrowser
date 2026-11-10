@@ -1,10 +1,14 @@
-import { ArrowUp, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, EllipsisVertical, FileText, GraduationCap, Highlighter, Maximize2, MessageCircleQuestion, Pencil, RotateCcw, X } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowUp, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, EllipsisVertical, FileText, GitCompareArrows, GraduationCap, Highlighter, List, Maximize2, MessageCircleQuestion, Pencil, Presentation, RotateCcw, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import contentCss from '@scbrowser/ui/content.css?raw'
 import tokensCss from '@scbrowser/ui/tokens.css?raw'
 import { Button, cx, IconButton, Select } from '@scbrowser/ui'
 import {
   cardKey,
+  changeCounts,
+  diffReports,
+  DOCUMENT_FORMATS,
+  quizCsv,
   dueLabel,
   isDue,
   orderCards,
@@ -24,6 +28,7 @@ import {
 } from '@scbrowser/shared'
 import { ReplyMarkdown, ReportView, Thinking, type OpenSource } from './ReplyContent'
 import { ResizeHandle } from './ResizeHandle'
+import { PresentMode } from './PresentMode'
 
 // A saved report stands alone, so it takes the tokens but not the fonts they import.
 const REPORT_CSS = `${tokensCss.replace(/^@import .*$/gm, '')}\n${contentCss}`
@@ -76,7 +81,7 @@ function DownloadMenu({ report, save, speakerNotes }: { report: Report; save: Sa
       </Button>
       {open && (
         <div role="menu" aria-label="Download as" className={cx(menuPanel, 'w-56')}>
-          {(Object.keys(REPORT_FORMATS) as ReportFormat[]).map((format) => (
+          {DOCUMENT_FORMATS.map((format) => (
             <button key={format} type="button" role="menuitem" onClick={() => download(format)} className={menuItem}>
               {REPORT_FORMATS[format].label}
             </button>
@@ -90,6 +95,11 @@ function DownloadMenu({ report, save, speakerNotes }: { report: Report; save: Sa
           {hasQuiz && (
             <button type="button" role="menuitem" title="Questions with room to write, and the answers on the last page" onClick={() => run(`${report.title} worksheet`, 'pdf', quizWorksheetHtml(report, REPORT_CSS), null)} className={menuItem}>
               Quiz worksheet (PDF)
+            </button>
+          )}
+          {hasQuiz && (
+            <button type="button" role="menuitem" title="Question and answer rows, to import into Anki, Quizlet or a spreadsheet" onClick={() => run(`${report.title} cards`, 'csv', quizCsv(report), null)} className={menuItem}>
+              {REPORT_FORMATS.csv.label}
             </button>
           )}
         </div>
@@ -123,6 +133,38 @@ function MoreMenu({ items }: { items: { label: string; icon: ReactNode; onClick:
             >
               <span className="text-text-muted">{item.icon}</span>
               {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The report's sections, to jump between in a long one. */
+function Outline({ headings, onJump }: { headings: { text: string; level: 2 | 3; index: number }[]; onJump: (index: number) => void }) {
+  const [open, setOpen] = useState(false)
+  const root = useDismiss(open, () => setOpen(false))
+  return (
+    <div ref={root} className="relative -ml-2 shrink-0">
+      <IconButton label="Sections" side="bottom" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen(!open)}>
+        <List size={15} strokeWidth={1.75} />
+      </IconButton>
+      {open && (
+        <div role="menu" aria-label="Sections" className="sc-scroll-quiet absolute top-full left-0 z-10 mt-1 flex max-h-96 w-64 flex-col overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-2">
+          {headings.map((heading) => (
+            <button
+              key={heading.index}
+              type="button"
+              role="menuitem"
+              title={heading.text}
+              className={cx('flex min-h-8 w-full shrink-0 items-center rounded-sm px-2 py-1 text-left hover:bg-surface-hover', heading.level === 3 && 'pl-5 text-xs text-text-muted')}
+              onClick={() => {
+                setOpen(false)
+                onJump(heading.index)
+              }}
+            >
+              <span className="line-clamp-2">{heading.text}</span>
             </button>
           ))}
         </div>
@@ -466,11 +508,13 @@ interface ReportPaneProps {
   onSaveTemplate?: (name: string) => Promise<string>
   /** Speaker notes need AI. */
   speakerNotes?: boolean
+  /** Writes what to say for each slide while presenting. Left out when AI isn't available. */
+  loadNotes?: (report: Report) => Promise<string[]>
 }
 
 /** A report beside the conversation, with room to read it, ways to change it and ways to take it elsewhere. */
 export function ReportPane(props: ReportPaneProps) {
-  const { report, versions, onSelect, onRevise, onAsk, busy, save, onClose, onExpand, width, onWidth, onWidthCommit, onDragging, sources, onOpenSource, onEdit, design: savedDesign, onDesign, quizMemory, loadHighlights, onSaveTemplate, speakerNotes = false } = props
+  const { report, versions, onSelect, onRevise, onAsk, busy, save, onClose, onExpand, width, onWidth, onWidthCommit, onDragging, sources, onOpenSource, onEdit, design: savedDesign, onDesign, quizMemory, loadHighlights, onSaveTemplate, speakerNotes = false, loadNotes } = props
   // A design is a way of looking at the report, so it carries across drafts.
   const [picked, setPicked] = useState<ReportThemeId | null>(null)
   const design = picked ?? savedDesign ?? null
@@ -480,14 +524,29 @@ export function ReportPane(props: ReportPaneProps) {
   const [naming, setNaming] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [presenting, setPresenting] = useState(false)
+  const [comparing, setComparing] = useState(false)
+  const body = useRef<HTMLDivElement>(null)
   const [progress, setProgress] = useState<QuizProgress>({})
   const cards = quizCardsOf(report)
   const cardKeys = cards.map((card) => cardKey(card.question)).join(',')
   const shown = { ...report, theme: design ?? report.theme }
   const withSources = sources?.length ? { ...shown, sources: sources.map(({ n, title, url }) => ({ n, title, url })) } : shown
   const index = versions.findIndex((version) => JSON.stringify(version) === JSON.stringify(report))
+  const headings = report.blocks.flatMap((block, at) => (block.type === 'heading' ? [{ text: block.text, level: block.level, index: at }] : []))
+  const jump = (blockIndex: number) => {
+    // Headings are the article's only h2 and h3 besides Sources, in the order of their blocks.
+    const nth = headings.findIndex((heading) => heading.index === blockIndex)
+    body.current?.querySelectorAll('article > h2, article > h3, article > .change > h2, article > .change > h3')[nth]?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
+  const earlier = index > 0 ? versions[index - 1]! : null
+  const diff = useMemo(() => (comparing && earlier ? diffReports(earlier, report) : null), [comparing, earlier, report])
+  const counts = diff ? changeCounts(diff.changes) : null
   // A draft arriving while editing ends the editing, as the text being typed into has gone.
   useEffect(() => setEditing(false), [busy])
+  useEffect(() => {
+    if (!earlier) setComparing(false)
+  }, [earlier])
   // Another report keeps its own design.
   useEffect(() => setPicked(null), [report.title])
   useEffect(() => {
@@ -512,6 +571,7 @@ export function ReportPane(props: ReportPaneProps) {
           setTimeout(() => setCopied(false), 1500)
         })
     },
+    { label: 'Present as slides', icon: <Presentation size={14} strokeWidth={1.75} />, onClick: () => setPresenting(true) },
     ...(onSaveTemplate ? [{ label: 'Save as a template', icon: <BookmarkPlus size={14} strokeWidth={1.75} />, onClick: () => setNaming(true) }] : []),
     ...(onExpand ? [{ label: 'Open in a full page', icon: <Maximize2 size={14} strokeWidth={1.75} />, onClick: onExpand }] : [])
   ]
@@ -519,7 +579,7 @@ export function ReportPane(props: ReportPaneProps) {
     <section aria-label="Report" className="relative flex min-w-0 shrink flex-col border-l border-border bg-bg" style={{ width, flexBasis: width }}>
       <ResizeHandle label="Report width" edge="left" width={width} min={MIN_WIDTH} max={Math.max(MIN_WIDTH, innerWidth - 320)} onWidth={onWidth} onCommit={onWidthCommit} onDragging={onDragging} />
       <header className="relative flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-surface pr-2 pl-4">
-        <FileText aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+        {headings.length > 1 && !comparing ? <Outline headings={headings} onJump={jump} /> : <FileText aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-muted" />}
         <div className="mr-2 min-w-0 flex-1 truncate font-medium" title={report.title}>
           {report.title}
         </div>
@@ -536,7 +596,7 @@ export function ReportPane(props: ReportPaneProps) {
           </Button>
         )}
         {onEdit && (
-          <IconButton label={editing ? 'Done editing' : 'Edit text'} aria-pressed={editing} disabled={busy} onClick={() => setEditing(!editing)} className={editing ? 'bg-accent-soft! text-accent!' : ''}>
+          <IconButton label={editing ? 'Done editing' : 'Edit text'} aria-pressed={editing} disabled={busy || comparing} onClick={() => setEditing(!editing)} className={editing ? 'bg-accent-soft! text-accent!' : ''}>
             {editing ? <Check size={15} strokeWidth={1.75} /> : <Pencil size={15} strokeWidth={1.75} />}
           </IconButton>
         )}
@@ -582,6 +642,21 @@ export function ReportPane(props: ReportPaneProps) {
           <IconButton size="sm" label="Later version" disabled={index === versions.length - 1} onClick={() => onSelect(versions[index + 1]!)}>
             <ChevronRight size={13} strokeWidth={1.75} />
           </IconButton>
+          {earlier && (
+            <button
+              type="button"
+              aria-pressed={comparing}
+              title={`Marks what changed since version ${index}`}
+              onClick={() => {
+                setComparing(!comparing)
+                setEditing(false)
+              }}
+              className={cx('ml-1 flex h-6 items-center gap-1 rounded-sm px-1.5 transition-colors hover:bg-surface-hover', comparing ? 'bg-accent-soft text-accent' : 'hover:text-text')}
+            >
+              <GitCompareArrows aria-hidden size={12} strokeWidth={1.75} />
+              {counts ? (counts.added + counts.removed === 0 ? 'No changes' : `${counts.added} added, ${counts.removed} removed`) : 'What changed'}
+            </button>
+          )}
         </nav>
       )}
       {editing && (
@@ -610,17 +685,22 @@ export function ReportPane(props: ReportPaneProps) {
           )}
         </div>
       )}
-      <div className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto p-4">
+      <div ref={body} className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto p-4">
         {busy && (
           <div className="mx-auto mb-3 max-w-180">
             <Thinking label="Working on it" />
           </div>
         )}
         <div className="mx-auto max-w-180 rounded-lg bg-surface px-8 py-9 shadow-1">
-          <ReportView report={shown} sources={sources} onOpenSource={onOpenSource} onEdit={editing ? onEdit : undefined} />
+          {diff ? (
+            <ReportView report={{ ...shown, blocks: diff.blocks }} changes={diff.changes} sources={sources} onOpenSource={onOpenSource} />
+          ) : (
+            <ReportView report={shown} sources={sources} onOpenSource={onOpenSource} onEdit={editing ? onEdit : undefined} />
+          )}
         </div>
       </div>
       {(onRevise || onAsk) && <ChangeBox busy={busy} onRevise={onRevise} onAsk={onAsk} />}
+      {presenting && <PresentMode report={withSources} loadNotes={loadNotes ? () => loadNotes(withSources) : undefined} onClose={() => setPresenting(false)} />}
       {quiz && cards.length > 0 && <QuizMode cards={cards} memory={quizMemory} progress={progress} onClose={() => setQuiz(false)} />}
     </section>
   )
