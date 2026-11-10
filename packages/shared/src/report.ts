@@ -292,15 +292,47 @@ function toBlocks(value: unknown, depth: number): ReportBlock[] {
 
 const REPORT_FIELDS = new Set(['title', 'summary', 'theme', 'kind', 'subtitle', 'author', 'date'])
 
+type Closer = '}' | ']'
+
+/** What can follow a comma or colon in JSON. Anything else means the quote before it was part of the text. */
+const AFTER_QUOTE = /^\s*[,:]\s*(?:$|["{[\]}\-\d/]|true\b|false\b|null\b)/
+
 /**
- * Repairs the mistakes models make when writing JSON by hand: raw line breaks in strings,
- * unescaped quotes, trailing commas, comments, and output cut off at the length limit.
+ * How many brackets a run of closing brackets should really close. Models lose count after nested
+ * lists, such as a table's rows, and write `]}]}` for `]]}`. Closing what was written would end the
+ * report early and leave the rest as loose text, so what comes next decides how far to close.
  */
-export function repairJson(source: string): string {
+function closes(stack: Closer[], run: Closer[], rest: string): number {
+  const matches = run.length <= stack.length && run.every((closer, index) => stack[stack.length - 1 - index] === closer)
+  const after = rest.trimStart()
+  if (matches && !(run.length === stack.length && after.startsWith(','))) return run.length
+  if (!after) return stack.length
+  if (!after.startsWith(',')) return Math.min(run.length, stack.length)
+  // A key comes next inside an object, and a value inside a list.
+  const want: Closer = /^"(?:[^"\\]|\\.)*"\s*:/.test(after.slice(1).trimStart()) ? '}' : ']'
+  let best = -1
+  for (let count = 1; count < stack.length; count++) {
+    if (stack[stack.length - 1 - count] !== want) continue
+    if (best === -1 || Math.abs(count - run.length) <= Math.abs(best - run.length)) best = count
+  }
+  return best === -1 ? Math.min(run.length, stack.length) : best
+}
+
+/**
+ * Reads JSON written by hand, mending the mistakes models make: raw line breaks in strings,
+ * unescaped quotes, trailing commas, comments, miscounted closing brackets, and output cut off at
+ * the length limit. `candidates` are the readings to try, best first, and `end` is where it stopped.
+ */
+function scanJson(source: string): { candidates: string[]; end: number } {
   let out = ''
-  const closers: string[] = []
+  const stack: Closer[] = []
+  /** Places the text could be cut back to and still be whole: before each comma. */
+  const checkpoints: { length: number; closers: string }[] = []
+  const closing = () => [...stack].reverse().join('')
   let inString = false
-  for (let i = 0; i < source.length; i++) {
+  let opened = false
+  let i = 0
+  for (; i < source.length; i++) {
     const char = source[i]!
     if (inString) {
       if (char === '\\') {
@@ -310,9 +342,11 @@ export function repairJson(source: string): string {
         out += '"\\/bfnrtu'.includes(next) ? char + next : next
         i++
       } else if (char === '"') {
-        const after = /^\s*(.?)/.exec(source.slice(i + 1, i + 40))![1]
+        const rest = source.slice(i + 1, i + 60)
+        const after = /^\s*(.?)/.exec(rest)![1]!
         // A real closing quote is followed by punctuation; anything else is a stray quote.
-        if (after === '' || ',:}]'.includes(after!)) {
+        const real = after === '' || '}]'.includes(after) || ((after === ',' || after === ':') && AFTER_QUOTE.test(rest))
+        if (real) {
           inString = false
           out += char
         } else out += '\\"'
@@ -328,22 +362,55 @@ export function repairJson(source: string): string {
       inString = true
       out += char
     } else if (char === '{' || char === '[') {
-      closers.push(char === '{' ? '}' : ']')
+      stack.push(char === '{' ? '}' : ']')
+      opened = true
+      out += char
+    } else if (char === ',') {
+      checkpoints.push({ length: out.length, closers: closing() })
+      if (checkpoints.length > 6) checkpoints.shift()
       out += char
     } else if (char === '}' || char === ']') {
-      out = out.replace(/,\s*$/, '')
-      if (closers.at(-1) === char) closers.pop()
-      out += char
+      const run: Closer[] = []
+      let end = i
+      for (let j = i; j < source.length; j++) {
+        const at = source[j]!
+        if (at === '}' || at === ']') {
+          run.push(at)
+          end = j + 1
+        } else if (!/\s/.test(at)) break
+      }
+      // A trailing comma before a closing bracket isn't JSON.
+      const kept = out.trimEnd()
+      if (kept.endsWith(',')) out = kept.slice(0, -1)
+      // Only what comes straight after matters, so a long reply isn't copied at every bracket.
+      for (let count = closes(stack, run, source.slice(end, end + 600)); count > 0; count--) out += stack.pop() ?? ''
+      i = end - 1
+      if (opened && stack.length === 0) return { candidates: [out], end }
     } else out += char
   }
   if (inString) out += '"'
   // Whatever was mid-way through writing when the text ran out can't be finished.
-  out = out.replace(/,\s*$/, '').replace(/,?\s*"[^"]*"\s*:\s*$/, '').replace(/[:,]\s*$/, '')
-  return out + closers.reverse().join('')
+  const tidy = out.replace(/,\s*$/, '').replace(/,?\s*"[^"]*"\s*:\s*$/, '').replace(/[:,]\s*$/, '')
+  return { candidates: [tidy + closing(), ...checkpoints.reverse().map((point) => out.slice(0, point.length) + point.closers)], end: source.length }
 }
 
-function parseJson(json: string): Record<string, unknown> | null {
-  for (const attempt of [json, repairJson(json)]) {
+const parses = (json: string) => {
+  try {
+    JSON.parse(json)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** JSON a model wrote by hand, mended so it can be read. See `scanJson` for what is mended. */
+export function repairJson(source: string): string {
+  const { candidates } = scanJson(source)
+  return candidates.find(parses) ?? candidates[0]!
+}
+
+function parseJson(json: string, repair: boolean): Record<string, unknown> | null {
+  for (const attempt of [json, ...(repair ? scanJson(json).candidates : [])]) {
     try {
       const data = JSON.parse(attempt) as unknown
       if (typeof data === 'object' && data !== null) return data as Record<string, unknown>
@@ -354,8 +421,9 @@ function parseJson(json: string): Record<string, unknown> | null {
   return null
 }
 
-export function toReport(json: string): Report | null {
-  const parsed = parseJson(json)
+/** `repair` off reads only JSON that is already valid. */
+export function toReport(json: string, repair = true): Report | null {
+  const parsed = parseJson(json, repair)
   // Some models wrap the whole thing, as in {"report": {...}}.
   const wrapped = parsed && !Array.isArray(parsed) && Object.keys(parsed).length === 1 ? Object.values(parsed)[0] : null
   const data = isRecord(wrapped) && (wrapped.title || wrapped.blocks) ? wrapped : parsed
@@ -381,6 +449,8 @@ export interface ReplyParts {
   report: Report | null
   /** The report is still being written. */
   writing: boolean
+  /** A report was written under our own tag but couldn't be read at all: what was written, to show on request. */
+  unread?: string
 }
 
 /** Where the JSON object starting at `start` ends, skipping any braces or fences inside strings. */
@@ -403,37 +473,60 @@ function jsonEnd(text: string, start: number): number {
  * Finds where a report starts. The usual form is our own tag, but models also use a `json`
  * fence, write the tag on one line with the JSON, or leave the fence out altogether.
  */
-function findOpening(text: string): { index: number; start: number; fence: string } | null {
+function findOpening(text: string): { index: number; start: number; fence: string; tagged: boolean } | null {
   const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCES + '[^\\n{]*', 'i').exec(text)
   const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:kind|title|summary|theme|blocks|report)")', 'i').exec(text)
   const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:kind|title|summary|theme|blocks|report)")/.exec(text)
   const match = tagged ?? named ?? bare
   if (!match) return null
-  return { index: match.index, start: match.index + match[0].length, fence: match[1] ?? '' }
+  return { index: match.index, start: match.index + match[0].length, fence: match[1] ?? '', tagged: match === tagged }
 }
+
+/** The line that closes a fenced block opened with `fence`, looking from `from`. */
+function closingFence(text: string, from: number, fence: string): { index: number; end: number } | null {
+  const mark = fence.startsWith('~') ? '~' : '`'
+  const match = new RegExp(`\\n[ \\t]*${mark}{${fence.length},}[ \\t]*(?=\\r?\\n|$)`).exec(text.slice(from))
+  if (match) return { index: from + match.index, end: from + match.index + match[0].length }
+  // Some replies close the fence on the JSON's own line.
+  const last = text.lastIndexOf(fence)
+  return last > from ? { index: last, end: last + fence.length } : null
+}
+
+/** A fence left over after a report, as when one fenced block was written inside another. */
+const strayFence = (text: string) => text.replace(/^\s*(?:`{3,}|~{3,})[ \t]*(?=\r?\n|$)/, '').trimStart()
 
 /** Splits a reply into plain text around an optional report block. `complete` means the reply has finished arriving. */
 export function splitReply(text: string, complete = false): ReplyParts {
   const open = findOpening(text)
   if (!open) return { before: text, after: '', report: null, writing: false }
   const before = text.slice(0, open.index).trimEnd()
+  const writing = { before, after: '', report: null, writing: true }
+  // Only our own tag is surely a report. Anything else is left as the code block it may well be.
+  const unread = open.tagged ? { before, after: '', report: null, writing: false, unread: text.slice(open.index).trim() } : { before: text, after: '', report: null, writing: false }
   const brace = text.indexOf('{', open.start)
-  const end = brace === -1 ? -1 : jsonEnd(text, brace)
-  if (end === -1) {
-    if (!complete) return { before, after: '', report: null, writing: true }
-    // The reply was cut off. Keep what was written instead of leaving a report that never arrives.
-    const closing = open.fence ? text.lastIndexOf(open.fence) : -1
-    const partial = text.slice(brace === -1 ? open.start : brace, closing > open.start ? closing : undefined)
-    const report = toReport(partial)
-    return report ? { before, after: '', report, writing: false } : { before: text, after: '', report: null, writing: false }
+  if (brace === -1) return complete ? unread : writing
+
+  // Well-formed JSON that ends where its block does needs no mending.
+  const end = jsonEnd(text, brace)
+  if (end !== -1) {
+    const rest = text.slice(end)
+    const fence = open.fence ? new RegExp('^\\s*' + open.fence).exec(rest) : null
+    // More after a comma means a stray bracket closed the report before its end.
+    const whole = open.fence ? !!fence || !rest.trim() : !rest.trimStart().startsWith(',')
+    const report = whole ? toReport(text.slice(brace, end), false) : null
+    if (report) return { before, after: strayFence(fence ? rest.slice(fence[0].length) : rest), report, writing: false }
   }
-  const report = toReport(text.slice(brace, end))
+
+  // Otherwise the JSON has mistakes or was cut off. Its fence says where it ends, since its own
+  // brackets can't be trusted: one stray bracket would end the report early and spill the rest.
+  const closing = open.fence ? closingFence(text, brace, open.fence) : null
+  if (!complete && (open.fence ? !closing : end === -1)) return writing
+  const body = text.slice(brace, closing?.index)
+  const scan = scanJson(body)
+  const report = scan.candidates.map((candidate) => toReport(candidate, false)).find((found) => found !== null) ?? null
   // A report that can't be read still shows what was written rather than nothing.
-  if (!report) return { before: text, after: '', report: null, writing: false }
-  const rest = text.slice(end)
-  const fence = open.fence && new RegExp('^\\s*' + open.fence).exec(rest)
-  const after = (fence ? rest.slice(fence[0].length) : rest).trimStart()
-  return { before, after, report, writing: false }
+  if (!report) return unread
+  return { before, after: strayFence(closing ? text.slice(closing.end) : body.slice(scan.end)), report, writing: false }
 }
 
 export const REPORT_INSTRUCTIONS = `Usually answer in normal text. When the answer is long, a plan, a comparison or an overview of a topic, write a report instead: a short sentence introducing it, then one fenced block tagged ${FENCE} holding only JSON.
@@ -461,7 +554,7 @@ Everything goes in the one blocks array. When asked for slides, parts or section
 
 Theme is clean for general use, editorial for long reading, brief for short decisions, modern for bold overviews, magazine for features and stories, academic for formal or scholarly writing, or notebook for study notes. Heading levels are 2 or 3. All text is plain: never write HTML, CSS, Markdown or styling, because the design is applied for you.
 
-The block must be valid JSON. Use straight double quotes, escape any double quote inside text as \\", write line breaks as \\n, and leave no trailing commas. Don't put backticks or code fences inside text. Stay under about 1,500 words so the report isn't cut off, and write the whole block before any closing remarks.`
+The block must be valid JSON. Use straight double quotes, escape any double quote inside text as \\", write line breaks as \\n, and leave no trailing commas. Write each block on its own line, as above, and close every bracket and brace you open, taking care after a table's rows. Don't put backticks or code fences inside text. Stay under about 1,500 words so the report isn't cut off, and write the whole block before any closing remarks.`
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 

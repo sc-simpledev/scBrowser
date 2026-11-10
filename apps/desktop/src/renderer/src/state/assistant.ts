@@ -72,7 +72,8 @@ const STOP_NOTES: Record<string, string> = {
   max_tokens: 'The reply hit its length limit.',
   length: 'The reply hit its length limit.',
   refusal: 'The model declined to answer this.',
-  content_filter: 'The provider filtered this reply.'
+  content_filter: 'The provider filtered this reply.',
+  cancelled: 'Stopped.'
 }
 
 export const useAssistant = create<AssistantStore>((set, get) => ({

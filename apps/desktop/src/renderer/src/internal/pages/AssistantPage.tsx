@@ -16,7 +16,19 @@ import { pasteCleanly } from '../../shared/pasteCleanly'
 interface Turn extends SavedTurn {
   error?: string
   network?: boolean
+  /** Why the reply ended early, in words. */
+  note?: string
 }
+
+const STOP_NOTES: Record<string, string> = {
+  max_tokens: 'The reply hit its length limit. Ask it to continue, or to be shorter.',
+  length: 'The reply hit its length limit. Ask it to continue, or to be shorter.',
+  refusal: 'The model declined to answer this.',
+  content_filter: 'The provider filtered this reply.',
+  cancelled: 'Stopped.'
+}
+
+const toSave = (turns: Turn[]) => turns.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
 
 type View = 'chat' | 'code'
 
@@ -116,7 +128,13 @@ function ChatList({ chats, current, onDelete, newHref = 'sc://assistant/' }: { c
 /** A whole page for longer conversations and reports. */
 export function AssistantPage() {
   const [status, setStatus] = useState<AiStatus | null>(null)
-  const [turns, setTurns] = useState<Turn[]>([])
+  const [turns, setTurnsState] = useState<Turn[]>([])
+  // Events arrive faster than renders, so the conversation is kept here and the state follows it.
+  const turnsRef = useRef<Turn[]>([])
+  const setTurns = useCallback((next: Turn[]) => {
+    turnsRef.current = next
+    setTurnsState(next)
+  }, [])
   const [draft, setDraft] = useState('')
   const [streamId, setStreamId] = useState<string | null>(null)
   const [chats, setChats] = useState<ChatSummary[]>([])
@@ -196,19 +214,17 @@ export function AssistantPage() {
     const id = crypto.randomUUID()
     chatId.current ??= crypto.randomUUID()
     setStreamId(id)
-    setTurns((current) => {
-      const history = [...current.filter((t) => t.content && !t.error), { role: 'user' as const, content: question }]
-      void api().invoke('ai:send', id, {
-        messages: history.map(({ role, content }) => ({ role, content })),
-        tabId: null,
-        includePage: false,
-        extraTabIds: researchRef.current,
-        selection: null,
-        webSearch: webSearchRef.current
-      })
-      return [...history, { role: 'assistant', content: '' }]
+    const history = [...turnsRef.current.filter((t) => t.content && !t.error), { role: 'user' as const, content: question }]
+    setTurns([...history, { role: 'assistant', content: '' }])
+    void api().invoke('ai:send', id, {
+      messages: history.map(({ role, content }) => ({ role, content })),
+      tabId: null,
+      includePage: false,
+      extraTabIds: researchRef.current,
+      selection: null,
+      webSearch: webSearchRef.current
     })
-  }, [])
+  }, [setTurns])
 
   const showReport = useCallback((next: Report | null) => {
     setReport(next)
@@ -248,11 +264,10 @@ export function AssistantPage() {
 
   useEffect(() => {
     const onEvent = (event: AssistantEvent) => {
-      const update = (patch: (last: Turn) => Turn) =>
-        setTurns((current) => {
-          const last = current.at(-1)
-          return last ? [...current.slice(0, -1), patch(last)] : current
-        })
+      const update = (patch: (last: Turn) => Turn) => {
+        const last = turnsRef.current.at(-1)
+        if (last) setTurns([...turnsRef.current.slice(0, -1), patch(last)])
+      }
       if (event.type === 'text') update((last) => ({ ...last, content: last.content + event.text }))
       if (event.type === 'context') update((last) => ({ ...last, pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }))
       if (event.type === 'error') {
@@ -261,19 +276,19 @@ export function AssistantPage() {
       }
       if (event.type === 'done') {
         setStreamId(null)
-        setTurns((current) => {
-          const saved = current.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
-          if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
-          const written = latestReport(current.slice(-1))
-          const made = newestFile(current)
-          if (made.file) showFile(made.file)
-          else if (written) showReport(written)
-          return current
-        })
+        const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
+        if (note) update((last) => ({ ...last, note }))
+        const current = turnsRef.current
+        const saved = toSave(current)
+        if (chatId.current && saved.length > 0) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
+        const written = latestReport(current.slice(-1))
+        const made = newestFile(current)
+        if (made.file) showFile(made.file)
+        else if (written) showReport(written)
       }
     }
     return api().onAssistantEvent(onEvent)
-  }, [refreshChats, showReport, showFile])
+  }, [refreshChats, showReport, showFile, setTurns])
 
   // Loads what this page was opened for, once the status says whether AI is ready.
   useEffect(() => {
@@ -302,7 +317,7 @@ export function AssistantPage() {
     return () => {
       cancelled = true
     }
-  }, [send, showReport, showFile])
+  }, [send, showReport, showFile, setTurns])
 
   useLayoutEffect(() => {
     const log = logRef.current
@@ -319,8 +334,7 @@ export function AssistantPage() {
     setTurns(updated)
     setReport(next)
     if (next.title !== report.title && designs[report.title]) setDesigns({ ...designs, [next.title]: designs[report.title]! })
-    const saved = updated.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
-    if (chatId.current) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
+    if (chatId.current) void api().invoke('chats:save', chatId.current, toSave(updated)).then(refreshChats)
   }
   const pickDesign = (theme: ReportThemeId) => {
     if (!report) return
@@ -480,14 +494,15 @@ export function AssistantPage() {
       )}
       {view === 'chat' && <>
       <div className="relative flex min-w-72 flex-1 flex-col">
-        <IconButton label={listOpen ? 'Hide chats' : 'Show chats'} side="right" className="absolute top-2 left-2 z-10" aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
-          <PanelLeft size={15} strokeWidth={1.75} />
-        </IconButton>
-        <div className="absolute top-2 left-11 z-10">
+        {/* A bar of its own, so the conversation scrolls under nothing. */}
+        <div className="flex h-11 shrink-0 items-center gap-2 px-3">
+          <IconButton size="sm" label={listOpen ? 'Hide chats' : 'Show chats'} side="right" aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}>
+            <PanelLeft size={15} strokeWidth={1.75} />
+          </IconButton>
           <ViewSwitch view={view} onChange={setView} />
         </div>
         {empty ? (
-          <div className="flex min-h-0 flex-1 flex-col justify-center pb-16">
+          <div className="flex min-h-0 flex-1 flex-col justify-center pb-28">
             <h1 className="mx-auto w-full max-w-180 px-8 pb-5 text-xl font-semibold tracking-[-0.03em]">What can I help with?</h1>
             {composer}
             {status?.ready && !gallery && (
@@ -519,7 +534,7 @@ export function AssistantPage() {
         ) : (
           <>
             <div ref={logRef} role="log" aria-label="Conversation" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto flex max-w-180 flex-col gap-7 px-8 py-10">
+              <div className="mx-auto flex max-w-180 flex-col gap-7 px-8 pt-4 pb-10">
                 {turns.map((turn, index) => {
                   const streaming = streamId !== null && index === turns.length - 1
                   return turn.role === 'user' ? (
@@ -542,7 +557,7 @@ export function AssistantPage() {
                           onOpenSource={openSource}
                         />
                       )}
-                      {!turn.content && !turn.error && <Thinking />}
+                      {!turn.content && !turn.error && (streaming ? <Thinking /> : <p className="text-text-faint">{turn.note ?? 'No reply came back.'}</p>)}
                       {turn.error &&
                         (turn.network ? (
                           <AiNetworkHelp
@@ -557,6 +572,7 @@ export function AssistantPage() {
                             {turn.error}
                           </p>
                         ))}
+                      {turn.content && turn.note && <p className="text-xs text-text-muted">{turn.note}</p>}
                       {!streaming && turn.content && (
                         <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
                           <CopyReply text={turn.content} />

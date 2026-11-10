@@ -42,6 +42,18 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.5.4',
+    date: '2026-11-10',
+    items: [
+      'Reports open as reports even when the AI miscounts its brackets, which is what left study notes showing as a block of code.',
+      'A reply that was cut off part-way still shows everything written up to that point as a report.',
+      'If a report truly can\'t be read, the chat says so plainly and keeps what was written a click away.',
+      'Stopping a reply before it starts no longer leaves it thinking for ever, and a reply that hit its length limit says so on the Assistant page too.',
+      'Scrollbars are slim and match the theme on every page.',
+      'The lines of a Notebook callout sit under its text.'
+    ]
+  },
+  {
     version: '0.5.3',
     date: '2026-11-10',
     items: [

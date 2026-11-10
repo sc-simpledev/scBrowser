@@ -95,3 +95,24 @@
     animation-duration: 1ms !important;
   }
 }
+
+/*
+ * Scrollbars are thin and drawn from tokens everywhere: the browser UI, sc:// pages and popups.
+ * The system's wide bars with arrow buttons look out of place inside a page of ours.
+ */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sc-border-strong) transparent;
+  }
+}
+
+/* Lists that scroll often, such as tabs and conversations: the bar only shows under the pointer. */
+.sc-scroll-quiet {
+  scrollbar-color: transparent transparent;
+}
+
+.sc-scroll-quiet:hover,
+.sc-scroll-quiet:focus-within {
+  scrollbar-color: var(--sc-border-strong) transparent;
+}

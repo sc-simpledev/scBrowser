@@ -470,7 +470,7 @@ export const ReplyContent = memo(function ReplyContent({ text, fileChanges = [],
 })
 
 const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, openReport, streaming = false, sources, onOpenSource }: ReplyContentProps) {
-  const { before, after, report, writing } = splitReply(text, !streaming)
+  const { before, after, report, writing, unread } = splitReply(text, !streaming)
   return (
     <div className="flex flex-col gap-3">
       {before && <ReplyMarkdown text={before} onOpenLink={onOpenLink} sources={sources} onOpenSource={onOpenSource} />}
@@ -478,6 +478,20 @@ const ReplyText = memo(function ReplyText({ text, onOpenLink, onOpenReport, open
         <div className="flex items-center gap-3 rounded-lg border border-border p-3">
           <Thinking label="Writing a report" />
         </div>
+      )}
+      {unread && (
+        <details className="rounded-lg border border-border text-text-muted">
+          <summary className="flex cursor-pointer list-none items-center gap-3 p-3 [&::-webkit-details-marker]:hidden">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-surface-hover text-danger">
+              <TriangleAlert aria-hidden size={16} strokeWidth={1.75} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-text">This report couldn’t be read</span>
+              <span className="block text-xs">It came back in a form the browser doesn’t understand. Ask for it again, or select this to see what was written.</span>
+            </span>
+          </summary>
+          <pre className="sc-scroll-quiet max-h-60 overflow-auto border-t border-border p-3 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere]">{unread}</pre>
+        </details>
       )}
       {report && (onOpenReport ? <ReportCard report={report} active={!!openReport && JSON.stringify(openReport) === JSON.stringify(report)} onOpen={() => onOpenReport(report)} /> : <ReportView report={report} />)}
       {after && <ReplyText text={after} onOpenLink={onOpenLink} onOpenReport={onOpenReport} openReport={openReport} streaming={streaming} sources={sources} onOpenSource={onOpenSource} />}

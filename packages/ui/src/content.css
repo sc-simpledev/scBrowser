@@ -818,7 +818,10 @@
 .sc-report[data-theme='notebook'] .callout {
   border-left: 0;
   border-radius: var(--sc-radius-md);
-  background: repeating-linear-gradient(var(--sc-accent-soft) 0 calc(1.75em - 1px), color-mix(in oklab, var(--sc-accent) 22%, transparent) calc(1.75em - 1px) 1.75em);
+  /* Ruled under each line of text: the lines start where the text does, not at the padding. */
+  background:
+    repeating-linear-gradient(transparent 0 calc(1.75em - 1px), color-mix(in oklab, var(--sc-accent) 22%, transparent) calc(1.75em - 1px) 1.75em) content-box,
+    var(--sc-accent-soft);
 }
 
 .sc-report[data-theme='notebook'] table {

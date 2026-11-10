@@ -26,9 +26,12 @@ describe('splitReply', () => {
     expect(splitReply('Intro\n```scterra-report\n{"title":"Pl')).toMatchObject({ before: 'Intro', writing: true, report: null })
   })
 
-  it('falls back to the raw text if the report is unreadable', () => {
-    const text = block('{not json')
-    expect(splitReply(text, true)).toMatchObject({ before: text, report: null, writing: false })
+  it('keeps what was written apart if the report is unreadable', () => {
+    const text = 'Here it is.\n\n' + block('{not json')
+    expect(splitReply(text, true)).toMatchObject({ before: 'Here it is.', report: null, writing: false, unread: block('{not json') })
+    // A json block that isn't a report is only ever a code block.
+    const code = 'Config:\n```json\n{"title": nope}\n```'
+    expect(splitReply(code, true)).toEqual({ before: code, after: '', report: null, writing: false })
   })
 })
 
@@ -94,6 +97,77 @@ describe('repairJson', () => {
   it('closes whatever was left open', () => {
     expect(JSON.parse(repairJson('{"a":[1,{"b":"c'))).toEqual({ a: [1, { b: 'c' }] })
     expect(JSON.parse(repairJson('{"a":1,"b":'))).toEqual({ a: 1 })
+  })
+})
+
+describe('reports with miscounted brackets', () => {
+  // What a hosted model really wrote, three times running: the table's rows closed with `]}]}` or `]}}`.
+  const head = '{"title":"Study notes","theme":"notebook","blocks":[{"type":"heading","level":2,"text":"Key terms"},{"type":"table","headers":["Term","Definition"],"rows":[["Headway","Time between services."],["Social exclusion","Being cut off."]'
+  const tail = ',{"type":"heading","level":2,"text":"Practice questions"},{"type":"quiz","items":[{"question":"Why?","answer":"Because."}]}]}'
+  const kinds = (text: string) => splitReply(text, true).report?.blocks.map((b) => b.type)
+  const all = ['heading', 'table', 'heading', 'quiz']
+
+  it.each([
+    ['one bracket swapped for a brace', ']}]}'],
+    ['a list closed with a brace', ']}}'],
+    ['a bracket too many', ']]]}'],
+    ['a bracket missing', ']}'],
+    ['a brace too many', ']]}}']
+  ])('reads the whole report with %s', (_, closers) => {
+    for (const fence of ['```', '````']) {
+      const parts = splitReply(`Here are your notes.\n\n${fence}scterra-report\n${head}${closers}${tail}\n${fence}\n\nGood luck.`, true)
+      expect(parts.report?.blocks.map((b) => b.type)).toEqual(all)
+      expect(parts.report?.blocks[1]).toMatchObject({ rows: [['Headway', 'Time between services.'], ['Social exclusion', 'Being cut off.']] })
+      expect(parts.before).toBe('Here are your notes.')
+      expect(parts.after).toBe('Good luck.')
+    }
+  })
+
+  it('reads it with no fence, or a json one', () => {
+    expect(kinds(`Notes:\n\n${head}]}]}${tail}`)).toEqual(all)
+    expect(kinds('Notes:\n\n```json\n' + head + ']}}' + tail + '\n```')).toEqual(all)
+  })
+
+  it('waits for the closing fence while the reply is arriving', () => {
+    const arriving = '```scterra-report\n' + head + ']}]}' + tail.slice(0, 40)
+    expect(splitReply(arriving, false)).toMatchObject({ writing: true, report: null })
+    expect(kinds(arriving)).toEqual(['heading', 'table', 'heading'])
+  })
+
+  it('does not let a stray closing bracket end the report early', () => {
+    const early = '```scterra-report\n{"title":"T","blocks":[{"type":"list","items":["a"]}]},{"type":"paragraph","text":"Kept"}]}\n```'
+    expect(kinds(early)).toEqual(['list', 'paragraph'])
+  })
+
+  it('leaves a fence written around the report out of the reply', () => {
+    const nested = '```scterra-report\n```json\n{"title":"T","blocks":[{"type":"divider"}]}\n```\n```\nDone.'
+    expect(splitReply(nested, true)).toMatchObject({ after: 'Done.', report: { title: 'T' } })
+  })
+})
+
+describe('reports cut off anywhere', () => {
+  const whole = JSON.stringify({
+    title: 'T',
+    blocks: [
+      { type: 'paragraph', text: 'First.' },
+      { type: 'stats', items: [{ value: '42%', label: 'share' }, { value: '1 in 5', label: 'homes' }] },
+      { type: 'list', ordered: false, items: ['One', 'Two'] },
+      { type: 'table', headers: ['A', 'B'], rows: [['1', '2'], ['3', '4']] },
+      { type: 'quiz', items: [{ question: 'Q?', answer: 'A.' }] }
+    ]
+  })
+
+  it('still shows a report wherever the text stops after its first block', () => {
+    const first = whole.indexOf('First."}') + 8
+    for (let length = first; length <= whole.length; length++) {
+      const parts = splitReply('Intro\n\n```scterra-report\n' + whole.slice(0, length), true)
+      expect(parts.report?.blocks[0], whole.slice(0, length)).toEqual({ type: 'paragraph', text: 'First.' })
+    }
+  })
+
+  it('keeps a quoted word that is followed by a comma', () => {
+    const text = '```scterra-report\n{"title":"T","blocks":[{"type":"paragraph","text":"Known as "transport deserts", these areas"},{"type":"divider"}]}\n```'
+    expect(splitReply(text, true).report?.blocks).toEqual([{ type: 'paragraph', text: 'Known as "transport deserts", these areas' }, { type: 'divider' }])
   })
 })
 
