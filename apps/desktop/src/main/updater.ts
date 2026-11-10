@@ -78,7 +78,7 @@ export class UpdateService {
   private noteVersion(): string | null {
     if (!this.kv) return null
     const now = app.getVersion()
-    // Versions before 0.5.2 didn't record themselves, so a profile with a saved session but no version came from one.
+    // Versions up to 0.5.1 didn't record themselves, so a profile with a saved session but no version came from one.
     const last = this.kv.get(LAST_VERSION_KEY) ?? (this.kv.get('session') !== undefined ? 'older' : undefined)
     if (typeof last === 'string' && last !== now && WHATS_NEW.some((notes) => notes.version === now)) this.kv.set(WHATS_NEW_KEY, now)
     this.kv.set(LAST_VERSION_KEY, now)

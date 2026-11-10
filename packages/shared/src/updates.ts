@@ -42,7 +42,7 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
-    version: '0.5.2',
+    version: '0.5.3',
     date: '2026-11-10',
     items: [
       'Reports always show as reports, whatever shape the AI writes them in, such as slides or sections.',
