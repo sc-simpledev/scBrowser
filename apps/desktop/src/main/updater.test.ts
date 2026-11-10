@@ -38,6 +38,7 @@ import { RETRY_DELAYS_MS, STALL_MS, UpdateService, updateError } from './updater
 
 const auto = updater.emitter
 const settings = { get: () => ({ autoUpdate: true }) } as never
+const platform = process.platform
 
 function service() {
   const states: UpdateState[] = []
@@ -58,10 +59,13 @@ describe('UpdateService', () => {
     process.env.SCB_E2E = '1'
     process.env.SCB_UPDATE_URL = 'http://127.0.0.1:9/'
     Object.assign(process, { resourcesPath: '/nonexistent' })
+    // These are the Linux and Windows path; Macs stage their own download, which macUpdate.test.ts covers.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     auto.removeAllListeners()
     auto.disableDifferentialDownload = false
   })
   afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
     vi.useRealTimers()
     process.env = { ...env }
   })
