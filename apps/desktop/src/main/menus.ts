@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { appScheme, CONTAINERS, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -201,6 +201,18 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
           label: 'Summarise page',
           click: () => actions.askAssistant({ text: summarisePromptFor(params.pageURL), selection: null, includePage: true })
         },
+        ...(isVideoPage(params.pageURL)
+          ? [
+              {
+                label: 'Make a report from this video',
+                // Its transcript goes along as the page, so the report's times can be jumped to.
+                submenu: ['study', 'brief', 'explainer'].flatMap((id) => {
+                  const preset = presetById(id)
+                  return preset ? [{ label: preset.name, click: () => actions.askAssistant({ text: videoReportPrompt(preset), selection: null, includePage: true }) }] : []
+                })
+              }
+            ]
+          : []),
         { label: 'Translate page', submenu: translateRows(actions) }
       ])
     }
@@ -245,6 +257,8 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     },
     ...(tab?.group ? [{ label: 'Remove from group', click: () => tabs.setGroup([id], null) }] : []),
     { type: 'separator' },
+    ...researchRows(tab, open, tabs),
+    { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
     { type: 'separator' },
@@ -255,6 +269,20 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Reopen closed tab', click: () => tabs.reopenClosed() },
     ...closedGroupRows(actions)
   ]).popup({ window })
+}
+
+type SnapshotTab = ReturnType<BrowserActions['tabs']['snapshot']>['tabs'][number]
+
+/** One report from several pages: the assistant opens with them picked and the research brief chosen. */
+function researchRows(tab: SnapshotTab | undefined, open: SnapshotTab[], tabs: BrowserActions['tabs']): MenuItemConstructorOptions[] {
+  const readable = (other: SnapshotTab) => /^https?:/i.test(other.url)
+  const report = (picked: SnapshotTab[]) => () => tabs.create(`sc://assistant/?preset=brief&tabs=${picked.slice(0, MAX_MENTIONED_TABS).map((other) => other.id).join(',')}`)
+  const group = tab?.group ? open.filter((other) => other.group === tab.group && readable(other)) : []
+  const all = open.filter(readable)
+  return [
+    ...(group.length > 1 ? [{ label: `Make a report from this group (${Math.min(group.length, MAX_MENTIONED_TABS)})`, click: report(group) }] : []),
+    { label: all.length > MAX_MENTIONED_TABS ? `Make a report from the first ${MAX_MENTIONED_TABS} tabs` : 'Make a report from all tabs', enabled: all.length > 1, click: report(all) }
+  ]
 }
 
 function closedGroupRows(actions: BrowserActions): MenuItemConstructorOptions[] {

@@ -2,6 +2,18 @@ import { create } from 'zustand'
 import { conversationReports, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 
+/** In split view the page being read is both halves, so the other one goes along with the active one. */
+export function splitPartner(activeId: number | null, splitIds: number[]): number | null {
+  if (activeId === null || splitIds.length !== 2 || !splitIds.includes(activeId)) return null
+  return splitIds.find((id) => id !== activeId) ?? null
+}
+
+function withSplitPartner(mentions: number[], activeId: number | null): number[] {
+  const partner = splitPartner(activeId, useTabs.getState().splitIds)
+  if (partner === null || mentions.includes(partner)) return mentions
+  return [partner, ...mentions].slice(0, MAX_MENTIONED_TABS)
+}
+
 export interface Turn extends SavedTurn {
   error?: string
   /** The error was the AI service being unreachable, which a VPN may fix. */
@@ -141,7 +153,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
       messages: sent.map(({ role, content }) => ({ role, content })),
       tabId,
       includePage,
-      extraTabIds: mentions,
+      extraTabIds: withSplitPartner(mentions, includePage ? tabId : null),
       selection,
       webSearch
     })

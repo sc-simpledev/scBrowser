@@ -177,6 +177,11 @@ export interface Settings {
   focusMode: boolean
   /** When a focus session turns Focus Mode off again, or 0 when none is running. */
   focusUntil: number
+  /** A study session's break ends here, then the next round of focus starts. 0 outside a break. */
+  focusBreakUntil: number
+  /** Which round of a study session this is, from 1. 0 outside a study session. */
+  studyRound: number
+  studyRounds: number
   /** Include browsing history in sync, as well as bookmarks and settings. */
   syncHistory: boolean
   /** Off until the person turns them on. */
@@ -186,6 +191,8 @@ export interface Settings {
   profilesButton: boolean
   /** Download new versions in the background. */
   autoUpdate: boolean
+  /** Leave a downloaded update until the browser closes, with no Restart button in the toolbar. */
+  updateOnQuit: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -254,11 +261,15 @@ export const DEFAULT_SETTINGS: Settings = {
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   focusUntil: 0,
+  focusBreakUntil: 0,
+  studyRound: 0,
+  studyRounds: 4,
   syncHistory: true,
   crashReports: false,
   usageStats: false,
   profilesButton: false,
-  autoUpdate: true
+  autoUpdate: true,
+  updateOnQuit: false
 }
 
 /** How soon Performance Mode sleeps background tabs. */
@@ -338,11 +349,15 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,
+  focusBreakUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,
+  studyRound: (v) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= 12,
+  studyRounds: (v) => Number.isSafeInteger(v) && (v as number) >= 1 && (v as number) <= 12,
   syncHistory: (v) => typeof v === 'boolean',
   crashReports: (v) => typeof v === 'boolean',
   usageStats: (v) => typeof v === 'boolean',
   profilesButton: (v) => typeof v === 'boolean',
-  autoUpdate: (v) => typeof v === 'boolean'
+  autoUpdate: (v) => typeof v === 'boolean',
+  updateOnQuit: (v) => typeof v === 'boolean'
 }
 
 /** Keeps only known keys with valid values, so bad stored or sent data can't reach the app. */

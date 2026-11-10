@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { containerPartition, fullToolbarOrder, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
@@ -57,9 +57,13 @@ function PrivateBadge() {
   )
 }
 
-/** Shows while a focus session runs, with the minutes left. Pressing it ends the session early. */
+/** Shows while a focus session or a study break runs, with the minutes left. Pressing it ends the session early. */
 function FocusChip() {
-  const until = useApp((s) => (s.settings.focusMode ? s.settings.focusUntil : 0))
+  const focusUntil = useApp((s) => (s.settings.focusMode ? s.settings.focusUntil : 0))
+  const breakUntil = useApp((s) => s.settings.focusBreakUntil)
+  const round = useApp((s) => s.settings.studyRound)
+  const rounds = useApp((s) => s.settings.studyRounds)
+  const until = breakUntil || focusUntil
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!until) return
@@ -69,13 +73,17 @@ function FocusChip() {
   }, [until])
   if (!until || until <= now) return null
   const minutes = Math.max(1, Math.ceil((until - now) / 60_000))
+  const onBreak = breakUntil > 0
+  const studying = round > 0
+  const label = onBreak ? `Study break, ${minutes} min left before round ${round + 1} of ${rounds}. End the session` : studying ? `Study session, round ${round} of ${rounds}, ${minutes} min left. End the session` : `Focus Mode, ${minutes} min left. End the session`
   return (
     <IconButton
-      label={`Focus Mode, ${minutes} min left. End the session`}
-      className="w-auto gap-1 px-2 text-xs font-medium text-accent tabular-nums"
-      onClick={() => void window.scb.invoke('settings:set', { focusMode: false, focusUntil: 0 })}
+      label={label}
+      className={cx('w-auto gap-1 px-2 text-xs font-medium tabular-nums', onBreak ? 'text-text-muted' : 'text-accent')}
+      onClick={() => void window.scb.invoke('settings:set', { focusMode: false, focusUntil: 0, focusBreakUntil: 0, studyRound: 0 })}
     >
-      <Timer size={14} strokeWidth={1.75} />
+      {onBreak ? <Coffee size={14} strokeWidth={1.75} /> : <Timer size={14} strokeWidth={1.75} />}
+      {studying && !onBreak && <span className="text-text-faint">{round}/{rounds}</span>}
       {minutes}m
     </IconButton>
   )
@@ -242,23 +250,36 @@ function SplitButton() {
   )
 }
 
-/** Shows once a new version is on its way, and stays out of sight the rest of the time. */
+/** Shows once a new version is ready, or once after updating, and stays out of sight the rest of the time. */
 function UpdateButton() {
   const [update, setUpdate] = useState<UpdateState | null>(null)
+  const waitForQuit = useApp((s) => s.settings.updateOnQuit)
   useEffect(() => {
     void window.scb.invoke('updates:state').then(setUpdate)
     return window.scb.on('updates:changed', setUpdate)
   }, [])
-  if (update?.phase !== 'ready' && update?.phase !== 'manual') return null
+  if (!update) return null
+  const chip = 'sc-no-drag flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors'
+  const ready = update.phase === 'ready' && !(waitForQuit && update.installsOnQuit)
+  if (ready || update.phase === 'manual') {
+    return (
+      <button type="button" onClick={() => void window.scb.invoke('updates:install')} className={cx(chip, 'bg-accent-soft text-accent hover:text-accent-hover')}>
+        <ArrowUpCircle aria-hidden size={14} strokeWidth={1.75} />
+        {update.phase === 'ready' ? 'Restart to update' : 'Update available'}
+      </button>
+    )
+  }
+  if (!update.whatsNew) return null
   return (
-    <button
-      type="button"
-      onClick={() => void window.scb.invoke('updates:install')}
-      className="sc-no-drag flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-soft px-2 text-xs font-medium text-accent transition-colors hover:text-accent-hover"
-    >
-      <ArrowUpCircle aria-hidden size={14} strokeWidth={1.75} />
-      {update.phase === 'ready' ? 'Restart to update' : 'Update available'}
-    </button>
+    <span className={cx(chip, 'gap-0 bg-accent-soft p-0 text-accent')}>
+      <button type="button" className="flex h-full items-center gap-1.5 rounded-l-md pr-1 pl-2 hover:text-accent-hover" onClick={() => void window.scb.invoke('tabs:create', 'sc://settings/#about')}>
+        <Sparkles aria-hidden size={13} strokeWidth={1.75} />
+        What’s new in {update.whatsNew}
+      </button>
+      <button type="button" aria-label="Dismiss what’s new" title="Dismiss" className="grid h-full w-6 place-items-center rounded-r-md hover:text-accent-hover" onClick={() => void window.scb.invoke('updates:seen')}>
+        <X aria-hidden size={12} strokeWidth={2} />
+      </button>
+    </span>
   )
 }
 

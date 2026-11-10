@@ -1,11 +1,12 @@
-import { ArrowUp, AtSign, Check, FileText, Globe, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, AtSign, Check, Columns2, FileText, Globe, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
-import { useAssistant, type Turn } from '../state/assistant'
+import { splitPartner, useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
 import { CopyReply, ReplyContent, Thinking, type OpenSource } from '../shared/ReplyContent'
 import { ReportPane } from '../shared/ReportPane'
+import { pasteCleanly } from '../shared/pasteCleanly'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { AiNetworkHelp } from '../shared/AiNetworkHelp'
@@ -201,6 +202,8 @@ export function AssistantPanel() {
   const canRead = /^(https?|file):/.test(pageUrl)
   const siteOff = !!host && status.disabledHosts.includes(host)
   const sharing = includePage && canRead && !siteOff
+  // Split view sends both halves, so the chip says so.
+  const splitOn = useTabs((s) => splitPartner(s.activeId, s.splitIds) !== null)
 
   // Typing / lists skills; @ lists other open tabs to bring into the message.
   const pickerItems = useMemo((): PickerItem[] => {
@@ -381,6 +384,7 @@ export function AssistantPanel() {
                     setDraft(e.target.value)
                     setPickerIndex(0)
                   }}
+                  onPaste={pasteCleanly}
                   onKeyDown={(e) => {
                     if (pickerItems.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                       e.preventDefault()
@@ -408,8 +412,8 @@ export function AssistantPanel() {
                         sharing ? 'text-text-muted' : 'text-text-faint line-through'
                       )}
                     >
-                      <FileText aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0', sharing && 'text-accent')} />
-                      <span className="truncate">{tab?.title || 'This page'}</span>
+                      {splitOn ? <Columns2 aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0', sharing && 'text-accent')} /> : <FileText aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0', sharing && 'text-accent')} />}
+                      <span className="truncate">{splitOn ? 'Both pages' : tab?.title || 'This page'}</span>
                     </button>
                   )}
                   {canRead && !siteOff && /^https?:/.test(pageUrl) && (

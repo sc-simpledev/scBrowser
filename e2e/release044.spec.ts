@@ -295,7 +295,7 @@ test.describe('AI', () => {
     await page.getByRole('button', { name: 'All 1' }).click()
     expect(mock!.requests.length).toBe(asked)
     mock!.queue.push('- It is about cardamom.')
-    await page.getByRole('button', { name: 'Summarise' }).click()
+    await page.getByRole('button', { name: 'Summarise', exact: true }).click()
     await expect(page.getByText('It is about cardamom.')).toBeVisible()
     expect(lastUserMessage()).toContain('secret ingredient is cardamom')
   })

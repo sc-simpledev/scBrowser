@@ -1,9 +1,9 @@
 import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { rememberCommand, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
 import { CopyReply, latestReport, ReplyContent, Thinking, type OpenSource } from '../../shared/ReplyContent'
-import { ReportPane, type SaveReport } from '../../shared/ReportPane'
+import { ReportPane, type QuizMemory, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
 import { PresetChip, PresetGallery } from '../../shared/PresetGallery'
 import { PickedTabs, TabPicker, type PickableTab } from '../../shared/TabPicker'
@@ -11,6 +11,7 @@ import { newestFile } from '../../state/files'
 import { api } from '../api'
 import { CodeWorkspace } from '../code/CodeWorkspace'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
+import { pasteCleanly } from '../../shared/pasteCleanly'
 
 interface Turn extends SavedTurn {
   error?: string
@@ -51,6 +52,12 @@ const loadTabs = () => api().invoke('tabs:research-list')
 const openSource: OpenSource = (source, target) => void api().invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
 
 const saveReport: SaveReport = (title, format, content) => api().invoke('report:save', title, format, content)
+const quizMemory: QuizMemory = {
+  load: (keys) => api().invoke('quiz:progress', keys),
+  record: (key, knew) => api().invoke('quiz:record', key, knew)
+}
+const loadHighlights = () => api().invoke('highlights:list').then((list) => list.map(({ text, title, url }) => ({ text, title, url })))
+const askReport = (report: Report) => (question: string) => api().invoke('ai:ask-report', reportMarkdown(report), question)
 const previewFile: PreviewFile = (name, content) => api().invoke('files:preview', name, content)
 const saveFile: SaveFile = (name, content) => api().invoke('files:save', name, content)
 
@@ -115,10 +122,23 @@ export function AssistantPage() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [report, setReport] = useState<Report | null>(null)
   const [file, setFile] = useState<FileVersion | null>(null)
-  const [preset, setPreset] = useState<ReportPreset | null>(null)
+  const [preset, setPreset] = useState<ReportPreset | null>(() => presetById(new URLSearchParams(location.search).get('preset') ?? '') ?? null)
   const [gallery, setGallery] = useState(false)
   const [listOpen, setListOpen] = useState(true)
   const [reportWidth, setReportWidth] = useState(REPORT_START_WIDTH)
+  const [designs, setDesigns] = useState<Record<string, ReportThemeId>>({})
+  const [customPresets, setCustomPresets] = useState<ReportPreset[]>([])
+  useEffect(() => {
+    void api()
+      .invoke('presets:list')
+      .then((list) => {
+        setCustomPresets(list)
+        // A saved template can be asked for in the address too.
+        const wanted = new URLSearchParams(location.search).get('preset')
+        const found = list.find((preset) => preset.id === wanted)
+        if (found) setPreset(found)
+      })
+  }, [])
   useEffect(() => {
     void api().invoke('settings:get').then((settings) => setReportWidth(Math.max(REPORT_START_WIDTH, settings.reportWidth)))
   }, [])
@@ -147,7 +167,10 @@ export function AssistantPage() {
     document.title = next === 'code' ? 'Terra Code' : 'Assistant'
   }, [])
   // Tabs picked for research stay picked for follow-up questions, until they're taken off.
-  const [research, setResearch] = useState<number[]>([])
+  // The tab menu's "Make a report from these tabs" opens this page with them already picked.
+  const [research, setResearch] = useState<number[]>(() =>
+    (new URLSearchParams(location.search).get('tabs') ?? '').split(',').map(Number).filter((id) => Number.isInteger(id) && id > 0).slice(0, MAX_MENTIONED_TABS)
+  )
   const [researchTabs, setResearchTabs] = useState<PickableTab[]>([])
   const [picking, setPicking] = useState(false)
   const researchRef = useRef<number[]>([])
@@ -262,6 +285,7 @@ export function AssistantPage() {
         setStatus(next)
         if (chatId.current) {
           const chat = await api().invoke('chats:get', chatId.current)
+          void api().invoke('chats:designs', chatId.current).then((saved) => !cancelled && setDesigns(saved))
           if (chat && !cancelled) {
             setTurns(chat.turns)
             const newest = conversationFiles(chat.turns).files
@@ -284,6 +308,26 @@ export function AssistantPage() {
     const log = logRef.current
     if (log && log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight
   }, [turns])
+
+  // The reply that wrote the open report: its sources are the report's, and edits are made in it.
+  const reportTurn = report ? turns.findIndex((turn) => turn.role === 'assistant' && repliesReports(turn.content).some((found) => JSON.stringify(found) === JSON.stringify(report))) : -1
+  const editReport = (next: Report) => {
+    if (!report || reportTurn === -1 || streamId) return
+    const content = replaceReport(turns[reportTurn]!.content, report, next)
+    if (content === null) return
+    const updated = turns.map((turn, index) => (index === reportTurn ? { ...turn, content } : turn))
+    setTurns(updated)
+    setReport(next)
+    if (next.title !== report.title && designs[report.title]) setDesigns({ ...designs, [next.title]: designs[report.title]! })
+    const saved = updated.filter((t) => t.content && !t.error).map(({ role, content, sources }) => ({ role, content, ...(sources ? { sources } : {}) }))
+    if (chatId.current) void api().invoke('chats:save', chatId.current, saved).then(refreshChats)
+  }
+  const pickDesign = (theme: ReportThemeId) => {
+    if (!report) return
+    setDesigns({ ...designs, [report.title]: theme })
+    chatId.current ??= crypto.randomUUID()
+    void api().invoke('chats:set-design', chatId.current, report.title, theme)
+  }
 
   const retry = () => {
     if (streamId) return
@@ -336,6 +380,8 @@ export function AssistantPage() {
       {gallery && (
         <PresetGallery
           wide
+          custom={customPresets}
+          onDelete={(id) => void api().invoke('presets:delete', id).then(setCustomPresets)}
           onClose={() => setGallery(false)}
           onPick={(picked) => {
             setPreset(picked)
@@ -355,6 +401,7 @@ export function AssistantPage() {
           aria-label="Message the assistant"
           placeholder={preset ? `What should the ${preset.name.toLowerCase()} be about?` : 'Ask anything, or type /code to work on a project folder'}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={pasteCleanly}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -533,6 +580,23 @@ export function AssistantPage() {
           busy={streamId !== null}
           save={saveReport}
           onClose={() => setReport(null)}
+          sources={reportTurn === -1 ? undefined : turns[reportTurn]!.sources}
+          onOpenSource={openSource}
+          onEdit={reportTurn === -1 ? undefined : editReport}
+          design={designs[report.title] ?? null}
+          onDesign={pickDesign}
+          onAsk={status?.ready ? askReport(report) : undefined}
+          quizMemory={quizMemory}
+          loadHighlights={loadHighlights}
+          speakerNotes={!!status?.ready}
+          onSaveTemplate={(name) =>
+            api()
+              .invoke('presets:save', templateFrom(report, name))
+              .then((list) => {
+                setCustomPresets(list)
+                return `Saved “${name}” to Make a report`
+              })
+          }
           width={reportWidth}
           onWidth={setReportWidth}
           onWidthCommit={(next) => void api().invoke('settings:set', { reportWidth: next })}

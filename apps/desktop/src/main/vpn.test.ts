@@ -2,7 +2,7 @@ import { createServer as createHttp } from 'node:http'
 import { createServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
-import { readTunToggle } from '@scbrowser/shared'
+import { parseVpnLink, readTunToggle } from '@scbrowser/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { migrate } from './storage/database'
 import { KeyValueRepo } from './storage/kv'
@@ -449,5 +449,30 @@ describe('failover', () => {
     const count = proxies.length
     await vpn.failOver()
     expect(proxies).toHaveLength(count)
+  })
+})
+
+describe('TUN check', () => {
+  const tun = { resolve: async () => '1.1.1.1', start: async () => ({ stop: async () => undefined }) }
+  const start = async (addresses: (string | null)[]) => {
+    const route: { scope: VpnScope; method: VpnMethod } = { scope: 'computer', method: 'tun' }
+    // Any file will do as the core, as TUN's start is a stand-in here.
+    const vpn = new VpnService({ ...setup(undefined, route).deps, corePath: () => process.execPath, tun, traceIp: async () => addresses.shift() ?? null })
+    vi.useFakeTimers()
+    await (vpn as unknown as { startTunnel(link: unknown): Promise<string> }).startTunnel(parseVpnLink(SECRET))
+    expect(vpn.state().tunCheck).toEqual({ state: 'checking' })
+    await vi.advanceTimersByTimeAsync(2500)
+    vi.useRealTimers()
+    return vpn.state().tunCheck
+  }
+
+  it('says other apps go through when the address the internet sees changes', async () => {
+    expect(await start(['203.0.113.1', '198.51.100.9'])).toEqual({ state: 'through', ip: '198.51.100.9' })
+  })
+  it('warns when the address stays the same', async () => {
+    expect(await start(['203.0.113.1', '203.0.113.1'])).toEqual({ state: 'leaking', ip: '203.0.113.1' })
+  })
+  it("says it couldn't tell when the check fails", async () => {
+    expect(await start(['203.0.113.1', null])).toEqual({ state: 'unknown' })
   })
 })

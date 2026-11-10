@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { REPORT_THEMES, reportHtml, reportMarkdown, reportVersions, reviseReportPrompt, shownMessage, type Report, repairJson, splitReply, toReport } from './report'
+import { REPORT_THEMES, replaceReport, reportHtml, reportMarkdown, reportVersions, reviseReportPrompt, shownMessage, type Report, repairJson, splitReply, toReport } from './report'
 import { presetById, presetPrompt, REPORT_PRESETS } from './reportPresets'
 
 const block = (json: string) => '```scterra-report\n' + json + '\n```'
@@ -205,6 +205,71 @@ describe('reportMarkdown', () => {
   })
 })
 
+describe('reports in other shapes', () => {
+  const blocksOf = (json: string) => splitReply('Here is your study notes report.\n\n```json\n' + json + '\n```', true).report?.blocks
+
+  it('reads slides with their own blocks, as asked for in the topic', () => {
+    const json = JSON.stringify({
+      title: 'Study Notes: Limited Public Transport',
+      summary: 'Notes.',
+      theme: 'notebook',
+      slides: [
+        { title: 'Slide 1: Define the issue', content: [{ type: 'callout', text: 'Big idea' }, { type: 'paragraph', text: 'Definition' }] },
+        { title: 'Slide 2: In the chosen location', points: ['Bus every 40 minutes', 'No trains'], stats: [{ value: '38%', label: 'have no stop nearby' }] }
+      ]
+    })
+    expect(blocksOf(json)).toEqual([
+      { type: 'heading', text: 'Slide 1: Define the issue', level: 2 },
+      { type: 'callout', text: 'Big idea' },
+      { type: 'paragraph', text: 'Definition' },
+      { type: 'heading', text: 'Slide 2: In the chosen location', level: 2 },
+      { type: 'list', items: ['Bus every 40 minutes', 'No trains'], ordered: false },
+      { type: 'stats', items: [{ value: '38%', label: 'have no stop nearby' }] }
+    ])
+  })
+
+  it('opens sections nested inside blocks, and blocks with no type', () => {
+    const json = JSON.stringify({
+      title: 'T',
+      blocks: [
+        { type: 'section', title: 'Key concepts', blocks: [{ heading: 'Access', text: 'Reaching places.' }] },
+        { headers: ['Term', 'Meaning'], rows: [['Headway', 'Time between buses']] }
+      ]
+    })
+    expect(blocksOf(json)).toEqual([
+      { type: 'heading', text: 'Key concepts', level: 2 },
+      { type: 'heading', text: 'Access', level: 3 },
+      { type: 'paragraph', text: 'Reaching places.' },
+      { type: 'table', headers: ['Term', 'Meaning'], rows: [['Headway', 'Time between buses']] }
+    ])
+  })
+
+  it('reads objects keyed by topic, wrapped reports, and loose text with bullets', () => {
+    const json = JSON.stringify({ report: { title: 'T', key_ideas: ['One', 'Two'], whenItBegan: 'It grew.\n- In 1990\n- Again in 2010' } })
+    const report = splitReply('```json\n' + json + '\n```', true).report
+    expect(report?.title).toBe('T')
+    expect(report?.blocks).toEqual([
+      { type: 'heading', text: 'Key ideas', level: 2 },
+      { type: 'list', items: ['One', 'Two'], ordered: false },
+      { type: 'heading', text: 'When it began', level: 2 },
+      { type: 'paragraph', text: 'It grew.' },
+      { type: 'list', items: ['In 1990', 'Again in 2010'], ordered: false }
+    ])
+  })
+
+  it('turns lists of like notes into cards', () => {
+    const json = JSON.stringify({ title: 'T', concepts: [{ title: 'Access', text: 'a' }, { title: 'Equity', text: 'b' }] })
+    expect(blocksOf(json)).toEqual([
+      { type: 'heading', text: 'Concepts', level: 2 },
+      { type: 'cards', items: [{ title: 'Access', text: 'a' }, { title: 'Equity', text: 'b' }] }
+    ])
+  })
+
+  it('still drops blocks of unknown types', () => {
+    expect(toReport('{"blocks":[{"type":"html","text":"<b>"},{"type":"section","text":"Intro"}]}')?.blocks).toEqual([{ type: 'heading', text: 'Intro', level: 2 }])
+  })
+})
+
 describe('richer report blocks', () => {
   it('reads stats, timelines, pros and cons, cards and steps in the shapes models write', () => {
     const report = toReport(
@@ -246,5 +311,33 @@ describe('report presets', () => {
     expect(shownMessage(presetPrompt(swot, 'Our bakery', false))).toBe('SWOT analysis: Our bakery')
     expect(shownMessage(presetPrompt(swot, '', true))).toBe('SWOT analysis: this page')
     expect(REPORT_PRESETS.every((preset) => REPORT_THEMES.some((theme) => theme.id === preset.theme))).toBe(true)
+  })
+})
+
+describe('quizzes, sources and edits', () => {
+  it('reads quiz blocks under their other names and keeps answers out of sight in saved pages', () => {
+    const report = toReport('{"title":"T","blocks":[{"type":"flashcards","items":[{"q":"Capital of France?","a":"Paris"}]}]}')!
+    expect(report.blocks).toEqual([{ type: 'quiz', items: [{ question: 'Capital of France?', answer: 'Paris' }] }])
+    expect(reportHtml(report, '')).toContain('<details><summary>Capital of France?</summary><p>Paris</p></details>')
+    expect(reportMarkdown(report)).toContain('Answer: Paris')
+  })
+
+  it('lists sources at the end of saved copies', () => {
+    const report: Report = { title: 'T', summary: '', theme: 'clean', blocks: [{ type: 'paragraph', text: 'A claim [1]' }], sources: [{ n: 1, title: 'Bus <times>', url: 'https://example.com/bus' }] }
+    expect(reportHtml(report, '')).toContain('<h2>Sources</h2><ol><li value="1"><span>Bus &lt;times&gt;</span>')
+    expect(reportMarkdown(report)).toContain('## Sources\n\n1. Bus <times> <https://example.com/bus>')
+  })
+
+  it('swaps an edited report into the reply that wrote it, keeping the rest', () => {
+    const one = { title: 'One', summary: '', theme: 'clean', blocks: [{ type: 'paragraph', text: 'a' }] } as Report
+    const two = { title: 'Two', summary: '', theme: 'clean', blocks: [{ type: 'paragraph', text: 'b' }] } as Report
+    const text = `Intro\n\n\`\`\`scterra-report\n${JSON.stringify(one)}\n\`\`\`\n\nMiddle\n\n\`\`\`scterra-report\n${JSON.stringify(two)}\n\`\`\`\n\nEnd`
+    const edited = { ...two, blocks: [{ type: 'paragraph', text: 'changed' }] } as Report
+    const next = replaceReport(text, two, edited)!
+    const parts = splitReply(next, true)
+    expect(parts.before).toBe('Intro')
+    expect(parts.report).toEqual(one)
+    expect(splitReply(parts.after, true)).toMatchObject({ before: 'Middle', after: 'End', report: edited })
+    expect(replaceReport('No report here', one, two)).toBeNull()
   })
 })

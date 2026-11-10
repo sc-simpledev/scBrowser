@@ -19,7 +19,7 @@ export interface TunnelHandle {
 
 export interface TunnelStart {
   corePath: string
-  config: (device: { device: string; mark?: number; autoRoute?: boolean }) => unknown
+  config: (device: { device: string; mark?: number; autoRoute?: boolean; gateway?: string[]; dns?: string[]; routes?: string[] }) => unknown
   onExit: () => void
   isCancelled: () => boolean
 }
@@ -293,6 +293,19 @@ async function startMac({ corePath, config, onExit, isCancelled }: TunnelStart):
 /** Windows names the adapter after this, and Xray asks wintun for it by name. */
 const WINDOWS_DEVICE = 'scTerra'
 
+/**
+ * What the Windows adapter is given. Without its own addresses it only gets a link-local one a
+ * few seconds after starting, and routes through it don't take. The two halves of each address
+ * space are more specific than the computer's default route, so they win over it whatever its
+ * metric, as WireGuard and OpenVPN do it; Xray binds its own connections to the real adapter.
+ */
+export const WINDOWS_TUN = {
+  device: WINDOWS_DEVICE,
+  gateway: ['172.19.0.1/30', 'fd7a:5c7e::1/126'],
+  dns: ['1.1.1.1'],
+  routes: ['0.0.0.0/1', '128.0.0.0/1', '::/1', '8000::/1']
+}
+
 /** A value for a single-quoted PowerShell string. */
 const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
 
@@ -302,32 +315,43 @@ const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`
  * and the wintun driver are copied somewhere only administrators can write and checked before
  * anything runs. It stops when the `alive` file goes, when scTerra's process is gone (even after
  * a crash), or when the core stops; wintun takes the adapter, and with it Xray's routes, away
- * as the core ends.
+ * as the core ends. It leaves its exit code in `result` and any error in `error`, as an elevated
+ * process's exit code doesn't always reach the one that asked for it.
  */
 export const windowsTunScript = ({ control, xrayHash, wintunHash, appPid, device }: { control: string; xrayHash: string; wintunHash: string; appPid: number; device: string }) => `
 $ErrorActionPreference = 'Stop'
 $control = ${psQuote(control)}
 $core = $null
 $dir = $null
+$code = 0
+function Quit([int]$n, [string]$why) {
+  $script:code = $n
+  if ($why) { Set-Content -LiteralPath (Join-Path $control 'error') -Value $why -ErrorAction SilentlyContinue }
+  exit $n
+}
 try {
-  $dir = Join-Path $env:SystemRoot ('Temp\scterra-' + [guid]::NewGuid().ToString('N'))
+  $dir = Join-Path $env:SystemRoot ('Temp\\scterra-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $dir | Out-Null
   & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
-  if ($LASTEXITCODE -ne 0) { exit 10 }
+  if ($LASTEXITCODE -ne 0) { Quit 10 'icacls failed' }
   Copy-Item -LiteralPath (Join-Path $control 'xray.exe') -Destination $dir
   Copy-Item -LiteralPath (Join-Path $control 'wintun.dll') -Destination $dir
-  if ((Get-FileHash -LiteralPath (Join-Path $dir 'xray.exe') -Algorithm SHA256).Hash -ne ${psQuote(xrayHash.toUpperCase())}) { exit 12 }
-  if ((Get-FileHash -LiteralPath (Join-Path $dir 'wintun.dll') -Algorithm SHA256).Hash -ne ${psQuote(wintunHash.toUpperCase())}) { exit 12 }
+  if ((Get-FileHash -LiteralPath (Join-Path $dir 'xray.exe') -Algorithm SHA256).Hash -ne ${psQuote(xrayHash.toUpperCase())}) { Quit 12 'xray.exe' }
+  if ((Get-FileHash -LiteralPath (Join-Path $dir 'wintun.dll') -Algorithm SHA256).Hash -ne ${psQuote(wintunHash.toUpperCase())}) { Quit 12 'wintun.dll' }
   # It holds passwords, so it's moved in behind the locked folder and gone once the core has read it.
   $config = Join-Path $dir 'config.json'
   Copy-Item -LiteralPath (Join-Path $control 'config') -Destination $config
   Remove-Item -LiteralPath (Join-Path $control 'config') -Force
-  $core = Start-Process -FilePath (Join-Path $dir 'xray.exe') -ArgumentList 'run', '-c', ('"' + $config + '"') -WorkingDirectory $dir -WindowStyle Hidden -PassThru
+  $out = Join-Path $dir 'out.txt'
+  $core = Start-Process -FilePath (Join-Path $dir 'xray.exe') -ArgumentList 'run', '-c', ('"' + $config + '"') -WorkingDirectory $dir -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError (Join-Path $dir 'err.txt')
   $tries = 0
   while (-not (Get-NetAdapter -Name ${psQuote(device)} -ErrorAction SilentlyContinue)) {
-    if ($core.HasExited) { exit 13 }
+    if ($core.HasExited) {
+      $said = ((Get-Content -LiteralPath $out, (Join-Path $dir 'err.txt') -ErrorAction SilentlyContinue) -join ' ')
+      Quit 13 ($said.Substring([Math]::Max(0, $said.Length - 400)))
+    }
     $tries++
-    if ($tries -gt 150) { exit 14 }
+    if ($tries -gt 150) { Quit 14 '' }
     Start-Sleep -Milliseconds 100
   }
   Remove-Item -LiteralPath $config -Force -ErrorAction SilentlyContinue
@@ -335,16 +359,39 @@ try {
   while (-not $core.HasExited -and (Get-Process -Id ${appPid} -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath (Join-Path $control 'alive'))) { Start-Sleep -Seconds 1 }
   exit 0
 } catch {
+  $code = 11
+  Set-Content -LiteralPath (Join-Path $control 'error') -Value $_.Exception.Message -ErrorAction SilentlyContinue
   exit 11
 } finally {
   if ($core -and -not $core.HasExited) { Stop-Process -Id $core.Id -Force -ErrorAction SilentlyContinue; $core.WaitForExit(3000) | Out-Null }
   if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath (Join-Path $control 'config') -Force -ErrorAction SilentlyContinue
+  Set-Content -LiteralPath (Join-Path $control 'result') -Value $code -ErrorAction SilentlyContinue
 }
 `
 
+/**
+ * What the admin prompt runs. The script itself is several thousand characters once encoded, more
+ * than an elevated command line reliably carries, so it's read from the control folder and only
+ * run if it matches the hash given here. Reading and checking the same text closes any gap between.
+ */
+export const windowsBootstrap = (scriptPath: string, scriptHash: string) =>
+  `$s = [IO.File]::ReadAllText(${psQuote(scriptPath)}); ` +
+  `$h = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s))).Replace('-', ''); ` +
+  `if ($h -ne ${psQuote(scriptHash.toUpperCase())}) { exit 12 }; ` +
+  `& ([ScriptBlock]::Create($s)); exit $LASTEXITCODE`
+
 /** PowerShell's -EncodedCommand takes UTF-16 little-endian, in base64. */
 const encodePowerShell = (script: string) => Buffer.from(script, 'utf16le').toString('base64')
+
+/** Why the elevated script stopped: its own record first, as the process's exit code can be lost. */
+export async function windowsExitReason(control: string, code: number | null): Promise<string> {
+  const recorded = Number.parseInt(await readFile(join(control, 'result'), 'utf8').catch(() => ''), 10)
+  const detail = (await readFile(join(control, 'error'), 'utf8').catch(() => '')).trim()
+  const known = Number.isNaN(recorded) ? code : recorded
+  const reason = REASONS[known ?? -1] ?? "TUN didn't start."
+  return detail && known !== 12 && known !== 14 ? `${reason} Windows said: ${detail.slice(0, 300)}` : reason
+}
 
 async function startWindows({ corePath, config, onExit, isCancelled }: TunnelStart): Promise<TunnelHandle> {
   const driver = join(dirname(corePath), 'wintun.dll')
@@ -356,12 +403,14 @@ async function startWindows({ corePath, config, onExit, isCancelled }: TunnelSta
   const xrayHash = await hashOf(join(control, 'xray.exe'))
   const wintunHash = await hashOf(join(control, 'wintun.dll'))
   // The folder sits in this account's own temp folder, which other accounts can't read.
-  await writeFile(join(control, 'config'), JSON.stringify(config({ device: WINDOWS_DEVICE, autoRoute: true })))
+  await writeFile(join(control, 'config'), JSON.stringify(config(WINDOWS_TUN)))
   await writeFile(join(control, 'alive'), '')
-  const inner = encodePowerShell(windowsTunScript({ control, xrayHash, wintunHash, appPid: process.pid, device: WINDOWS_DEVICE }))
+  const script = windowsTunScript({ control, xrayHash, wintunHash, appPid: process.pid, device: WINDOWS_DEVICE })
+  const scriptPath = join(control, 'tun.ps1')
+  await writeFile(scriptPath, script, 'utf8')
+  const inner = encodePowerShell(windowsBootstrap(scriptPath, createHash('sha256').update(script, 'utf8').digest('hex')))
   // Start-Process -Verb RunAs shows Windows' own prompt. Cancelling it throws, which reads as 126.
   const outer = `try { $p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -PassThru -Wait -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${inner}'; exit $p.ExitCode } catch { exit 126 }`
-  // Plain text, as it's only base64 and quotes, which keeps the line well under Windows' 32,767 characters.
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', outer], { stdio: 'ignore', windowsHide: true })
   const exited = new Promise<number | null>((resolve) => {
     child.once('exit', (code) => resolve(code))
@@ -377,10 +426,10 @@ async function startWindows({ corePath, config, onExit, isCancelled }: TunnelSta
     await new Promise<void>((resolve, reject) => {
       const deadline = Date.now() + START_MS
       let done = false
-      void exited.then((code) => {
+      void exited.then(async (code) => {
         if (done) return
         done = true
-        reject(new Error(REASONS[code ?? -1] ?? "TUN didn't start."))
+        reject(new Error(await windowsExitReason(control, code)))
       })
       const check = async () => {
         if (done) return

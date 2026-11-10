@@ -1,3 +1,4 @@
+import { studySession } from './focusTimer'
 import { isSiteFont, siteFontOf, withSiteFont } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
@@ -896,9 +897,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'focus-15': () => actions.focusFor(15),
     'focus-25': () => actions.focusFor(25),
     'focus-50': () => actions.focusFor(50),
+    'study-session': () => {
+      settings.set(studySession())
+      notify('Study session started: round 1 of 4, 25 minutes of focus')
+    },
     'focus-mode': () => {
       const focusMode = !settings.get().focusMode
-      settings.set({ focusMode, focusUntil: 0 })
+      settings.set({ focusMode, focusUntil: 0, focusBreakUntil: 0, studyRound: 0 })
       notify(focusMode ? 'Focus Mode is on' : 'Focus Mode is off')
     },
     'performance-mode': () => actions.performanceMode.toggle(),

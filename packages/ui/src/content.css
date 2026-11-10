@@ -537,13 +537,119 @@
   color: var(--sc-text-muted);
 }
 
+/* Practice questions: each answer stays hidden until asked for. */
+.sc-report .quiz {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sc-space) * 2);
+  padding: 0;
+  list-style: none;
+  counter-reset: question;
+}
+
+.sc-report .quiz > li {
+  counter-increment: question;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
+  background: var(--sc-surface);
+}
+
+.sc-report .quiz summary,
+.sc-report .quiz .question {
+  display: flex;
+  gap: calc(var(--sc-space) * 2.5);
+  align-items: baseline;
+  width: 100%;
+  padding: calc(var(--sc-space) * 3) calc(var(--sc-space) * 3.5);
+  font-weight: var(--sc-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sc-report .quiz summary::-webkit-details-marker {
+  display: none;
+}
+
+.sc-report .quiz summary::before,
+.sc-report .quiz .question::before {
+  content: 'Q' counter(question);
+  flex-shrink: 0;
+  color: var(--sc-accent);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-report .quiz details > p,
+.sc-report .quiz .answer {
+  margin: 0 calc(var(--sc-space) * 3.5) calc(var(--sc-space) * 3);
+  padding-top: calc(var(--sc-space) * 2.5);
+  border-top: 1px dashed var(--sc-border);
+  color: var(--sc-text-muted);
+}
+
+.sc-report .quiz .reveal {
+  margin-left: auto;
+  color: var(--sc-text-faint);
+  font-size: var(--sc-text-xs);
+  font-weight: var(--sc-weight-regular);
+  white-space: nowrap;
+}
+
+/* The pages a report drew on, added by the app. */
+.sc-report .sources ol {
+  gap: var(--sc-space);
+  color: var(--sc-text-muted);
+  font-size: var(--sc-text-xs);
+}
+
+.sc-report .sources .source-url {
+  color: var(--sc-text-faint);
+}
+
+.sc-report .sources button {
+  color: inherit;
+  text-align: left;
+}
+
+.sc-report .sources button:hover {
+  color: var(--sc-text);
+  text-decoration: underline;
+}
+
+/* Editing in place: each piece of text shows where it can be typed into. */
+/* Outlines rather than padding, so nothing moves when editing starts. */
+.sc-report[data-editing] [contenteditable] {
+  border-radius: var(--sc-radius-sm);
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+  cursor: text;
+  transition: outline-color 120ms ease, background-color 120ms ease;
+}
+
+.sc-report[data-editing] [contenteditable]:empty::before {
+  content: 'Empty';
+  color: var(--sc-text-faint);
+}
+
+.sc-report[data-editing] [contenteditable]:hover {
+  outline-color: var(--sc-border-strong);
+}
+
+.sc-report[data-editing] [contenteditable]:focus {
+  outline: 1px solid var(--sc-accent);
+  background: var(--sc-accent-soft);
+}
+
 @media print {
   .sc-report .stat,
   .sc-report .card,
   .sc-report .pros,
   .sc-report .cons,
   .sc-report .timeline li,
-  .sc-report .steps li {
+  .sc-report .steps li,
+  .sc-report .quiz > li {
     break-inside: avoid;
   }
 }

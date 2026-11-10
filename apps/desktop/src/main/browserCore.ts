@@ -1,9 +1,9 @@
 import { keepSessionCookies } from './sessionCookies'
 import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
-import { startFocusTimer } from './focusTimer'
+import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -39,7 +39,7 @@ import { SyncService, type KeyVault } from './sync'
 import { systemProxyFor } from './systemProxy'
 import type { TabManager } from './tabs/TabManager'
 import { tunnelFor } from './tun'
-import { UpdateService } from './updater'
+import { UpdateService, UPDATER_PARTITION } from './updater'
 import { attachGoogleSignIn } from './googleSignIn'
 import { DEFAULT_PROBE, VpnService, xrayPath, type ProbeTarget } from './vpn'
 import { WebApps } from './webApps'
@@ -265,8 +265,8 @@ export class BrowserCore {
       tun: tunnelFor(),
       applyProxy: async (rules) => {
         this.proxyRules = rules
-        // The assistant has its own session, and its requests should take the same route as tabs.
-        for (const target of [...this.prepared, session.fromPartition(AI_PARTITION)]) {
+        // The assistant and the updater have their own sessions, and their requests should take the same route as tabs.
+        for (const target of this.routedSessions()) {
           await this.applySessionProxy(target)
           await target.closeAllConnections()
         }
@@ -275,6 +275,13 @@ export class BrowserCore {
         for (const contents of this.allContents()) contents.setWebRTCIPHandlingPolicy(policy)
       },
       probeTarget: probeTarget(),
+      // Node's own fetch follows the computer's routes rather than the browser's proxy, which is the point.
+      traceIp: async () => {
+        const url = process.env.SCB_E2E ? process.env.SCB_IP_TRACE_URL : IP_TRACE_URL
+        if (!url) return null
+        const response = await fetch(url, { signal: AbortSignal.timeout(5_000) })
+        return response.ok ? parseTraceIp(await response.text()) : null
+      },
       fetchText: async (url) => {
         const response = await net.fetch(url)
         if (!response.ok) throw new Error(`The subscription answered with error ${response.status}.`)
@@ -293,7 +300,7 @@ export class BrowserCore {
         if (wanted === bypassInUse) return
         bypassInUse = wanted
         if (!this.proxyRules) return
-        for (const target of [...this.prepared, session.fromPartition(AI_PARTITION)]) void this.applySessionProxy(target).then(() => target.closeAllConnections())
+        for (const target of this.routedSessions()) void this.applySessionProxy(target).then(() => target.closeAllConnections())
       }),
       settings.subscribe((next) => {
         this.broadcast('settings:changed', next)
@@ -324,13 +331,17 @@ export class BrowserCore {
     this.syncFirst = setTimeout(() => void this.sync.run(), SYNC_FIRST_MS)
     this.syncTimer = setInterval(() => void this.sync.run(), SYNC_EVERY_MS)
     let installing = false
-    this.updates = new UpdateService(settings, (state) => {
-      this.broadcast('updates:changed', state)
-      // Pages draw above the browser's interface, so they step aside for the update screen.
-      const now = state.phase === 'installing'
-      if (now !== installing) this.windows.forEach((handle) => handle.hidePages(now))
-      installing = now
-    })
+    this.updates = new UpdateService(
+      settings,
+      (state) => {
+        this.broadcast('updates:changed', state)
+        // Pages draw above the browser's interface, so they step aside for the update screen.
+        const now = state.phase === 'installing'
+        if (now !== installing) this.windows.forEach((handle) => handle.hidePages(now))
+        installing = now
+      },
+      isPrivate ? undefined : kv
+    )
     this.updates.start()
     app.on('before-quit', () => {
       this.quitting = true
@@ -378,7 +389,16 @@ export class BrowserCore {
       }
     })
     app.on('will-quit', stopSaver)
-    const stopFocus = startFocusTimer(settings, () => this.focused()?.actions.notify('Focus session over. Focus Mode is off.'))
+    const say = (text: string) => this.focused()?.actions.notify(text)
+    const stopFocus = startFocusTimer(settings, () => say('Focus session over. Focus Mode is off.'), undefined, (event) =>
+      say(
+        event.kind === 'break'
+          ? `Round ${event.round} of ${event.rounds} done. Take a ${STUDY_BREAK_MINUTES}-minute break.`
+          : event.kind === 'round'
+            ? `Break over. Round ${event.round} of ${event.rounds}: ${STUDY_FOCUS_MINUTES} minutes of focus.`
+            : `Study session done: ${event.rounds} rounds. Nice work.`
+      )
+    )
     app.on('will-quit', stopFocus)
   }
 
@@ -611,6 +631,11 @@ export class BrowserCore {
       .flatMap((code) => available.find((language) => language === code) ?? available.find((language) => language.startsWith(`${code}-`)) ?? [])
     target.setSpellCheckerLanguages([match[0] ?? 'en-US'])
     target.setSpellCheckerEnabled(spellCheck)
+  }
+
+  /** Every session whose requests follow the VPN. The updater's is made with the same options electron-updater uses. */
+  private routedSessions(): Session[] {
+    return [...this.prepared, session.fromPartition(AI_PARTITION), session.fromPartition(UPDATER_PARTITION, { cache: false })]
   }
 
   private applySessionProxy(target: Session): Promise<void> {

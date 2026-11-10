@@ -1,4 +1,4 @@
-import type { ReportThemeId } from './report'
+import type { Report, ReportThemeId } from './report'
 
 export interface ReportPreset {
   id: string
@@ -92,7 +92,7 @@ export const REPORT_PRESETS: ReportPreset[] = [
     description: 'Key ideas, terms and questions to test yourself',
     icon: 'GraduationCap',
     theme: 'notebook',
-    shape: 'Sections: the big idea in a callout, key concepts as cards, a table of terms and definitions, and a final ordered list of practice questions.'
+    shape: 'Sections: the big idea in a callout, key concepts as cards, a table of terms and definitions, and finish with a quiz block of five to eight practice questions, each with a short answer.'
   },
   {
     id: 'literature',
@@ -167,3 +167,60 @@ export function shownPresetMessage(content: string): string | null {
   const asked = PRESET_ASK.exec(content)
   return asked ? `${asked[1]}: ${asked[4]}` : null
 }
+
+/** Report kinds people made themselves, from a report whose layout they liked. */
+export const MAX_CUSTOM_PRESETS = 30
+export const CUSTOM_PRESET_PREFIX = 'mine-'
+
+const BLOCK_WORDS: Record<string, string> = {
+  paragraph: 'a paragraph', list: 'a list', quote: 'a quote', callout: 'a callout', table: 'a table', stats: 'stats',
+  timeline: 'a timeline', proscons: 'a proscons block', cards: 'cards', steps: 'steps', quiz: 'a quiz block'
+}
+
+/**
+ * The layout of a report, put into words as a preset's instructions. Only the structure and the
+ * headings are kept, never the content, so the template works for any topic.
+ */
+export function templateFrom(report: Report, name: string): ReportPreset {
+  const parts: string[] = []
+  let section: { title: string; blocks: string[] } | null = null
+  const opening: string[] = []
+  const add = (word: string) => {
+    const list = section ? section.blocks : opening
+    if (list.at(-1) !== word) list.push(word)
+  }
+  const sections: { title: string; blocks: string[] }[] = []
+  for (const block of report.blocks) {
+    if (block.type === 'heading' && block.level === 2) {
+      section = { title: block.text, blocks: [] }
+      sections.push(section)
+    } else if (BLOCK_WORDS[block.type]) add(BLOCK_WORDS[block.type]!)
+  }
+  if (opening.length) parts.push(`Open with ${opening.join(', then ')}.`)
+  if (sections.length) parts.push(`Then these sections, in order: ${sections.map((part) => `"${part.title}"${part.blocks.length ? ` with ${part.blocks.join(', then ')}` : ''}`).join('; ')}. Keep the section names, changing them only where the topic needs it.`)
+  const clean = name.trim().slice(0, 60) || report.kind || report.title.slice(0, 60)
+  return {
+    id: `${CUSTOM_PRESET_PREFIX}${Date.now().toString(36)}`,
+    name: clean,
+    description: sections.length ? `${sections.length} sections, like “${report.title.slice(0, 40)}”` : `Laid out like “${report.title.slice(0, 40)}”`,
+    icon: 'FileText',
+    theme: report.theme,
+    shape: (parts.join(' ') || 'Use the same plain layout as before.').slice(0, 1500)
+  }
+}
+
+export const isCustomPreset = (value: unknown): value is ReportPreset => {
+  const preset = value as Record<string, unknown> | null
+  return (
+    typeof preset === 'object' && preset !== null &&
+    typeof preset.id === 'string' && preset.id.startsWith(CUSTOM_PRESET_PREFIX) && preset.id.length <= 40 &&
+    typeof preset.name === 'string' && preset.name.length > 0 && preset.name.length <= 60 && !/["\n]/.test(preset.name) &&
+    typeof preset.description === 'string' && preset.description.length <= 120 &&
+    typeof preset.icon === 'string' && typeof preset.theme === 'string' &&
+    typeof preset.shape === 'string' && preset.shape.length <= 1500
+  )
+}
+
+/** Turns a video into a report: its transcript goes along as the page, and times are cited like [1:23]. */
+export const videoReportPrompt = (preset: ReportPreset) =>
+  presetPrompt({ ...preset, shape: `${preset.shape} This is a video: work from its transcript, and after each point give the time it comes from, like [1:23], so it can be jumped to.` }, 'this video', true)

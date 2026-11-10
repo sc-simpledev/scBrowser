@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { createContext, memo, useContext, useMemo, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, ChevronRight, Copy, FileCode2, FileText, TriangleAlert } from 'lucide-react'
@@ -63,20 +63,117 @@ export function ReplyMarkdown({ text, onOpenLink, sources = [], onOpenSource }: 
   )
 }
 
-function Block({ block }: { block: ReportBlock }) {
+type Path = (string | number)[]
+
+/** Set while a report is being edited: every piece of text can then be typed into. */
+const EditContext = createContext<((path: Path, text: string) => void) | null>(null)
+
+/** A video's transcript, when the report came from one, so its times can be jumped to. */
+const TimeContext = createContext<{ source: CitationSource; open: OpenSource } | null>(null)
+
+const TIME = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g
+
+/** Text with `[1:23]` times turned into buttons that play the video from there. */
+function Timed({ text }: { text: string }) {
+  const video = useContext(TimeContext)
+  if (!video || !TIME.test(text)) return <>{text}</>
+  TIME.lastIndex = 0
+  const parts: (string | { label: string; seconds: number })[] = []
+  let last = 0
+  for (const match of text.matchAll(TIME)) {
+    parts.push(text.slice(last, match.index))
+    const seconds = match[1]!.split(':').reduce((total, part) => total * 60 + Number(part), 0)
+    parts.push({ label: match[1]!, seconds })
+    last = match.index + match[0].length
+  }
+  parts.push(text.slice(last))
+  return (
+    <>
+      {parts.map((part, index) =>
+        typeof part === 'string' ? (
+          part
+        ) : (
+          <button key={index} type="button" className="sc-cite sc-cite-time" title={`Play from ${part.label}`} onClick={() => video.open(video.source, { quote: null, seconds: part.seconds })}>
+            {part.label}
+          </button>
+        )
+      )}
+    </>
+  )
+}
+
+/** One piece of a report's text, typed into in place while editing. */
+function T({ as: Tag = 'span', path, text, className }: { as?: 'span' | 'div' | 'p' | 'h1' | 'h2' | 'h3' | 'li' | 'th' | 'td' | 'blockquote'; path: Path; text: string; className?: string }) {
+  const edit = useContext(EditContext)
+  if (!edit)
+    return (
+      <Tag className={className}>
+        <Timed text={text} />
+      </Tag>
+    )
+  return (
+    <Tag
+      className={className}
+      contentEditable="plaintext-only"
+      suppressContentEditableWarning
+      spellCheck
+      onBlur={(event) => {
+        const next = (event.currentTarget.textContent ?? '').trim()
+        if (next !== text) edit(path, next)
+      }}
+      onKeyDown={(event) => {
+        // Short pieces of text are one line; Escape puts back what was there.
+        if (event.key === 'Escape') {
+          event.currentTarget.textContent = text
+          event.currentTarget.blur()
+        }
+        if (event.key === 'Enter' && !event.shiftKey && Tag !== 'p' && Tag !== 'div' && Tag !== 'blockquote') {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+      }}
+    >
+      {text}
+    </Tag>
+  )
+}
+
+/** A practice question whose answer shows when it's pressed. */
+function QuizItem({ path, question, answer }: { path: Path; question: string; answer: string }) {
+  const editing = !!useContext(EditContext)
+  const [open, setOpen] = useState(false)
+  const shown = open || editing
+  return (
+    <li>
+      {editing ? (
+        <div className="question">
+          <T path={[...path, 'question']} text={question} />
+        </div>
+      ) : (
+        <button type="button" className="question" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span>{question}</span>
+          <span className="reveal">{open ? 'Hide answer' : 'Show answer'}</span>
+        </button>
+      )}
+      {shown && <T as="div" className="answer" path={[...path, 'answer']} text={answer} />}
+    </li>
+  )
+}
+
+function Block({ block, path }: { block: ReportBlock; path: Path }) {
   switch (block.type) {
     case 'heading':
-      return block.level === 3 ? <h3>{block.text}</h3> : <h2>{block.text}</h2>
+      return <T as={block.level === 3 ? 'h3' : 'h2'} path={[...path, 'text']} text={block.text} />
     case 'paragraph':
-      return <p>{block.text}</p>
+      return <T as="p" path={[...path, 'text']} text={block.text} />
     case 'list': {
-      const items = block.items.map((item, index) => <li key={index}>{item}</li>)
+      const items = block.items.map((item, index) => <T key={index} as="li" path={[...path, 'items', index]} text={item} />)
       return block.ordered ? <ol>{items}</ol> : <ul>{items}</ul>
     }
     case 'quote':
-      return <blockquote>{block.text}</blockquote>
+      return <T as="blockquote" path={[...path, 'text']} text={block.text} />
     case 'callout':
-      return <div className="callout">{block.text}</div>
+      return <T as="div" className="callout" path={[...path, 'text']} text={block.text} />
     case 'table':
       return (
         <div className="table">
@@ -84,7 +181,7 @@ function Block({ block }: { block: ReportBlock }) {
             <thead>
               <tr>
                 {block.headers.map((header, index) => (
-                  <th key={index}>{header}</th>
+                  <T key={index} as="th" path={[...path, 'headers', index]} text={header} />
                 ))}
               </tr>
             </thead>
@@ -92,7 +189,7 @@ function Block({ block }: { block: ReportBlock }) {
               {block.rows.map((row, rowIndex) => (
                 <tr key={rowIndex}>
                   {row.map((cell, index) => (
-                    <td key={index}>{cell}</td>
+                    <T key={index} as="td" path={[...path, 'rows', rowIndex, index]} text={cell} />
                   ))}
                 </tr>
               ))}
@@ -109,8 +206,8 @@ function Block({ block }: { block: ReportBlock }) {
         <div className="stats">
           {block.items.map((item, index) => (
             <div key={index} className="stat">
-              <div className="stat-value">{item.value}</div>
-              <div className="stat-label">{item.label}</div>
+              <T as="div" className="stat-value" path={[...path, 'items', index, 'value']} text={item.value} />
+              <T as="div" className="stat-label" path={[...path, 'items', index, 'label']} text={item.label} />
             </div>
           ))}
         </div>
@@ -120,8 +217,8 @@ function Block({ block }: { block: ReportBlock }) {
         <ol className="timeline">
           {block.items.map((item, index) => (
             <li key={index}>
-              <div className="when">{item.when}</div>
-              <div>{item.text}</div>
+              <T as="div" className="when" path={[...path, 'items', index, 'when']} text={item.when} />
+              <T as="div" path={[...path, 'items', index, 'text']} text={item.text} />
             </li>
           ))}
         </ol>
@@ -134,7 +231,7 @@ function Block({ block }: { block: ReportBlock }) {
               <div className="side">{side === 'pros' ? 'Pros' : 'Cons'}</div>
               <ul>
                 {block[side].map((item, index) => (
-                  <li key={index}>{item}</li>
+                  <T key={index} as="li" path={[...path, side, index]} text={item} />
                 ))}
               </ul>
             </div>
@@ -146,8 +243,8 @@ function Block({ block }: { block: ReportBlock }) {
         <div className="cards">
           {block.items.map((item, index) => (
             <div key={index} className="card">
-              <div className="card-title">{item.title}</div>
-              <div>{item.text}</div>
+              <T as="div" className="card-title" path={[...path, 'items', index, 'title']} text={item.title} />
+              <T as="div" path={[...path, 'items', index, 'text']} text={item.text} />
             </div>
           ))}
         </div>
@@ -157,26 +254,83 @@ function Block({ block }: { block: ReportBlock }) {
         <ol className="steps">
           {block.items.map((item, index) => (
             <li key={index}>
-              <div className="step-title">{item.title}</div>
-              <div>{item.text}</div>
+              <T as="div" className="step-title" path={[...path, 'items', index, 'title']} text={item.title} />
+              <T as="div" path={[...path, 'items', index, 'text']} text={item.text} />
             </li>
+          ))}
+        </ol>
+      )
+    case 'quiz':
+      return (
+        <ol className="quiz">
+          {block.items.map((item, index) => (
+            <QuizItem key={index} path={[...path, 'items', index]} question={item.question} answer={item.answer} />
           ))}
         </ol>
       )
   }
 }
 
+/** A copy of the report with the text at `path` replaced. Removing all of a block's text removes the block. */
+export function editReport(report: Report, path: Path, text: string): Report {
+  const next = structuredClone(report) as unknown as Record<string | number, unknown>
+  let target = next
+  for (const key of path.slice(0, -1)) target = target[key] as Record<string | number, unknown>
+  target[path.at(-1)!] = text
+  const edited = next as unknown as Report
+  if (!text && path[0] === 'blocks' && path.length === 3) edited.blocks = edited.blocks.filter((_, index) => index !== path[1])
+  if (!text && path[0] === 'blocks' && path.length >= 4 && Array.isArray(target) && typeof path.at(-1) === 'number' && (path[2] === 'items' || path[2] === 'pros' || path[2] === 'cons'))
+    (target as unknown[]).splice(path.at(-1) as number, 1)
+  return edited
+}
+
+interface ReportViewProps {
+  report: Report
+  /** Pages the report drew on, listed at its end. */
+  sources?: CitationSource[]
+  onOpenSource?: OpenSource
+  /** Makes every piece of text editable, reporting each change as a whole new report. */
+  onEdit?: (next: Report) => void
+}
+
 /** All text is set as React text, and the only styling is the theme chosen from our own set. */
-export function ReportView({ report }: { report: Report }) {
+export function ReportView({ report, sources, onOpenSource, onEdit }: ReportViewProps) {
+  const edit = useMemo(() => (onEdit ? (path: Path, text: string) => onEdit(editReport(report, path, text)) : null), [onEdit, report])
+  const transcript = sources?.find((source) => source.kind === 'transcript')
+  const video = useMemo(() => (transcript && onOpenSource ? { source: transcript, open: onOpenSource } : null), [transcript, onOpenSource])
   return (
-    <article className="sc-report" data-theme={report.theme}>
-      {report.kind && <p className="kind">{report.kind}</p>}
-      <h1>{report.title}</h1>
-      {report.summary && <p className="summary">{report.summary}</p>}
-      {report.blocks.map((block, index) => (
-        <Block key={index} block={block} />
-      ))}
-    </article>
+    <TimeContext.Provider value={video}>
+    <EditContext.Provider value={edit}>
+      <article className="sc-report" data-theme={report.theme} data-editing={onEdit ? '' : undefined}>
+        {report.kind && <T as="p" className="kind" path={['kind']} text={report.kind} />}
+        <T as="h1" path={['title']} text={report.title} />
+        {(report.summary || onEdit) && <T as="p" className="summary" path={['summary']} text={report.summary} />}
+        {report.blocks.map((block, index) => (
+          <Block key={`${index}-${block.type}`} block={block} path={['blocks', index]} />
+        ))}
+        {sources && sources.length > 0 && (
+          <section className="sources" aria-label="Sources">
+            <h2>Sources</h2>
+            <ol>
+              {sources.map((source) => (
+                <li key={source.n} value={source.n}>
+                  {onOpenSource ? (
+                    <button type="button" title={source.url} onClick={() => onOpenSource(source, { quote: null, seconds: null })}>
+                      {source.title || hostOf(source.url)} <span className="source-url">{hostOf(source.url)}</span>
+                    </button>
+                  ) : (
+                    <span>
+                      {source.title || hostOf(source.url)} <span className="source-url">{source.url}</span>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </article>
+    </EditContext.Provider>
+    </TimeContext.Provider>
   )
 }
 

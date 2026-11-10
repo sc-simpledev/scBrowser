@@ -114,8 +114,8 @@ weight.
 | Variable | Default | Meaning |
 |---|---|---|
 | `REQUESTS_PER_MINUTE` | 10 | Per IP address |
-| `REQUESTS_PER_DAY` | 300 | Per IP address |
-| `TOKENS_PER_DAY` | 600000 | Per IP address |
+| `REQUESTS_PER_DAY` | 1200 | Per IP address |
+| `TOKENS_PER_DAY` | 2400000 | Per IP address |
 | `GLOBAL_TOKENS_PER_DAY` | 5000000 | Across everyone; the cap on what a day can cost |
 | `CONCURRENT_PER_IP` | 2 | Requests at once, per IP address; per instance on Deno. A reply that never finishes frees its slot after 15 minutes |
 | `MAX_INPUT_CHARS` | 300000 | Per request |

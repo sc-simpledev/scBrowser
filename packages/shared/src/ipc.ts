@@ -16,7 +16,9 @@ import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
 import type { PrintChoice, PrinterChoice } from './print'
-import type { ReportFormat } from './report'
+import type { ReportFormat, ReportThemeId } from './report'
+import type { ReportPreset } from './reportPresets'
+import type { CardProgress, QuizProgress } from './quiz'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot } from './tabs'
 import type { UpdateState } from './updates'
@@ -125,6 +127,7 @@ export interface ChromeCommands {
   'site:controls': (x: number, y: number) => void
   'updates:state': () => UpdateState
   'updates:install': () => void
+  'updates:seen': () => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
   'profiles:menu': (x: number, y: number) => void
   /** Opens a sidebar site, or closes it if it's the one showing. */
@@ -297,6 +300,7 @@ export const COMMAND_CHANNELS = [
   'site:controls',
   'updates:state',
   'updates:install',
+  'updates:seen',
   'bookmarks:overflow-menu',
   'profiles:menu',
   'sidebar-sites:toggle',
@@ -408,6 +412,18 @@ export interface InternalCommands {
   'chats:get': (id: string) => SavedChat | null
   'chats:save': (id: string, turns: SavedTurn[]) => void
   'chats:delete': (id: string) => void
+  /** The design picked for each report in a chat, by title. */
+  'chats:designs': (id: string) => Record<string, ReportThemeId>
+  'chats:set-design': (id: string, title: string, theme: ReportThemeId) => void
+  /** How well each quiz question is known, by its key, for spaced repetition. */
+  'quiz:progress': (keys: string[]) => QuizProgress
+  'quiz:record': (key: string, knew: boolean) => CardProgress
+  /** Report kinds the person saved from reports they liked. */
+  'presets:list': () => ReportPreset[]
+  'presets:save': (preset: ReportPreset) => ReportPreset[]
+  'presets:delete': (id: string) => ReportPreset[]
+  /** A question about a report, answered beside it without making a new draft. */
+  'ai:ask-report': (report: string, question: string) => string
   'ai:status': () => AiStatus
   'ai:send': (streamId: string, request: AssistantRequest) => void
   'ai:cancel': (streamId: string) => void
@@ -516,6 +532,10 @@ export interface InternalCommands {
   'updates:state': () => UpdateState
   'updates:check': () => UpdateState
   'updates:install': () => void
+  'updates:seen': () => void
+  /** The release before this one, if there is one to go back to. */
+  'updates:previous': () => string | null
+  'updates:rollback': (version: string) => UpdateState
   /** Watched pages, without the text kept to compare against. */
   'watch:list': () => Omit<PageWatch, 'lastText'>[]
   'watch:check': (id: string) => void
@@ -638,6 +658,14 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'chats:get',
   'chats:save',
   'chats:delete',
+  'chats:designs',
+  'chats:set-design',
+  'quiz:progress',
+  'quiz:record',
+  'presets:list',
+  'presets:save',
+  'presets:delete',
+  'ai:ask-report',
   'ai:status',
   'ai:send',
   'ai:cancel',
@@ -727,6 +755,9 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'updates:state',
   'updates:check',
   'updates:install',
+  'updates:seen',
+  'updates:previous',
+  'updates:rollback',
   'welcome:finish',
   'welcome:replay',
   'watch:list',

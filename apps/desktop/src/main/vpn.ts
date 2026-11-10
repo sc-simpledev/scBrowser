@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { createServer, connect, type AddressInfo, type Socket } from 'node:net'
 import { join } from 'node:path'
-import { TUN_OFF_REASON, TUN_SWITCHED_NOTE, TUN_TOGGLE_EVERY_MS,
+import { TUN_OFF_REASON, TUN_SWITCHED_NOTE, TUN_TOGGLE_EVERY_MS, type TunCheck,
   byPing,
   coreRefuses,
   isDirectProxy,
@@ -88,8 +88,13 @@ interface VpnDeps {
   setMethod?: (method: VpnMethod) => void
   /** A small page that answers with an empty 204, requested through each connection. */
   probeTarget: ProbeTarget
+  /** The address the internet sees for this computer, asked outside the browser. Null if it couldn't be found. */
+  traceIp?: () => Promise<string | null>
   onChange: () => void
 }
+
+/** Long enough for Windows and macOS to settle the new routes before checking them. */
+const TUN_CHECK_DELAY_MS = 2000
 
 /** The useful end of Xray's error, which is a chain of `outer > inner` messages. */
 const coreReason = (output: string) => {
@@ -207,6 +212,7 @@ export class VpnService {
   private error: string | null = null
   private core: ChildProcess | null = null
   private tunnel: TunnelHandle | null = null
+  private tunCheck: TunCheck | null = null
   private proxyWatcher: { stop: () => void } | null = null
   private pings: VpnPings = {}
   private progress: VpnPingProgress = { running: false, done: 0, total: 0 }
@@ -273,7 +279,8 @@ export class VpnService {
       error: this.error,
       connections: this.store.connections.map(({ link: _link, ...connection }) => connection),
       groups: this.store.groups.map(({ id, name, subscription }) => ({ id, name, subscription })),
-      pings: this.pings
+      pings: this.pings,
+      tunCheck: this.tunnel ? this.tunCheck : null
     }
   }
 
@@ -761,7 +768,9 @@ export class VpnService {
     this.checkCoreCanCarry(link)
     const socksPort = await freePort()
     const cancelled = this.startRun
-    // Looked up now, as DNS itself goes through the connection once the routes change.
+    // Looked up now, as DNS itself goes through the connection once the routes change. The
+    // address the internet sees is asked for now too, to compare with once TUN is up.
+    const before = this.deps.traceIp ? this.deps.traceIp().catch(() => null) : Promise.resolve(null)
     const serverAddress = await tun.resolve(link.host)
     const handle = await tun.start({
       corePath: this.deps.corePath(),
@@ -775,7 +784,18 @@ export class VpnService {
       isCancelled: () => cancelled !== this.startRun
     })
     this.tunnel = handle
+    this.tunCheck = this.deps.traceIp ? { state: 'checking' } : null
+    if (this.deps.traceIp) void this.checkTunnel(handle, await before)
     return `socks5://127.0.0.1:${socksPort}`
+  }
+
+  /** Sees whether the address other apps show the internet changed once TUN came up. */
+  private async checkTunnel(handle: TunnelHandle, before: string | null): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, TUN_CHECK_DELAY_MS))
+    const after = await this.deps.traceIp!().catch(() => null)
+    if (this.tunnel !== handle) return
+    this.tunCheck = !after ? { state: 'unknown' } : before && before === after ? { state: 'leaking', ip: after } : before ? { state: 'through', ip: after } : { state: 'unknown' }
+    this.deps.onChange()
   }
 
   private async startCore(config: (port: number) => unknown): Promise<string> {

@@ -198,7 +198,7 @@ export const SUMMARISE_PROMPT = 'Summarise this page.'
 /** For a video with a transcript, a summary that jumps to each moment. */
 export const VIDEO_SUMMARY_PROMPT = 'Summarise this video in two sentences, then list its key moments in order, each starting with its time from the transcript, like [1:23], so I can jump to them.'
 
-const isVideoPage = (url: string) => URL.canParse(url) && /(^|\.)youtube\.com$/.test(new URL(url).hostname) && new URL(url).pathname === '/watch'
+export const isVideoPage = (url: string) => URL.canParse(url) && /(^|\.)youtube\.com$/.test(new URL(url).hostname) && new URL(url).pathname === '/watch'
 
 /** The summary prompt that fits the page: key moments for a video, a plain summary otherwise. */
 export const summarisePromptFor = (url: string) => (isVideoPage(url) ? VIDEO_SUMMARY_PROMPT : SUMMARISE_PROMPT)

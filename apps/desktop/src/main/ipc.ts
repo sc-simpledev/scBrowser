@@ -233,6 +233,7 @@ const validators: Validators = {
     args.length === 3 && (args[0] === null || isShortString(args[0], 64)) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
   'updates:state': noArgs,
   'updates:install': noArgs,
+  'updates:seen': noArgs,
   'bookmarks:overflow-menu': (args): args is [BarItem[], number, number] =>
     args.length === 3 &&
     Array.isArray(args[0]) &&
@@ -452,7 +453,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       chats.delete(id)
       void ai.coder.forget(id)
     },
-    'report:save': (name, format, content) => saveReport(window, name, format, content),
+    'report:save': (name, format, content) => saveReport(window, name, format, content, (system, user) => ai.complete(system, user)),
     'privacy:toggle-site': (host) => {
       privacy.toggleSite(host)
       if (tabs.active) tabs.reload(tabs.active.id)
@@ -464,6 +465,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'site:controls': (x, y) => openSiteControls(x, y),
     'updates:state': () => updates.state(),
     'updates:install': () => updates.install(),
+    'updates:seen': () => updates.seenWhatsNew(),
     'bookmarks:overflow-menu': (items, x, y) => {
       const open = (url: string) => {
         if (tabs.active) actions.openAddress(tabs.active.id, url)

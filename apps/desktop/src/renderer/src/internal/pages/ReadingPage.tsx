@@ -71,6 +71,7 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
 export function ReadingPage() {
   const [items, setItems] = useState<ReadingItem[] | null>(null)
   const [show, setShow] = useState<'unread' | 'all'>('unread')
+  const [batch, setBatch] = useState<{ done: number; total: number; failed: number } | null>(null)
   const load = useCallback(() => void api().invoke('reading:list').then(setItems), [])
   useEffect(() => {
     load()
@@ -81,6 +82,21 @@ export function ReadingPage() {
   if (!items) return null
   const unread = items.filter((item) => item.readAt === null)
   const shown = show === 'unread' ? unread : items
+  const waiting = unread.filter((item) => !item.summary)
+  // One at a time, so the AI isn't sent several pages at once, and one failure doesn't stop the rest.
+  const summariseAll = async () => {
+    const queue = waiting
+    let failed = 0
+    setBatch({ done: 0, total: queue.length, failed })
+    for (const [index, item] of queue.entries()) {
+      await api()
+        .invoke('reading:summarise', item.id)
+        .catch(() => failed++)
+      setBatch({ done: index + 1, total: queue.length, failed })
+      load()
+    }
+    setTimeout(() => setBatch(null), failed ? 6000 : 2500)
+  }
   return (
     <>
       <div role="group" aria-label="Show" className="flex items-center gap-1.5 text-xs">
@@ -100,12 +116,28 @@ export function ReadingPage() {
             {label}
           </button>
         ))}
+        {batch ? (
+          <span role="status" className="ml-auto text-text-muted tabular-nums">
+            {batch.done < batch.total ? `Summarising ${batch.done + 1} of ${batch.total}…` : `Summarised ${batch.total - batch.failed} of ${batch.total}${batch.failed ? `. ${batch.failed} couldn't be read.` : '.'}`}
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={waiting.length === 0}
+            title="Sends each unread page's text to your AI, one at a time."
+            onClick={() => void summariseAll()}
+            className="ml-auto flex h-6 items-center gap-1 rounded-sm border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Sparkles aria-hidden size={11} strokeWidth={1.75} className="text-accent" />
+            Summarise unread{waiting.length > 0 ? ` (${waiting.length})` : ''}
+          </button>
+        )}
         <button
           type="button"
           disabled={unread.length === 0}
           title="Only titles, addresses and summaries go to the AI, not the pages."
           onClick={() => void api().invoke('reading:digest')}
-          className="ml-auto flex h-6 items-center rounded-sm border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:pointer-events-none disabled:opacity-50"
+          className="flex h-6 items-center rounded-sm border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:pointer-events-none disabled:opacity-50"
         >
           Digest of unread
         </button>

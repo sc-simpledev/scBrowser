@@ -43,6 +43,8 @@ export interface VpnState {
   error: string | null
   connections: VpnConnection[]
   groups: VpnGroup[]
+  /** While TUN is on: whether other apps' traffic was seen leaving through the VPN. */
+  tunCheck: TunCheck | null
 }
 
 /** A file in the public release repo. A first line of `on` lets TUN work, and `off` turns it off for everybody. */
@@ -294,6 +296,12 @@ export interface TunDevice {
   serverAddress: string
   mark?: number
   autoRoute?: boolean
+  /** Windows: the adapter's own addresses, without which it only gets a link-local one after a few seconds. */
+  gateway?: string[]
+  /** Windows: DNS servers set on the adapter. */
+  dns?: string[]
+  /** Routes Xray adds itself, in place of the default `0.0.0.0/0` and `::/0`. */
+  routes?: string[]
 }
 
 /**
@@ -317,7 +325,9 @@ export function xrayComputerConfig(link: ParsedLink, { socksPort, httpPort, tun 
               settings: {
                 name: tun.device,
                 mtu: 1500,
-                ...(tun.autoRoute ? { autoSystemRoutingTable: ['0.0.0.0/0', '::/0'], autoOutboundsInterface: 'auto' } : {})
+                ...(tun.gateway ? { gateway: tun.gateway } : {}),
+                ...(tun.dns ? { dns: tun.dns } : {}),
+                ...(tun.autoRoute || tun.routes ? { autoSystemRoutingTable: tun.routes ?? ['0.0.0.0/0', '::/0'], autoOutboundsInterface: 'auto' } : {})
               },
               sniffing: { enabled: true, destOverride: ['http', 'tls'] }
             }
@@ -363,3 +373,15 @@ export function byPing<T extends { id: string }>(items: T[], pings: Record<strin
 /** Shown wherever the starting (Default) VPN is offered. */
 export const STARTING_VPN_NOTE =
   'Free public servers are run by people you don’t know. Traffic to sites or apps that aren’t secure (plain http, or apps that don’t encrypt) could be seen by whoever runs the server. Secure (https) sites stay encrypted, so for general use it’s fine. Use a VPN you trust for anything sensitive.'
+
+/** Asked for the address the internet sees, outside the browser, to check TUN really carries other apps. */
+export const IP_TRACE_URL = 'https://1.1.1.1/cdn-cgi/trace'
+
+/** The `ip=` line of Cloudflare's trace page. */
+export function parseTraceIp(text: string): string | null {
+  const ip = /^ip=([0-9a-f.:]+)$/im.exec(text)?.[1]
+  return ip && ip.length <= 45 ? ip : null
+}
+
+/** How the last TUN check went. */
+export type TunCheck = { state: 'checking' } | { state: 'through'; ip: string } | { state: 'leaking'; ip: string } | { state: 'unknown' }

@@ -129,7 +129,8 @@ test('the side panel opens a report beside it, and it downloads as PDF, HTML and
   expect(readFileSync(join(folder, 'out.md'), 'utf8')).toContain('# Launch plan')
   rmSync(folder, { recursive: true, force: true })
 
-  await pane.getByRole('button', { name: 'Open in a full page' }).click()
+  await pane.getByRole('button', { name: 'More report actions' }).click()
+  await pane.getByRole('menuitem', { name: 'Open in a full page' }).click()
   const page = await h.page('sc://assistant/?chat=')
   await expect(page.locator('article.sc-report')).toContainText('Launch plan')
   await expect(page.getByRole('navigation', { name: 'Browser pages' })).toHaveCount(0)

@@ -27,6 +27,7 @@ import {
   type UpdateState,
   type WebApp
 } from '@scbrowser/shared'
+import { WHATS_NEW } from '@scbrowser/shared'
 import { api, applyPerformance, applyTint } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
 import { announceSearching, openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, type SettingsGroupId } from '../settingsGroups'
@@ -82,8 +83,10 @@ function UpdatesSection({ settings, update }: { settings: Settings; update: Upda
   const hint =
     state.phase === 'downloading' && state.percent !== null
       ? `Downloading version ${state.version ?? ''}, ${state.percent}%`
-      : state.phase === 'ready' || state.phase === 'manual'
-        ? `Version ${state.version} is ready.`
+      : state.phase === 'ready' && settings.updateOnQuit && state.installsOnQuit
+        ? `Version ${state.version} goes in when you next close scTerra.`
+        : state.phase === 'ready' || state.phase === 'manual'
+          ? `Version ${state.version} is ready.`
         : (state.error ?? UPDATE_WORDS[state.phase])
   return (
     <Section title="Updates">
@@ -92,6 +95,12 @@ function UpdatesSection({ settings, update }: { settings: Settings; update: Upda
           <Row setting="autoUpdate" label="Update automatically" hint="Downloads new versions in the background.">
             <Switch label="Update automatically" checked={settings.autoUpdate} onChange={(autoUpdate) => update({ autoUpdate })} />
           </Row>
+          <GoBackRow busy={busy} onState={setState} />
+          {state.installsOnQuit && (
+            <Row setting="updateOnQuit" label="Wait until I close scTerra" hint="No Restart button in the toolbar. A downloaded update goes in the next time you close the browser." keywords="restart later quit">
+              <Switch label="Wait until I close scTerra" checked={settings.updateOnQuit} onChange={(updateOnQuit) => update({ updateOnQuit })} />
+            </Row>
+          )}
           <Row label="Version" hint={hint} keywords="update check">
             {state.phase === 'ready' || state.phase === 'manual' ? (
               <Button variant="primary" onClick={() => void api().invoke('updates:install')}>
@@ -914,6 +923,87 @@ function BackupSection() {
   )
 }
 
+/** For when a new version misbehaves: the release before it, put in the same way an update is. */
+function GoBackRow({ busy, onState }: { busy: boolean; onState: (state: UpdateState) => void }) {
+  const [previous, setPrevious] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  useEffect(() => {
+    void api()
+      .invoke('updates:previous')
+      .then(setPrevious)
+      .catch(() => setPrevious(null))
+  }, [])
+  if (!previous) return null
+  return (
+    <Row
+      label={`Go back to version ${previous}`}
+      hint={confirming ? 'Automatic updates turn off, so it stays on this version until you check for updates again.' : 'If this version gives you trouble. Your tabs, settings and data stay as they are.'}
+      keywords="downgrade rollback previous older version"
+    >
+      {confirming ? (
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => {
+              setConfirming(false)
+              void api().invoke('updates:rollback', previous).then(onState)
+            }}
+          >
+            Download {previous}
+          </Button>
+        </div>
+      ) : (
+        <Button disabled={busy} onClick={() => setConfirming(true)}>
+          Go back
+        </Button>
+      )}
+    </Row>
+  )
+}
+
+/** What recent versions brought. Opening it counts as having seen the note after an update. */
+function WhatsNewSection() {
+  const [all, setAll] = useState(false)
+  useEffect(() => {
+    void api()
+      .invoke('updates:state')
+      .then((state) => {
+        if (state.whatsNew) void api().invoke('updates:seen')
+      })
+  }, [])
+  const shown = all ? WHATS_NEW : WHATS_NEW.slice(0, 1)
+  return (
+    <Section title="What’s new">
+      {shown.map((notes) => (
+        <Searchable key={notes.version} text={`what's new ${notes.version} ${notes.items.join(' ')}`}>
+          <div className="flex flex-col gap-2 px-4 py-3">
+            <div className="flex items-baseline gap-2">
+              <span className="font-medium">Version {notes.version}</span>
+              <span className="text-xs text-text-faint">{new Date(notes.date).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            </div>
+            <ul className="flex list-disc flex-col gap-1 pl-5 text-text-muted marker:text-text-faint">
+              {notes.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </Searchable>
+      ))}
+      {WHATS_NEW.length > 1 && (
+        <div className="px-4 pb-3">
+          <Button variant="ghost" onClick={() => setAll(!all)}>
+            {all ? 'Show less' : 'Earlier versions'}
+          </Button>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 function AboutPage({ settings, update }: { settings: Settings; update: Update }) {
   const [isDefault, setIsDefault] = useState(false)
   const [version, setVersion] = useState<ReturnType<InternalCommands['browser:version']> | null>(null)
@@ -924,6 +1014,7 @@ function AboutPage({ settings, update }: { settings: Settings; update: Update })
   return (
     <>
       <UpdatesSection settings={settings} update={update} />
+      <WhatsNewSection />
       <BackupSection />
       <Section title="scTerra">
         <Row label="Default browser" hint={isDefault ? 'scTerra is your default browser.' : 'Links from other apps open in another browser.'}>

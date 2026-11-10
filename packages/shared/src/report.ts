@@ -29,6 +29,15 @@ export type ReportBlock =
   /** A grid of short titled notes, such as the four parts of a SWOT. */
   | { type: 'cards'; items: { title: string; text: string }[] }
   | { type: 'steps'; items: { title: string; text: string }[] }
+  /** Questions to test yourself with, each answer hidden until asked for. */
+  | { type: 'quiz'; items: { question: string; answer: string }[] }
+
+/** A page a report drew on, numbered as its `[1]` markers are. Added by the app, never by the model. */
+export interface ReportSource {
+  n: number
+  title: string
+  url: string
+}
 
 export interface Report {
   /** What kind of report it is, like "SWOT analysis", shown small above the title. */
@@ -37,14 +46,19 @@ export interface Report {
   summary: string
   theme: ReportThemeId
   blocks: ReportBlock[]
+  sources?: ReportSource[]
 }
 
 export const REPORT_FORMATS = {
   pdf: { extension: 'pdf', label: 'PDF' },
+  pptx: { extension: 'pptx', label: 'Slides (PowerPoint)' },
+  docx: { extension: 'docx', label: 'Word document' },
   html: { extension: 'html', label: 'Web page (HTML)' },
-  md: { extension: 'md', label: 'Markdown' },
-  docx: { extension: 'docx', label: 'Word document' }
+  md: { extension: 'md', label: 'Markdown' }
 } as const
+
+/** Formats rebuilt in the main process from the report's own blocks, so they're sent as its JSON. */
+export const STRUCTURED_FORMATS: ReportFormat[] = ['docx', 'pptx']
 
 export type ReportFormat = keyof typeof REPORT_FORMATS
 
@@ -80,7 +94,8 @@ const BLOCK_NAMES: Record<string, string> = {
   events: 'timeline', milestones: 'timeline', chronology: 'timeline',
   pros_cons: 'proscons', 'pros-cons': 'proscons', procon: 'proscons', proandcon: 'proscons',
   grid: 'cards', swot: 'cards', card: 'cards', boxes: 'cards',
-  howto: 'steps', procedure: 'steps', instructions: 'steps'
+  howto: 'steps', procedure: 'steps', instructions: 'steps',
+  flashcards: 'quiz', questions: 'quiz', practice: 'quiz', practice_questions: 'quiz', qa: 'quiz', faq: 'quiz', test: 'quiz'
 }
 
 /** Pairs like `{"value": "42%", "label": "share"}`, which models also write as two-item arrays. */
@@ -162,10 +177,120 @@ function toBlock(value: unknown): ReportBlock | null {
       const items = pairs(block!.items ?? block!.cards ?? block!.steps, 'title', 'text', TITLE_NAMES, BODY_NAMES)
       return items.length > 0 ? { type, items } : null
     }
+    case 'quiz': {
+      const items = pairs(block!.items ?? block!.questions ?? block!.cards, 'question', 'answer', ['q', 'prompt', 'front', 'title'], ['a', 'back', 'solution', 'text'])
+      return items.length > 0 ? { type: 'quiz', items } : null
+    }
     default:
       return null
   }
 }
+
+/** Containers models put a report's contents in, besides `blocks`. */
+const CONTAINERS = ['blocks', 'sections', 'subsections', 'children', 'slides', 'pages', 'parts', 'chapters', 'content', 'contents', 'body']
+/** Keys whose contents belong under the section's own heading rather than one of their own. */
+const INLINE_KEYS = new Set([...CONTAINERS, 'text', 'description', 'details', 'detail', 'points', 'bullets', 'notes', 'items', 'paragraphs', 'value'])
+/** Section-like types: a heading with blocks inside it. */
+const SECTION_TYPES = new Set(['section', 'slide', 'page', 'part', 'chapter', 'group', 'subsection'])
+const SECTION_TITLES = ['heading', 'title', 'name', 'label', 'section', 'slide']
+/** Keys that describe a block rather than hold any of its text. */
+const SKIP_KEYS = new Set(['type', 'level', 'ordered', 'id', 'theme', 'style', 'kind', 'icon', 'color', 'layout'])
+const MAX_DEPTH = 5
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** `key_concepts` and `keyConcepts` read as "Key concepts". */
+const humanize = (key: string) => {
+  const words = key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** Loose text: bullet lines become a list and everything else paragraphs. */
+function textBlocks(text: string): ReportBlock[] {
+  const blocks: ReportBlock[] = []
+  let list: { items: string[]; ordered: boolean } | null = null
+  for (const raw of text.split(/\n+/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const bullet = /^(?:[-*•]|(\d+)[.)])\s+(.*)$/.exec(line)
+    if (bullet) {
+      const ordered = bullet[1] !== undefined
+      if (!list || list.ordered !== ordered) {
+        list = { items: [], ordered }
+        blocks.push({ type: 'list', items: list.items, ordered })
+      }
+      list.items.push(plain(bullet[2]!))
+      continue
+    }
+    list = null
+    blocks.push({ type: 'paragraph', text: plain(line) })
+  }
+  return blocks
+}
+
+/** A block with no type, recognised by its fields. */
+function inferred(record: Record<string, unknown>): ReportBlock | null {
+  if ((record.headers ?? record.columns) && record.rows) return toBlock({ ...record, type: 'table' })
+  if (record.pros ?? record.cons) return toBlock({ ...record, type: 'proscons' })
+  return null
+}
+
+/** A list of like objects: notes with a title and some text become cards, figures become stats. */
+function uniformList(items: unknown[]): ReportBlock | null {
+  if (items.length < 2 || !items.every(isRecord) || items.some((item) => typeof item.type === 'string')) return null
+  const records = items as Record<string, unknown>[]
+  const keys = (record: Record<string, unknown>) => Object.keys(record).filter((key) => !SKIP_KEYS.has(key))
+  const flat = records.every((record) => keys(record).length <= 2 && keys(record).every((key) => typeof record[key] !== 'object'))
+  if (!flat) return null
+  if (records.every((record) => 'value' in record && 'label' in record)) return toBlock({ type: 'stats', items })
+  if (records.every((record) => ('when' in record || 'date' in record || 'year' in record))) return toBlock({ type: 'timeline', items })
+  return toBlock({ type: 'cards', items })
+}
+
+/**
+ * Anything a model might write instead of our blocks: sections or slides with blocks inside, bare
+ * strings and lists, or objects keyed by topic. Each becomes headings and plain blocks, so a report
+ * always shows as a report rather than as its JSON. Unknown typed blocks are still left out.
+ */
+function toBlocks(value: unknown, depth: number): ReportBlock[] {
+  if (depth > MAX_DEPTH) return []
+  const level = (depth <= 0 ? 2 : 3) as 2 | 3
+  if (typeof value === 'string') return textBlocks(value.slice(0, MAX_TEXT))
+  if (typeof value === 'number' || typeof value === 'boolean') return [{ type: 'paragraph', text: String(value) }]
+  if (Array.isArray(value)) {
+    const items = value.slice(0, MAX_BLOCKS)
+    if (items.length > 0 && items.every((item) => typeof item === 'string' || typeof item === 'number')) {
+      const list = strings(items)
+      return list.length > 0 ? [{ type: 'list', items: list, ordered: false }] : []
+    }
+    const grouped = uniformList(items)
+    return grouped ? [grouped] : items.flatMap((item) => toBlocks(item, depth))
+  }
+  if (!isRecord(value)) return []
+  const raw = typeof value.type === 'string' ? value.type.toLowerCase() : ''
+  const holds = CONTAINERS.some((key) => Array.isArray(value[key]))
+  const titleKey = SECTION_TITLES.find((key) => string(value[key]) !== null)
+  const section = SECTION_TYPES.has(raw)
+  if (!holds && !(section && titleKey)) {
+    const block = toBlock(value) ?? (raw ? null : inferred(value))
+    if (block) return [block]
+    if (raw && !section) return []
+  }
+  const heading = titleKey ? string(value[titleKey]) : null
+  const keyLevel = (depth + 1 <= 0 ? 2 : 3) as 2 | 3
+  const inner = Object.entries(value).flatMap(([key, child]) => {
+    if (key === titleKey || SKIP_KEYS.has(key)) return []
+    // A key named after a block type, like "stats": [...], is that block.
+    const named = Array.isArray(child) ? toBlock({ type: key, items: child }) : null
+    if (named && named.type !== 'paragraph' && named.type !== 'heading') return [named]
+    const blocks = toBlocks(child, depth + 1)
+    if (blocks.length === 0) return []
+    return INLINE_KEYS.has(key) ? blocks : [{ type: 'heading', text: humanize(key), level: keyLevel } as ReportBlock, ...blocks]
+  })
+  return heading ? [{ type: 'heading', text: heading, level }, ...inner] : inner
+}
+
+const REPORT_FIELDS = new Set(['title', 'summary', 'theme', 'kind', 'subtitle', 'author', 'date'])
 
 /**
  * Repairs the mistakes models make when writing JSON by hand: raw line breaks in strings,
@@ -230,9 +355,15 @@ function parseJson(json: string): Record<string, unknown> | null {
 }
 
 export function toReport(json: string): Report | null {
-  const data = parseJson(json)
+  const parsed = parseJson(json)
+  // Some models wrap the whole thing, as in {"report": {...}}.
+  const wrapped = parsed && !Array.isArray(parsed) && Object.keys(parsed).length === 1 ? Object.values(parsed)[0] : null
+  const data = isRecord(wrapped) && (wrapped.title || wrapped.blocks) ? wrapped : parsed
   const list = Array.isArray(data) ? data : data?.blocks
-  const blocks = Array.isArray(list) ? list.slice(0, MAX_BLOCKS).flatMap((b) => toBlock(b) ?? []) : []
+  let blocks = Array.isArray(list) ? list.slice(0, MAX_BLOCKS).flatMap((b) => toBlocks(b, 0)) : []
+  // No blocks: the contents are under other names, such as sections or slides.
+  if (blocks.length === 0 && isRecord(data)) blocks = toBlocks(Object.fromEntries(Object.entries(data).filter(([key]) => !REPORT_FIELDS.has(key))), -1)
+  blocks = blocks.slice(0, MAX_BLOCKS)
   if (!data || blocks.length === 0) return null
   const kind = string(data.kind)
   return {
@@ -274,8 +405,8 @@ function jsonEnd(text: string, start: number): number {
  */
 function findOpening(text: string): { index: number; start: number; fence: string } | null {
   const tagged = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*' + FENCES + '[^\\n{]*', 'i').exec(text)
-  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:kind|title|summary|theme|blocks)")', 'i').exec(text)
-  const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:kind|title|summary|theme|blocks)")/.exec(text)
+  const named = new RegExp('(?:^|\\n)[ \\t]*(`{3,}|~{3,})[ \\t]*(?:json)?[ \\t]*\\r?\\n?(?=\\s*\\{\\s*"(?:kind|title|summary|theme|blocks|report)")', 'i').exec(text)
+  const bare = /(?:^|\n)[ \t]*(?=\{\s*"(?:kind|title|summary|theme|blocks|report)")/.exec(text)
   const match = tagged ?? named ?? bare
   if (!match) return null
   return { index: match.index, start: match.index + match[0].length, fence: match[1] ?? '' }
@@ -320,12 +451,13 @@ export const REPORT_INSTRUCTIONS = `Usually answer in normal text. When the answ
 {"type":"proscons","pros":["A strength"],"cons":["A weakness"]},
 {"type":"cards","items":[{"title":"Short title","text":"A sentence or two."}]},
 {"type":"steps","items":[{"title":"Do this","text":"How, briefly."}]},
+{"type":"quiz","items":[{"question":"A question to test yourself","answer":"Its answer"}]},
 {"type":"spacer"},
 {"type":"divider"}
 ]}
 \`\`\`
 
-Use stats for a few key figures, timeline for dates in order, proscons for trade-offs, cards for a grid of 2 to 6 short notes, and steps for instructions. Only use them where they fit, and never invent figures. "kind" is optional: a short label for what sort of report it is.
+Everything goes in the one blocks array. When asked for slides, parts or sections, start each with a heading block (such as "Slide 1: ...") followed by its blocks; never make a separate slides or sections list. Use stats for a few key figures, timeline for dates in order, proscons for trade-offs, cards for a grid of 2 to 6 short notes, steps for instructions, and quiz for practice questions with their answers. Only use them where they fit, and never invent figures. "kind" is optional: a short label for what sort of report it is.
 
 Theme is clean for general use, editorial for long reading, brief for short decisions, modern for bold overviews, magazine for features and stories, academic for formal or scholarly writing, or notebook for study notes. Heading levels are 2 or 3. All text is plain: never write HTML, CSS, Markdown or styling, because the design is applied for you.
 
@@ -366,7 +498,18 @@ function blockHtml(block: ReportBlock): string {
       return `<div class="cards">${block.items.map((item) => `<div class="card"><div class="card-title">${e(item.title)}</div><div>${e(item.text)}</div></div>`).join('')}</div>`
     case 'steps':
       return `<ol class="steps">${block.items.map((item) => `<li><div class="step-title">${e(item.title)}</div><div>${e(item.text)}</div></li>`).join('')}</ol>`
+    // Saved pages run no scripts, so the answers open with the browser's own disclosure.
+    case 'quiz':
+      return `<ol class="quiz">${block.items.map((item) => `<li><details><summary>${e(item.question)}</summary><p>${e(item.answer)}</p></details></li>`).join('')}</ol>`
   }
+}
+
+const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') : url)
+
+function sourcesHtml(sources: ReportSource[] | undefined): string {
+  if (!sources?.length) return ''
+  const e = escapeHtml
+  return `<section class="sources"><h2>Sources</h2><ol>${sources.map((source) => `<li value="${source.n}"><span>${e(source.title || hostOf(source.url))}</span> <span class="source-url">${e(source.url)}</span></li>`).join('')}</ol></section>`
 }
 
 /** A report as one file with no scripts or outside requests, safe to send to someone. */
@@ -392,6 +535,7 @@ ${report.kind ? `<p class="kind">${e(report.kind)}</p>` : ''}
 <h1>${e(report.title)}</h1>
 ${report.summary ? `<p class="summary">${e(report.summary)}</p>` : ''}
 ${report.blocks.map(blockHtml).join('\n')}
+${sourcesHtml(report.sources)}
 </article>
 </body>
 </html>
@@ -433,12 +577,15 @@ function blockMarkdown(block: ReportBlock): string {
       return block.items.map((item) => `**${item.title}**\n${item.text}`).join('\n\n')
     case 'steps':
       return block.items.map((item, index) => `${index + 1}. **${item.title}** ${item.text}`).join('\n')
+    case 'quiz':
+      return block.items.map((item, index) => `${index + 1}. **${item.question}**\n   Answer: ${item.answer}`).join('\n')
   }
 }
 
 /** A report as Markdown, for pasting into other tools. */
 export function reportMarkdown(report: Report): string {
-  const parts = [...(report.kind ? [`*${report.kind}*`] : []), `# ${report.title}`, report.summary, ...report.blocks.map(blockMarkdown)]
+  const sources = report.sources?.length ? [`## Sources`, report.sources.map((source) => `${source.n}. ${source.title || hostOf(source.url)} <${source.url}>`).join('\n')] : []
+  const parts = [...(report.kind ? [`*${report.kind}*`] : []), `# ${report.title}`, report.summary, ...report.blocks.map(blockMarkdown), ...sources]
   return `${parts.filter(Boolean).join('\n\n')}\n`
 }
 
@@ -468,3 +615,19 @@ export function shownMessage(content: string): string {
 /** Asks for a whole new draft, so each version stands alone. */
 export const reviseReportPrompt = (title: string, change: string) =>
   `Rewrite the report titled "${title}" with this change: ${change}\n\nReply with one short sentence, then the complete updated report as a new ${FENCE} block. Keep exactly the same title, and keep everything else that wasn't asked to change.`
+
+const sameReport = (a: Report, b: Report) => JSON.stringify({ ...a, sources: undefined }) === JSON.stringify({ ...b, sources: undefined })
+const reportBlock = (report: Report) => `\`\`\`${FENCE}\n${JSON.stringify({ ...report, sources: undefined })}\n\`\`\``
+
+/**
+ * A reply with one of its reports swapped for an edited copy, or null if the reply doesn't hold it.
+ * Edits are made in place, so the conversation, its saved copy and what the model sees next all agree.
+ */
+export function replaceReport(text: string, target: Report, next: Report): string | null {
+  const { before, after, report } = splitReply(text, true)
+  if (!report) return null
+  const join = (...parts: string[]) => parts.filter(Boolean).join('\n\n')
+  if (sameReport(report, target)) return join(before, reportBlock(next), after)
+  const rest = after ? replaceReport(after, target, next) : null
+  return rest === null ? null : join(before, reportBlock(report), rest)
+}

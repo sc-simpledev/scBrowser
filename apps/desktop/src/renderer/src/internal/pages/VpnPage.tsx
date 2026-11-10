@@ -1,8 +1,8 @@
-import { ChevronRight, X } from 'lucide-react'
+import { ChevronRight, Shield, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
-  CONTAINERS, STARTING_VPN_NOTE, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
+  CONTAINERS, STARTING_VPN_NOTE, type TunCheck, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
@@ -126,6 +126,25 @@ function RouteOption({ name, label, note, checked, disabled, onSelect }: { name:
 }
 
 /** Just the browser by default. Anything wider is a deliberate choice, with the cost of each spelled out. */
+/** Whether other apps really go through the VPN, checked once TUN is up. */
+function TunCheckNote({ check }: { check: TunCheck }) {
+  const tone = check.state === 'through' ? 'text-accent' : check.state === 'leaking' ? 'text-danger' : 'text-text-muted'
+  const text =
+    check.state === 'checking'
+      ? 'Checking that other apps go through the VPN…'
+      : check.state === 'through'
+        ? `Checked: other apps go through the VPN. The internet sees ${check.ip}.`
+        : check.state === 'leaking'
+          ? `Other apps still show your own address (${check.ip}), so they may not be going through the VPN. Try reconnecting, or use the system proxy.`
+          : 'Couldn’t check whether other apps go through the VPN.'
+  return (
+    <p role="status" className={`flex items-center gap-1.5 px-2 pt-1 text-xs ${tone}`}>
+      {check.state === 'through' ? <ShieldCheck aria-hidden size={13} strokeWidth={1.75} /> : check.state === 'leaking' ? <ShieldAlert aria-hidden size={13} strokeWidth={1.75} /> : <Shield aria-hidden size={13} strokeWidth={1.75} />}
+      {text}
+    </p>
+  )
+}
+
 function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (state: VpnState) => void; reload: () => void }) {
   // Shown straight away, as reconnecting can take a while, or wait on a password.
   const set = (scope: VpnScope, method: VpnMethod) => {
@@ -155,6 +174,7 @@ function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (
             disabled={!!state.unavailable.tun}
             onSelect={() => set('computer', 'tun')}
           />
+          {state.tunCheck && <TunCheckNote check={state.tunCheck} />}
         </div>
       )}
     </section>

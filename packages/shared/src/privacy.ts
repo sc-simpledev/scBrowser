@@ -50,6 +50,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'focus-15', label: 'Focus for 15 minutes' },
   { id: 'focus-25', label: 'Focus for 25 minutes' },
   { id: 'focus-50', label: 'Focus for 50 minutes' },
+  { id: 'study-session', label: 'Start a study session (25 minutes on, 5 off, four rounds)' },
   { id: 'performance-mode', label: 'Turn Performance Mode on or off' },
   { id: 'site-blocker', label: 'Site blocker' },
   { id: 'vpn', label: 'VPN' },

@@ -178,6 +178,27 @@ test('a report preset sends its layout, reads back as the topic, and its report 
   await expect(pane.getByRole('combobox', { name: 'Design' })).toHaveValue('modern')
 })
 
+test('a report written as slides in a json fence still shows as a report, not as its JSON', async () => {
+  const notes = {
+    title: 'Study Notes: Limited Public Transport',
+    summary: 'Notes for two slides.',
+    theme: 'notebook',
+    slides: [
+      { title: 'Slide 1: Define the issue', content: [{ type: 'callout', text: 'Limited public transport means few or slow services.' }] },
+      { title: 'Slide 2: In the chosen location', points: ['A bus every 40 minutes', 'No train line'], stats: [{ value: '38%', label: 'live far from a stop' }] }
+    ]
+  }
+  mock.queue = [`Here is your study notes report.\n\n\`\`\`json\n${JSON.stringify(notes)}\n\`\`\``]
+  await ask('Study notes on limited public transport')
+  await expect(panel().getByText('Here is your study notes report.')).toBeVisible()
+  await expect(panel().locator('pre')).toHaveCount(0)
+  await panel().getByRole('button', { name: 'Open report' }).click()
+  const pane = page.getByRole('region', { name: 'Report' })
+  await expect(pane.locator('h2')).toHaveText(['Slide 1: Define the issue', 'Slide 2: In the chosen location'])
+  await expect(pane.locator('.stat-value')).toHaveText('38%')
+  if (process.env.SCB_SHOT) await page.screenshot({ path: process.env.SCB_SHOT })
+})
+
 test('the sidebar assistant is left as it was, without files or presets', async () => {
   await h.chrome.getByRole('button', { name: 'Assistant' }).click()
   const sidebar = h.chrome.getByRole('complementary', { name: 'Assistant' })

@@ -2,7 +2,7 @@ import { crc32, deflateRawSync } from 'node:zlib'
 import type { Report, ReportBlock } from '@scbrowser/shared'
 
 /** Text that XML can't hold at all, plus the characters it treats as markup. */
-const xml = (text: string) =>
+export const xml = (text: string) =>
   text
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
@@ -60,8 +60,15 @@ function body(report: Report): { xml: string; numbered: number } {
         const id = ++numbered + 1
         return block.items.map((item) => para(`${item.title}: ${item.text}`, 'ListParagraph', `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${id}"/></w:numPr>`)).join('')
       }
+      case 'quiz': {
+        const id = ++numbered + 1
+        return block.items.map((item) => para(item.question, 'ListParagraph', `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${id}"/></w:numPr>`) + para(`Answer: ${item.answer}`, 'Quote')).join('')
+      }
     }
   })
+  if (report.sources?.length) {
+    blocks.push(para('Sources', 'Heading1'), ...report.sources.map((source) => para(`${source.n}. ${source.title ? `${source.title}, ` : ''}${source.url}`)))
+  }
   return { xml: [...(report.kind ? [para(report.kind, 'Subtitle')] : []), para(report.title, 'Title'), ...(report.summary ? [para(report.summary, 'Subtitle')] : []), ...blocks].join(''), numbered }
 }
 
@@ -96,8 +103,8 @@ const CONTENT_TYPES = `${HEAD}<Types xmlns="http://schemas.openxmlformats.org/pa
 const ROOT_RELS = `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
 const DOC_RELS = `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>`
 
-/** A zip file, which is all a Word document is on the outside. */
-function zip(files: [string, string][]): Buffer {
+/** A zip file, which is all a Word or PowerPoint document is on the outside. */
+export function zip(files: [string, string][]): Buffer {
   const locals: Buffer[] = []
   const directory: Buffer[] = []
   let offset = 0

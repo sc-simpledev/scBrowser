@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { REPORT_FORMATS, toReport, type ReportFormat } from '@scbrowser/shared'
 import { reportDocx } from './reportDocx'
+import { speakerNotes } from './reportNotes'
+import { reportPptx } from './reportPptx'
+
+/** The person's AI, for extras like speaker notes. */
+export type Complete = (system: string, user: string) => Promise<string>
 
 const MAX_SIZE = 8_000_000
 
@@ -32,14 +37,40 @@ async function renderPdf(html: string, title: string): Promise<Buffer> {
 }
 
 /** Rebuilt from the report's blocks here, so only known blocks of plain text reach the document. */
-function renderDocx(content: string): Buffer {
+async function renderStructured(content: string, format: 'docx' | 'pptx', complete?: Complete): Promise<Buffer> {
   const report = toReport(content)
   if (!report) throw new Error('Invalid report')
-  return reportDocx(report)
+  // Sources come from the app rather than the model, so they're read back separately and checked.
+  const sources = readSources(content)
+  const full = sources.length ? { ...report, sources } : report
+  if (format === 'docx') return reportDocx(full)
+  const notes = complete && wantsNotes(content) ? await speakerNotes(full, complete) : undefined
+  return reportPptx(full, notes)
 }
 
-/** Asks where to save, then writes the report. `content` is HTML for PDF and HTML, Markdown for Markdown, and the report's JSON for Word. */
-export async function saveReport(window: BaseWindow, name: string, format: ReportFormat, content: string): Promise<boolean> {
+function wantsNotes(content: string): boolean {
+  try {
+    return (JSON.parse(content) as { speakerNotes?: unknown }).speakerNotes === true
+  } catch {
+    return false
+  }
+}
+
+function readSources(content: string): { n: number; title: string; url: string }[] {
+  try {
+    const value = (JSON.parse(content) as { sources?: unknown }).sources
+    if (!Array.isArray(value)) return []
+    return value.slice(0, 50).flatMap((source) => {
+      const { n, title, url } = (source ?? {}) as Record<string, unknown>
+      return typeof n === 'number' && typeof url === 'string' && /^https?:/i.test(url) ? [{ n, title: typeof title === 'string' ? title.slice(0, 300) : '', url: url.slice(0, 2000) }] : []
+    })
+  } catch {
+    return []
+  }
+}
+
+/** Asks where to save, then writes the report. `content` is HTML for PDF and HTML, Markdown for Markdown, and the report's JSON for Word and PowerPoint. */
+export async function saveReport(window: BaseWindow, name: string, format: ReportFormat, content: string, complete?: Complete): Promise<boolean> {
   const title = name.replace(/[^\p{L}\p{N} ._-]/gu, '').trim() || 'Report'
   const { extension, label } = REPORT_FORMATS[format]
   const result = await dialog.showSaveDialog(window as BrowserWindow, {
@@ -47,7 +78,7 @@ export async function saveReport(window: BaseWindow, name: string, format: Repor
     filters: [{ name: label, extensions: [extension] }]
   })
   if (result.canceled || !result.filePath) return false
-  await writeFile(result.filePath, format === 'pdf' ? await renderPdf(content, title) : format === 'docx' ? renderDocx(content) : content)
+  await writeFile(result.filePath, format === 'pdf' ? await renderPdf(content, title) : format === 'docx' || format === 'pptx' ? await renderStructured(content, format, complete) : content)
   return true
 }
 
