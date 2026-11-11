@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Check, Columns2, PanelTop, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ACCENTS, type AccentId, type ImportResult, type ImportSource, type Settings } from '@scbrowser/shared'
+import { ACCENTS, DEFAULT_NEW_TAB, type AccentId, type ImportResult, type ImportSource, type NewTabWidgetId, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { createGlobe, type Globe, type Shot } from './globe'
 import { startPad } from './sound'
@@ -17,7 +17,7 @@ const SETUP_SHOT: Shot = { distance: 3.3, shift: [0.4, -0.02], sun: [-0.5, 0.45,
 const DEPARTURE_SHOT: Shot = { distance: 1.03, shift: [0, 0], sun: [0, 0.3, 1], lit: 1.6, stars: 0 }
 const MOVE_SECONDS = 1.6
 const DEPARTURE_MS = 1500
-const SETUP_STEPS = 4
+const SETUP_STEPS = 5
 /** How much of the change between the night and daytime scenes happens each frame. */
 const TONE_STEP = 0.06
 
@@ -217,17 +217,25 @@ function Choice({ selected, onPick, title, hint, children }: { selected: boolean
   )
 }
 
-function Toggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function Toggle({ label, hint, checked, onChange, disabled = false }: { label: string; hint: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
-    <label className="sc-welcome-toggle">
+    <label className="sc-welcome-toggle" data-disabled={disabled || undefined}>
       <span>
         <strong>{label}</strong>
         <small>{hint}</small>
       </span>
-      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" role="switch" checked={checked && !disabled} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </label>
   )
 }
+
+/** Search engines offered at setup. Google is the default; the rest are in Settings too. */
+const SETUP_ENGINES = [
+  ['google', 'Google'],
+  ['duckduckgo', 'DuckDuckGo'],
+  ['bing', 'Bing'],
+  ['brave', 'Brave']
+] as const
 
 function Setup({ onFinish, onAccent }: { onFinish: (then?: string) => void; onAccent: () => void }) {
   const [step, setStep] = useState(0)
@@ -237,6 +245,8 @@ function Setup({ onFinish, onAccent }: { onFinish: (then?: string) => void; onAc
   const [ai, setAi] = useState<'hosted' | 'own' | 'later'>('hosted')
   const [hostedAvailable, setHostedAvailable] = useState(false)
   const [isDefault, setIsDefault] = useState(false)
+  // Recommended for someone new. The brief only starts on the free AI, as one's own key costs money.
+  const [extras, setExtras] = useState({ brief: true, desk: true, library: false })
 
   useEffect(() => {
     void api().invoke('settings:get').then(setSettings)
@@ -260,6 +270,15 @@ function Setup({ onFinish, onAccent }: { onFinish: (then?: string) => void; onAc
   }
   const leave = () => {
     if (ai === 'hosted') void api().invoke('ai:enable-hosted')
+    const widgets: NewTabWidgetId[] = [...(extras.desk ? (['notes', 'calendar'] as const) : []), ...(extras.library ? (['reading', 'watching'] as const) : [])]
+    if (widgets.length > 0) {
+      const newTab = { ...DEFAULT_NEW_TAB, ...settings.newTab }
+      const added = widgets.filter((id) => !newTab.widgets.some((widget) => widget.id === id)).map((id) => ({ id, size: 'half' as const }))
+      void api().invoke('settings:set', { newTab: { ...newTab, widgets: [...newTab.widgets, ...added] } })
+    }
+    if (extras.brief && ai === 'hosted') {
+      void api().invoke('briefs:save', null, { title: '', topic: 'Latest AI news', time: '08:00', frequency: 'daily', weekday: new Date().getDay(), length: 'short' })
+    }
     onFinish(ai === 'own' ? 'sc://ai/' : undefined)
   }
 
@@ -305,6 +324,13 @@ function Setup({ onFinish, onAccent }: { onFinish: (then?: string) => void; onAc
               </button>
             ))}
           </div>
+          <div role="radiogroup" aria-label="Search with" className="sc-welcome-segments" data-count={SETUP_ENGINES.length}>
+            {SETUP_ENGINES.map(([id, name]) => (
+              <button key={id} type="button" role="radio" aria-checked={settings.searchEngine === id} onClick={() => update({ searchEngine: id })}>
+                {name}
+              </button>
+            ))}
+          </div>
           <div role="radiogroup" aria-label="Tab layout" className="sc-welcome-list">
             <Choice selected={settings.tabLayout === 'vertical'} onPick={() => update({ tabLayout: 'vertical' })} title="Tabs down the side" hint="More room for long titles">
               <Columns2 aria-hidden size={18} strokeWidth={1.5} />
@@ -329,6 +355,23 @@ function Setup({ onFinish, onAccent }: { onFinish: (then?: string) => void; onAc
           {hostedAvailable && <Choice selected={ai === 'hosted'} onPick={() => setAi('hosted')} title="scTerra AI" hint="Ready now, with no key. Limited each day." />}
           <Choice selected={ai === 'own'} onPick={() => setAi('own')} title="Use my own key" hint="Anthropic, OpenAI, Gemini, Ollama and others" />
           <Choice selected={ai === 'later'} onPick={() => setAi('later')} title="Not now" hint="Set it up whenever you like" />
+        </div>
+      )
+    },
+    {
+      title: 'A few things to start with',
+      lead: 'Picked for your first week. Each one is in Settings later.',
+      body: (
+        <div className="sc-welcome-list">
+          <Toggle
+            label="A morning AI brief"
+            hint={ai === 'hosted' ? 'scAI searches the latest AI news and writes you a short brief at 8:00' : ai === 'own' ? 'Set one up in AI Briefs once your key is in, as it uses your credit' : 'Needs an AI model, from the step before'}
+            checked={extras.brief && ai === 'hosted'}
+            disabled={ai !== 'hosted'}
+            onChange={(brief) => setExtras({ ...extras, brief })}
+          />
+          <Toggle label="Notes and a calendar" hint="On your new tab, beside the search box" checked={extras.desk} onChange={(desk) => setExtras({ ...extras, desk })} />
+          <Toggle label="Reading list and watched pages" hint="Pages saved for later, and changes on pages you watch" checked={extras.library} onChange={(library) => setExtras({ ...extras, library })} />
         </div>
       )
     },

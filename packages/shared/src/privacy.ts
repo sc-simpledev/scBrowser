@@ -86,6 +86,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'reading-list', label: 'Reading list' },
   { id: 'highlights', label: 'Highlights' },
   { id: 'watched-pages', label: 'Watched pages' },
+  { id: 'ai-briefs', label: 'AI Briefs' },
+  { id: 'get-started', label: 'Get started with scTerra' },
   { id: 'archived-tabs', label: 'Archived tabs' },
   { id: 'reopen-group', label: 'Reopen closed tab group' },
   { id: 'code', label: 'Terra Code: code with AI (beta)' },

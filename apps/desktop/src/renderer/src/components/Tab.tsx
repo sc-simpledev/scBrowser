@@ -99,17 +99,22 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
         if (e.button === 1) close()
       }}
       onContextMenu={() => void window.scb.invoke('tabs:context-menu', tab.id)}
+      data-active={active || undefined}
       className={cx(
-        'sc-no-drag group @container relative flex items-center rounded-md',
+        'sc-no-drag group @container relative flex items-center',
         'transition-[background-color,color,box-shadow] duration-(--sc-duration-fast)',
-        layout === 'horizontal' && !tab.pinned && 'h-8 min-w-10 flex-[0_1_220px] gap-2 pr-1 pl-2.5',
-        layout === 'horizontal' && tab.pinned && 'h-8 w-9 shrink-0 justify-center',
+        side && 'rounded-md',
+        // Across the top, the open tab joins the toolbar under it, with curved feet (sc-htab in index.css).
+        layout === 'horizontal' && 'sc-htab',
+        layout === 'horizontal' && !tab.pinned && 'min-w-10 flex-[0_1_224px] gap-2 pr-1.5 pl-3',
+        layout === 'horizontal' && tab.pinned && 'w-10 shrink-0 justify-center',
+        layout === 'horizontal' && (active ? 'h-8.75 rounded-t-[10px]' : 'mb-1 h-7.5 rounded-md'),
         layout === 'vertical' && !tab.pinned && 'h-9 w-full shrink-0 gap-2 pr-1 pl-2',
         layout === 'vertical' && tab.pinned && 'size-9 shrink-0 justify-center',
         layout === 'rail' && 'size-9 shrink-0 justify-center self-center',
         draggingId === tab.id && 'opacity-50',
         active
-          ? 'bg-surface font-medium text-text shadow-1'
+          ? cx('bg-surface font-medium text-text', side && 'shadow-1')
           : split
             ? 'bg-surface-hover text-text'
             : 'text-text-muted hover:bg-surface-hover hover:text-text',

@@ -153,7 +153,7 @@ function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (
   }
   return (
     <section aria-label="What the VPN covers" className="flex flex-col gap-1 rounded-lg bg-surface p-3 shadow-1">
-      <h2 className="px-2 pb-1 text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">What it covers</h2>
+      <h2 className="px-2 pb-1 text-sm font-medium text-text">What it covers</h2>
       <RouteOption name="vpn-scope" label="Just scTerra" note="Your other apps keep their normal connection." checked={state.scope === 'browser'} onSelect={() => set('browser', state.method)} />
       <RouteOption name="vpn-scope" label="This whole computer" note="Other apps go through the connection too." checked={state.scope === 'computer'} onSelect={() => set('computer', state.method)} />
       {state.scope === 'computer' && (
@@ -198,7 +198,7 @@ function Conveniences({ usesTun, computerWide }: { usesTun: boolean; computerWid
   }
   return (
     <section aria-label="Convenience" className="flex flex-col gap-3 rounded-lg bg-surface p-3 shadow-1">
-      <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Convenience</h2>
+      <h2 className="text-sm font-medium text-text">Convenience</h2>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div>Connect when scTerra starts</div>
@@ -376,7 +376,7 @@ export function VpnPage() {
       {state.connections.length === 0 && <StartingVpn onDone={reload} />}
 
       <section aria-label="Add connections" className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
-        <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Add connections</h2>
+        <h2 className="text-sm font-medium text-text">Add connections</h2>
         <textarea
           aria-label="Connection links"
           rows={3}

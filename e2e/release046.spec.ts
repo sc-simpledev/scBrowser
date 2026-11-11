@@ -121,7 +121,7 @@ test('settings list what changed, reset one at a time, and go to and from a file
     writeFileSync(file, JSON.stringify({ kind: 'scterra-settings', version: 1, settings: { theme: 'light', searchEngine: 'nope' } }))
     await page.getByRole('button', { name: 'Import', exact: true }).click()
     await expect.poll(async () => (await settingsNow()).theme).toBe('light')
-    expect((await settingsNow()).searchEngine).toBe('duckduckgo')
+    expect((await settingsNow()).searchEngine).toBe('google')
   } finally {
     rmSync(folder, { recursive: true, force: true })
   }

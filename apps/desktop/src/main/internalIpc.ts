@@ -3,9 +3,10 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
+import type { BrowserActions } from './actions'
 import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
@@ -52,6 +53,7 @@ const ACTIONS: DownloadAction[] = ['pause', 'resume', 'cancel', 'open', 'show', 
 interface InternalServices {
   window: BaseWindow
   tabs: TabManager
+  actions: Pick<BrowserActions, 'toggleAssistant' | 'togglePalette'>
   settings: SettingsStore
   history: HistoryRepo
   bookmarks: BookmarksRepo
@@ -168,7 +170,11 @@ const dispatchers = new Map<TabManager, Dispatch>()
 const MAX_CODE_CHAT_CHARS = 6_000_000
 
 export function registerInternalIpc(services: InternalServices): () => void {
-  const { core, window, tabs, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
+  const { core, window, tabs, actions, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
+  const briefs = () => {
+    if (!core.briefs) throw new Error("Private windows don't keep briefs.")
+    return core.briefs
+  }
 
   /** Picks a saved Terra Code chat back up after a restart, from what its screen showed. */
   const savedCodeMessages = (id: string) => {
@@ -389,6 +395,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'ai:status': () => aiStore.status(),
     'ai:send': async (streamId, request) => {
+      core.onboarding.mark('assistant')
       if (!isAssistantRequest(request)) throw new Error('Invalid request')
       const sender = caller
       // Tabs picked for research may be asleep, and a page has to be loaded to be read.
@@ -742,6 +749,56 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'mini-apps:list': () => core.miniApps.list().map(({ id, name, createdAt }) => ({ id, name, createdAt })),
     'mini-apps:open': (id) => core.miniApps.launch(text(id, 64), process.platform === 'darwin' ? undefined : iconPath),
     'mini-apps:remove': (id) => core.miniApps.remove(text(id, 64)),
+    'briefs:state': () => briefs().state(),
+    'briefs:summary': () => core.briefs?.summary() ?? { unseen: 0, latest: null },
+    'briefs:recent': () => (core.briefs?.issues() ?? []).slice(0, 6).map((issue) => ({ ...issue, text: issue.text.slice(0, 600), sources: [] })),
+    'briefs:save': (id, input) => {
+      if (!isBriefInput(input)) throw new Error('Invalid brief')
+      briefs().save(optionalId(id), input)
+      core.onboarding.mark('brief')
+      return briefs().state()
+    },
+    'briefs:remove': (id) => {
+      briefs().remove(text(id, 64))
+      return briefs().state()
+    },
+    'briefs:pause': (id, paused) => {
+      briefs().pause(text(id, 64), paused === true)
+      return briefs().state()
+    },
+    'briefs:run': async (id) => {
+      await briefs().run(text(id, 64))
+      return briefs().state()
+    },
+    'briefs:seen': (id) => core.briefs?.markSeen(optionalId(id)),
+    'briefs:delete-issue': (id) => {
+      briefs().deleteIssue(text(id, 64))
+      return briefs().state()
+    },
+    'briefs:prefs': (prefs) => {
+      if (!prefs || typeof prefs !== 'object') throw new Error('Invalid preferences')
+      briefs().setPrefs(prefs)
+      return briefs().state()
+    },
+    'onboarding:state': () => core.onboarding.state(),
+    'onboarding:mark': (id) => {
+      if (isGettingStartedId(id)) core.onboarding.mark(id)
+    },
+    'onboarding:set-shown': (show) => core.onboarding.setShown(show === true),
+    'onboarding:try': (id) => {
+      if (!isGettingStartedId(id)) throw new Error('Unknown step')
+      const here = caller && tabs.tabIdFor(caller)
+      if (id === 'assistant') actions.toggleAssistant()
+      else if (id === 'palette') actions.togglePalette()
+      else if (id === 'brief' && here) tabs.navigate(here, 'sc://briefs/?new=Latest%20AI%20news')
+      else if (id === 'split') {
+        // Beside this tab, a fresh one to try it with, so nothing the person has open is moved.
+        const other = tabs.create(undefined, { activate: false, afterId: here ?? undefined })
+        if (here) tabs.activate(here)
+        tabs.startSplit(other)
+      }
+      core.onboarding.mark(id)
+    },
     'reading:list': () => core.readingList?.list() ?? [],
     'reading:open': (id) => {
       const item = core.readingList?.get(text(id, 64))
@@ -773,6 +830,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'updates:rollback': (version) => updates.rollback(text(version, 20)),
     'welcome:finish': () => {
       const id = caller && tabs.tabIdFor(caller)
+      core.onboarding.begin()
       setIntro(null)
       if (id) tabs.navigate(id, '')
     },

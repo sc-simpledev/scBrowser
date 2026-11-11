@@ -27,7 +27,7 @@ describe('buildSuggestions', () => {
 
   it('leads with a search for plain text', () => {
     const [first] = buildSuggestions('rust borrow checker', { history: [], tabs: [], activeTabId: null })
-    expect(first).toMatchObject({ kind: 'search', title: 'rust borrow checker', detail: 'Search DuckDuckGo' })
+    expect(first).toMatchObject({ kind: 'search', title: 'rust borrow checker', detail: 'Search Google' })
   })
 
   it('leads with navigation for something URL-like', () => {

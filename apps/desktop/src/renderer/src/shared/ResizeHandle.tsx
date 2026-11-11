@@ -12,13 +12,14 @@ interface ResizeHandleProps {
   /** Called once it's let go, for saving. */
   onCommit: (width: number) => void
   onDragging?: (dragging: boolean) => void
+  className?: string
 }
 
 const KEY_STEP = 16
 const RELEASED_MOVES = 3
 
 /** A thin strip over a sidebar's border. Also works from the keyboard, with the arrow keys. */
-export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging }: ResizeHandleProps) {
+export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging, className = '' }: ResizeHandleProps) {
   const stopDrag = useRef<(() => void) | null>(null)
   const callbacks = useRef({ onWidth, onCommit, onDragging })
   callbacks.current = { onWidth, onCommit, onDragging }
@@ -35,7 +36,7 @@ export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, 
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}
-      className={`sc-no-drag absolute inset-y-0 z-10 w-1.5 cursor-col-resize transition-colors outline-none hover:bg-border-strong focus-visible:bg-accent active:bg-accent ${edge === 'left' ? '-left-0.75' : '-right-0.75'}`}
+      className={`sc-no-drag absolute inset-y-0 z-10 w-1.5 cursor-col-resize transition-colors outline-none hover:bg-border-strong focus-visible:bg-accent active:bg-accent ${edge === 'left' ? '-left-0.75' : '-right-0.75'} ${className}`}
       onPointerDown={(e) => {
         e.preventDefault()
         stopDrag.current?.()

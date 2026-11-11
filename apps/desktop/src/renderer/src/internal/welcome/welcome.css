@@ -325,6 +325,15 @@
   border-radius: var(--sc-radius-lg);
 }
 
+.sc-welcome-segments[data-count='4'] {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.sc-welcome-toggle[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .sc-welcome-segments button {
   height: 32px;
   border-radius: var(--sc-radius-md);

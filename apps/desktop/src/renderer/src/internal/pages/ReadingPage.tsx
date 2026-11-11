@@ -1,8 +1,9 @@
-import { Check, Sparkles, X } from 'lucide-react'
+import { BookMarked, Check, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import type { ReadingItem } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 import { ReplyMarkdown } from '../../shared/ReplyContent'
 
 const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') || url : url)
@@ -143,7 +144,7 @@ export function ReadingPage() {
         </button>
       </div>
       <p className="-mt-3 text-xs text-text-faint">Summarise sends that page's text to your AI. A digest sends only titles, addresses and summaries.</p>
-      {items.length === 0 && <p className="text-text-muted">Nothing saved yet. Right-click a page and pick Add to reading list.</p>}
+      {items.length === 0 && <EmptyState icon={BookMarked} title="Nothing saved yet">Right-click a page and pick Add to reading list.</EmptyState>}
       {items.length > 0 && shown.length === 0 && <p className="text-text-muted">All read. Nice.</p>}
       <ul className="flex flex-col gap-2">
         {shown.map((item) => (

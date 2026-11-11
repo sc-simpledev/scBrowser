@@ -49,8 +49,18 @@ export function App() {
       <UpdatingScreen />
       <div className="flex h-full flex-col">
         {!vertical && <TabStrip />}
-        <Toolbar titleBar={vertical} />
-        {!bookmarksDown && <BookmarksBar />}
+        {vertical ? (
+          <>
+            <Toolbar titleBar />
+            {!bookmarksDown && <BookmarksBar />}
+          </>
+        ) : (
+          // Under tabs across the top, the bar is the open tab's colour, so the two read as one.
+          <div className="border-y border-border bg-surface">
+            <Toolbar titleBar={false} />
+            {!bookmarksDown && <BookmarksBar />}
+          </div>
+        )}
         <FindBar />
         <div className="flex min-h-0 flex-1">
           {vertical && <VerticalTabs />}

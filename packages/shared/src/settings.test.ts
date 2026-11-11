@@ -42,7 +42,7 @@ describe('estimateCost', () => {
 
 describe('engineById', () => {
   it('falls back to the default engine', () => {
-    expect(engineById('nope').id).toBe('duckduckgo')
+    expect(engineById('nope').id).toBe('google')
     expect(engineById('google').name).toBe('Google')
   })
 })

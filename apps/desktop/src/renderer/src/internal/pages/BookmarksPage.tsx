@@ -1,8 +1,9 @@
-import { FolderPlus, Globe, Pencil, X } from 'lucide-react'
+import { Bookmark as BookmarkIcon, FolderPlus, Globe, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { folderTree, type Bookmark, type BookmarkGroup } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 
 function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups: BookmarkGroup[]; reload: () => void }) {
   const [editing, setEditing] = useState(false)
@@ -205,7 +206,7 @@ export function BookmarksPage() {
           Add folder
         </Button>
       </form>
-      {bookmarks.length === 0 && <p className="text-text-muted">No bookmarks yet. Press Ctrl D on any page to add one.</p>}
+      {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">Press Ctrl D on any page to add one.</EmptyState>}
       {groups
         .filter((group) => group.parentId === null)
         .map((group) => (

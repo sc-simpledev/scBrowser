@@ -1,8 +1,9 @@
-import { RefreshCw, X } from 'lucide-react'
+import { Eye, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Select } from '@scbrowser/ui'
 import { intervalLabel, WATCH_INTERVALS, type PageWatch, type WatchInterval } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 
 type Watch = Omit<PageWatch, 'lastText'>
 
@@ -131,7 +132,7 @@ export function WatchingPage() {
           </Button>
         )}
       </div>
-      {watches.length === 0 && <p className="text-text-muted">Not watching anything yet. It's handy for prices, stock, results and changelogs.</p>}
+      {watches.length === 0 && <EmptyState icon={Eye} title="Not watching anything yet">Handy for prices, stock, results and changelogs.</EmptyState>}
       <ul className="flex flex-col gap-2">
         {[...watches]
           .sort((a, b) => Number(b.unseen) - Number(a.unseen) || (b.changedAt ?? 0) - (a.changedAt ?? 0))

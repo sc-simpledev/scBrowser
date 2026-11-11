@@ -46,7 +46,7 @@ export function TabGroupHeader({ name, count, layout }: { name: string; count: n
         }}
         className={cx(
           'sc-no-drag shrink-0 rounded-sm border border-(--sc-accent) bg-surface px-1.5 text-xs text-text outline-none',
-          layout === 'vertical' ? 'mt-2 h-6 w-full' : 'h-6 w-28'
+          layout === 'vertical' ? 'mt-2 h-6 w-full' : 'mx-1 mb-1.5 h-6 w-28'
         )}
       />
     )
@@ -69,7 +69,7 @@ export function TabGroupHeader({ name, count, layout }: { name: string; count: n
       }}
       className={cx(
         'sc-no-drag flex shrink-0 items-center gap-1 rounded-sm text-2xs font-medium text-text-faint transition-colors hover:bg-surface-hover hover:text-text-muted',
-        layout === 'vertical' ? 'mt-2 h-6 w-full px-1.5' : 'h-6 max-w-36 border border-border px-1.5'
+        layout === 'vertical' ? 'mt-2 h-6 w-full px-1.5' : 'mx-1 mb-1.5 h-6 max-w-36 shrink-0 bg-surface-hover px-2 text-text-muted hover:bg-surface-active'
       )}
     >
       <ChevronRight aria-hidden size={11} strokeWidth={2} className={cx('shrink-0 transition-transform duration-(--sc-duration-fast)', !collapsed && 'rotate-90')} />

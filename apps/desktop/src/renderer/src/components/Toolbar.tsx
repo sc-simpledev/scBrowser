@@ -1,7 +1,7 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, Newspaper, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { containerPartition, fullToolbarOrder, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
+import { containerPartition, fullToolbarOrder, type BriefSummary, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
@@ -283,6 +283,29 @@ function UpdateButton() {
   )
 }
 
+/** Shows while a brief is waiting to be read, and opens it. */
+function BriefChip() {
+  const [summary, setSummary] = useState<BriefSummary | null>(null)
+  const compact = useApp((s) => s.compact)
+  useEffect(() => {
+    void window.scb.invoke('briefs:summary').then(setSummary)
+    return window.scb.on('briefs:changed', setSummary)
+  }, [])
+  if (!summary?.latest || summary.unseen === 0) return null
+  const label = summary.unseen > 1 ? `${summary.unseen} new briefs` : 'New brief'
+  return (
+    <span className="sc-no-drag flex h-7 shrink-0 items-center rounded-md bg-accent-soft text-xs font-medium text-accent">
+      <button type="button" title={`${label}: ${summary.latest.title}`} className="flex h-full min-w-0 items-center gap-1.5 rounded-l-md pr-1 pl-2 hover:text-accent-hover" onClick={() => void window.scb.invoke('briefs:open')}>
+        <Newspaper aria-hidden size={13} strokeWidth={1.75} />
+        {compact ? summary.unseen : label}
+      </button>
+      <button type="button" aria-label="Dismiss new briefs" title="Dismiss" className="grid h-full w-6 place-items-center rounded-r-md hover:text-accent-hover" onClick={() => void window.scb.invoke('briefs:dismiss')}>
+        <X aria-hidden size={12} strokeWidth={2} />
+      </button>
+    </span>
+  )
+}
+
 /** Holds one toolbar item, which can be dragged to another place in the bar. */
 function Slot({ slot, dragging, target, onDrag, onTarget, onDrop, children }: {
   slot: ToolbarSlot
@@ -399,6 +422,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       {/* These stay at the end of the bar, wherever everything else has been dragged. */}
       <PrivateBadge />
       <FocusChip />
+      <BriefChip />
       <UpdateButton />
       {showProfiles && !compact && (
         <IconButton

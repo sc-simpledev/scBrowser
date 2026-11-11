@@ -7,6 +7,7 @@ import {
   MAX_SUGGESTIONS,
   type AssistantRequest,
   type BarItem,
+  type BriefSummary,
   type Bookmark,
   type ChromeCommands,
   type CommandChannel,
@@ -154,6 +155,8 @@ const validators: Validators = {
   'browser:new-window': noArgs,
   'tabs:split-toggle': noArgs,
   'tabs:split-ratio': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
+  'tabs:split-swap': noArgs,
+  'tabs:split-keep': (args): args is [number] => args.length === 1 && Number.isInteger(args[0]),
   'tabs:context-menu': idArg,
   'tabs:sleep': idArg,
   'tabs:set-group': (args): args is [number, string | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isShortString(args[1], 60)),
@@ -234,6 +237,9 @@ const validators: Validators = {
   'updates:state': noArgs,
   'updates:install': noArgs,
   'updates:seen': noArgs,
+  'briefs:summary': noArgs,
+  'briefs:open': noArgs,
+  'briefs:dismiss': noArgs,
   'bookmarks:overflow-menu': (args): args is [BarItem[], number, number] =>
     args.length === 3 &&
     Array.isArray(args[0]) &&
@@ -274,7 +280,7 @@ interface IpcServices {
   ai: AiService
   chats: ChatsRepo
   privacy: PrivacyService
-  core: { openSource: (source: { tabId: number | null; url: string }, target: { quote: string | null; seconds: number | null }) => void }
+  core: { openSource: (source: { tabId: number | null; url: string }, target: { quote: string | null; seconds: number | null }) => void; briefs: { summary: () => BriefSummary; markSeen: (id: string | null) => void } | null; onboarding: { mark: (id: 'assistant') => void } }
   sidebar: { sites: SidebarSites; addCurrent: () => void; menu: (url: string, x: number, y: number) => void }
 }
 
@@ -318,6 +324,8 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'browser:new-window': () => actions.openWindow(),
     'tabs:split-toggle': () => tabs.toggleSplit(),
     'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
+    'tabs:split-swap': () => tabs.swapSplit(),
+    'tabs:split-keep': (id) => tabs.keepSplitSide(id),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),
     'tabs:sleep': (id) => tabs.sleep(id),
     'tabs:set-group': (id, name) => tabs.setGroup([id], name === '' ? tabs.freshGroupName() : name),
@@ -422,6 +430,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'downloads:open-page': () => actions.openPage('downloads'),
     'ai:status': () => aiStore.status(),
     'ai:send': (streamId, request) => {
+      core.onboarding.mark('assistant')
       void ai.send(streamId, request, (event) => {
         if (!chromeUi.isDestroyed()) chromeUi.send('ai:event', event)
       })
@@ -466,6 +475,12 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'updates:state': () => updates.state(),
     'updates:install': () => updates.install(),
     'updates:seen': () => updates.seenWhatsNew(),
+    'briefs:summary': () => core.briefs?.summary() ?? { unseen: 0, latest: null },
+    'briefs:open': () => {
+      const latest = core.briefs?.summary().latest
+      tabs.openInternal(latest ? `sc://briefs/#${latest.id}` : 'sc://briefs')
+    },
+    'briefs:dismiss': () => core.briefs?.markSeen(null),
     'bookmarks:overflow-menu': (items, x, y) => {
       const open = (url: string) => {
         if (tabs.active) actions.openAddress(tabs.active.id, url)

@@ -15,7 +15,8 @@ import {
   SPLIT_GAP,
   DEVTOOLS_BAR,
   SPLIT_RATIO,
-  splitLeftWidth,
+  splitPanes,
+  SPLIT_RADIUS,
   type CleanupInput,
   type PageRect,
   type SearchEngine,
@@ -73,6 +74,8 @@ interface TabManagerOptions {
   onTabCreated: (contents: WebContents) => void
   onTabClosed: (id: TabId) => void
   onActivate: (tab: TabState) => void
+  /** Split view has started. */
+  onSplit?: () => void
   /** The new tab page finished loading, which pulls keyboard focus into it. */
   onNewTabLoaded: () => void
   /** A tab committed a navigation (including same-document ones). */
@@ -582,6 +585,7 @@ export class TabManager {
     other.view?.setVisible(true)
     this.applyBounds()
     this.emitChange()
+    this.options.onSplit?.()
   }
 
   /** Splits with the tab after the active one, or ends split view if it's on. */
@@ -594,6 +598,21 @@ export class TabManager {
     if (this.activeId === null || tabs.length < 2) return
     const next = tabs[(tabs.indexOf(this.activeId) + 1) % tabs.length]
     if (next !== undefined) this.startSplit(next)
+  }
+
+  /** Puts the two sides of split view the other way round. */
+  swapSplit(): void {
+    if (!this.split) return
+    this.split = [this.split[1], this.split[0]]
+    this.applyBounds()
+    this.emitChange()
+  }
+
+  /** Ends split view, keeping this side open. */
+  keepSplitSide(id: TabId): void {
+    if (!this.split?.includes(id)) return
+    if (id !== this.activeId) this.activate(id)
+    this.endSplit()
   }
 
   setSplitRatio(ratio: number): void {
@@ -857,16 +876,16 @@ export class TabManager {
       shownTools.setVisible(true)
     }
     if (this.split && !covers) {
-      const leftWidth = Math.max(0, splitLeftWidth(area.width, this.splitRatio))
-      const rightX = area.x + leftWidth + SPLIT_GAP
-      for (const [id, x, w] of [
-        [left!, area.x, leftWidth],
-        [right!, rightX, Math.max(0, area.width - leftWidth - SPLIT_GAP)]
+      // Each page sits in a card the browser UI draws round it (PageSlot), so it takes the card's curve.
+      const panes = splitPanes(area, this.splitRatio)
+      for (const [id, pane] of [
+        [left!, panes[0]],
+        [right!, panes[1]]
       ] as const) {
         const side = this.tabs.get(id)?.view
         side?.setVisible(true)
-        side?.setBounds({ ...area, x, width: w })
-        side?.setBorderRadius(PAGE_RADIUS)
+        side?.setBounds(pane.page)
+        side?.setBorderRadius(SPLIT_RADIUS - 1)
       }
       return
     }

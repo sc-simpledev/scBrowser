@@ -21,16 +21,16 @@ export interface EngineOption extends SearchEngine {
 
 export const SEARCH_ENGINES: EngineOption[] = [
   {
-    id: 'duckduckgo',
-    name: 'DuckDuckGo',
-    template: 'https://duckduckgo.com/?q=%s',
-    suggestTemplate: 'https://duckduckgo.com/ac/?type=list&q=%s'
-  },
-  {
     id: 'google',
     name: 'Google',
     template: 'https://www.google.com/search?q=%s',
     suggestTemplate: 'https://suggestqueries.google.com/complete/search?client=firefox&q=%s'
+  },
+  {
+    id: 'duckduckgo',
+    name: 'DuckDuckGo',
+    template: 'https://duckduckgo.com/?q=%s',
+    suggestTemplate: 'https://duckduckgo.com/ac/?type=list&q=%s'
   },
   {
     id: 'bing',
@@ -196,7 +196,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  searchEngine: 'duckduckgo',
+  searchEngine: 'google',
   searchSuggestions: true,
   suggestionSources: SUGGESTION_SOURCES.map((source) => source.id),
   theme: 'system',

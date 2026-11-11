@@ -1,9 +1,40 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Code2, X } from 'lucide-react'
-import { DEVTOOLS_BAR, SPLIT_GAP, SPLIT_RATIO, splitLeftWidth } from '@scbrowser/shared'
-import { IconButton } from '@scbrowser/ui'
+import { ArrowLeftRight, Code2, Maximize2, X } from 'lucide-react'
+import { DEVTOOLS_BAR, isNewTabUrl, SPLIT_GAP, SPLIT_RATIO, splitPanes, splitRoom, type PageRect, type TabState } from '@scbrowser/shared'
+import { cx, IconButton } from '@scbrowser/ui'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useTabs } from '../state/tabs'
+import { Favicon } from './Favicon'
+
+/** One side of split view: a card round the page, with the tab's name and what can be done with it. */
+function SplitCard({ tab, rect, active }: { tab: TabState; rect: PageRect; active: boolean }) {
+  const title = tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
+  return (
+    <section
+      aria-label={`Split view: ${title}`}
+      data-active={active || undefined}
+      className={cx(
+        'absolute flex flex-col rounded-(--sc-split-radius) border bg-surface transition-[border-color,box-shadow] duration-(--sc-duration-fast)',
+        active ? 'border-(--sc-accent) shadow-[0_0_0_3px_var(--sc-accent-soft)]' : 'border-border'
+      )}
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    >
+      <div className="flex h-(--sc-split-bar) shrink-0 items-center gap-2 pr-1 pl-2.5" onMouseDown={(e) => e.button === 0 && !active && void window.scb.invoke('tabs:activate', tab.id)}>
+        <Favicon url={tab.faviconUrl} pageUrl={tab.url} isLoading={tab.isLoading} />
+        <span className={cx('min-w-0 flex-1 truncate text-xs', active ? 'font-medium text-text' : 'text-text-muted')}>{title}</span>
+        <IconButton size="sm" label="Swap sides" onMouseDown={(e) => e.stopPropagation()} onClick={() => void window.scb.invoke('tabs:split-swap')}>
+          <ArrowLeftRight size={13} strokeWidth={1.75} />
+        </IconButton>
+        <IconButton size="sm" label="Show only this tab" onMouseDown={(e) => e.stopPropagation()} onClick={() => void window.scb.invoke('tabs:split-keep', tab.id)}>
+          <Maximize2 size={12} strokeWidth={1.75} />
+        </IconButton>
+        <IconButton size="sm" label="Close tab" onMouseDown={(e) => e.stopPropagation()} onClick={() => void window.scb.invoke('tabs:close', tab.id)}>
+          <X size={13} strokeWidth={1.75} />
+        </IconButton>
+      </div>
+    </section>
+  )
+}
 
 const MIN_DOCKED = 240
 
@@ -14,10 +45,14 @@ const MIN_DOCKED = 240
  */
 export function PageSlot() {
   const ref = useRef<HTMLDivElement>(null)
-  const splitOn = useTabs((s) => s.splitIds.length > 0)
+  const splitIds = useTabs((s) => s.splitIds)
+  const allTabs = useTabs((s) => s.tabs)
+  const activeId = useTabs((s) => s.activeId)
+  const splitOn = splitIds.length > 0
   const ratio = useTabs((s) => s.splitRatio)
   const docked = useTabs((s) => s.devToolsWidth)
   const [slotWidth, setSlotWidth] = useState(0)
+  const [slotHeight, setSlotHeight] = useState(0)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const [dragDocked, setDragDocked] = useState<number | null>(null)
 
@@ -27,6 +62,7 @@ export function PageSlot() {
     const report = () => {
       const { x, y, width, height } = element.getBoundingClientRect()
       setSlotWidth(width)
+      setSlotHeight(height)
       void window.scb.invoke('layout:page-rect', { x, y, width, height })
     }
     const observer = new ResizeObserver(report)
@@ -42,11 +78,13 @@ export function PageSlot() {
   // Developer tools take their room first, and split view shares out what's left.
   const shownDocked = dragDocked ?? docked
   const pagesWidth = slotWidth - (shownDocked > 0 ? shownDocked + SPLIT_GAP : 0)
-  const room = pagesWidth - SPLIT_GAP
-  const leftWidth = dragWidth ?? splitLeftWidth(pagesWidth, ratio)
+  const room = splitRoom(pagesWidth)
+  const shownRatio = dragWidth !== null && room > 0 ? dragWidth / room : ratio
+  const panes = splitPanes({ x: 0, y: 0, width: pagesWidth, height: slotHeight }, shownRatio)
+  const sides = splitIds.map((id) => allTabs.find((tab) => tab.id === id))
 
   return (
-    <div ref={ref} className="relative min-h-0 min-w-0 flex-1 bg-surface">
+    <div ref={ref} className={cx('relative min-h-0 min-w-0 flex-1', splitOn ? 'bg-transparent' : 'bg-surface')}>
       {shownDocked > 0 && (
         <div className="absolute inset-y-0 right-0" style={{ width: shownDocked + SPLIT_GAP / 2 }}>
           <div aria-hidden className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-border-strong" />
@@ -77,23 +115,27 @@ export function PageSlot() {
         </div>
       )}
       {splitOn && room > 0 && (
-        // The handle centres itself on this box's right edge, which is the middle of the gap.
-        <div className="absolute inset-y-0 left-0" style={{ width: leftWidth + SPLIT_GAP / 2 }}>
-          <div aria-hidden className="absolute inset-y-0 right-0 w-px translate-x-1/2 bg-border-strong" />
-          <ResizeHandle
-            label="Split view divider"
-            edge="right"
-            width={leftWidth}
-            min={Math.round(room * SPLIT_RATIO.min)}
-            max={Math.round(room * SPLIT_RATIO.max)}
-            onWidth={setDragWidth}
-            onCommit={(width) => {
-              void window.scb.invoke('tabs:split-ratio', width / room)
-              setDragWidth(null)
-            }}
-            onDragging={(dragging) => void window.scb.invoke('layout:resizing', dragging)}
-          />
-        </div>
+        <>
+          {sides.map((tab, index) => tab && <SplitCard key={tab.id} tab={tab} rect={panes[index]!.card} active={tab.id === activeId} />)}
+          {/* The handle centres itself on this box's right edge, which is the middle of the gap. */}
+          <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: panes[0].card.x + panes[0].card.width + SPLIT_GAP / 2 }}>
+            <div aria-hidden className="absolute top-1/2 right-0 h-8 w-1 translate-x-1/2 -translate-y-1/2 rounded-full bg-border-strong" />
+            <ResizeHandle
+              label="Split view divider"
+              edge="right"
+              width={panes[0].card.width}
+              min={Math.round(room * SPLIT_RATIO.min)}
+              max={Math.round(room * SPLIT_RATIO.max)}
+              onWidth={setDragWidth}
+              onCommit={(width) => {
+                void window.scb.invoke('tabs:split-ratio', width / room)
+                setDragWidth(null)
+              }}
+              onDragging={(dragging) => void window.scb.invoke('layout:resizing', dragging)}
+              className="pointer-events-auto rounded-full"
+            />
+          </div>
+        </>
       )}
     </div>
   )

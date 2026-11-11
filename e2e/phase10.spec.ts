@@ -728,7 +728,8 @@ test.describe('windows and tools', () => {
       const { splitIds, devToolsWidth } = g.scbTabs.snapshot()
       const [left, right] = splitIds.map((id: number) => g.scbTabs.tabs.get(id).view.getBounds())
       const rect = g.scbTabs.page
-      return right.x + right.width + 6 + devToolsWidth === rect.x + rect.width && left.x + left.width + 6 === right.x
+      // Each page sits 1 px inside its card, the cards 6 px from the edges and 6 px apart.
+      return right.x + right.width + 1 + 6 + 6 + devToolsWidth === rect.x + rect.width && left.x + left.width + 1 + 6 + 1 === right.x
     })
     expect(fits).toBe(true)
   })

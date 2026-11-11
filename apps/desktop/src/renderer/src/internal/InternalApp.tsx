@@ -1,4 +1,4 @@
-import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
+import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Newspaper, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -22,6 +22,7 @@ const ArchivePage = lazy(() => import('./pages/ArchivePage').then((m) => ({ defa
 const WatchingPage = lazy(() => import('./pages/WatchingPage').then((m) => ({ default: m.WatchingPage })))
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then((m) => ({ default: m.HighlightsPage })))
 const ReadingPage = lazy(() => import('./pages/ReadingPage').then((m) => ({ default: m.ReadingPage })))
+const BriefsPage = lazy(() => import('./pages/BriefsPage').then((m) => ({ default: m.BriefsPage })))
 const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
 
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
@@ -39,6 +40,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   highlights: { title: 'Highlights', icon: Highlighter, component: HighlightsPage },
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
+  briefs: { title: 'AI Briefs', icon: Newspaper, component: BriefsPage },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
@@ -46,7 +48,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
 const NAV: { label: string | null; pages: InternalPage[] }[] = [
   { label: null, pages: ['settings'] },
   { label: 'Library', pages: ['history', 'bookmarks', 'downloads', 'reading', 'highlights', 'watching', 'archive'] },
-  { label: 'AI', pages: ['assistant', 'ai'] },
+  { label: 'AI', pages: ['assistant', 'briefs', 'ai'] },
   { label: 'Privacy', pages: ['passwords', 'vpn', 'blocker'] }
 ]
 const NAV_ADVANCED: InternalPage[] = ['tasks', 'flags']

@@ -9,7 +9,8 @@ export const NEW_TAB_WIDGETS = [
   { id: 'calendar', name: 'Calendar' },
   { id: 'downloads', name: 'Recent downloads' },
   { id: 'reading', name: 'Reading list' },
-  { id: 'watching', name: 'Watched pages' }
+  { id: 'watching', name: 'Watched pages' },
+  { id: 'briefs', name: 'AI Briefs' }
 ] as const
 
 export type NewTabWidgetId = (typeof NEW_TAB_WIDGETS)[number]['id']

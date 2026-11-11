@@ -67,6 +67,34 @@ export const clampSplitRatio = (ratio: number) => Math.min(SPLIT_RATIO.max, Math
 /** How wide split view's left tab is, inside a page area this wide. */
 export const splitLeftWidth = (width: number, ratio: number) => Math.floor((width - SPLIT_GAP) * ratio)
 
+/** Split view draws each page as a card on the window: room round the cards, and a bar on each. */
+export const SPLIT_PAD = 6
+export const SPLIT_BAR = 32
+export const SPLIT_RADIUS = 10
+
+export interface SplitPane {
+  /** The whole card, its bar included. */
+  card: PageRect
+  /** Where the page itself goes, inside the card's border and under its bar. */
+  page: PageRect
+}
+
+/** The width both cards share, inside a page area this wide. */
+export const splitRoom = (width: number) => Math.max(0, width - SPLIT_PAD * 2 - SPLIT_GAP)
+
+/** Both cards of split view, left then right, in the coordinates `area` is in. */
+export function splitPanes(area: PageRect, ratio: number): [SplitPane, SplitPane] {
+  const room = splitRoom(area.width)
+  const leftWidth = Math.floor(room * ratio)
+  const height = Math.max(0, area.height - SPLIT_PAD * 2)
+  const pane = (x: number, width: number): SplitPane => {
+    const card = { x, y: area.y + SPLIT_PAD, width, height }
+    return { card, page: { x: x + 1, y: card.y + SPLIT_BAR, width: Math.max(0, width - 2), height: Math.max(0, height - SPLIT_BAR - 1) } }
+  }
+  const leftX = area.x + SPLIT_PAD
+  return [pane(leftX, leftWidth), pane(leftX + leftWidth + SPLIT_GAP, room - leftWidth)]
+}
+
 /** A row in tab search, which covers every workspace. */
 export interface TabSearchRow {
   id: TabId

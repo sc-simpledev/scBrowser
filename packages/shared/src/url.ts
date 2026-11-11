@@ -7,8 +7,8 @@ export interface SearchEngine {
 }
 
 export const DEFAULT_SEARCH_ENGINE: SearchEngine = {
-  name: 'DuckDuckGo',
-  template: 'https://duckduckgo.com/?q=%s'
+  name: 'Google',
+  template: 'https://www.google.com/search?q=%s'
 }
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i

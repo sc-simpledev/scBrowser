@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, Globe, History, Plus, Search, Settings2, Square, Star, X, type LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, Check, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, X, type LucideIcon } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
   DEFAULT_NEW_TAB,
@@ -10,6 +10,11 @@ import {
   type AiStatus,
   type AssistantEvent,
   type Bookmark,
+  briefPreview,
+  GETTING_STARTED,
+  type GettingStartedId,
+  type OnboardingState,
+  type BriefIssue,
   type DownloadInfo,
   type PageWatch,
   type ReadingItem,
@@ -439,6 +444,214 @@ function WatchingWidget() {
   )
 }
 
+const STEP_ICONS: Record<GettingStartedId, LucideIcon> = { assistant: MessageCircle, brief: Newspaper, split: Columns2, palette: Command, customise: LayoutGrid }
+
+/**
+ * For someone new: a few things worth trying, each with a button that shows it by doing it.
+ * Steps tick themselves off when used from anywhere, and the list goes once it's closed.
+ */
+function GetStarted({ onCustomise }: { onCustomise: () => void }) {
+  const [state, setState] = useState<OnboardingState | null>(null)
+  const load = useCallback(() => void api().invoke('onboarding:state').then(setState), [])
+  useEffect(() => {
+    load()
+    const refresh = () => document.visibilityState === 'visible' && load()
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [load])
+  if (!state?.show) return null
+  const count = state.done.length
+  const all = count === GETTING_STARTED.length
+  const hide = () => void api().invoke('onboarding:set-shown', false).then(load)
+  return (
+    <section aria-label="Get started" className="sc-glass col-span-2 flex flex-col gap-3 rounded-lg p-4 text-text shadow-1">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h2 className="font-semibold">{all ? 'You’re all set' : 'Get started with scTerra'}</h2>
+          <p className="text-xs text-text-muted">{all ? 'You’ve tried everything here. The command palette (Ctrl K) finds the rest.' : 'A few things worth a try. Each takes a moment.'}</p>
+        </div>
+        <span className="mt-0.5 shrink-0 text-xs text-text-faint tabular-nums">
+          {count} of {GETTING_STARTED.length}
+        </span>
+        <IconButton size="sm" label={all ? 'Close' : 'Hide Get started'} onClick={hide}>
+          <X size={12} strokeWidth={2} />
+        </IconButton>
+      </div>
+      <div aria-hidden className="h-1 overflow-hidden rounded-full bg-surface-hover">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-(--sc-duration-slow)" style={{ width: `${(count / GETTING_STARTED.length) * 100}%` }} />
+      </div>
+      <ul className="grid grid-cols-2 gap-1 max-[640px]:grid-cols-1">
+        {GETTING_STARTED.map((step) => {
+          const done = state.done.includes(step.id)
+          const Icon = STEP_ICONS[step.id]
+          const run = () => {
+            if (step.id === 'customise') {
+              onCustomise()
+              void api().invoke('onboarding:mark', 'customise').then(load)
+            } else void api().invoke('onboarding:try', step.id).then(load)
+          }
+          return (
+            <li key={step.id} className="min-w-0">
+              <button type="button" onClick={run} className="group flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors hover:bg-surface-hover">
+                <span className={cx('mt-0.5 grid size-7 shrink-0 place-items-center rounded-md', done ? 'bg-accent text-on-accent' : 'bg-accent-soft text-accent')}>
+                  {done ? <Check aria-hidden size={14} strokeWidth={2.25} /> : <Icon aria-hidden size={14} strokeWidth={1.75} />}
+                </span>
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className={cx('font-medium', done && 'text-text-muted line-through decoration-text-faint')}>{step.title}</span>
+                  <span className="text-xs text-text-muted">{step.detail}</span>
+                  {!done && (
+                    <span className="mt-0.5 text-xs font-medium text-accent group-hover:text-accent-hover">
+                      {step.action}
+                      {step.shortcut && <span className="font-normal text-text-faint"> · {step.shortcut}</span>}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/** The newest briefs for the new tab. Private windows have none. */
+function useBriefs(): BriefIssue[] {
+  const [issues, setIssues] = useState<BriefIssue[]>([])
+  useEffect(() => {
+    const load = () =>
+      void api()
+        .invoke('briefs:recent')
+        .then(setIssues, () => setIssues([]))
+    load()
+    // A brief can be written while this tab sits open.
+    const timer = setInterval(load, 60_000)
+    const refresh = () => document.visibilityState === 'visible' && load()
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [])
+  return issues
+}
+
+const openBrief = (id: string | null) => openHere(id ? `sc://briefs/#${id}` : 'sc://briefs')
+function BriefsWidget() {
+  const issues = useBriefs()
+  const unseen = issues.filter((issue) => issue.unseen).length
+  return (
+    <ListCard
+      title={unseen > 0 ? `AI Briefs · ${unseen} new` : 'AI Briefs'}
+      empty={issues.length === 0 ? 'No briefs yet. Set one up and scAI researches it for you every day.' : null}
+      more={{ label: issues.length === 0 ? 'Set up a brief' : 'All briefs', page: 'sc://briefs' }}
+    >
+      {issues.slice(0, 4).map((issue) => (
+        <ListItem key={issue.id} title={issue.title} detail={`${issue.unseen ? 'New · ' : ''}${ago(issue.createdAt)} · ${briefPreview(issue.text)}`} onOpen={() => openBrief(issue.id)} />
+      ))}
+    </ListCard>
+  )
+}
+
+/** Shown on every new tab while a brief is waiting to be read, whatever widgets are on. */
+function BriefBanner({ issues }: { issues: BriefIssue[] }) {
+  const [hidden, setHidden] = useState(false)
+  const waiting = issues.filter((issue) => issue.unseen)
+  const latest = waiting[0]
+  if (!latest || hidden) return null
+  return (
+    <section aria-label="New brief" className="sc-glass col-span-2 flex items-center gap-3 rounded-lg p-3 text-text shadow-1">
+      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-soft text-accent">
+        <Newspaper size={15} strokeWidth={1.75} />
+      </span>
+      <button type="button" className="flex min-w-0 flex-1 flex-col text-left" onClick={() => openBrief(latest.id)}>
+        <span className="truncate font-medium">
+          {waiting.length > 1 ? `${waiting.length} new briefs · ` : 'New brief · '}
+          {latest.title}
+        </span>
+        <span className="truncate text-xs text-text-muted">{briefPreview(latest.text)}</span>
+      </button>
+      <Button variant="primary" className="shrink-0" onClick={() => openBrief(latest.id)}>
+        Read
+      </Button>
+      <IconButton
+        size="sm"
+        label="Dismiss"
+        onClick={() => {
+          setHidden(true)
+          void api().invoke('briefs:seen', null)
+        }}
+      >
+        <X size={12} strokeWidth={2} />
+      </IconButton>
+    </section>
+  )
+}
+
+/** The briefs menu in the corner of the new tab: the newest few, and the way to set one up. */
+function BriefsMenu({ issues }: { issues: BriefIssue[] }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (event: Event) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', close)
+    }
+  }, [open])
+  const unseen = issues.filter((issue) => issue.unseen).length
+  return (
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="flex h-8 items-center gap-1.5 rounded-md bg-surface px-2.5 text-text-muted shadow-1 transition-colors hover:text-text"
+        onClick={() => setOpen(!open)}
+      >
+        <Newspaper aria-hidden size={14} strokeWidth={1.75} />
+        Briefs
+        {unseen > 0 && <span className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-2xs font-medium text-on-accent tabular-nums">{unseen}</span>}
+      </button>
+      {open && (
+        <div role="menu" aria-label="AI Briefs" className="sc-glass absolute right-0 bottom-10 flex w-80 flex-col gap-0.5 rounded-lg p-1.5 text-text shadow-2">
+          <div className="px-2 pt-1 pb-1.5 text-xs font-medium text-text-muted">AI Briefs</div>
+          {issues.length === 0 && <p className="px-2 pb-2 text-xs text-text-muted">scAI can research a topic for you at a set time, like the latest AI news every morning.</p>}
+          {issues.slice(0, 6).map((issue) => (
+            <button key={issue.id} type="button" role="menuitem" className="flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover" onClick={() => openBrief(issue.id)}>
+              <span aria-label={issue.unseen ? 'New' : undefined} className={cx('mt-1.5 size-1.5 shrink-0 rounded-full', issue.unseen ? 'bg-accent' : 'bg-transparent')} />
+              <span className="flex min-w-0 flex-col">
+                <span className={cx('truncate', issue.unseen && 'font-medium')}>{issue.title}</span>
+                <span className="truncate text-xs text-text-faint">
+                  {ago(issue.createdAt)} · {briefPreview(issue.text)}
+                </span>
+              </span>
+            </button>
+          ))}
+          <div className="mt-1 flex gap-1 border-t border-border pt-1.5">
+            <button type="button" role="menuitem" className="h-7 flex-1 rounded-md px-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text" onClick={() => openBrief(null)}>
+              All briefs
+            </button>
+            <button type="button" role="menuitem" className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text" onClick={() => openHere('sc://briefs/?new')}>
+              <Plus aria-hidden size={12} strokeWidth={2} />
+              New brief
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NotesWidget({ notes, update }: { notes: string; update: Update }) {
   const [text, setText] = useState(notes)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -513,6 +726,8 @@ function Widget({ id, config, update, keepChats }: { id: NewTabWidgetId; config:
       return <ReadingWidget />
     case 'watching':
       return <WatchingWidget />
+    case 'briefs':
+      return <BriefsWidget />
   }
 }
 
@@ -800,6 +1015,7 @@ export function NewTabPage() {
   }, [])
 
   const config = useMemo(() => ({ ...DEFAULT_NEW_TAB, ...settings?.newTab }), [settings])
+  const briefs = useBriefs()
   const picture = useBackgroundImage(config.imageVersion, config.background === 'image')
 
   const update = useCallback<Update>((patch) => {
@@ -811,6 +1027,7 @@ export function NewTabPage() {
   }, [])
 
   if (!settings) return null
+  const getStarted = !isPrivate && !customising && <GetStarted onCustomise={() => setCustomising(true)} />
 
   // A picture that synced from elsewhere exists only on that device, so it falls back to plain.
   const shown = picture.missing && config.background === 'image' ? { ...config, background: 'none' as const } : config
@@ -827,17 +1044,25 @@ export function NewTabPage() {
               This window is private. When it closes, its history, cookies and site data are deleted. Downloads stay, and websites and your network can still see what you do.
             </p>
           )}
-          {config.widgets.map(({ id, size }) => (
-            <div key={id} className={cx('min-w-0', size === 'full' && 'col-span-2')}>
-              <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
-            </div>
+          {!isPrivate && <BriefBanner issues={briefs} />}
+          {config.widgets.map(({ id, size }, index) => (
+            <Fragment key={id}>
+              {/* A widget with nothing to show leaves no gap. */}
+              <div className={cx('min-w-0 empty:hidden', size === 'full' && 'col-span-2')}>
+                <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
+              </div>
+              {/* Someone new sees it under the search box, or after the first widget without one. */}
+              {index === Math.max(0, config.widgets.findIndex((widget) => widget.id === 'search')) && getStarted}
+            </Fragment>
           ))}
+          {config.widgets.length === 0 && getStarted}
         </div>
       </main>
       {customising ? (
         <CustomisePanel config={config} update={update} onClose={() => setCustomising(false)} />
       ) : (
-        <div className="fixed right-3 bottom-3">
+        <div className="fixed right-3 bottom-3 flex items-center gap-2">
+          {!isPrivate && <BriefsMenu issues={briefs} />}
           <button
             type="button"
             className="flex h-8 items-center gap-1.5 rounded-md bg-surface px-2.5 text-text-muted shadow-1 transition-colors hover:text-text"

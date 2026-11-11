@@ -33,7 +33,7 @@ export function FlagsPage() {
     <>
       <p className="text-text-muted">Experimental switches. They may cause problems, and take effect after a restart.</p>
       {list(BROWSER_FLAGS.filter((flag) => !flag.fun))}
-      <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Just for fun</h2>
+      <h2 className="text-sm font-medium text-text">Just for fun</h2>
       {list(BROWSER_FLAGS.filter((flag) => flag.fun))}
       {changed && (
         <div className="sticky bottom-4">

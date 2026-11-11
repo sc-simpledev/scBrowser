@@ -1,8 +1,9 @@
-import { Layers, RotateCcw, X } from 'lucide-react'
+import { Archive, Layers, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { ARCHIVE_CHOICES, type ArchivedTab, type ClosedGroup, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 import { ConfirmButton } from '../ConfirmButton'
 
 const dayLabel = (time: number) => new Date(time).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -139,7 +140,7 @@ export function ArchivePage() {
           Clear all
         </ConfirmButton>
       </div>
-      {tabs.length === 0 && <p className="text-text-muted">Nothing archived yet. Right-click a tab and pick Archive tab, or choose when unused tabs archive themselves above.</p>}
+      {tabs.length === 0 && <EmptyState icon={Archive} title="Nothing archived yet">Right-click a tab and pick Archive tab, or choose above when unused tabs archive themselves.</EmptyState>}
       {tabs.length > 0 && shown.length === 0 && <p className="text-text-muted">Nothing matches that search.</p>}
       {[...days].map(([day, entries]) => (
         <section key={day} aria-label={day} className="flex flex-col gap-1">

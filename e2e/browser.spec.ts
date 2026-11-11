@@ -151,7 +151,7 @@ test('shows two tabs side by side and ends the split', async () => {
 test('settings page changes the search engine', async () => {
   await go(h, 'sc://settings/#search')
   const page = await h.page('sc://settings')
-  await page.getByRole('combobox', { name: 'Search engine' }).selectOption('google')
+  await page.getByRole('combobox', { name: 'Search engine' }).selectOption('bing')
   await page.evaluate(() => {
     location.hash = 'tabs'
   })
@@ -161,7 +161,7 @@ test('settings page changes the search engine', async () => {
   await omnibox(h).click()
   await omnibox(h).fill('hello world')
   const overlay = await h.overlay()
-  await expect(overlay.getByRole('option', { name: /Search Google/ })).toBeVisible()
+  await expect(overlay.getByRole('option', { name: /Search Bing/ })).toBeVisible()
   await omnibox(h).press('Escape')
 })
 

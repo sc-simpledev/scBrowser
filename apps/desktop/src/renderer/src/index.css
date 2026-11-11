@@ -26,6 +26,12 @@
   }
 }
 
+:root {
+  /* Split view's cards, shared with the main process through SPLIT_BAR and SPLIT_RADIUS. */
+  --sc-split-bar: 32px;
+  --sc-split-radius: 10px;
+}
+
 @utility sc-drag {
   -webkit-app-region: drag;
 }
@@ -42,6 +48,58 @@
 @utility sc-wco-inset {
   margin-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
   margin-left: env(titlebar-area-x, 0px);
+}
+
+/*
+ * Tabs across the top. The open tab reaches down over the toolbar's top line, so it joins the
+ * toolbar, and curves out into that line at both feet. Quiet lines part the other tabs.
+ */
+.sc-htab[data-active] {
+  z-index: 1;
+  box-shadow:
+    inset 1px 0 0 var(--sc-border),
+    inset -1px 0 0 var(--sc-border),
+    inset 0 1px 0 var(--sc-border);
+}
+
+.sc-htab[data-active]::before,
+.sc-htab[data-active]::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+
+.sc-htab[data-active]::before {
+  left: -10px;
+  background: radial-gradient(circle at 0 0, transparent 9px, var(--sc-border) 9px 10px, var(--sc-surface) 10px);
+}
+
+.sc-htab[data-active]::after {
+  right: -10px;
+  background: radial-gradient(circle at 100% 0, transparent 9px, var(--sc-border) 9px 10px, var(--sc-surface) 10px);
+}
+
+.sc-htab:not([data-active])::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 1px;
+  height: 14px;
+  translate: 0 -50%;
+  background: var(--sc-border-strong);
+  transition: opacity var(--sc-duration-fast);
+}
+
+[role='tablist'] > .sc-htab:first-child::before,
+.sc-htab[data-active] + .sc-htab::before,
+.sc-htab:hover::before,
+.sc-htab:hover + .sc-htab::before,
+.sc-htab + :not(.sc-htab) + .sc-htab::before {
+  opacity: 0;
 }
 
 .sc-tooltip {

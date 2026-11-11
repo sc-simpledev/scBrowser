@@ -1,9 +1,11 @@
-import { Activity, AppWindow, Archive, Bookmark, BookMarked, Highlighter, BookOpen, Bot, CodeXml, Download, Eye, FileText, FlaskConical, Globe, History, KeyRound, MessageCircle, Network, Plus, Settings, ShieldBan, Sparkles, SquareTerminal, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { Activity, AppWindow, Archive, Bookmark, BookMarked, Highlighter, BookOpen, Bot, CodeXml, Download, Eye, FileText, FlaskConical, Globe, History, House, KeyRound, MessageCircle, Network, Newspaper, Settings, ShieldBan, Sparkles, SquareTerminal, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { cx } from '@scbrowser/ui'
 
 const INTERNAL_ICONS: Record<string, LucideIcon> = {
-  newtab: Plus,
+  // Not a plus, which would look like the New tab button beside it.
+  newtab: House,
+  briefs: Newspaper,
   pdf: FileText,
   settings: Settings,
   ai: Bot,

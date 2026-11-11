@@ -1,8 +1,9 @@
-import { X } from 'lucide-react'
+import { History, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input } from '@scbrowser/ui'
 import type { HistoryEntry } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 import { ConfirmButton } from '../ConfirmButton'
 
 const PAGE_SIZE = 200
@@ -59,7 +60,7 @@ export function HistoryPage() {
           {note}
         </p>
       )}
-      {entries.length === 0 && <p className="text-text-muted">{query ? 'Nothing matches that search.' : 'No history yet.'}</p>}
+      {entries.length === 0 && (query ? <p className="text-text-muted">Nothing matches that search.</p> : <EmptyState icon={History} title="No history yet">Pages you visit appear here, newest first.</EmptyState>)}
       {[...days].map(([day, visits]) => (
         <section key={day} aria-label={day} className="flex flex-col gap-1">
           <h2 className="text-xs font-medium text-text-muted">{day}</h2>

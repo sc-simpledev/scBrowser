@@ -154,6 +154,18 @@ export class AiService {
     return this.collect(this.store.roles().fast ?? this.chatRef(), system, [{ role: 'user', content: user }])
   }
 
+  /** Whether the chat model is scTerra AI, or null when none is chosen. */
+  chatIsHosted(): boolean | null {
+    const chat = this.store.roles().chat
+    const provider = chat && this.store.provider(chat.providerId)
+    return provider ? !!provider.hosted : null
+  }
+
+  /** A longer single request on the chat model, for briefs. */
+  write(system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
+    return this.collect(this.chatRef(), system, [{ role: 'user', content: user }], signal, maxTokens)
+  }
+
   /** Only the search itself goes to the AI, never the person's history. */
   async parseHistorySearch(query: string): Promise<HistoryQuery | null> {
     return parseHistoryQuery(await this.complete(historyQueryPrompt(new Date().toISOString().slice(0, 10)), query))

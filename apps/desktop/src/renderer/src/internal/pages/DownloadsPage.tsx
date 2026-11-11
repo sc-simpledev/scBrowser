@@ -1,8 +1,9 @@
-import { FolderOpen, Pencil, Sparkles, X } from 'lucide-react'
+import { Download, FolderOpen, Pencil, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input } from '@scbrowser/ui'
 import type { DownloadAction, DownloadInfo } from '@scbrowser/shared'
 import { api, formatBytes } from '../api'
+import { EmptyState } from '../EmptyState'
 
 const POLL_MS = 1000
 
@@ -76,7 +77,7 @@ export function DownloadsPage() {
   const act = (id: string, action: DownloadAction) => void api().invoke('downloads:action', id, action).then(load)
   const running = (d: DownloadInfo) => d.state === 'progressing' || d.state === 'paused'
 
-  if (downloads.length === 0) return <p className="text-text-muted">No downloads yet.</p>
+  if (downloads.length === 0) return <EmptyState icon={Download} title="No downloads yet">Files you download appear here, with their progress.</EmptyState>
 
   return (
     <>

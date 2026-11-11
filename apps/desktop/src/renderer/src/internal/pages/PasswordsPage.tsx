@@ -435,7 +435,7 @@ function LeakCheckCard({ count, onChecked }: { count: number; onChecked: () => v
     <section aria-label="Leak check" className={CARD}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Leak check</h2>
+          <h2 className="text-sm font-medium text-text">Leak check</h2>
           <p className="mt-1 text-xs text-text-muted">
             Looks your passwords up in Have I Been Pwned's list of breached passwords. Your passwords never leave this computer: only the first 5 characters of a scrambled copy of each are sent, and the match is made here.
           </p>
@@ -498,7 +498,7 @@ function Details() {
   return (
     <section aria-label="Addresses and details" className={CARD}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Addresses and details</h2>
+        <h2 className="text-sm font-medium text-text">Addresses and details</h2>
         <Button onClick={() => setEditing({ ...EMPTY_IDENTITY })}>Add</Button>
       </div>
       {editing && (
@@ -632,7 +632,7 @@ function Options({ reload, master }: { reload: () => void; master: boolean }) {
   if (minutes === null) return null
   return (
     <section aria-label="Password options" className={CARD}>
-      <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-muted uppercase">Options</h2>
+      <h2 className="text-sm font-medium text-text">Options</h2>
       {master && <label className="flex items-center justify-between gap-3">
         Lock after
         <Select

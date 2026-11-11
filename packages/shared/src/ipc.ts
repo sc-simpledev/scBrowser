@@ -10,6 +10,8 @@ import type { Settings } from './settings'
 import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval } from './watch'
+import type { BriefInput, BriefIssue, BriefPrefs, BriefState, BriefSummary } from './briefs'
+import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
 import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderReview, CoderStatus } from './coder'
 import type { Highlight } from './highlights'
@@ -52,6 +54,9 @@ export interface ChromeCommands {
   /** Splits with the next tab, or ends split view. */
   'tabs:split-toggle': () => void
   'tabs:split-ratio': (ratio: number) => void
+  'tabs:split-swap': () => void
+  /** Ends split view, keeping this tab open. */
+  'tabs:split-keep': (id: number) => void
   'tabs:context-menu': (id: TabId) => void
   /** False if it couldn't sleep, such as the last tab left. */
   'tabs:sleep': (id: TabId) => boolean
@@ -128,6 +133,10 @@ export interface ChromeCommands {
   'updates:state': () => UpdateState
   'updates:install': () => void
   'updates:seen': () => void
+  'briefs:summary': () => BriefSummary
+  /** Opens the newest unread brief, or the briefs page. */
+  'briefs:open': () => void
+  'briefs:dismiss': () => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
   'profiles:menu': (x: number, y: number) => void
   /** Opens a sidebar site, or closes it if it's the one showing. */
@@ -167,6 +176,7 @@ export interface ChromeEvents {
   /** The colour the active page asks for. Only sent with the Site colours flag on. */
   'ui:site-colour': string | null
   'updates:changed': UpdateState
+  'briefs:changed': BriefSummary
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
   'overlay:clear-tooltip': void
@@ -238,6 +248,8 @@ export const COMMAND_CHANNELS = [
   'browser:new-window',
   'tabs:split-toggle',
   'tabs:split-ratio',
+  'tabs:split-swap',
+  'tabs:split-keep',
   'tabs:context-menu',
   'tabs:sleep',
   'tabs:set-group',
@@ -301,6 +313,9 @@ export const COMMAND_CHANNELS = [
   'updates:state',
   'updates:install',
   'updates:seen',
+  'briefs:summary',
+  'briefs:open',
+  'briefs:dismiss',
   'bookmarks:overflow-menu',
   'profiles:menu',
   'sidebar-sites:toggle',
@@ -335,6 +350,7 @@ export const EVENT_CHANNELS = [
   'passwords:changed',
   'ui:site-colour',
   'updates:changed',
+  'briefs:changed',
   'omnibox:answer-action',
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
@@ -608,6 +624,25 @@ export interface InternalCommands {
   'mini-apps:list': () => { id: string; name: string; createdAt: number }[]
   'mini-apps:open': (id: string) => void
   'mini-apps:remove': (id: string) => void
+  'briefs:state': () => BriefState
+  'briefs:summary': () => BriefSummary
+  /** The newest few, with only the start of their text, for the new tab. */
+  'briefs:recent': () => BriefIssue[]
+  /** Null adds a new one. */
+  'briefs:save': (id: string | null, input: BriefInput) => BriefState
+  'briefs:remove': (id: string) => BriefState
+  'briefs:pause': (id: string, paused: boolean) => BriefState
+  /** Runs it now, and resolves once the brief is written or has failed. */
+  'briefs:run': (id: string) => BriefState
+  /** Null marks them all as seen. */
+  'briefs:seen': (id: string | null) => void
+  'briefs:delete-issue': (id: string) => BriefState
+  'briefs:prefs': (prefs: Partial<BriefPrefs>) => BriefState
+  'onboarding:state': () => OnboardingState
+  /** Shows how one of the Get started list works, by doing it, and ticks it off. */
+  'onboarding:try': (id: GettingStartedId) => void
+  'onboarding:mark': (id: GettingStartedId) => void
+  'onboarding:set-shown': (show: boolean) => void
   /** Leaves the first-run intro for a new tab. */
   'welcome:finish': () => void
   'welcome:replay': () => void
@@ -813,7 +848,21 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'mini-apps:keep',
   'mini-apps:list',
   'mini-apps:open',
-  'mini-apps:remove'
+  'mini-apps:remove',
+  'briefs:state',
+  'briefs:summary',
+  'briefs:recent',
+  'briefs:save',
+  'briefs:remove',
+  'briefs:pause',
+  'briefs:run',
+  'briefs:seen',
+  'briefs:delete-issue',
+  'briefs:prefs',
+  'onboarding:state',
+  'onboarding:try',
+  'onboarding:mark',
+  'onboarding:set-shown'
 ] as const satisfies readonly (keyof InternalCommands)[]
 
 /** Shape of `window.scb`, exposed by the chrome UI preload. */

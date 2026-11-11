@@ -2,8 +2,8 @@ import { keepSessionCookies } from './sessionCookies'
 import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
-import { app, net, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { app, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
+import { IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, isNewTabUrl, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -28,6 +28,9 @@ import { goToTarget, samePage } from './citations'
 import { HighlightStore } from './highlights'
 import { ReadingList } from './readingList'
 import { MiniApps } from './miniApps'
+import { BriefService } from './briefs'
+import { Onboarding } from './onboarding'
+import { webContext } from './ai/webSearch'
 import { pdfPageUrl } from './internal/pdf'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -147,6 +150,9 @@ export class BrowserCore {
   readonly highlights: HighlightStore | null
   readonly readingList: ReadingList | null
   readonly miniApps: MiniApps
+  /** Scheduled AI research. Private windows have none. */
+  readonly briefs: BriefService | null
+  readonly onboarding: Onboarding
 
   constructor(
     readonly services: Services,
@@ -378,6 +384,19 @@ export class BrowserCore {
           }
         })
     app.on('will-quit', () => this.watcher?.destroy())
+    this.onboarding = new Onboarding(kv)
+    this.briefs = isPrivate
+      ? null
+      : new BriefService({
+          kv,
+          hosted: () => backgroundAi.chatIsHosted(),
+          write: (system, user, maxTokens) => backgroundAi.write(system, user, maxTokens),
+          search: (query, options) => webContext(query, (url) => URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host), options),
+          online: () => net.isOnline(),
+          onChange: (summary) => this.broadcast('briefs:changed', summary),
+          onReady: (issue, startup) => this.briefReady(issue.id, issue.title, startup)
+        })
+    app.on('will-quit', () => this.briefs?.destroy())
     const stopSaver = startMemorySaver({
       enabled: () => settings.get().memorySaver,
       memory: () => process.getSystemMemoryInfo(),
@@ -499,6 +518,30 @@ export class BrowserCore {
   /** Whether closing this window's last tab should close the window too. */
   otherBrowserWindowsOpen(): boolean {
     return this.windows.filter((handle) => handle.kind === 'browser').length > 1
+  }
+
+  /**
+   * A brief is ready. Soon after scTerra opened, it opens in a tab, as that's what the person
+   * opened scTerra to; later on, a notification says so. The toolbar and new tab show it either way.
+   */
+  private briefReady(id: string, title: string, startup: boolean): void {
+    const url = `sc://briefs/#${id}`
+    const handle = this.lastFocused
+    if (startup && handle && this.briefs?.takeStartupBriefs()) {
+      const active = handle.tabs.active
+      if (active && isNewTabUrl(active.url)) handle.tabs.navigate(active.id, url)
+      else handle.tabs.create(url, { activate: false, afterId: active?.id })
+      return
+    }
+    if (!this.briefs?.prefs().notify || !Notification.isSupported()) return
+    const note = new Notification({ title: 'Your brief is ready', body: title, silent: false })
+    note.on('click', () => {
+      const { tabs, window } = this.browser()
+      tabs.openInternal(url)
+      window.show()
+      window.focus()
+    })
+    note.show()
   }
 
   broadcast: Send = (channel, ...payload) => {

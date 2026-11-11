@@ -18,7 +18,7 @@ describe('resolveOmniboxInput', () => {
   it.each(['how do browsers work', 'electron', 'example.com is down', 'javascript: the good parts'])(
     'searches for %s',
     (input) => {
-      expect(resolveOmniboxInput(input)).toBe(`https://duckduckgo.com/?q=${encodeURIComponent(input)}`)
+      expect(resolveOmniboxInput(input)).toBe(`https://www.google.com/search?q=${encodeURIComponent(input)}`)
     }
   )
 

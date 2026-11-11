@@ -42,6 +42,19 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.6.0',
+    date: '2026-11-11',
+    items: [
+      'AI Briefs: pick a topic and a time, and scAI searches the web and writes you a short, medium or long brief every day, every 2 days or every week.',
+      'New briefs wait in the toolbar, on every new tab and in a Briefs menu beside Customise, and open by themselves the first time you start scTerra after one is written.',
+      'Google is the search engine for new profiles. You can pick another during setup or in Settings.',
+      'Tabs across the top have a new look: the open tab joins the toolbar, and a row with many tabs now scrolls instead of hiding the New tab button.',
+      'Split view shows each page in its own card, with buttons to swap sides, keep just one tab, or close it.',
+      'Setup suggests a few things to start with, and the new tab page has a Get started list for your first days.',
+      'Lists with nothing in them yet say what goes there, and section headings match across scTerra’s pages.'
+    ]
+  },
+  {
     version: '0.5.5',
     date: '2026-11-11',
     items: [

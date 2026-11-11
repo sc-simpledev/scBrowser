@@ -240,6 +240,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       preview.setHidden(resizing)
       sidebarSites.setHidden(resizing, 'resizing')
     },
+    onSplit: () => core.onboarding.mark('split'),
     onActivate: (tab) => {
       // A preview belongs to the page it was opened from.
       preview.close()
@@ -351,7 +352,10 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         })
         .catch(() => notify("Reader view can't open this page"))
     },
-    togglePalette: () => overlay.togglePalette(),
+    togglePalette: () => {
+      overlay.togglePalette()
+      core.onboarding.mark('palette')
+    },
     searchTabs: () => overlay.toggleTabSearch(searchRowsEverywhere()),
     notify: (text) => notify(text),
     focusFor: (minutes) => {
@@ -874,6 +878,11 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'reading-list': () => actions.openPage('reading'),
     highlights: () => actions.openPage('highlights'),
     'watched-pages': () => actions.openPage('watching'),
+    'ai-briefs': () => actions.openPage('briefs'),
+    'get-started': () => {
+      core.onboarding.setShown(true)
+      tabs.openInternal('sc://newtab')
+    },
     'archived-tabs': () => actions.openPage('archive'),
     code: () => actions.openCode(),
     'reopen-group': () => {
@@ -1295,6 +1304,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const disposeInternalIpc = registerInternalIpc({
     window,
     tabs,
+    actions,
     settings,
     history,
     bookmarks,
@@ -1410,6 +1420,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     if (!seen && eligible) setIntro(tabs.create(WELCOME_URL))
     else if (!saved && urls.length === 0) tabs.create()
     if (seen) kv.set(WELCOME_KEY, true)
+    // A brief written since scTerra was last open is what the person sees first.
+    if (urls.length === 0 && core.briefs?.takeStartupBriefs()) tabs.openInternal('sc://briefs')
     if (saved) for (const restore of loadExtraSessions(kv)) core.openWindow({ restore })
   })
 

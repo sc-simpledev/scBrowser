@@ -90,21 +90,25 @@ async function get(url: string, init: RequestInit & { timeout: number }): Promis
   return session.defaultSession.fetch(url, { ...init, credentials: 'omit', signal: AbortSignal.timeout(init.timeout) } as RequestInit)
 }
 
-export async function searchWeb(query: string): Promise<SearchResult[]> {
+/** DuckDuckGo's own date filter: the past day, week or month. */
+export type Recency = 'd' | 'w' | 'm'
+
+export async function searchWeb(query: string, recency?: Recency): Promise<SearchResult[]> {
   const q = query.replace(/\s+/g, ' ').trim().slice(0, 300)
   if (!q) return []
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'text/html' }
+  const form = new URLSearchParams({ q, ...(recency ? { df: recency } : {}) })
   try {
     // Tests point this at a local page, as they must not reach the network.
     const endpoint = (process.env.SCB_E2E && process.env.SCB_SEARCH_URL) || 'https://html.duckduckgo.com/html/'
-    const response = await get(endpoint, { method: 'POST', headers, body: new URLSearchParams({ q }).toString(), timeout: SEARCH_TIMEOUT_MS })
+    const response = await get(endpoint, { method: 'POST', headers, body: form.toString(), timeout: SEARCH_TIMEOUT_MS })
     const results = response.ok ? parseResults(await response.text()) : []
     if (results.length > 0) return results
   } catch {
     // Tries the lite page below.
   }
   if (process.env.SCB_E2E && process.env.SCB_SEARCH_URL) return []
-  const response = await get(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(q)}`, { headers: { Accept: 'text/html' }, timeout: SEARCH_TIMEOUT_MS })
+  const response = await get(`https://lite.duckduckgo.com/lite/?${form.toString()}`, { headers: { Accept: 'text/html' }, timeout: SEARCH_TIMEOUT_MS })
   if (!response.ok) throw new Error(`The search failed (${response.status}).`)
   return parseResults(await response.text())
 }
@@ -128,10 +132,13 @@ async function readResult(result: SearchResult): Promise<PageContext | null> {
  * Searches for the question and reads the first few results, skipping sites on the AI off list.
  * The list of results is its own source too, so the model can still name pages it couldn't read.
  */
-export async function webContext(query: string, isSiteOff: (url: string) => boolean): Promise<PageContext[]> {
-  const results = (await searchWeb(query)).filter((result) => !isSiteOff(result.url)).slice(0, 8)
+export async function webContext(query: string, isSiteOff: (url: string) => boolean, { recency, read = RESULTS_READ }: { recency?: Recency; read?: number } = {}): Promise<PageContext[]> {
+  const search = async (filter?: Recency) => (await searchWeb(query, filter)).filter((result) => !isSiteOff(result.url)).slice(0, Math.max(8, read + 2))
+  let results = await search(recency)
+  // A narrow date filter can find nothing on a quiet topic, so it widens to any date.
+  if (results.length === 0 && recency) results = await search()
   if (results.length === 0) return []
-  const pages = (await Promise.all(results.slice(0, RESULTS_READ).map(readResult))).filter((page): page is PageContext => page !== null)
+  const pages = (await Promise.all(results.slice(0, read).map(readResult))).filter((page): page is PageContext => page !== null)
   const list: PageContext = {
     title: `Web search: ${query.slice(0, 80)}`,
     url: `https://duckduckgo.com/?q=${encodeURIComponent(query.slice(0, 300))}`,
