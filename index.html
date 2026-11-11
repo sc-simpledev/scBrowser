@@ -28,9 +28,11 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
 
 .layer { position: absolute; inset: 0; padding: 0 var(--gutter); display: flex; flex-direction: column; justify-content: center; padding-bottom: 22vh; will-change: opacity, transform; }
 h1, h2 { margin: 0; font-weight: 500; letter-spacing: -.045em; line-height: 1.06; font-size: clamp(44px, 8.6vw, 136px); }
+/* Large letters carry more space on their left than small ones, so the headings are pulled back to sit flush with the text under them. */
+h1 { margin-left: -.028em; }
+h2 { margin-left: -.068em; }
 
 #hero p, #outro p { margin: 18px 0 0; max-width: 30em; font-size: clamp(17px, 1.6vw, 22px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
-#hero .cue { position: absolute; left: var(--gutter); bottom: 44px; margin: 0; font-size: 14px; letter-spacing: 0; color: var(--dim); }
 #outro { opacity: 0; visibility: hidden; }
 #outro h2 { font-size: clamp(44px, 8.6vw, 136px); }
 #outro span { margin-left: .6em; color: var(--dim); }
@@ -54,7 +56,6 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   #explore { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 72px; padding-bottom: 96px; }
   .notes { height: 8.6em; margin-top: 10px; font-size: 15px; }
   .index { left: var(--gutter); right: auto; flex-wrap: wrap; gap: 8px 18px; bottom: 28px; }
-  #hero .cue { bottom: 28px; }
   #outro span { display: block; margin: 6px 0 0; }
 }
 </style>
@@ -66,7 +67,7 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   <div class="film" id="film">
     <div class="stage" id="stage">
       <canvas id="terra" aria-hidden="true"></canvas>
-      <section class="layer" id="hero"><h1>scTerra</h1><p>A browser for Linux, Windows and macOS, with AI built in.</p><p class="cue" aria-hidden="true">Scroll ↓</p></section>
+      <section class="layer" id="hero"><h1>scTerra</h1><p>A browser for Linux, Windows and macOS, with AI built in.</p></section>
       <section class="layer" id="explore" aria-label="What scTerra does">
         <div>
           <h2><span aria-hidden="true">Browse the</span><span class="reel" aria-hidden="true"><span class="reel-track" id="reel"></span></span><span class="sr" id="said"></span></h2>
@@ -205,7 +206,7 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
     if (visible && !was) { last = performance.now(); requestAnimationFrame(frame); }
   }).observe($('stage'));
 
-  // The opening: light first, then the name, the line under it, and the cue to scroll.
+  // The opening: light first, then the name, and the line under it.
   var canvas = $('terra'), arrived = false;
   var entrances = [].map.call(hero.children, function (el, i) { return [el, [.9 + i * .45, 2.6 + i * .45]]; });
   function arrive(t) {
