@@ -22,7 +22,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 .bar b { font-weight: 600; letter-spacing: -.02em; }
 .bar a:last-child, .end a, #outro a { border-bottom: 1px solid currentColor; padding-bottom: 1px; }
 
-.film { position: relative; height: 1000vh; height: 1000svh; }
+.film { position: relative; height: 1130vh; height: 1130svh; }
 .stage { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; background: linear-gradient(#05070a 62%, #0a2a31); }
 canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
@@ -85,12 +85,14 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   <nav aria-label="Links"><a href="/downloads">Downloads</a><a href="https://github.com/sc-simpledev/scTerra/releases" rel="noopener">Releases</a></nav>
 </footer>
 
+<script src="assets/land.js"></script>
 <script>
 (function () {
   var SCENES = [
     ['World', 'world', 'Everyday browsing without the clutter. Trackers are blocked and cookie banners are rejected for you, while groups, workspaces, split view and sleeping tabs keep a long session tidy and light on memory.', 'An article open in scTerra, with tabs down the side.'],
     ['Sidebar', 'sidebar', 'Ask about the page you’re on without leaving it. The assistant summarises articles and videos, answers with citations that jump to the exact words, and can work through a page for you, with your approval at every step.', 'The assistant summarising a page in the sidebar.'],
     ['AI', 'ai', 'Research across up to eight tabs or the web, and turn it into a report with sources you can click. Reports come in several designs, and download as PDF, Word, HTML or Markdown.', 'A report written by the assistant, open beside the chat.'],
+    ['Briefs', 'briefs', 'Tell scTerra what to keep up with, and when. At that time it searches the web and writes you a brief with its sources, every day, every other day or every week, and has it waiting on your new tab.', 'The AI Briefs page, with three scheduled briefs and one just written.'],
     ['Code', 'code', 'Terra Code works in a project folder you choose. It reads your files, makes edits and runs your tests, asks before commands and, unless you say otherwise, before changes, and can undo what it did.', 'Terra Code after fixing a bug, with its plan and changed files.'],
     ['VPN', 'vpn', 'Bring your own VLESS, VMess, Trojan, Shadowsocks or proxy connections, or subscribe to a list. Cover just the browser or the whole computer, and let scTerra pick the fastest server.', 'The VPN page with a list of connections.'],
     ['Vault', 'vault', 'Passwords, addresses and two-step codes, sealed with a master password or your system keychain. It fills in your saved logins, flags weak or reused passwords, and checks for leaks when you ask.', 'The password vault with saved logins.']
@@ -101,7 +103,7 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   var film = $('film'), hero = $('hero'), explore = $('explore'), reel = $('reel'), said = $('said'), index = $('index'), outro = $('outro');
 
   // Where each part of the page sits along the one scroll.
-  var HERO_OUT = [.012, .08], EXPLORE_IN = [.065, .125], REEL = [.125, .85], EXPLORE_OUT = [.875, .925], OUTRO_IN = [.915, .975];
+  var HERO_OUT = [.01, .07], EXPLORE_IN = [.058, .112], REEL = [.112, .87], EXPLORE_OUT = [.89, .932], OUTRO_IN = [.925, .978];
 
   WORDS.forEach(function (word) {
     var line = document.createElement('span');
@@ -236,45 +238,73 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   }
   requestAnimationFrame(frame);
 
+  /** The dotted Earth from scTerra's intro: one analytic sphere, with a lit dot for each patch of land. */
   function setupPlanet() {
-    var canvas = $('terra');
-    var gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' });
+    var canvas = $('terra'), land = window.scLand;
+    var gl = land && canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'low-power' });
     if (!gl) return null;
     var fs = [
-      'precision highp float;uniform vec2 R;uniform float T,S,I;',
-      'float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
-      'float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}',
-      'float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<4;i++){v+=a*n(p);p=p*2.03+vec2(17.3,9.1);a*=.5;}return v;}',
+      '#version 300 es',
+      'precision highp float;',
+      'uniform vec2 uSize,uShift;uniform float uDistance,uSpin,uLit,uStars;uniform vec3 uSun,uTint;uniform sampler2D uLand;',
+      'out vec4 color;',
+      'const float PI=3.14159265;const float ROWS=260.;',
+      'float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+      'vec3 stars(vec3 ray){',
+      ' vec2 grid=vec2(atan(ray.x,ray.z),asin(ray.y))*90.;vec2 cell=floor(grid);float seed=hash(cell);',
+      ' if(seed<.965)return vec3(0.);',
+      ' vec2 spot=fract(grid)-.5-(vec2(hash(cell+3.1),hash(cell+7.7))-.5)*.7;',
+      ' float size=.04+.1*hash(cell+1.3);',
+      ' return vec3(.75,.86,1.)*smoothstep(size,0.,length(spot))*(seed-.96)*26.;}',
+      'float landDots(float lat,float lon,out float cellSeed){',
+      ' float row=floor((lat/PI+.5)*ROWS);float centre=((row+.5)/ROWS-.5)*PI;',
+      ' float columns=max(1.,floor(2.*ROWS*cos(centre)));',
+      ' float column=floor((lon/(2.*PI)+.5)*columns);',
+      ' float centreLon=((column+.5)/columns-.5)*2.*PI;',
+      ' cellSeed=hash(vec2(row,column));',
+      ' float land=texture(uLand,vec2(centreLon/(2.*PI)+.5,.5-centre/PI)).r;',
+      ' if(land<.5)return 0.;',
+      ' vec2 offset=vec2((lon-centreLon)*cos(centre),lat-centre)*ROWS/PI;',
+      ' float blur=clamp(fwidth(lat)*ROWS/PI,.07,.5);',
+      ' return smoothstep(.38+blur,.3-blur*.5,length(offset));}',
       'void main(){',
-      ' vec2 u=(gl_FragCoord.xy-.5*R)/R.y;',
-      ' vec3 air=vec3(.25,.66,.74),sun=vec3(1.,.93,.84);',
-      ' float e=I*I*(3.-2.*I);',
-      ' float r=2.4,top=mix(-.62,-.33,e)+.1*sin(S*3.14159);',
-      ' vec2 c=vec2(.34*S-.1,top-r),d=u-c;float l=length(d),o=l-r;',
-      ' vec2 g=floor(gl_FragCoord.xy/1.5);',
-      ' vec3 col=vec3(step(.9978,h(g))*h(g+3.))*(.5+.5*sin(T*.5+h(g)*40.))*smoothstep(-.05,.3,o);',
-      ' float x=(d.x-.25*S)*(d.x-.25*S);',
-      ' if(o>0.){',
-      '  col+=air*(exp(-o*11.)*.55+exp(-o*3.2)*.11)*exp(-x*1.6)*e;',
-      '  col+=sun*exp(-o*60.)*exp(-x*7.)*.9*e;',
+      ' vec2 uv=(gl_FragCoord.xy-.5*uSize)/uSize.y-uShift;',
+      ' vec3 origin=vec3(0.,0.,uDistance);vec3 ray=normalize(vec3(uv,-1.7));vec3 sun=normalize(uSun);',
+      ' float b=dot(origin,ray);float c=dot(origin,origin)-1.;float h=b*b-c;',
+      ' vec3 result=stars(ray)*uStars;',
+      ' if(h>0.&&b<0.){',
+      '  vec3 n=normalize(origin+ray*(-b-sqrt(h)));',
+      '  float s=sin(uSpin),k=cos(uSpin),tilt=.32;',
+      '  vec3 tilted=vec3(n.x,n.y*cos(tilt)-n.z*sin(tilt),n.y*sin(tilt)+n.z*cos(tilt));',
+      '  vec3 q=vec3(tilted.x*k+tilted.z*s,tilted.y,-tilted.x*s+tilted.z*k);',
+      '  float lat=asin(clamp(q.y,-1.,1.));float lon=atan(q.x,q.z);',
+      '  float light=dot(n,sun);float day=smoothstep(-.2,.45,light);',
+      '  float seed;float dots=landDots(lat,lon,seed);',
+      '  float twinkle=.65+.35*sin(uSpin*40.+seed*60.);',
+      '  vec3 ocean=uTint*(.015+.09*day);',
+      '  vec3 lit=mix(uTint,vec3(1.),.55)*(.32+.8*day);',
+      '  vec3 night=mix(uTint,vec3(1.),.4)*step(.72,seed)*twinkle*(1.-day)*.75;',
+      '  result=(ocean+dots*(lit+night))*uLit;',
+      // Thin air seen edge-on, brightest where the sun is coming through.
+      '  float edge=pow(1.-max(dot(n,-ray),0.),3.2);',
+      '  result+=mix(uTint,vec3(.92,.98,1.),.35)*edge*(.08+.9*smoothstep(-.25,.3,light));',
       ' }else{',
-      '  float z=sqrt(max(0.,r*r-dot(d,d)))/r;vec3 N=vec3(d/r,z);',
-      '  vec2 m=vec2(atan(N.x,N.z)+T*.006+S*2.4,asin(N.y))*4.2;',
-      '  float land=smoothstep(.5,.58,fbm(m+fbm(m*1.4)*.3));',
-      '  float cloud=smoothstep(.58,.84,fbm(m*1.7+vec2(T*.012,0.)));',
-      '  float lit=max(0.,dot(N,normalize(vec3(.1*S,.95,.2))));',
-      '  vec3 ground=mix(vec3(.01,.035,.055),vec3(.035,.1,.085),land);',
-      '  col=(ground*(.2+lit*1.05)+vec3(.62,.72,.76)*cloud*lit*.3)*e;',
-      '  col+=air*pow(1.-z,3.6)*(.35+lit)*.75*e;',
+      // The glow around the planet, from the closest the ray gets to it.
+      '  vec3 nearest=origin+ray*max(-b,0.);float height=length(nearest)-1.;',
+      '  float toward=max(dot(normalize(nearest),sun),0.);',
+      '  float scatter=exp(-height*15.)*(.03+pow(toward,3.)*1.15)+exp(-height*4.)*pow(toward,6.)*.16;',
+      '  result+=mix(uTint,vec3(.92,.98,1.),exp(-height*26.)*.7)*scatter;',
       ' }',
-      ' col*=1.-.3*dot(u,u);',
-      ' col=pow(col/(1.+col*.22),vec3(.88));',
-      ' col+=(h(gl_FragCoord.xy+fract(T))-.5)*.012;',
-      ' gl_FragColor=vec4(col,1.);}'
+      // Filmic curve, a soft vignette, and a little grain so the dark gradients don't band.
+      ' result=result/(1.+result*.65);',
+      ' vec2 centre=gl_FragCoord.xy/uSize-.5;',
+      ' result*=1.-dot(centre,centre)*.7;',
+      ' result+=(hash(gl_FragCoord.xy+uSpin)-.5)/160.;',
+      ' color=vec4(pow(max(result,0.),vec3(.88)),1.);}'
     ].join('\n');
     function shader(type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; }
     var prog = gl.createProgram();
-    gl.attachShader(prog, shader(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER, '#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
     gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
     gl.bindAttribLocation(prog, 0, 'p');
     gl.linkProgram(prog);
@@ -284,8 +314,21 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    var uR = gl.getUniformLocation(prog, 'R'), uT = gl.getUniformLocation(prog, 'T'), uS = gl.getUniformLocation(prog, 'S'), uI = gl.getUniformLocation(prog, 'I');
-    var scale = Math.min(devicePixelRatio || 1, 1.25);
+
+    var packed = atob(land.bits), pixels = new Uint8Array(land.width * land.height);
+    for (var i = 0; i < pixels.length; i++) pixels[i] = packed.charCodeAt(i >> 3) & (1 << (i & 7)) ? 255 : 0;
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, land.width, land.height, 0, gl.RED, gl.UNSIGNED_BYTE, pixels);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    var u = {};
+    ['Size', 'Shift', 'Distance', 'Spin', 'Lit', 'Stars', 'Sun', 'Tint'].forEach(function (name) { u[name] = gl.getUniformLocation(prog, 'u' + name); });
+    gl.uniform3f(u.Tint, .25, .7, .76);
+    var scale = Math.min(devicePixelRatio || 1, 1.5);
     function size() {
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * scale));
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * scale));
@@ -293,9 +336,22 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
     }
     addEventListener('resize', size);
     size();
+
+    // Camera and sun as [distance, shift x, shift y, sun x, sun y, sun z, lit, stars]:
+    // dark before the opening, the sunrise the page rests on, and where the scroll ends.
+    var DARK = [1.7, 0, -1.62, .06, .5, -.86, 0, 0];
+    var DAWN = [1.95, -.04, -1.27, .22, .9, -.36, .45, .9];
+    var DAY = [2.3, .16, -1.04, .4, .72, .25, 1, 1];
     var render = function (s, t, i) {
-      gl.uniform2f(uR, canvas.width, canvas.height);
-      gl.uniform1f(uT, t); gl.uniform1f(uS, s); gl.uniform1f(uI, i);
+      var open = i * i * i * (i * (6 * i - 15) + 10), along = s * s * (3 - 2 * s);
+      var shot = DARK.map(function (dark, n) { var dawn = dark + (DAWN[n] - dark) * open; return dawn + (DAY[n] - dawn) * along; });
+      gl.uniform2f(u.Size, canvas.width, canvas.height);
+      gl.uniform2f(u.Shift, shot[1], shot[2]);
+      gl.uniform1f(u.Distance, shot[0]);
+      gl.uniform1f(u.Spin, 3.3 + t * .05 + s * 1.1);
+      gl.uniform1f(u.Lit, shot[6]);
+      gl.uniform1f(u.Stars, shot[7]);
+      gl.uniform3f(u.Sun, shot[3], shot[4], shot[5]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
     // A slow graphics chip gets fewer pixels rather than a stuttering page.
