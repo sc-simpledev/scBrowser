@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>scTerra — Browse the World</title>
 <meta name="description" content="scTerra is a browser for Linux, Windows and macOS with AI built in.">
+<meta name="theme-color" content="#05070a">
+<meta property="og:title" content="scTerra — Browse the World">
+<meta property="og:description" content="A browser for Linux, Windows and macOS, with AI built in.">
 <link rel="preload" href="assets/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
 @font-face { font-family: Geist; src: url(assets/geist-latin.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
@@ -17,21 +20,25 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 
 .bar { position: fixed; z-index: 5; inset: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline; padding: 24px var(--gutter); font-size: 15px; mix-blend-mode: difference; }
 .bar b { font-weight: 600; letter-spacing: -.02em; }
-.bar a:last-child, .end a { border-bottom: 1px solid currentColor; padding-bottom: 1px; }
+.bar a:last-child, .end a, #outro a { border-bottom: 1px solid currentColor; padding-bottom: 1px; }
 
-.film { position: relative; height: 760vh; height: 760svh; }
+.film { position: relative; height: 1000vh; height: 1000svh; }
 .stage { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; background: linear-gradient(#05070a 62%, #0a2a31); }
 canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 .layer { position: absolute; inset: 0; padding: 0 var(--gutter); display: flex; flex-direction: column; justify-content: center; padding-bottom: 22vh; will-change: opacity, transform; }
 h1, h2 { margin: 0; font-weight: 500; letter-spacing: -.045em; line-height: 1.06; font-size: clamp(44px, 8.6vw, 136px); }
 
-#hero p { margin: 18px 0 0; max-width: 30em; font-size: clamp(17px, 1.6vw, 22px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
+#hero p, #outro p { margin: 18px 0 0; max-width: 30em; font-size: clamp(17px, 1.6vw, 22px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
+#hero .cue { position: absolute; left: var(--gutter); bottom: 44px; margin: 0; font-size: 14px; letter-spacing: 0; color: var(--dim); }
+#outro { opacity: 0; visibility: hidden; }
+#outro h2 { font-size: clamp(44px, 8.6vw, 136px); }
+#outro span { margin-left: .6em; color: var(--dim); }
 #explore { opacity: 0; visibility: hidden; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: clamp(24px, 4vw, 64px); align-items: center; align-content: center; padding-bottom: 8vh; }
 h2 { font-size: clamp(38px, 5.6vw, 88px); }
 .notes { position: relative; display: block; margin-top: 18px; height: 9em; font-size: clamp(16px, 1.35vw, 19px); line-height: 1.4; letter-spacing: -.01em; color: #c5cfd1; }
 .notes p { position: absolute; inset: 0 auto auto 0; margin: 0; max-width: 27em; }
-.frame { position: relative; aspect-ratio: 1320 / 860; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #17191c; }
+.frame { position: relative; aspect-ratio: 1320 / 860; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #17191c; box-shadow: 0 40px 90px -40px #000; }
 .frame img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; will-change: opacity, transform; }
 .reel { display: block; height: 1.06em; overflow: hidden; }
 .reel-track { display: block; will-change: transform; }
@@ -47,6 +54,8 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   #explore { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 72px; padding-bottom: 96px; }
   .notes { height: 8.6em; margin-top: 10px; font-size: 15px; }
   .index { left: var(--gutter); right: auto; flex-wrap: wrap; gap: 8px 18px; bottom: 28px; }
+  #hero .cue { bottom: 28px; }
+  #outro span { display: block; margin: 6px 0 0; }
 }
 </style>
 </head>
@@ -57,7 +66,7 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   <div class="film" id="film">
     <div class="stage" id="stage">
       <canvas id="terra" aria-hidden="true"></canvas>
-      <section class="layer" id="hero"><h1>scTerra</h1><p>A browser for Linux, Windows and macOS, with AI built in.</p></section>
+      <section class="layer" id="hero"><h1>scTerra</h1><p>A browser for Linux, Windows and macOS, with AI built in.</p><p class="cue" aria-hidden="true">Scroll ↓</p></section>
       <section class="layer" id="explore" aria-label="What scTerra does">
         <div>
           <h2><span aria-hidden="true">Browse the</span><span class="reel" aria-hidden="true"><span class="reel-track" id="reel"></span></span><span class="sr" id="said"></span></h2>
@@ -66,6 +75,7 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
         <div class="frame" id="frame"></div>
       </section>
       <ul class="index" id="index" aria-label="Features"></ul>
+      <section class="layer" id="outro"><h2>Browse the World.</h2><p><a href="/downloads">Download scTerra</a><span>for Linux, Windows and macOS</span></p></section>
     </div>
   </div>
 </main>
@@ -88,10 +98,10 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
   var WORDS = SCENES.map(function (scene) { return scene[0]; });
   var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   var $ = function (id) { return document.getElementById(id); };
-  var film = $('film'), hero = $('hero'), explore = $('explore'), reel = $('reel'), said = $('said'), index = $('index');
+  var film = $('film'), hero = $('hero'), explore = $('explore'), reel = $('reel'), said = $('said'), index = $('index'), outro = $('outro');
 
   // Where each part of the page sits along the one scroll.
-  var HERO_OUT = [.015, .1], EXPLORE_IN = [.08, .15], REEL = [.15, .95];
+  var HERO_OUT = [.012, .08], EXPLORE_IN = [.065, .125], REEL = [.125, .85], EXPLORE_OUT = [.875, .925], OUTRO_IN = [.915, .975];
 
   WORDS.forEach(function (word) {
     var line = document.createElement('span');
@@ -143,11 +153,16 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
     hero.style.transform = 'translate3d(0,' + (-36 * out) + 'px,0)';
     hero.style.visibility = out >= 1 ? 'hidden' : 'visible';
 
-    var seen = range(EXPLORE_IN, p);
+    var seen = range(EXPLORE_IN, p) * (1 - range(EXPLORE_OUT, p));
     explore.style.opacity = seen;
     explore.style.visibility = seen <= 0 ? 'hidden' : 'visible';
     index.style.opacity = seen;
     index.style.visibility = seen <= 0 ? 'hidden' : 'visible';
+
+    var closing = range(OUTRO_IN, p);
+    outro.style.opacity = closing;
+    outro.style.transform = 'translate3d(0,' + (24 * (1 - closing)) + 'px,0)';
+    outro.style.visibility = closing <= 0 ? 'hidden' : 'visible';
 
     var at = reelPosition(p);
     if (at !== shown) {
@@ -163,7 +178,11 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
         shot.style.transform = 'translate3d(0,' + (away * 18) + 'px,0)';
       });
       var near = Math.round(at);
-      if (near !== spoken) { spoken = near; said.textContent = 'Browse the ' + WORDS[near]; }
+      if (near !== spoken) {
+        spoken = near;
+        said.textContent = 'Browse the ' + WORDS[near];
+        marks.forEach(function (mark, i) { if (i === near) mark.setAttribute('aria-current', 'true'); else mark.removeAttribute('aria-current'); });
+      }
     }
   }
 
@@ -184,20 +203,28 @@ h2 { font-size: clamp(38px, 5.6vw, 88px); }
     if (visible && !was) { last = performance.now(); requestAnimationFrame(frame); }
   }).observe($('stage'));
 
-  var title = hero.firstElementChild, canvas = $('terra'), arrived = false;
+  // The opening: light first, then the name, the line under it, and the cue to scroll.
+  var canvas = $('terra'), arrived = false;
+  var entrances = [].map.call(hero.children, function (el, i) { return [el, [.9 + i * .45, 2.6 + i * .45]]; });
   function arrive(t) {
-    var light = range([.1, 2.6], t), text = range([.9, 2.6], t);
-    canvas.style.opacity = light;
-    title.style.opacity = text;
-    title.style.transform = 'translate3d(0,' + (14 * (1 - text)) + 'px,0)';
-    if (t > 2.6) { arrived = true; canvas.style.opacity = title.style.opacity = title.style.transform = ''; }
+    canvas.style.opacity = range([.1, 2.6], t);
+    entrances.forEach(function (entry) {
+      var text = range(entry[1], t);
+      entry[0].style.opacity = text;
+      entry[0].style.transform = 'translate3d(0,' + (14 * (1 - text)) + 'px,0)';
+    });
+    if (t > 3.5) {
+      arrived = true;
+      canvas.style.opacity = '';
+      entrances.forEach(function (entry) { entry[0].style.opacity = entry[0].style.transform = ''; });
+    }
   }
 
   function frame(now) {
     var dt = Math.min(.25, (now - last) / 1000);
     last = now;
     // Frame-rate independent easing towards where the page has been scrolled to.
-    current = still ? target : current + (target - current) * (1 - Math.exp(-dt * 6.5));
+    current = still ? target : current + (target - current) * (1 - Math.exp(-dt * 4.5));
     if (Math.abs(target - current) < .00002) current = target;
     layout(current);
     if (!still && !arrived) arrive((now - started) / 1000);
