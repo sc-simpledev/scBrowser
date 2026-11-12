@@ -13,6 +13,7 @@ export const useTabs = create<TabsStore>((set) => ({
   activeId: null,
   splitIds: [],
   splitRatio: 0.5,
+  splitLinked: false,
   devToolsWidth: 0,
   workspaces: [DEFAULT_WORKSPACE],
   activeWorkspace: DEFAULT_WORKSPACE.id,

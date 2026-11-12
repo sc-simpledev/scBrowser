@@ -35,6 +35,8 @@ export interface PaletteCommand {
   shortcut?: string
   /** Changes a setting, rather than doing something. */
   setting?: boolean
+  /** Hands what was typed to the AI to carry out on the open tabs. */
+  ai?: boolean
 }
 
 export const PALETTE_COMMANDS: PaletteCommand[] = [
@@ -80,6 +82,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'ai-settings', label: 'AI settings' },
   { id: 'screenshot', label: 'Take a screenshot of this page', shortcut: 'Ctrl Shift S' },
   { id: 'hide-part', label: 'Hide part of this page' },
+  { id: 'tweak-site', label: 'Change how this site looks with AI' },
+  { id: 'recap', label: 'Recap what I read yesterday' },
   { id: 'add-to-sidebar', label: 'Add this site to the sidebar' },
   { id: 'watch-page', label: 'Watch this page for changes' },
   { id: 'reading-list-add', label: 'Add this page to the reading list' },
@@ -106,3 +110,14 @@ export function matchCommands(query: string, commands: PaletteCommand[] = PALETT
 /** Shortcuts are written for Windows and Linux; a Mac shows its own keys. */
 export const shortcutLabel = (shortcut: string, platform: string) =>
   platform === 'darwin' ? shortcut.replace(/\bCtrl\b/g, '⌘').replace(/\bAlt\b/g, '⌥').replace(/\bShift\b/g, '⇧') : shortcut
+
+/** What was blocked over the last seven days, for the new tab's privacy card. */
+export interface PrivacyWeek {
+  blocked: number
+  /** Cookie banners turned down for the person. */
+  banners: number
+  /** Oldest first, ending today. `day` is `YYYY-MM-DD`. */
+  daily: { day: string; blocked: number }[]
+  /** The trackers stopped most often. */
+  topHosts: { host: string; count: number }[]
+}

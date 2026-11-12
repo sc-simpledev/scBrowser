@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { withContext, type PageContext } from '@scbrowser/ai'
 import {
+  BRIEF_ASK_PROMPT,
   BRIEF_PAGES,
   BRIEF_TOKENS,
+  briefQuestion,
+  MAX_BRIEF_QUESTION,
+  previousBriefNote,
   briefPrompt,
   briefQuery,
   briefTitle,
@@ -48,7 +52,7 @@ export interface BriefDeps {
   /** Whether the chat model is scTerra AI, or null when no model is chosen. */
   hosted: () => boolean | null
   write: (system: string, user: string, maxTokens: number) => Promise<string>
-  search: (query: string, options: { recency: Recency; read: number }) => Promise<PageContext[]>
+  search: (query: string, options: { recency: Recency; read: number; sites: string[] }) => Promise<PageContext[]>
   online: () => boolean
   onChange: (summary: BriefSummary) => void
   /** A brief has just been written. `startup` when it was soon after scTerra opened. */
@@ -139,7 +143,7 @@ export class BriefService {
     const now = this.now()
     const topic = input.topic.replace(/\s+/g, ' ').trim()
     const title = input.title.trim() || briefTitle(topic)
-    const fields = { title, topic, time: input.time, frequency: input.frequency, weekday: input.weekday, length: input.length }
+    const fields = { title, topic, time: input.time, frequency: input.frequency, weekday: input.weekday, length: input.length, sites: input.sites ?? [], onlyNew: input.onlyNew ?? false }
     const schedules = this.schedules()
     if (id === null) {
       if (schedules.length >= MAX_BRIEF_SCHEDULES) throw new Error(`You can have ${MAX_BRIEF_SCHEDULES} briefs at most.`)
@@ -198,6 +202,16 @@ export class BriefService {
     return true
   }
 
+  /** Answers a question about a brief already written, from the brief and its sources. Nothing is saved. */
+  async ask(issueId: string, question: string): Promise<string> {
+    const issue = this.issues().find((candidate) => candidate.id === issueId)
+    const asked = question.trim().slice(0, MAX_BRIEF_QUESTION)
+    if (!issue) throw new Error('That brief no longer exists.')
+    if (!asked) throw new Error('Ask a question first.')
+    if (this.deps.hosted() === null) throw new Error('Choose a model in AI settings first.')
+    return (await this.deps.write(BRIEF_ASK_PROMPT, briefQuestion(issue, asked), 4_000)).trim()
+  }
+
   /** Runs every brief whose time has come. */
   async tick(): Promise<void> {
     if (!this.deps.online()) return
@@ -230,10 +244,12 @@ export class BriefService {
         throw new BriefLimitError(`You've had today's ${HOSTED_BRIEFS_PER_DAY} briefs on scTerra AI. Briefs on your own API key have no limit.`)
       }
       const recency: Recency = schedule.frequency === 'daily' ? 'd' : 'w'
-      const pages = await this.deps.search(briefQuery(schedule.topic), { recency, read: BRIEF_PAGES[schedule.length] })
+      const pages = await this.deps.search(briefQuery(schedule.topic), { recency, read: BRIEF_PAGES[schedule.length], sites: schedule.sites ?? [] })
       if (pages.length === 0) throw new Error("The web search didn't find anything on this topic.")
       const numbered = pages.map((page, index) => ({ ...page, id: index + 1 }))
-      const [message] = withContext([{ role: 'user', content: `Write my ${schedule.length} brief on: ${schedule.topic}` }], numbered, null)
+      const previous = schedule.onlyNew ? this.issues().find((issue) => issue.scheduleId === id) : undefined
+      const request = `Write my ${schedule.length} brief on: ${schedule.topic}${previous ? previousBriefNote(previous.text, previous.createdAt) : ''}`
+      const [message] = withContext([{ role: 'user', content: request }], numbered, null)
       const text = (await this.deps.write(briefPrompt(schedule.length, now), message!.content, BRIEF_TOKENS[schedule.length])).trim()
       if (!text) throw new Error('The AI sent back nothing.')
       if (hosted) this.deps.kv.set(HOSTED_KEY, { day: localDay(this.now()), count: this.hostedUsed() + 1 })

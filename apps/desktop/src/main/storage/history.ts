@@ -120,7 +120,12 @@ export class HistoryRepo {
     return rows.map(toEntry)
   }
 
-  /** Newest first, for the history page. */
+  /** Pages last visited in a stretch of time, oldest first. */
+  between(after: number, before: number, limit = 200): HistoryEntry[] {
+    const rows = this.db.prepare(`SELECT url, title, visit_count, last_visit FROM history WHERE last_visit >= ? AND last_visit < ? ORDER BY last_visit ASC LIMIT ?`).all(after, before, limit) as unknown as Row[]
+    return rows.map(toEntry)
+  }
+
   find(url: string): HistoryEntry | null {
     const row = this.findOne.get(url) as Row | undefined
     return row ? toEntry(row) : null

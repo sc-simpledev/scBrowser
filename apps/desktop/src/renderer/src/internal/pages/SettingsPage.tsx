@@ -324,6 +324,9 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
             <option value="vertical">Down the side</option>
           </RowSelect>
         </Row>
+        <Row setting="tabTree" label="Tab tree" hint="With tabs down the side, a tab opened from a link sits indented under the tab it came from." keywords="nested tree indent children">
+          <Switch label="Tab tree" checked={settings.tabTree} onChange={(tabTree) => update({ tabTree })} />
+        </Row>
         <Row setting="tabSleepButton" label="Sleep button on tabs" hint="A moon beside each tab's close button puts it to sleep, freeing its memory until you open it again.">
           <Switch label="Sleep button on tabs" checked={settings.tabSleepButton} onChange={(tabSleepButton) => update({ tabSleepButton })} />
         </Row>

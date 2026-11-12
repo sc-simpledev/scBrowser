@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { MAX_TWEAK_REQUEST, tweakCommand, conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 import { STOP_NOTES } from '../shared/stopNotes'
 
@@ -139,6 +139,22 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
 
   send: (text) => {
     const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch } = get()
+    // "/tweak hide the sidebar" changes how the open site looks, rather than starting a reply.
+    const tweak = tweakCommand(text)
+    const tweakTab = useTabs.getState().activeId
+    if (tweak !== null && !streamId && tweakTab !== null) {
+      const before: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
+      const working = crypto.randomUUID()
+      set({ turns: [...before, { role: 'assistant', content: '' }], streamId: working, chatId: chatId ?? crypto.randomUUID(), chats: null })
+      void window.scb
+        .invoke('site:tweak', tweakTab, tweak.slice(0, MAX_TWEAK_REQUEST))
+        .catch(() => "Couldn't change this site. Try again.")
+        .then((reply) => {
+          if (get().streamId !== working) return
+          set({ turns: [...before, { role: 'assistant', content: reply }], streamId: null })
+        })
+      return
+    }
     if (streamId || !status.ready || !text.trim()) return
     const id = crypto.randomUUID()
     const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]

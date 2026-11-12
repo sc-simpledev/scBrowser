@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diffWatchText, intervalLabel, normaliseWatchText } from './watch'
+import { diffWatchText, intervalLabel, meetsTarget, normaliseWatchText, watchNumber } from './watch'
 
 describe('watched pages', () => {
   it('ignores spacing and blank lines', () => {
@@ -25,5 +25,21 @@ describe('watched pages', () => {
 
   it('names intervals', () => {
     expect([15, 60, 360, 1440].map((m) => intervalLabel(m as 15))).toEqual(['Every 15 minutes', 'Every hour', 'Every 6 hours', 'Every day'])
+  })
+
+  it('reads a price however it is written', () => {
+    expect(watchNumber('Price: $1,299.00')).toBe(1299)
+    expect(watchNumber('1.299,50 €')).toBe(1299.5)
+    expect(watchNumber('AU$45')).toBe(45)
+    expect(watchNumber('12,5 kg')).toBe(12.5)
+    expect(watchNumber('1,299')).toBe(1299)
+    expect(watchNumber('3 left in stock')).toBe(3)
+    expect(watchNumber('Sold out')).toBeNull()
+  })
+
+  it('knows when a number has passed a target', () => {
+    expect(meetsTarget(99, { direction: 'below', value: 100 })).toBe(true)
+    expect(meetsTarget(100, { direction: 'below', value: 100 })).toBe(false)
+    expect(meetsTarget(101, { direction: 'above', value: 100 })).toBe(true)
   })
 })

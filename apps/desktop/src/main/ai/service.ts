@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
+import { localDay, memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { webContext } from './webSearch'
 import { Coder } from './coder'
@@ -136,7 +136,7 @@ export class AiService {
     return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running }
   }
 
-  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void): Promise<string> {
+  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void): Promise<string> {
     let text = ''
     const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal })
     for await (const event of stream) {
@@ -145,6 +145,7 @@ export class AiService {
         onText?.(text)
       }
       if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+      if (event.type === 'stop') onStop?.(event.reason)
     }
     return text
   }
@@ -162,13 +163,21 @@ export class AiService {
   }
 
   /** A longer single request on the chat model, for briefs. */
-  write(system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
-    return this.collect(this.chatRef(), system, [{ role: 'user', content: user }], signal, maxTokens)
+  async write(system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
+    // A model that thinks first can spend its whole allowance before writing a word, and the reply
+    // comes back empty. That gets one more go with the most room there is.
+    let stop: string | null = null
+    for (const budget of [...new Set([maxTokens, MAX_OUTPUT_TOKENS])]) {
+      const text = await this.collect(this.chatRef(), system, [{ role: 'user', content: user }], signal, budget, undefined, (reason) => (stop = reason))
+      if (text.trim()) return text
+      if (signal?.aborted) break
+    }
+    throw new AiError('server', stop === 'length' || stop === 'max_tokens' ? 'The model ran out of room while thinking and wrote nothing. Try again, or choose another model in AI settings.' : 'The AI sent back nothing. Try again in a moment.')
   }
 
   /** Only the search itself goes to the AI, never the person's history. */
   async parseHistorySearch(query: string): Promise<HistoryQuery | null> {
-    return parseHistoryQuery(await this.complete(historyQueryPrompt(new Date().toISOString().slice(0, 10)), query))
+    return parseHistoryQuery(await this.complete(historyQueryPrompt(localDay(Date.now())), query))
   }
 
   answerApproval(approvalId: string, allow: boolean): void {

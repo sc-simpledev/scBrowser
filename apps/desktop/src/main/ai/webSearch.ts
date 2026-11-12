@@ -68,10 +68,19 @@ export function parseResults(html: string): SearchResult[] {
 /** Readable text out of a page's HTML, without running it: no scripts, styles, menus or footers. */
 export function htmlToText(html: string): { title: string; text: string } {
   const title = stripTags(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
-  const body = /<(main|article)\b[\s\S]*?<\/\1>/i.exec(html)?.[0] ?? /<body\b[\s\S]*<\/body>/i.exec(html)?.[0] ?? html
+  // The whole of <main>, or the page's one <article>. A page of many <article> cards is read as a whole,
+  // as the first card alone is only a teaser.
+  const articles = html.match(/<article\b/gi)?.length ?? 0
+  const body =
+    /<main\b[\s\S]*<\/main>/i.exec(html)?.[0] ??
+    (articles === 1 ? /<article\b[\s\S]*<\/article>/i.exec(html)?.[0] : undefined) ??
+    /<body\b[\s\S]*<\/body>/i.exec(html)?.[0] ??
+    html
   const text = decodeEntities(
     body
-      .replace(/<(script|style|noscript|svg|template|iframe|nav|header|footer|aside|form)\b[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<(script|style|noscript|svg|template|iframe|nav|footer|aside|form)\b[\s\S]*?<\/\1>/gi, ' ')
+      // A header holding the headline is the article's own, not the site's banner.
+      .replace(/<header\b[\s\S]*?<\/header>/gi, (block) => (/<h1\b/i.test(block) ? block : ' '))
       .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article)\b[^>]*>/gi, '\n')
       .replace(/<li\b[^>]*>/gi, '\n• ')
@@ -132,8 +141,16 @@ async function readResult(result: SearchResult): Promise<PageContext | null> {
  * Searches for the question and reads the first few results, skipping sites on the AI off list.
  * The list of results is its own source too, so the model can still name pages it couldn't read.
  */
-export async function webContext(query: string, isSiteOff: (url: string) => boolean, { recency, read = RESULTS_READ }: { recency?: Recency; read?: number } = {}): Promise<PageContext[]> {
-  const search = async (filter?: Recency) => (await searchWeb(query, filter)).filter((result) => !isSiteOff(result.url)).slice(0, Math.max(8, read + 2))
+export async function webContext(query: string, isSiteOff: (url: string) => boolean, { recency, read = RESULTS_READ, sites = [] }: { recency?: Recency; read?: number; sites?: string[] } = {}): Promise<PageContext[]> {
+  const search = async (filter?: Recency) => {
+    // Sites the person always wants come first, two results each, one search at a time.
+    const pinned: SearchResult[] = []
+    for (const site of sites.slice(0, 5)) pinned.push(...(await searchWeb(`${query} site:${site}`, filter).catch(() => [])).slice(0, 2))
+    const seen = new Set<string>()
+    return [...pinned, ...(await searchWeb(query, filter).catch((error: unknown) => (pinned.length > 0 ? [] : Promise.reject(error))))]
+      .filter((result) => !seen.has(result.url) && !!seen.add(result.url) && !isSiteOff(result.url))
+      .slice(0, Math.max(8, read + 2))
+  }
   let results = await search(recency)
   // A narrow date filter can find nothing on a quiet topic, so it widens to any date.
   if (results.length === 0 && recency) results = await search()

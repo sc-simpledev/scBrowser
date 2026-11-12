@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -191,6 +191,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
           { label: 'Watched pages…', click: () => actions.openPage('watching') }
         ] },
         { label: 'Hide part of this page…', click: actions.hidePart },
+        { label: 'Change how this site looks with AI…', click: actions.tweakSiteHelp },
         ...(actions.hasHiddenParts(params.pageURL) ? [{ label: 'Show hidden parts again', click: actions.showHiddenParts }] : []),
         { label: 'Forget this site…', click: actions.forgetSite }
       ])
@@ -250,6 +251,11 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     },
     { label: 'Sleep tab', enabled: !tab?.isSleeping && open.length > 1, click: () => tabs.sleep(id) },
     { label: 'Archive tab', enabled: open.length > 1 && !tab?.pinned, click: () => actions.archiveTab(id) },
+    {
+      label: 'Snooze tab',
+      enabled: open.length > 1 && !tab?.pinned && /^(https?|file):/i.test(tab?.url ?? ''),
+      submenu: SNOOZE_CHOICES.filter((choice) => snoozeUntil(choice, Date.now()) !== null).map((choice) => ({ label: SNOOZE_LABELS[choice], click: () => actions.snoozeTab(id, choice) }))
+    },
     { type: 'separator' },
     { label: 'Add to new group', enabled: !tab?.pinned, click: () => tabs.setGroup([id], tabs.freshGroupName()) },
     {

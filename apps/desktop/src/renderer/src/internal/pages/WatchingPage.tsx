@@ -1,6 +1,6 @@
 import { Eye, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, IconButton, Select } from '@scbrowser/ui'
+import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { intervalLabel, WATCH_INTERVALS, type PageWatch, type WatchInterval } from '@scbrowser/shared'
 import { api } from '../api'
 import { EmptyState } from '../EmptyState'
@@ -14,6 +14,39 @@ const when = (time: number) => {
   if (minutes < 60) return `${minutes} min ago`
   if (minutes < 1440) return `${Math.round(minutes / 60)} h ago`
   return new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+/** For a watched price or count: only say so when the number passes a figure. */
+function NumberAlert({ watch, reload }: { watch: Watch; reload: () => void }) {
+  const [direction, setDirection] = useState(watch.target?.direction ?? 'below')
+  const [figure, setFigure] = useState(watch.target ? String(watch.target.value) : '')
+  const save = (nextDirection: 'below' | 'above', text: string) => {
+    const value = Number(text)
+    const target = text.trim() && Number.isFinite(value) ? { direction: nextDirection, value } : null
+    void api().invoke('watch:set-target', watch.id, target).then(reload)
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+      <span>
+        Number on the page: <span className="font-medium text-text tabular-nums">{watch.value}</span>. Only tell me when it goes
+      </span>
+      <Select
+        aria-label="Above or below"
+        className="w-24"
+        value={direction}
+        onChange={(e) => {
+          const next = e.target.value as 'below' | 'above'
+          setDirection(next)
+          if (figure.trim()) save(next, figure)
+        }}
+      >
+        <option value="below">below</option>
+        <option value="above">above</option>
+      </Select>
+      <Input aria-label="Target number" className="w-28" inputMode="decimal" placeholder="any change" value={figure} onChange={(e) => setFigure(e.target.value.replace(/[^\d.-]/g, ''))} onBlur={() => save(direction, figure)} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+      {watch.target && watch.hit && <span className="font-medium text-success">Reached</span>}
+    </div>
+  )
 }
 
 function WatchCard({ watch, reload }: { watch: Watch; reload: () => void }) {
@@ -71,6 +104,8 @@ function WatchCard({ watch, reload }: { watch: Watch; reload: () => void }) {
           <X size={12} strokeWidth={2} />
         </IconButton>
       </div>
+      {watch.selector && typeof watch.value === 'number' && <NumberAlert watch={watch} reload={reload} />}
+      {watch.summary && <p className="text-text-muted select-text">{watch.summary}</p>}
       {changed && (
         <div className="flex flex-col gap-1">
           <button

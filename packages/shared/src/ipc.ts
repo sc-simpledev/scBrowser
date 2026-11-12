@@ -9,8 +9,10 @@ import type { BookmarkEdit, OverlayState, OverlayView, SiteAction, WorkspaceEdit
 import type { Settings } from './settings'
 import type { SidebarSiteState } from './sidebarSites'
 import type { CitationTarget } from './citations'
-import type { PageWatch, WatchInterval } from './watch'
+import type { PageWatch, WatchInterval, WatchTarget } from './watch'
 import type { BriefInput, BriefIssue, BriefPrefs, BriefState, BriefSummary } from './briefs'
+import type { SnoozedTab } from './snooze'
+import type { PrivacyWeek } from './privacy'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
 import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderReview, CoderStatus } from './coder'
@@ -55,6 +57,8 @@ export interface ChromeCommands {
   'tabs:split-toggle': () => void
   'tabs:split-ratio': (ratio: number) => void
   'tabs:split-swap': () => void
+  /** Turns on or off opening the left side's links on the right. */
+  'tabs:split-link': () => void
   /** Ends split view, keeping this tab open. */
   'tabs:split-keep': (id: number) => void
   'tabs:context-menu': (id: TabId) => void
@@ -130,6 +134,8 @@ export interface ChromeCommands {
   'workspaces:edit': (id: string | null, x: number, y: number) => void
   /** The open site's controls, under the padlock in the address bar. */
   'site:controls': (x: number, y: number) => void
+  /** Changes how a tab's site looks from a plain request, with CSS the AI writes. Returns what to say. */
+  'site:tweak': (tabId: number, request: string) => string
   'updates:state': () => UpdateState
   'updates:install': () => void
   'updates:seen': () => void
@@ -249,6 +255,7 @@ export const COMMAND_CHANNELS = [
   'tabs:split-toggle',
   'tabs:split-ratio',
   'tabs:split-swap',
+  'tabs:split-link',
   'tabs:split-keep',
   'tabs:context-menu',
   'tabs:sleep',
@@ -310,6 +317,7 @@ export const COMMAND_CHANNELS = [
   'workspaces:switch',
   'workspaces:edit',
   'site:controls',
+  'site:tweak',
   'updates:state',
   'updates:install',
   'updates:seen',
@@ -559,6 +567,8 @@ export interface InternalCommands {
   'watch:check': (id: string) => void
   'watch:remove': (id: string) => void
   'watch:set-interval': (id: string, everyMinutes: WatchInterval) => void
+  /** Only announce when the watched number passes this. Null goes back to every change. */
+  'watch:set-target': (id: string, target: WatchTarget | null) => void
   /** Null marks them all as seen. */
   'watch:seen': (id: string | null) => void
   'archive:list': () => ArchivedTab[]
@@ -624,6 +634,10 @@ export interface InternalCommands {
   'mini-apps:list': () => { id: string; name: string; createdAt: number }[]
   'mini-apps:open': (id: string) => void
   'mini-apps:remove': (id: string) => void
+  /** What was blocked in the last seven days. Null in private windows, which count nothing. */
+  'privacy:week': () => PrivacyWeek | null
+  /** Lines up a recap of yesterday's browsing and opens the assistant with it. False if there's nothing to recap. */
+  'history:recap': () => boolean
   'briefs:state': () => BriefState
   'briefs:summary': () => BriefSummary
   /** The newest few, with only the start of their text, for the new tab. */
@@ -638,6 +652,14 @@ export interface InternalCommands {
   'briefs:seen': (id: string | null) => void
   'briefs:delete-issue': (id: string) => BriefState
   'briefs:prefs': (prefs: Partial<BriefPrefs>) => BriefState
+  /** One brief in full, or null if it's gone. */
+  'briefs:issue': (id: string) => BriefIssue | null
+  /** A question about a brief, answered from it and its sources. Nothing is saved. */
+  'briefs:ask': (id: string, question: string) => string
+  'snooze:list': () => SnoozedTab[]
+  /** Opens a snoozed tab now. */
+  'snooze:wake': (id: string) => void
+  'snooze:remove': (id: string) => void
   'onboarding:state': () => OnboardingState
   /** Shows how one of the Get started list works, by doing it, and ticks it off. */
   'onboarding:try': (id: GettingStartedId) => void
@@ -802,6 +824,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'watch:check',
   'watch:remove',
   'watch:set-interval',
+  'watch:set-target',
   'watch:seen',
   'archive:list',
   'archive:restore',
@@ -849,6 +872,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'mini-apps:list',
   'mini-apps:open',
   'mini-apps:remove',
+  'privacy:week',
+  'history:recap',
   'briefs:state',
   'briefs:summary',
   'briefs:recent',
@@ -859,6 +884,11 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'briefs:seen',
   'briefs:delete-issue',
   'briefs:prefs',
+  'briefs:issue',
+  'briefs:ask',
+  'snooze:list',
+  'snooze:wake',
+  'snooze:remove',
   'onboarding:state',
   'onboarding:try',
   'onboarding:mark',

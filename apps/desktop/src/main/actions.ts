@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions, WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import type { AssistantPrompt, ClosedGroup, TranslateLanguage } from '@scbrowser/shared'
+import type { AssistantPrompt, ClosedGroup, SnoozeChoice, TranslateLanguage } from '@scbrowser/shared'
 import type { TabManager } from './tabs/TabManager'
 
 /** Browser commands shared by keyboard shortcuts and menus. */
@@ -55,6 +55,10 @@ export interface BrowserActions {
   addToReadingList: () => void
   /** Closes a tab into the archive, to find in sc://archive. */
   archiveTab: (id: number) => void
+  /** Opens the assistant and says how to change a site's look with /tweak. */
+  tweakSiteHelp: () => void
+  /** Closes a tab until a time, when it opens again by itself. */
+  snoozeTab: (id: number, choice: SnoozeChoice) => void
   /** Closes a tab group, keeping it to reopen later unless `keep` is false. */
   closeGroup: (name: string, keep: boolean) => void
   closedGroups: () => ClosedGroup[]

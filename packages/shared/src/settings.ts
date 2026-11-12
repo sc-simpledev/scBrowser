@@ -123,6 +123,8 @@ export interface Settings {
   bookmarksLayout: 'horizontal' | 'vertical'
   /** A moon button beside each tab's close button, to put it to sleep and free its memory. */
   tabSleepButton: boolean
+  /** Side tabs are drawn as a tree: a tab opened from a link sits indented under the tab it came from. */
+  tabTree: boolean
   /** Tab groups folded down to their name. */
   collapsedTabGroups: string[]
   spellCheck: boolean
@@ -228,6 +230,7 @@ export const DEFAULT_SETTINGS: Settings = {
   extensionSidePanels: 'beside',
   bookmarksLayout: 'horizontal',
   tabSleepButton: false,
+  tabTree: true,
   collapsedTabGroups: [],
   spellCheck: true,
   spellLanguage: '',
@@ -314,6 +317,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   extensionSidePanels: (v) => v === 'beside' || v === 'popover',
   bookmarksLayout: (v) => v === 'horizontal' || v === 'vertical',
   tabSleepButton: (v) => typeof v === 'boolean',
+  tabTree: (v) => typeof v === 'boolean',
   collapsedTabGroups: (v) => Array.isArray(v) && v.length <= 200 && v.every((name) => typeof name === 'string' && name.length <= 60),
   spellCheck: (v) => typeof v === 'boolean',
   spellLanguage: (v) => typeof v === 'string' && /^([a-zA-Z-]{2,16})?$/.test(v),

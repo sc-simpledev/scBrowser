@@ -77,9 +77,10 @@ export function CommandPalette({ x, y }: { x: number; y: number }) {
             onClick={() => run(command.id)}
             className={cx('flex items-center justify-between rounded-lg px-2.5', index === selected && 'bg-accent-soft')}
           >
-            {command.label}
+            <span className="min-w-0 truncate">{command.label}</span>
             {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{shortcutLabel(command.shortcut, window.scbOverlay.platform)}</kbd>}
             {command.setting && <span className="text-2xs text-text-faint">Setting</span>}
+            {command.ai && <span className="text-2xs text-text-faint">AI</span>}
           </li>
         ))}
       </ul>

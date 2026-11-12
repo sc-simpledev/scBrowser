@@ -24,7 +24,7 @@ import {
   type TabSearchRow,
   type TabState,
   type TabsSnapshot,
-  type Workspace, PDF_PAGE_URL } from '@scbrowser/shared'
+  type Workspace, PDF_PAGE_URL, MAX_TREE_DEPTH } from '@scbrowser/shared'
 import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
 import { tabIcon } from '../siteIcons'
 
@@ -41,6 +41,8 @@ export interface SavedTab {
   lastActiveAt?: number
   pinned?: boolean
   muted?: boolean
+  /** Where in the saved list the tab that opened this one is, for the tab tree. */
+  parent?: number
 }
 
 interface Tab {
@@ -147,9 +149,13 @@ export class TabManager {
   private closed: SavedTab[] = []
   private changeQueued = false
   private fullscreen = false
+  /** The tab whose video is full screen. */
+  private fullscreenId: TabId | null = null
   /** Left and right tabs while split view is on. */
   private split: [TabId, TabId] | null = null
   private splitRatio = SPLIT_RATIO.standard
+  /** Links clicked on the left side open on the right, for reading down a list of results. */
+  private splitLinked = false
   /** This tab covers the whole window, for the first-run intro. */
   private immersiveId: TabId | null = null
   private workspaces: Workspace[]
@@ -245,7 +251,7 @@ export class TabManager {
 
   create(
     url: string = NEW_TAB_URL,
-    { activate = true, afterId, container = null }: { activate?: boolean; afterId?: TabId; container?: string | null } = {}
+    { activate = true, afterId, container = null, parentId = null }: { activate?: boolean; afterId?: TabId; container?: string | null; parentId?: TabId | null } = {}
   ): TabId {
     if (this.options.otherWindow && this.order.length > 0) {
       this.options.otherWindow(url, container)
@@ -256,6 +262,7 @@ export class TabManager {
     const tab = this.addTab(isJavascriptUrl(url) || isPreviewUrl(url) ? NEW_TAB_URL : url, null, afterId)
     tab.state.container = container
     tab.state.workspace = this.workspaceId
+    tab.state.parentId = parentId
     this.wake(tab)
     if (activate || this.activeId === null) this.activate(tab.state.id)
     else this.emitChange()
@@ -267,6 +274,10 @@ export class TabManager {
     if (splitRatio) this.splitRatio = clampSplitRatio(splitRatio)
     const known = (id: string | undefined) => this.workspaces.some((w) => w.id === id)
     const ids = saved.map((tab) => this.addTab(tab.url, { ...tab, workspace: known(tab.workspace) ? tab.workspace : DEFAULT_WORKSPACE.id }).state.id)
+    saved.forEach((tab, index) => {
+      const parent = Number.isInteger(tab.parent) ? ids[tab.parent!] : undefined
+      if (parent !== undefined && parent !== ids[index]) this.tabs.get(ids[index]!)!.state.parentId = parent
+    })
     const active = ids[activeIndex] ?? ids[0]
     if (active === undefined) return
     this.activate(active)
@@ -282,6 +293,8 @@ export class TabManager {
     const index = this.visible.indexOf(id)
     this.order.splice(this.order.indexOf(id), 1)
     this.tabs.delete(id)
+    // Its branches move up to where it hung, so the tree keeps its shape.
+    for (const other of this.tabs.values()) if (other.state.parentId === id) other.state.parentId = tab.state.parentId ?? null
     if (!isNewTabUrl(tab.state.url)) this.closed = [this.toSaved(tab), ...this.closed].slice(0, CLOSED_TABS_LIMIT)
 
     this.destroyView(tab)
@@ -541,7 +554,27 @@ export class TabManager {
     const at = before === undefined ? (others.length > 0 ? this.order.indexOf(others.at(-1)!) + 1 : this.order.length) : this.order.indexOf(before)
     this.order.splice(at, 0, id)
     this.settlePinned()
+    this.regroupMoved(id)
     this.emitChange()
+  }
+
+  /**
+   * A tab dragged between two tabs of a group joins it, and one dragged away from its group leaves
+   * it, so a group's tabs always sit together under one heading.
+   */
+  private regroupMoved(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab || tab.state.pinned) return
+    const shown = this.visible
+    const index = shown.indexOf(id)
+    const groupAt = (offset: number) => {
+      const other = this.tabs.get(shown[index + offset] ?? -1)
+      return other && !other.state.pinned ? other.state.group : null
+    }
+    const before = groupAt(-1)
+    const after = groupAt(1)
+    if (before && before === after) tab.state.group = before
+    else if (tab.state.group && before !== tab.state.group && after !== tab.state.group && shown.some((other) => other !== id && this.tabs.get(other)?.state.group === tab.state.group)) tab.state.group = null
   }
 
   activate(id: TabId): void {
@@ -560,6 +593,7 @@ export class TabManager {
     if (this.activeId !== null && this.activeId !== id) {
       const previous = this.tabs.get(this.activeId)
       if (previous) {
+        this.leaveFullscreen(previous)
         previous.view?.setVisible(false)
         previous.lastActiveAt = Date.now()
         previous.view?.webContents.stopFindInPage('clearSelection')
@@ -608,6 +642,25 @@ export class TabManager {
     this.emitChange()
   }
 
+  toggleSplitLinked(): void {
+    if (!this.split) return
+    this.splitLinked = !this.splitLinked
+    this.emitChange()
+  }
+
+  /** The right side, when the left side's links should open there. */
+  private linkTarget(from: TabId): Tab | undefined {
+    return this.splitLinked && this.split?.[0] === from ? this.tabs.get(this.split[1]) : undefined
+  }
+
+  /** Loads a link from the left in the right side, leaving the keyboard where the person is reading. */
+  private openLinked(other: Tab, url: string): void {
+    this.wake(other)
+    const contents = other.view!.webContents
+    this.selfLoads.delete(contents)
+    void contents.loadURL(url).catch(() => undefined)
+  }
+
   /** Ends split view, keeping this side open. */
   keepSplitSide(id: TabId): void {
     if (!this.split?.includes(id)) return
@@ -625,6 +678,7 @@ export class TabManager {
     if (!this.split) return
     for (const id of this.split) if (id !== this.activeId) this.tabs.get(id)?.view?.setVisible(false)
     this.split = null
+    this.splitLinked = false
     this.applyBounds()
     this.emitChange()
   }
@@ -961,12 +1015,46 @@ export class TabManager {
     return null
   }
 
+  /** The last tab of the branch hanging from this one, which is where its next link opens. */
+  private lastInBranch(id: TabId): TabId {
+    const shown = this.visible
+    const depths = this.depths(shown)
+    const start = shown.indexOf(id)
+    let last = id
+    for (let index = start + 1; index < shown.length && depths.get(shown[index]!)! > depths.get(id)!; index++) last = shown[index]!
+    return last
+  }
+
+  /**
+   * How far in each tab sits under the tab that opened it. A tab only counts as a branch while it's
+   * still below its parent with nothing but the parent's other branches between them, so dragging
+   * one away, pinning it or putting it in another group sets it back at the top level.
+   */
+  private depths(shown: TabId[]): Map<TabId, number> {
+    const depths = new Map<TabId, number>()
+    shown.forEach((id, index) => {
+      const { parentId, pinned, group } = this.tabs.get(id)!.state
+      const parent = parentId == null ? undefined : this.tabs.get(parentId)
+      const at = parentId == null ? -1 : shown.indexOf(parentId)
+      let depth = 0
+      if (parent && at !== -1 && at < index && !pinned && !parent.state.pinned && parent.state.group === group) {
+        const base = depths.get(parentId!)!
+        if (shown.slice(at + 1, index).every((between) => depths.get(between)! > base)) depth = Math.min(MAX_TREE_DEPTH, base + 1)
+      }
+      depths.set(id, depth)
+    })
+    return depths
+  }
+
   snapshot(): TabsSnapshot {
+    const shown = this.visible
+    const depths = this.depths(shown)
     return {
-      tabs: this.visible.map((id) => ({ ...this.tabs.get(id)!.state })),
+      tabs: shown.map((id) => ({ ...this.tabs.get(id)!.state, depth: depths.get(id) ?? 0 })),
       activeId: this.activeId,
       splitIds: this.split ? [...this.split] : [],
       splitRatio: this.splitRatio,
+      splitLinked: this.splitLinked,
       devToolsWidth: this.dockedWidth(),
       workspaces: this.workspaces,
       activeWorkspace: this.workspaceId
@@ -978,8 +1066,13 @@ export class TabManager {
     const kept = this.order.filter((id) => !isIntro(this.tabs.get(id)!.state.url))
     const left = this.split ? kept.indexOf(this.split[0]) : -1
     const right = this.split ? kept.indexOf(this.split[1]) : -1
+    const parentOf = (id: TabId) => {
+      const parent = this.tabs.get(id)!.state.parentId
+      const index = parent == null ? -1 : kept.indexOf(parent)
+      return index === -1 ? {} : { parent: index }
+    }
     return {
-      tabs: kept.map((id) => this.toSaved(this.tabs.get(id)!)),
+      tabs: kept.map((id) => ({ ...this.toSaved(this.tabs.get(id)!), ...parentOf(id) })),
       activeIndex: this.activeId === null ? 0 : Math.max(0, kept.indexOf(this.activeId)),
       split: left === -1 || right === -1 ? null : [left, right],
       splitRatio: this.splitRatio
@@ -1133,9 +1226,10 @@ export class TabManager {
 
   /** A window a page opened, shown as a tab beside it. Pages with `noopener` give us no window to adopt. */
   private adoptPopup(url: string, opener: TabState, options: BrowserWindowConstructorOptions): WebContents {
-    const tab = this.addTab(url, null, opener.id)
+    const tab = this.addTab(url, null, this.lastInBranch(opener.id))
     tab.state.container = opener.container
     tab.state.workspace = opener.workspace
+    tab.state.parentId = opener.id
     tab.openerId = opener.id
     const { webContents } = options as { webContents?: WebContents }
     this.wake(tab, webContents ? { webContents } : undefined)
@@ -1192,12 +1286,26 @@ export class TabManager {
     }
   }
 
+  /**
+   * A tab that's left or closed while its video is full screen sends no word that it ended, which
+   * would leave every other tab covering the whole window with no toolbar.
+   */
+  private leaveFullscreen(tab: Tab): void {
+    if (this.fullscreenId !== tab.state.id) return
+    const contents = tab.view?.webContents
+    if (contents && !contents.isDestroyed()) void contents.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => undefined)
+    this.setFullscreen(false)
+  }
+
   private destroyView(tab: Tab): void {
+    this.leaveFullscreen(tab)
     if (tab.devTools) this.removeDevTools(tab, tab.devTools)
     if (!tab.view) return
     // The window itself may already be gone when everything shuts down.
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(tab.view)
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+    // A page that was a popup's own window can lose its contents before the view does, as the window closes.
+    const contents = tab.view.webContents as WebContents | undefined
+    if (contents && !contents.isDestroyed()) contents.close()
     tab.view = null
     tab.state.audible = false
   }
@@ -1326,12 +1434,24 @@ export class TabManager {
       this.options.onLogin(contents, details, info, respond)
     })
 
-    contents.on('enter-html-full-screen', () => this.setFullscreen(true))
-    contents.on('leave-html-full-screen', () => this.setFullscreen(false))
+    contents.on('enter-html-full-screen', () => this.setFullscreen(true, state.id))
+    contents.on('leave-html-full-screen', () => {
+      if (this.fullscreenId === state.id) this.setFullscreen(false)
+    })
+    // Clicking and typing are the person going somewhere, so those loads aren't the page's own.
+    contents.on('input-event', (_e, input) => {
+      if (input.type === 'mouseDown' || input.type === 'keyDown') this.selfLoads.delete(contents)
+    })
 
     // Web pages must never reach sc:// pages, which have extra privileges.
     contents.on('will-navigate', (event) => {
-      if ((isInternal(event.url) && !isInternal(contents.getURL())) || isPreviewUrl(event.url)) event.preventDefault()
+      if ((isInternal(event.url) && !isInternal(contents.getURL())) || isPreviewUrl(event.url)) return event.preventDefault()
+      // In linked split view, the left side stays where it is and its links open on the right.
+      const other = this.linkTarget(state.id)
+      if (other && /^https?:/i.test(event.url) && /^https?:/i.test(contents.getURL())) {
+        event.preventDefault()
+        this.openLinked(other, event.url)
+      }
     })
     contents.on('will-redirect', (event) => {
       if (isInternal(event.url) || isPreviewUrl(event.url)) event.preventDefault()
@@ -1351,6 +1471,12 @@ export class TabManager {
       if (disposition === 'new-window' && !features && /^https?:/i.test(opener) && /^https?:/i.test(url) && this.options.onPreviewLink?.(url, contents.session, state.container ?? null)) {
         return { action: 'deny' }
       }
+      // A link that would open a new tab from the left of a linked split opens on the right instead.
+      const other = this.linkTarget(state.id)
+      if (other && disposition === 'foreground-tab' && /^https?:/i.test(url)) {
+        this.openLinked(other, url)
+        return { action: 'deny' }
+      }
       // Sign-in popups often start blank, and are sent on their way once they're open.
       const blank = url === '' || url === 'about:blank'
       // Chromium itself stops a site from opening extension pages that aren't meant for it.
@@ -1364,13 +1490,15 @@ export class TabManager {
       // Addresses like these have no `origin` to compare, as far as `URL` is concerned.
       const sameExtension = /^chrome-extension:/i.test(url) && /^chrome-extension:/i.test(opener) && URL.canParse(url) && URL.canParse(opener) && new URL(url).host === new URL(opener).host
       const allowed = /^https?:/i.test(url) || (isInternal(url) && isInternal(opener)) || sameExtension
-      if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: state.id, container: state.container })
+      if (allowed) this.create(url, { activate: disposition !== 'background-tab', afterId: this.lastInBranch(state.id), container: state.container, parentId: state.id })
       else if (appScheme(url)) this.options.onAppLink(contents, url, opener)
       return { action: 'deny' }
     })
   }
 
-  private setFullscreen(fullscreen: boolean): void {
+  private setFullscreen(fullscreen: boolean, id: TabId | null = null): void {
+    if (this.fullscreen === fullscreen && this.fullscreenId === id) return
+    this.fullscreenId = fullscreen ? id : null
     this.fullscreen = fullscreen
     this.options.onFullscreen(fullscreen)
     this.applyBounds()

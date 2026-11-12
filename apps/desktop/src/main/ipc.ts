@@ -1,4 +1,6 @@
 import { Menu, type BaseWindow, type WebContents } from 'electron'
+import { tweakSite } from './ai/siteTweak'
+import { MAX_TWEAK_REQUEST } from '@scbrowser/shared'
 import {
   engineById,
   isCitationSource,
@@ -156,6 +158,7 @@ const validators: Validators = {
   'tabs:split-toggle': noArgs,
   'tabs:split-ratio': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
   'tabs:split-swap': noArgs,
+  'tabs:split-link': noArgs,
   'tabs:split-keep': (args): args is [number] => args.length === 1 && Number.isInteger(args[0]),
   'tabs:context-menu': idArg,
   'tabs:sleep': idArg,
@@ -232,6 +235,7 @@ const validators: Validators = {
   'tabs:cleanup': noArgs,
   'workspaces:switch': (args): args is [string] => args.length === 1 && isShortString(args[0], 64),
   'site:controls': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'site:tweak': (args): args is [number, string] => args.length === 2 && isId(args[0]) && typeof args[1] === 'string' && args[1].length <= MAX_TWEAK_REQUEST,
   'workspaces:edit': (args): args is [string | null, number, number] =>
     args.length === 3 && (args[0] === null || isShortString(args[0], 64)) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
   'updates:state': noArgs,
@@ -325,6 +329,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:split-toggle': () => tabs.toggleSplit(),
     'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
     'tabs:split-swap': () => tabs.swapSplit(),
+    'tabs:split-link': () => tabs.toggleSplitLinked(),
     'tabs:split-keep': (id) => tabs.keepSplitSide(id),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),
     'tabs:sleep': (id) => tabs.sleep(id),
@@ -472,6 +477,13 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'workspaces:switch': (id) => tabs.switchWorkspace(id),
     'workspaces:edit': (id, x, y) => editWorkspace(id, x, y),
     'site:controls': (x, y) => openSiteControls(x, y),
+    'site:tweak': (tabId, request) =>
+      tweakSite(tabs.contentsFor(tabId), request.trim(), {
+        settings,
+        ready: () => aiStore.status().ready,
+        isSiteOff: (host) => aiStore.disabledHosts().includes(host),
+        complete: (system, user) => ai.complete(system, user)
+      }),
     'updates:state': () => updates.state(),
     'updates:install': () => updates.install(),
     'updates:seen': () => updates.seenWhatsNew(),

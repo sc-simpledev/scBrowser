@@ -36,6 +36,15 @@ describe('web search', () => {
     expect(text).not.toMatch(/evil|Menu|Foot/)
   })
 
+  it('reads a page of many cards as a whole, and keeps an article\'s own headline', () => {
+    const cards = htmlToText('<body><article><p>First teaser</p></article><article><p>Second teaser</p></article></body>')
+    expect(cards.text).toContain('First teaser')
+    expect(cards.text).toContain('Second teaser')
+    const story = htmlToText('<body><header><a>Site</a></header><article><header><h1>The headline</h1></header><p>The story</p></article></body>')
+    expect(story.text).toContain('The headline')
+    expect(story.text).not.toContain('Site')
+  })
+
   it('decodes entities', () => {
     expect(decodeEntities('&lt;a&gt; &#x27;b&#39; &unknown;')).toBe("<a> 'b' &unknown;")
   })

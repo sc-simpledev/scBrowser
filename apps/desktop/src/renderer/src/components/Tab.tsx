@@ -66,6 +66,8 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
   const iconOnly = tab.pinned || layout === 'rail'
   const container = CONTAINERS.find((c) => c.id === tab.container)
   const sleepButton = useApp((s) => s.settings.tabSleepButton) && !iconOnly && !tab.isSleeping
+  // The tab tree: branches step in under the tab they were opened from. Only where there's room for it.
+  const depth = useApp((s) => s.settings.tabTree) && layout === 'vertical' && !tab.pinned ? (tab.depth ?? 0) : 0
 
   return (
     <div
@@ -100,6 +102,8 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       }}
       onContextMenu={() => void window.scb.invoke('tabs:context-menu', tab.id)}
       data-active={active || undefined}
+      data-depth={depth || undefined}
+      style={depth > 0 ? { marginLeft: depth * 12, width: `calc(100% - ${depth * 12}px)` } : undefined}
       className={cx(
         'sc-no-drag group @container relative flex items-center',
         'transition-[background-color,color,box-shadow] duration-(--sc-duration-fast)',

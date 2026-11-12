@@ -43,7 +43,7 @@ describe('parseTranslation', () => {
 describe('parseHistoryQuery', () => {
   it('reads terms and treats before as the end of that day', () => {
     const query = parseHistoryQuery('{"terms":["gpu"," graphics "],"after":"2026-01-01","before":"2026-01-02"}')
-    expect(query).toEqual({ terms: ['gpu', 'graphics'], after: Date.UTC(2026, 0, 1), before: Date.UTC(2026, 0, 3) })
+    expect(query).toEqual({ terms: ['gpu', 'graphics'], after: new Date(2026, 0, 1).getTime(), before: new Date(2026, 0, 2).getTime() + 86_400_000 })
   })
 
   it('tolerates missing dates and rejects no terms', () => {
@@ -88,5 +88,20 @@ describe('parseTabCleanup', () => {
 
   it('copes with a reply that is not JSON', () => {
     expect(parseTabCleanup('sorry', tabs)).toEqual([])
+  })
+})
+
+describe('parseTabCommand', () => {
+  const tabs = [
+    { id: 11, title: 'A video', url: 'https://youtube.com/watch?v=1' },
+    { id: 12, title: 'Docs', url: 'https://docs.test/' }
+  ]
+  it('reads steps and only for tabs that were offered', async () => {
+    const { parseTabCommand } = await import('./tasks')
+    expect(parseTabCommand('{"steps":[{"do":"close","tabs":[1,9]},{"do":"group","name":" Work  docs ","tabs":[2]},{"do":"explode","tabs":[1]},{"do":"group","tabs":[1]}]}', tabs)).toEqual([
+      { do: 'close', ids: [11] },
+      { do: 'group', ids: [12], name: 'Work docs' }
+    ])
+    expect(parseTabCommand('no idea', tabs)).toEqual([])
   })
 })

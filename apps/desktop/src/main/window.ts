@@ -1,5 +1,5 @@
 import { studySession } from './focusTimer'
-import { isSiteFont, siteFontOf, withSiteFont } from '@scbrowser/shared'
+import { AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
@@ -54,7 +54,8 @@ import {
   type WorkspaceEdit
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
-import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabGroups, TAB_CLEANUP_PROMPT } from '@scbrowser/ai'
+import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabCommand, parseTabGroups, TAB_CLEANUP_PROMPT, TAB_COMMAND_PROMPT, tabCommandMessage } from '@scbrowser/ai'
+import { prepareRecap } from './recap'
 import { rewriteSelection, togglePageGoogleTranslation, togglePageTranslation } from './ai/pageTools'
 import { AiService } from './ai/service'
 import type { BrowserCore, BrowserWindowHandle, Send, WindowOptions } from './browserCore'
@@ -171,6 +172,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     chromeUi.focus()
     send('ui:focus-omnibox')
   }
+  let fullBeforeVideo = false
   const tabs = new TabManager(window, {
     otherWindow: isApp ? (url, container) => core.browser().tabs.create(url, { container }) : undefined,
     appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
@@ -276,7 +278,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     onFound: (result) => send('find:result', result),
     onFullscreen: (fullscreen) => {
-      window.setFullScreen(fullscreen)
+      // A video leaving full screen puts the window back as it was, which may itself have been full screen (F11).
+      if (fullscreen) fullBeforeVideo = window.isFullScreen()
+      if (fullscreen || !fullBeforeVideo) window.setFullScreen(fullscreen)
       sidebarSites.setHidden(fullscreen, 'fullscreen')
       if (fullscreen) preview.close()
       extensions.setPanelHidden(fullscreen, window)
@@ -509,6 +513,25 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       core.archive.add([saved], true)
       notify('Archived. Find it in Archived tabs')
     },
+    tweakSiteHelp: () => {
+      send('ui:assistant-prompt', { text: '', selection: null, includePage: true })
+      notify('Type /tweak and what to change, like: /tweak hide the sidebar')
+    },
+    snoozeTab: (id, choice) => {
+      const store = core.snoozed
+      if (!store) return notify('Private windows keep no snoozed tabs')
+      const wakeAt = snoozeUntil(choice, Date.now())
+      if (wakeAt === null) return
+      const saved = tabs.archiveTab(id)
+      if (!saved) return notify("This tab can't be snoozed")
+      try {
+        store.add(saved, wakeAt)
+        notify(`Snoozed until ${new Date(wakeAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Find it in Archived tabs`)
+      } catch (error) {
+        tabs.create(saved.url, { container: saved.container ?? null })
+        notify(error instanceof Error ? error.message : "Couldn't snooze this tab")
+      }
+    },
     watchPage: (part) => {
       const watcher = core.watcher
       const contents = tabs.active && tabs.contentsFor(tabs.active.id)
@@ -608,6 +631,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     (requestId, allow) => permissionService.decide(requestId, allow),
     {
       onPaletteRun: (id) => {
+        if (id.startsWith(AI_COMMAND)) return runTabCommand(id.slice(AI_COMMAND.length))
         const patch = settingCommandPatch(id, settings.get())
         if (!patch) return paletteActions[id]?.()
         settings.set(patch)
@@ -872,6 +896,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'mute-tab': onActive((id) => tabs.setMuted(id, !tabs.active?.muted)),
     screenshot: actions.screenshot,
     'hide-part': actions.hidePart,
+    'tweak-site': () => actions.tweakSiteHelp(),
+    recap: () => {
+      if (isPrivate) return notify('Private windows keep no history to recap')
+      if (!aiStore.status().ready) return notify('Choose a model in AI settings first')
+      const ready = prepareRecap({ history, unread: () => (core.readingList?.list() ?? []).filter((item) => item.readAt === null), disabledHosts: () => aiStore.disabledHosts(), setPendingPrompt: (text) => ai.setPendingPrompt(text) })
+      if (!ready) return notify('Nothing in your history from yesterday')
+      tabs.create('sc://assistant')
+    },
     'add-to-sidebar': actions.addToSidebar,
     'watch-page': () => actions.watchPage(false),
     'reading-list-add': actions.addToReadingList,
@@ -1178,6 +1210,51 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     }
   }
 
+  /**
+   * A request typed into the palette, like "close all the YouTube tabs". The AI sees titles and
+   * addresses, and only because the person asked. Closing is offered for a yes first; the rest is
+   * easy to put back, so it's done.
+   */
+  const runTabCommand = (request: string) =>
+    void runTask('Working on it…', async () => {
+      if (!aiStore.status().ready) return 'Choose a model in AI settings first'
+      const off = aiStore.disabledHosts()
+      const candidates = tabs.snapshot().tabs.filter((tab) => /^https?:/.test(tab.url) && !off.includes(new URL(tab.url).host))
+      if (candidates.length === 0) return 'No web pages are open to work on'
+      const steps = parseTabCommand(await ai.complete(TAB_COMMAND_PROMPT, tabCommandMessage(request, candidates)), candidates)
+      if (steps.length === 0) return "Couldn't turn that into something to do with your tabs"
+      const done: string[] = []
+      const count = (ids: number[], word: string) => `${word} ${ids.length} ${ids.length === 1 ? 'tab' : 'tabs'}`
+      const toClose: number[] = []
+      for (const step of steps) {
+        if (step.do === 'close') toClose.push(...step.ids)
+        else if (step.do === 'group') {
+          tabs.setGroup(step.ids, step.name!)
+          done.push(`grouped ${step.ids.length} as “${step.name}”`)
+        } else if (step.do === 'ungroup') {
+          tabs.setGroup(step.ids, null)
+          done.push(count(step.ids, 'ungrouped'))
+        } else if (step.do === 'pin' || step.do === 'unpin') {
+          step.ids.forEach((id) => tabs.setPinned(id, step.do === 'pin'))
+          done.push(count(step.ids, step.do === 'pin' ? 'pinned' : 'unpinned'))
+        } else if (step.do === 'mute' || step.do === 'unmute') {
+          step.ids.forEach((id) => tabs.setMuted(id, step.do === 'mute'))
+          done.push(count(step.ids, step.do === 'mute' ? 'muted' : 'unmuted'))
+        } else if (step.do === 'sleep') {
+          const slept = step.ids.filter((id) => tabs.sleep(id))
+          if (slept.length > 0) done.push(count(slept, 'put to sleep'))
+        }
+      }
+      const closing = [...new Set(toClose)].flatMap((id) => candidates.filter((tab) => tab.id === id))
+      if (closing.length > 0) {
+        const { width } = window.getContentBounds()
+        overlay.openCleanup({ rows: closing.map((tab) => ({ id: tab.id, title: tab.title || tab.url, url: tab.url, reason: 'You asked' })), x: Math.max(0, Math.round((width - CLEANUP_POPUP.width) / 2)), y: CLEANUP_POPUP.top })
+        done.push(`${closing.length} ${closing.length === 1 ? 'tab' : 'tabs'} to close: check the list`)
+      }
+      const said = done.join(', ')
+      return said ? said.charAt(0).toUpperCase() + said.slice(1) : 'Nothing needed changing'
+    })
+
   /** Local checks first. The AI only sees titles and addresses, and only because the person asked. */
   const cleanupTabs = async () => {
     const input = tabs.cleanupInput()
@@ -1214,7 +1291,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     if (!image) return notify("Couldn't take a screenshot")
     const png = image.toPNG()
     const dir = settings.get().downloadDir || app.getPath('downloads')
-    const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', ' ')
+    const taken = new Date()
+    const stamp = `${localDay(taken.getTime())} ${[taken.getHours(), taken.getMinutes(), taken.getSeconds()].map((part) => String(part).padStart(2, '0')).join('-')}`
     await writeFile(uniquePath(dir, `Screenshot ${stamp}.png`, existsSync), png)
     // Saved first, and with a limit here: a busy system clipboard can leave this waiting for good.
     const copied = await Promise.race([

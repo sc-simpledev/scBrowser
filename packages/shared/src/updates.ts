@@ -42,6 +42,23 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.6.1',
+    date: '2026-11-13',
+    items: [
+      'Briefs: ask a follow-up question under any brief, listen to it read aloud, always include sites you choose, and ask for only what’s new since the last one.',
+      'A brief’s first run no longer comes back empty when the model spends its reply thinking.',
+      'Snooze a tab from its menu, and it comes back by itself in an hour, this evening, tomorrow morning or next Monday.',
+      'Type /tweak in the assistant to change how a site looks, like “/tweak hide the sidebar”. /tweak undo takes it back.',
+      'Watched pages say what changed in a sentence, and a watched price can tell you only when it goes above or below a figure.',
+      'Split view can open the left side’s links on the right.',
+      'Type a sentence in the command palette, like “close all YouTube tabs”, and scAI does it. Closing always asks first.',
+      'Recap yesterday, from the History page or the palette.',
+      'Side tabs are a tree: a tab opened from a link sits under the tab it came from. Turn it off in Settings, under Tabs.',
+      'A Privacy this week widget for the new tab page.',
+      'Fixed: tabs going to sleep on Linux when memory was fine, tab groups splitting when a tab was dragged, full screen getting stuck after closing a tab, and history search and screenshots using the wrong day.'
+    ]
+  },
+  {
     version: '0.6.0',
     date: '2026-11-11',
     items: [

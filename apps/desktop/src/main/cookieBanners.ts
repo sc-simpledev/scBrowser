@@ -152,10 +152,18 @@ export function notePress(site: string, now = Date.now()): void {
   if (presses.size > 500) presses.delete(presses.keys().next().value!)
 }
 
+/** Told each time a banner is turned down, for the privacy card's count. */
+let onRejected: () => void = () => undefined
+export const onBannerRejected = (listener: () => void) => void (onRejected = listener)
+
 const run = (site: string, execute: () => Promise<unknown>) => {
   if (!site || !mayPress(site)) return
   void execute()
-    .then((pressed) => pressed === true && notePress(site))
+    .then((pressed) => {
+      if (pressed !== true) return
+      notePress(site)
+      onRejected()
+    })
     .catch(() => undefined)
 }
 

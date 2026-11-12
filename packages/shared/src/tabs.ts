@@ -23,7 +23,14 @@ export interface TabState {
   /** Playing sound right now, whether or not it's muted. */
   audible: boolean
   muted: boolean
+  /** The tab whose link opened this one, while that tab is still open. */
+  parentId?: TabId | null
+  /** How far in to draw it under the tabs it came from, for the tab tree. 0 is the top level. */
+  depth?: number
 }
+
+/** Deeper branches are drawn at this level, so titles keep their room. */
+export const MAX_TREE_DEPTH = 3
 
 /** A separate set of tabs, such as work or study. */
 export interface Workspace {
@@ -42,6 +49,8 @@ export interface TabsSnapshot {
   splitIds: TabId[]
   /** The left tab's share of split view's width. */
   splitRatio: number
+  /** Links clicked on the left side of split view open on the right. */
+  splitLinked: boolean
   /** How wide the open tab's developer tools are drawn, or 0 when they aren't showing. */
   devToolsWidth: number
   workspaces: Workspace[]

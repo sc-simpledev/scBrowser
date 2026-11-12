@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeftRight, Code2, Maximize2, X } from 'lucide-react'
+import { ArrowLeftRight, Code2, Link2, Maximize2, X } from 'lucide-react'
 import { DEVTOOLS_BAR, isNewTabUrl, SPLIT_GAP, SPLIT_RATIO, splitPanes, splitRoom, type PageRect, type TabState } from '@scbrowser/shared'
 import { cx, IconButton } from '@scbrowser/ui'
 import { ResizeHandle } from '../shared/ResizeHandle'
@@ -7,7 +7,7 @@ import { useTabs } from '../state/tabs'
 import { Favicon } from './Favicon'
 
 /** One side of split view: a card round the page, with the tab's name and what can be done with it. */
-function SplitCard({ tab, rect, active }: { tab: TabState; rect: PageRect; active: boolean }) {
+function SplitCard({ tab, rect, active, linked }: { tab: TabState; rect: PageRect; active: boolean; linked: boolean | null }) {
   const title = tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
   return (
     <section
@@ -22,6 +22,18 @@ function SplitCard({ tab, rect, active }: { tab: TabState; rect: PageRect; activ
       <div className="flex h-(--sc-split-bar) shrink-0 items-center gap-2 pr-1 pl-2.5" onMouseDown={(e) => e.button === 0 && !active && void window.scb.invoke('tabs:activate', tab.id)}>
         <Favicon url={tab.faviconUrl} pageUrl={tab.url} isLoading={tab.isLoading} />
         <span className={cx('min-w-0 flex-1 truncate text-xs', active ? 'font-medium text-text' : 'text-text-muted')}>{title}</span>
+        {linked !== null && (
+          <IconButton
+            size="sm"
+            label={linked ? 'Links open on the right. Click to stop' : 'Open links on the right'}
+            aria-pressed={linked}
+            className={linked ? 'bg-accent-soft text-accent' : undefined}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => void window.scb.invoke('tabs:split-link')}
+          >
+            <Link2 size={13} strokeWidth={1.75} />
+          </IconButton>
+        )}
         <IconButton size="sm" label="Swap sides" onMouseDown={(e) => e.stopPropagation()} onClick={() => void window.scb.invoke('tabs:split-swap')}>
           <ArrowLeftRight size={13} strokeWidth={1.75} />
         </IconButton>
@@ -50,6 +62,7 @@ export function PageSlot() {
   const activeId = useTabs((s) => s.activeId)
   const splitOn = splitIds.length > 0
   const ratio = useTabs((s) => s.splitRatio)
+  const linked = useTabs((s) => s.splitLinked)
   const docked = useTabs((s) => s.devToolsWidth)
   const [slotWidth, setSlotWidth] = useState(0)
   const [slotHeight, setSlotHeight] = useState(0)
@@ -116,7 +129,7 @@ export function PageSlot() {
       )}
       {splitOn && room > 0 && (
         <>
-          {sides.map((tab, index) => tab && <SplitCard key={tab.id} tab={tab} rect={panes[index]!.card} active={tab.id === activeId} />)}
+          {sides.map((tab, index) => tab && <SplitCard key={tab.id} tab={tab} rect={panes[index]!.card} active={tab.id === activeId} linked={index === 0 ? linked : null} />)}
           {/* The handle centres itself on this box's right edge, which is the middle of the gap. */}
           <div className="pointer-events-none absolute inset-y-0 left-0" style={{ width: panes[0].card.x + panes[0].card.width + SPLIT_GAP / 2 }}>
             <div aria-hidden className="absolute top-1/2 right-0 h-8 w-1 translate-x-1/2 -translate-y-1/2 rounded-full bg-border-strong" />

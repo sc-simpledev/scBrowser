@@ -73,12 +73,12 @@ describe('brief service', () => {
 
     setNow(local(2026, 11, 11, 8, 0))
     await briefs.tick()
-    expect(deps.search).toHaveBeenCalledWith('latest AI news', { recency: 'd', read: 5 })
+    expect(deps.search).toHaveBeenCalledWith('latest AI news', { recency: 'd', read: 5, sites: [] })
     const [system, user, tokens] = deps.write.mock.calls[0]!
     expect(system).toContain('Medium length')
     expect(user).toContain('<page id="1"')
     expect(user).toContain('Write my medium brief on: Research the latest AI news')
-    expect(tokens).toBe(4000)
+    expect(tokens).toBe(10_000)
 
     const [issue] = briefs.issues()
     expect(issue).toMatchObject({ title: 'Latest AI news', text: 'Big news today [1].', unseen: true })
@@ -187,6 +187,35 @@ describe('brief service', () => {
     const { id, nextRunAt } = briefs.save(null, input())
     expect(briefs.save(id, input({ title: 'AI' })).nextRunAt).toBe(nextRunAt)
     expect(briefs.save(id, input({ time: '18:00' })).nextRunAt).toBe(local(2026, 11, 11, 18, 0))
+  })
+
+  it('searches the sites it was told to, and leaves out what the last brief said when asked', async () => {
+    const { briefs, deps } = service()
+    const { id } = briefs.save(null, input({ sites: ['example.com'], onlyNew: true }))
+    await briefs.run(id)
+    expect(deps.search.mock.calls[0]![1]).toMatchObject({ sites: ['example.com'] })
+    expect(deps.write.mock.calls[0]![1]).not.toContain('<previous-brief>')
+    await briefs.run(id)
+    expect(deps.write.mock.calls[1]![1]).toContain('<previous-brief>\nBig news today [1].')
+  })
+
+  it('answers a question about a brief from the brief and its sources', async () => {
+    const { briefs, deps } = service()
+    const { id } = briefs.save(null, input())
+    const issue = await briefs.run(id)
+    deps.write.mockResolvedValueOnce(' It was the first one [1]. ')
+    expect(await briefs.ask(issue.id, 'Which mattered most?')).toBe('It was the first one [1].')
+    const [, user] = deps.write.mock.calls.at(-1)!
+    expect(user).toContain('Big news today [1].')
+    expect(user).toContain('Question: Which mattered most?')
+    await expect(briefs.ask('gone', 'Hello?')).rejects.toThrow('no longer exists')
+    await expect(briefs.ask(issue.id, '   ')).rejects.toThrow('Ask a question')
+  })
+
+  it('checks sites a page sends', () => {
+    expect(isBriefInput(input({ sites: ['example.com'] }))).toBe(true)
+    expect(isBriefInput(input({ sites: ['not a host'] }))).toBe(false)
+    expect(isBriefInput(input({ sites: Array.from({ length: 6 }, (_, n) => `site${n}.com`) }))).toBe(false)
   })
 
   it('keeps the newest briefs of each schedule', () => {

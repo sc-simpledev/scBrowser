@@ -11,6 +11,7 @@ const SWITCHES: [keyof Settings, string][] = [
   ['linkPreview', 'link preview with Shift-click'],
   ['memorySaver', 'memory saver'],
   ['tabSleepButton', 'sleep button on tabs'],
+  ['tabTree', 'the tab tree in side tabs'],
   ['spellCheck', 'spell checking'],
   ['searchSuggestions', 'search suggestions'],
   ['askWhereToSave', 'asking where to save downloads'],
@@ -50,8 +51,14 @@ export const SETTING_COMMANDS: (PaletteCommand & { patch: Partial<Settings> })[]
 /** Commands, then the setting changes matching what's typed. Settings only show once something is typed, so the list stays short. */
 export function matchPalette(query: string): PaletteCommand[] {
   if (!query.trim()) return matchCommands(query)
-  return [...matchCommands(query), ...matchCommands(query, SETTING_COMMANDS)]
+  const asked = query.replace(/\s+/g, ' ').trim()
+  // A sentence rather than a command name: "close all youtube tabs". The AI works out the steps.
+  const ai: PaletteCommand[] = asked.length >= 8 && asked.includes(' ') ? [{ id: `${AI_COMMAND}${asked.slice(0, 200)}`, label: `Do it with AI: “${asked.length > 48 ? `${asked.slice(0, 47)}…` : asked}”`, ai: true }] : []
+  return [...matchCommands(query), ...matchCommands(query, SETTING_COMMANDS), ...ai]
 }
+
+/** The start of a palette id that carries a request for the AI, followed by the request. */
+export const AI_COMMAND = 'ai-do:'
 
 /** What a palette id changes, or null if it isn't a setting command. Only listed commands count, never a made-up id. */
 export function settingCommandPatch(id: string, current: Settings): Partial<Settings> | null {

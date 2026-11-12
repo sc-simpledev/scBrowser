@@ -1,4 +1,4 @@
-import { ChevronRight, Newspaper, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
+import { ChevronRight, Newspaper, Pencil, Play, Plus, Square, Trash2, Volume2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -6,7 +6,10 @@ import {
   BRIEF_IDEAS,
   BRIEF_LENGTHS,
   briefPreview,
+  briefSites,
   briefTitle,
+  MAX_BRIEF_QUESTION,
+  speechText,
   FREQUENCY_LABELS,
   HOSTED_BRIEFS_PER_DAY,
   LENGTH_LABELS,
@@ -23,6 +26,7 @@ import {
 import { api } from '../api'
 import { EmptyState } from '../EmptyState'
 import { CopyReply, ReplyMarkdown, type OpenSource } from '../../shared/ReplyContent'
+import { useSpeak } from '../../shared/speak'
 
 const openLink = (href: string) => void api().invoke('browser:open', href)
 const openSource: OpenSource = (source, target) => void api().invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
@@ -79,11 +83,12 @@ function Label({ text, children }: { text: string; children: ReactNode }) {
   )
 }
 
-const blankInput = (topic = ''): BriefInput => ({ title: '', topic, time: '08:00', frequency: 'daily', weekday: new Date().getDay(), length: 'medium' })
+const blankInput = (topic = ''): BriefInput => ({ title: '', topic, time: '08:00', frequency: 'daily', weekday: new Date().getDay(), length: 'medium', sites: [], onlyNew: false })
 
 /** Setting up a brief, or changing one. */
 function BriefForm({ initial, editing, onSave, onCancel }: { initial: BriefInput; editing: boolean; onSave: (input: BriefInput) => Promise<void>; onCancel: () => void }) {
   const [input, setInput] = useState(initial)
+  const [sites, setSites] = useState((initial.sites ?? []).join(', '))
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const topicRef = useRef<HTMLTextAreaElement>(null)
@@ -99,7 +104,7 @@ function BriefForm({ initial, editing, onSave, onCancel }: { initial: BriefInput
         if (!ready || busy) return
         setBusy(true)
         setProblem(null)
-        onSave(input)
+        onSave({ ...input, sites: briefSites(sites) })
           .catch((error: unknown) => setProblem(cleanError(error)))
           .finally(() => setBusy(false))
       }}
@@ -166,6 +171,16 @@ function BriefForm({ initial, editing, onSave, onCancel }: { initial: BriefInput
         </div>
         <span className="text-xs text-text-faint">{LENGTH_HINTS[input.length]}</span>
       </div>
+      <Label text="Always include these sites (optional)">
+        <Input aria-label="Always include these sites" placeholder="theverge.com, arstechnica.com" value={sites} onChange={(e) => setSites(e.target.value)} onBlur={() => setSites(briefSites(sites).join(', '))} />
+      </Label>
+      <label className="flex items-center justify-between gap-4">
+        <span className="flex flex-col">
+          <span>Only what's new</span>
+          <span className="text-xs text-text-faint">Leaves out what the last brief already told you.</span>
+        </span>
+        <Switch label="Only what's new" checked={input.onlyNew ?? false} onChange={(onlyNew) => set({ onlyNew })} />
+      </label>
       {problem && (
         <p role="alert" className="text-xs text-danger">
           {problem}
@@ -183,9 +198,15 @@ function BriefForm({ initial, editing, onSave, onCancel }: { initial: BriefInput
   )
 }
 
-function ScheduleRow({ schedule, running, onEdit, update }: { schedule: BriefSchedule; running: boolean; onEdit: () => void; update: (call: Promise<BriefState>) => Promise<void> }) {
+function ScheduleRow({ schedule, running, onEdit, update, onStarted }: { schedule: BriefSchedule; running: boolean; onEdit: () => void; update: (call: Promise<BriefState>) => Promise<void>; onStarted: () => void }) {
+  const [removing, setRemoving] = useState(false)
+  useEffect(() => {
+    if (!removing) return
+    const timer = setTimeout(() => setRemoving(false), 4000)
+    return () => clearTimeout(timer)
+  }, [removing])
   const [problem, setProblem] = useState<string | null>(null)
-  const detail = [scheduleLabel(schedule), LENGTH_LABELS[schedule.length], schedule.paused ? 'Paused' : `Next ${whenLabel(schedule.nextRunAt).replace(/^\w/, (c) => c.toLowerCase())}`]
+  const detail = [scheduleLabel(schedule), LENGTH_LABELS[schedule.length], ...(schedule.sites?.length ? [`Always ${schedule.sites.join(', ')}`] : []), ...(schedule.onlyNew ? ["Only what's new"] : []), schedule.paused ? 'Paused' : `Next ${whenLabel(schedule.nextRunAt).replace(/^\w/, (c) => c.toLowerCase())}`]
   return (
     <li className="flex flex-col gap-1 py-2.5">
       <div className="flex items-center gap-3">
@@ -200,6 +221,8 @@ function ScheduleRow({ schedule, running, onEdit, update }: { schedule: BriefSch
           onClick={() => {
             setProblem(null)
             void update(api().invoke('briefs:run', schedule.id)).catch((error: unknown) => setProblem(cleanError(error)))
+            // The call only answers once the brief is written, so the row is told it has started.
+            setTimeout(onStarted, 150)
           }}
         >
           {running ? <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Play aria-hidden size={12} strokeWidth={2} />}
@@ -209,9 +232,15 @@ function ScheduleRow({ schedule, running, onEdit, update }: { schedule: BriefSch
         <IconButton size="sm" label={`Change ${schedule.title}`} onClick={onEdit}>
           <Pencil size={12} strokeWidth={1.75} />
         </IconButton>
-        <IconButton size="sm" label={`Remove ${schedule.title}`} onClick={() => void update(api().invoke('briefs:remove', schedule.id))}>
-          <X size={12} strokeWidth={2} />
-        </IconButton>
+        {removing ? (
+          <Button variant="ghost" className="shrink-0 text-danger" onClick={() => void update(api().invoke('briefs:remove', schedule.id))}>
+            Remove?
+          </Button>
+        ) : (
+          <IconButton size="sm" label={`Remove ${schedule.title}`} onClick={() => setRemoving(true)}>
+            <X size={12} strokeWidth={2} />
+          </IconButton>
+        )}
       </div>
       {(problem ?? schedule.error) && (
         <p role="alert" className="text-xs text-danger">
@@ -223,7 +252,60 @@ function ScheduleRow({ schedule, running, onEdit, update }: { schedule: BriefSch
 }
 
 /** One brief to read: its first lines while folded, all of it with its sources when open. */
+/** A question about one brief, answered under it. Asking again replaces the answer; nothing is kept. */
+function AskBrief({ issue }: { issue: BriefIssue }) {
+  const [question, setQuestion] = useState('')
+  const [asked, setAsked] = useState<string | null>(null)
+  const [answer, setAnswer] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const busy = asked !== null && answer === null && problem === null
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <form
+        aria-label={`Ask about ${issue.title}`}
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const text = question.trim()
+          if (!text || busy) return
+          setAsked(text)
+          setAnswer(null)
+          setProblem(null)
+          setQuestion('')
+          api()
+            .invoke('briefs:ask', issue.id, text)
+            .then((reply) => (reply ? setAnswer(reply) : setProblem('The AI sent back nothing. Try again.')))
+            .catch((error: unknown) => setProblem(cleanError(error)))
+        }}
+      >
+        <Input aria-label="Ask about this brief" className="min-w-0 flex-1" maxLength={MAX_BRIEF_QUESTION} placeholder="Ask about this brief" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <Button type="submit" disabled={!question.trim() || busy}>
+          Ask
+        </Button>
+      </form>
+      {asked && <p className="text-xs text-text-muted">{asked}</p>}
+      {busy && (
+        <p role="status" className="flex items-center gap-2 text-xs text-text-faint">
+          <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          Thinking…
+        </p>
+      )}
+      {answer && (
+        <div className="select-text">
+          <ReplyMarkdown text={answer} onOpenLink={openLink} sources={issue.sources} onOpenSource={openSource} />
+        </div>
+      )}
+      {problem && (
+        <p role="alert" className="text-xs text-danger">
+          {problem}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function IssueCard({ issue, open, onToggle, onDelete }: { issue: BriefIssue; open: boolean; onToggle: () => void; onDelete: () => void }) {
+  const speech = useSpeak(issue.id)
   const preview = briefPreview(issue.text)
   const sources = issue.sources.filter((source) => !/duckduckgo\.com$/.test(hostOf(source.url)))
   return (
@@ -262,7 +344,17 @@ function IssueCard({ issue, open, onToggle, onDelete }: { issue: BriefIssue; ope
               </ol>
             </div>
           )}
+          <AskBrief issue={issue} />
+          {speech.problem && (
+            <p role="alert" className="text-xs text-danger">
+              {speech.problem}
+            </p>
+          )}
           <div className="flex items-center gap-1">
+            <Button variant="ghost" aria-pressed={speech.speaking} onClick={() => speech.toggle(`${issue.title}. ${speechText(issue.text)}`)}>
+              {speech.speaking ? <Square aria-hidden size={11} strokeWidth={2} /> : <Volume2 aria-hidden size={13} strokeWidth={1.75} />}
+              {speech.speaking ? 'Stop' : 'Listen'}
+            </Button>
             <CopyReply text={issue.text} />
             <IconButton size="sm" label="Delete this brief" onClick={onDelete}>
               <Trash2 size={12} strokeWidth={1.75} />
@@ -382,7 +474,8 @@ export function BriefsPage() {
                 schedule={schedule}
                 running={state.running.includes(schedule.id)}
                 update={update}
-                onEdit={() => setForm({ id: schedule.id, input: { title: schedule.title, topic: schedule.topic, time: schedule.time, frequency: schedule.frequency, weekday: schedule.weekday, length: schedule.length } })}
+                onStarted={load}
+                onEdit={() => setForm({ id: schedule.id, input: { title: schedule.title, topic: schedule.topic, time: schedule.time, frequency: schedule.frequency, weekday: schedule.weekday, length: schedule.length, sites: schedule.sites ?? [], onlyNew: schedule.onlyNew ?? false } })}
               />
             ))}
           </ul>

@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, isNewTabUrl, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -29,6 +29,9 @@ import { HighlightStore } from './highlights'
 import { ReadingList } from './readingList'
 import { MiniApps } from './miniApps'
 import { BriefService } from './briefs'
+import { SnoozeService } from './snooze'
+import { PrivacyStats } from './privacyStats'
+import { onBannerRejected } from './cookieBanners'
 import { Onboarding } from './onboarding'
 import { webContext } from './ai/webSearch'
 import { pdfPageUrl } from './internal/pdf'
@@ -152,6 +155,10 @@ export class BrowserCore {
   readonly miniApps: MiniApps
   /** Scheduled AI research. Private windows have none. */
   readonly briefs: BriefService | null
+  /** Tabs put away until later. Private windows have none. */
+  readonly snoozed: SnoozeService | null
+  /** Counts of what was blocked, for the new tab. Private windows count nothing. */
+  readonly privacyStats: PrivacyStats | null
   readonly onboarding: Onboarding
 
   constructor(
@@ -215,7 +222,10 @@ export class BrowserCore {
       complete: (system, user) => backgroundAi.complete(system, user)
     })
     this.privacy = new PrivacyService(settings, kv, {
-      onBlocked: (id, url) => this.windows.forEach((handle) => handle.tabs.noteBlocked(id, url)),
+      onBlocked: (id, url) => {
+        this.privacyStats?.noteBlocked(url)
+        this.windows.forEach((handle) => handle.tabs.noteBlocked(id, url))
+      },
       screen: (url, contents): string | null | Promise<string | null> => (this.ownerOf(contents) || this.extraPages.has(contents) ? this.blocker.screen(url) : null),
       onScreenedOut: (url, reason, contents) => {
         // Only a tab can show the block page, as it's an sc:// page that needs the tab's bridge.
@@ -230,6 +240,9 @@ export class BrowserCore {
       },
       onChanged: () => this.broadcast('privacy:changed', this.privacy.offHosts())
     })
+    this.privacyStats = isPrivate ? null : new PrivacyStats(kv)
+    onBannerRejected(() => this.privacyStats?.noteBanner())
+    app.on('will-quit', () => this.privacyStats?.destroy())
     this.downloads = new DownloadManager(services.downloads, settings, (progress) => this.broadcast('downloads:progress', progress))
     this.prepareSession(session.defaultSession)
 
@@ -376,6 +389,10 @@ export class BrowserCore {
       ? null
       : new PageWatcher(kv, {
           onChange: () => undefined,
+          summarise: async (watch, added, removed) => {
+            if (!aiStore.status().ready || aiStore.disabledHosts().includes(new URL(watch.url).host)) return null
+            return (await backgroundAi.complete(WATCH_SUMMARY_PROMPT, watchSummaryMessage(watch.title, added, removed))).trim() || null
+          },
           openTab: (url) => {
             const { tabs, window } = this.browser()
             tabs.create(url)
@@ -397,9 +414,27 @@ export class BrowserCore {
           onReady: (issue, startup) => this.briefReady(issue.id, issue.title, startup)
         })
     app.on('will-quit', () => this.briefs?.destroy())
+    this.snoozed = isPrivate
+      ? null
+      : new SnoozeService({
+          kv,
+          wake: (tab) => {
+            const handle = this.lastFocused
+            if (!handle || handle.window.isDestroyed()) return false
+            handle.tabs.create(tab.url, { activate: false, container: tab.container })
+            handle.actions.notify(`Back from snooze: ${tab.title || tab.url}`)
+            return true
+          }
+        })
+    app.on('will-quit', () => this.snoozed?.destroy())
     const stopSaver = startMemorySaver({
       enabled: () => settings.get().memorySaver,
-      memory: () => process.getSystemMemoryInfo(),
+      // On Linux `free` leaves out memory the system can hand back at once (disk cache), so it reads as
+      // nearly full on a healthy computer. `available` is the real figure there.
+      memory: () => {
+        const info = process.getSystemMemoryInfo()
+        return { total: info.total, free: typeof info.available === 'number' && info.available > 0 ? info.available : info.free }
+      },
       // The oldest tabs of all windows count together, a couple at a time.
       sleepOldest: (count, minIdleMs) => {
         let slept = 0
@@ -528,9 +563,8 @@ export class BrowserCore {
     const url = `sc://briefs/#${id}`
     const handle = this.lastFocused
     if (startup && handle && this.briefs?.takeStartupBriefs()) {
-      const active = handle.tabs.active
-      if (active && isNewTabUrl(active.url)) handle.tabs.navigate(active.id, url)
-      else handle.tabs.create(url, { activate: false, afterId: active?.id })
+      // Beside the open tab, never in place of it: the person may be typing there.
+      handle.tabs.create(url, { activate: false, afterId: handle.tabs.active?.id })
       return
     }
     if (!this.briefs?.prefs().notify || !Notification.isSupported()) return
@@ -683,11 +717,13 @@ export class BrowserCore {
 
   private applySessionProxy(target: Session): Promise<void> {
     // A container the person set to go direct skips the VPN; everything else takes it.
+    // With the VPN off, sessions go back to the computer's own proxy settings rather than ignoring them.
+    if (!this.proxyRules) return target.setProxy({ mode: 'system' })
     const direct = this.services.settings.get().vpnDirectContainers.some((id) => session.fromPartition(containerPartition(id)) === target)
     if (direct) return target.setProxy({ mode: 'direct' })
     // Tests serve pages from this computer, which Chromium would otherwise send direct.
     const proxyBypassRules = [...(process.env.SCB_E2E ? ['<-loopback>'] : []), bypassRules(this.services.settings.get().vpnBypass)].filter(Boolean).join(';')
-    return target.setProxy(this.proxyRules ? { mode: 'fixed_servers', proxyRules: this.proxyRules, proxyBypassRules } : { mode: 'direct' })
+    return target.setProxy({ mode: 'fixed_servers', proxyRules: this.proxyRules, proxyBypassRules })
   }
 }
 

@@ -3,7 +3,7 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { BrowserActions } from './actions'
@@ -39,6 +39,7 @@ import { copySecret } from './passwordFill'
 import { LEAK_RANGE_URL } from './totp'
 import iconPath from '../../build/icon.png?asset'
 import { samePage } from './citations'
+import { prepareRecap } from './recap'
 import { withHiddenPage } from './hiddenPage'
 import { extractContext } from './ai/pageText'
 import { trimPage, withContext } from '@scbrowser/ai'
@@ -599,6 +600,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (!isWatchInterval(everyMinutes)) throw new Error('Invalid interval')
       core.watcher?.setInterval(text(id, 64), everyMinutes)
     },
+    'watch:set-target': (id, target) => {
+      if (target !== null && !isWatchTarget(target)) throw new Error('Invalid target')
+      core.watcher?.setTarget(text(id, 64), target)
+    },
     'watch:seen': (id) => core.watcher?.markSeen(id === null ? undefined : text(id, 64)),
     'archive:list': () => core.archive.list(),
     'archive:restore': (id) => {
@@ -749,6 +754,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'mini-apps:list': () => core.miniApps.list().map(({ id, name, createdAt }) => ({ id, name, createdAt })),
     'mini-apps:open': (id) => core.miniApps.launch(text(id, 64), process.platform === 'darwin' ? undefined : iconPath),
     'mini-apps:remove': (id) => core.miniApps.remove(text(id, 64)),
+    'privacy:week': () => core.privacyStats?.week() ?? null,
+    'history:recap': () => {
+      const tab = caller && tabs.tabIdFor(caller)
+      if (isPrivate || !tab || !aiStore.status().ready) return false
+      const ready = prepareRecap({ history, unread: () => (core.readingList?.list() ?? []).filter((item) => item.readAt === null), disabledHosts: () => aiStore.disabledHosts(), setPendingPrompt: (prompt) => ai.setPendingPrompt(prompt) })
+      if (ready) tabs.navigate(tab, 'sc://assistant')
+      return ready
+    },
     'briefs:state': () => briefs().state(),
     'briefs:summary': () => core.briefs?.summary() ?? { unseen: 0, latest: null },
     'briefs:recent': () => (core.briefs?.issues() ?? []).slice(0, 6).map((issue) => ({ ...issue, text: issue.text.slice(0, 600), sources: [] })),
@@ -780,6 +793,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
       briefs().setPrefs(prefs)
       return briefs().state()
     },
+    'briefs:issue': (id) => core.briefs?.issues().find((issue) => issue.id === text(id, 64)) ?? null,
+    'briefs:ask': (id, question) => briefs().ask(text(id, 64), text(question, MAX_BRIEF_QUESTION)),
+    'snooze:list': () => core.snoozed?.list() ?? [],
+    'snooze:wake': (id) => {
+      const found = core.snoozed?.take(text(id, 64))
+      if (found && /^(https?|file):/i.test(found.url)) tabs.create(found.url, { container: found.container })
+    },
+    'snooze:remove': (id) => void core.snoozed?.take(text(id, 64)),
     'onboarding:state': () => core.onboarding.state(),
     'onboarding:mark': (id) => {
       if (isGettingStartedId(id)) core.onboarding.mark(id)

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { net, Notification } from 'electron'
 import { withHiddenPage } from './hiddenPage'
-import { diffWatchText, isSafeSelector, MAX_WATCHES, normaliseWatchText, type PageWatch, type WatchInterval } from '@scbrowser/shared'
+import { diffWatchText, isSafeSelector, MAX_WATCHES, meetsTarget, normaliseWatchText, watchNumber, type PageWatch, type WatchInterval, type WatchTarget } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'watch:pages'
@@ -20,6 +20,8 @@ interface WatcherHost {
   onChange: () => void
   /** Opens a watched page in a tab, from its notification. */
   openTab: (url: string) => void
+  /** Says what changed in a sentence, or null when there's no model to ask or the site has AI off. */
+  summarise?: (watch: PageWatch, added: string[], removed: string[]) => Promise<string | null>
 }
 
 /**
@@ -77,6 +79,14 @@ export class PageWatcher {
     this.patch(id, { everyMinutes })
   }
 
+  /** Only announce when the watched number passes a target, or null to announce every change again. */
+  setTarget(id: string, target: WatchTarget | null): void {
+    const watch = this.list().find((candidate) => candidate.id === id)
+    if (!watch) return
+    const value = watchNumber(watch.lastText)
+    this.patch(id, { target, value, hit: target !== null && value !== null && meetsTarget(value, target) })
+  }
+
   markSeen(id?: string): void {
     this.save(this.list().map((watch) => (id === undefined || watch.id === id ? { ...watch, unseen: false } : watch)))
   }
@@ -107,13 +117,22 @@ export class PageWatcher {
       const current = this.list().find((candidate) => candidate.id === id)
       if (!current) return
       if (text === null) return this.patch(id, { lastCheckedAt: Date.now(), error: watch.selector ? "The watched part isn't on the page any more." : 'The page had no text to read.' })
+      const value = watchNumber(text)
       const first = current.lastCheckedAt === null || (!current.lastText && current.error !== null)
-      if (first || text === current.lastText) return this.patch(id, { lastText: text, lastCheckedAt: Date.now(), error: null })
+      const target = current.target ?? null
+      const hit = target !== null && value !== null && meetsTarget(value, target)
+      if (first || text === current.lastText) return this.patch(id, { lastText: text, lastCheckedAt: Date.now(), error: null, value, hit })
       const { added, removed } = diffWatchText(current.lastText, text)
       // Only reordering, which pages do without anything really changing.
-      if (added.length === 0 && removed.length === 0) return this.patch(id, { lastText: text, lastCheckedAt: Date.now(), error: null })
-      this.patch(id, { lastText: text, lastCheckedAt: Date.now(), changedAt: Date.now(), unseen: true, error: null, added, removed })
-      this.notify(current, added)
+      if (added.length === 0 && removed.length === 0) return this.patch(id, { lastText: text, lastCheckedAt: Date.now(), error: null, value, hit })
+      // With a target, a change is only news once the number passes it, and once per crossing.
+      const news = target === null || (hit && !current.hit)
+      this.patch(id, { lastText: text, lastCheckedAt: Date.now(), changedAt: Date.now(), unseen: news || current.unseen, error: null, added, removed, summary: null, value, hit })
+      if (!news) return
+      if (target !== null) return this.notify(current, [`Now ${value}, ${target.direction} your ${target.value}.`])
+      const summary = await this.host.summarise?.(current, added, removed).catch(() => null)
+      if (summary) this.patch(id, { summary: summary.slice(0, 600) })
+      this.notify(current, summary ? [summary] : added)
     } catch (error) {
       this.patch(id, { lastCheckedAt: Date.now(), error: error instanceof Error ? error.message : "Couldn't load the page." })
     } finally {

@@ -138,5 +138,6 @@ test('a brief can be changed, paused and removed', async () => {
   await expect(scheduled.getByRole('alert')).toContainText('Choose a model in AI settings first.')
 
   await scheduled.getByRole('button', { name: 'Remove Rust' }).click()
+  await scheduled.getByRole('button', { name: 'Remove?' }).click()
   await expect(scheduled).toHaveCount(0)
 })

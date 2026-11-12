@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -11,10 +11,12 @@ import {
   type AssistantEvent,
   type Bookmark,
   briefPreview,
+  speechText,
   GETTING_STARTED,
   type GettingStartedId,
   type OnboardingState,
   type BriefIssue,
+  type PrivacyWeek,
   type DownloadInfo,
   type PageWatch,
   type ReadingItem,
@@ -26,6 +28,7 @@ import {
   type SuggestionKind
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
+import { useSpeak } from '../../shared/speak'
 import { api, applyPerformance, applyTint } from '../api'
 import { ColorPicker } from '../ColorPicker'
 
@@ -444,6 +447,38 @@ function WatchingWidget() {
   )
 }
 
+/** What tracker blocking did this week, with a small chart of each day. Nothing leaves the computer for it. */
+function PrivacyWidget() {
+  const [week, setWeek] = useState<PrivacyWeek | null>(null)
+  useEffect(() => void api().invoke('privacy:week').then(setWeek), [])
+  if (!week) return null
+  const most = Math.max(1, ...week.daily.map((day) => day.blocked))
+  const dayName = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })
+  return (
+    <Card title="Privacy this week">
+      <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-col">
+          <span className="text-2xl font-semibold tabular-nums">{week.blocked.toLocaleString()}</span>
+          <span className="text-xs text-text-muted">
+            {week.blocked === 1 ? 'tracker or ad blocked' : 'trackers and ads blocked'}
+            {week.banners > 0 && ` · ${week.banners.toLocaleString()} cookie ${week.banners === 1 ? 'banner' : 'banners'} turned down`}
+          </span>
+        </div>
+        <div role="img" aria-label={`Blocked each day: ${week.daily.map((day) => `${dayName(day.day)} ${day.blocked}`).join(', ')}`} className="flex h-10 items-end gap-1">
+          {week.daily.map((day) => (
+            <span key={day.day} title={`${dayName(day.day)}: ${day.blocked.toLocaleString()}`} className="w-2 rounded-sm bg-accent" style={{ height: `${Math.max(6, Math.round((day.blocked / most) * 100))}%`, opacity: day.blocked === 0 ? 0.25 : 1 }} />
+          ))}
+        </div>
+      </div>
+      {week.topHosts.length > 0 ? (
+        <p className="truncate text-xs text-text-faint">Stopped most: {week.topHosts.slice(0, 3).map((host) => host.host).join(', ')}</p>
+      ) : (
+        <p className="text-xs text-text-faint">Nothing blocked yet this week.</p>
+      )}
+    </Card>
+  )
+}
+
 const STEP_ICONS: Record<GettingStartedId, LucideIcon> = { assistant: MessageCircle, brief: Newspaper, split: Columns2, palette: Command, customise: LayoutGrid }
 
 /**
@@ -560,6 +595,7 @@ function BriefsWidget() {
 /** Shown on every new tab while a brief is waiting to be read, whatever widgets are on. */
 function BriefBanner({ issues }: { issues: BriefIssue[] }) {
   const [hidden, setHidden] = useState(false)
+  const speech = useSpeak('brief-banner')
   const waiting = issues.filter((issue) => issue.unseen)
   const latest = waiting[0]
   if (!latest || hidden) return null
@@ -575,6 +611,18 @@ function BriefBanner({ issues }: { issues: BriefIssue[] }) {
         </span>
         <span className="truncate text-xs text-text-muted">{briefPreview(latest.text)}</span>
       </button>
+      <IconButton
+        size="sm"
+        label={speech.speaking ? 'Stop reading aloud' : (speech.problem ?? 'Listen to this brief')}
+        aria-pressed={speech.speaking}
+        onClick={() => {
+          if (speech.speaking) return speech.toggle('')
+          // The new tab only holds the opening lines, so the whole brief is fetched to be read out.
+          void api().invoke('briefs:issue', latest.id).then((issue) => issue && speech.toggle(`${issue.title}. ${speechText(issue.text)}`))
+        }}
+      >
+        {speech.speaking ? <Square size={11} strokeWidth={2} /> : <Volume2 size={13} strokeWidth={1.75} />}
+      </IconButton>
       <Button variant="primary" className="shrink-0" onClick={() => openBrief(latest.id)}>
         Read
       </Button>
@@ -728,6 +776,8 @@ function Widget({ id, config, update, keepChats }: { id: NewTabWidgetId; config:
       return <WatchingWidget />
     case 'briefs':
       return <BriefsWidget />
+    case 'privacy':
+      return <PrivacyWidget />
   }
 }
 

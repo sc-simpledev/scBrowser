@@ -51,6 +51,17 @@ export function HistoryPage() {
         >
           {asking ? 'Searching…' : 'Ask AI'}
         </Button>
+        <Button
+          title="A short recap of what you were doing yesterday, from page titles and addresses"
+          onClick={() => {
+            setNote(null)
+            void api()
+              .invoke('history:recap')
+              .then((started) => !started && setNote("There's nothing from yesterday to recap, or no AI model is chosen yet."))
+          }}
+        >
+          Recap yesterday
+        </Button>
         <ConfirmButton disabled={entries.length === 0} confirmLabel="Clear everything?" onConfirm={() => void api().invoke('history:clear').then(load)}>
           Clear all
         </ConfirmButton>
