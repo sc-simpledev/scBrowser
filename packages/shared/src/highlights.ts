@@ -40,3 +40,20 @@ export function highlightsMarkdown(highlights: Highlight[], at = Date.now()): st
   })
   return `# Highlights\n\nExported from scTerra on ${new Date(at).toISOString().slice(0, 10)}.\n\n${sections.join('\n\n')}\n`
 }
+
+/** Highlights as lines for the new tab's notes: the words, then where they came from. */
+export const highlightNoteLines = (highlights: Pick<Highlight, 'text' | 'title' | 'url' | 'note'>[]) =>
+  highlights.map((highlight) => `• “${highlight.text.replace(/\s+/g, ' ').trim().slice(0, 300)}” (${(highlight.title || highlight.url).slice(0, 80)})${highlight.note.trim() ? `\n  ${highlight.note.trim().slice(0, 200)}` : ''}`).join('\n')
+
+/** What a brief on some highlights should look for: what's new about the things they mention. */
+export function highlightsBriefTopic(highlights: Pick<Highlight, 'text' | 'title'>[], max = 500): string {
+  const lead = "What's new about the things I highlighted: "
+  const parts: string[] = []
+  for (const highlight of highlights.slice(0, 8)) {
+    const text = highlight.text.replace(/\s+/g, ' ').trim()
+    const part = text.length > 90 ? `${text.slice(0, 89).trimEnd()}…` : text
+    if (lead.length + [...parts, part].join('; ').length > max) break
+    parts.push(part)
+  }
+  return `${lead}${parts.join('; ')}`
+}

@@ -35,7 +35,7 @@ export class ReadingList {
     return this.list().find((item) => item.id === id) ?? null
   }
 
-  patch(id: string, change: Partial<Pick<ReadingItem, 'readAt' | 'summary' | 'title'>>): void {
+  patch(id: string, change: Partial<Pick<ReadingItem, 'readAt' | 'summary' | 'title' | 'minutes'>>): void {
     this.save(this.list().map((item) => (item.id === id ? { ...item, ...change } : item)))
   }
 

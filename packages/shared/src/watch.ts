@@ -26,6 +26,24 @@ export interface PageWatch {
   target?: WatchTarget | null
   /** The number is past the target now, so it isn't announced again until it goes back. */
   hit?: boolean
+  /** The number over time, oldest first: a point when it changes, and at least one a day. */
+  history?: WatchPoint[]
+}
+
+export interface WatchPoint {
+  at: number
+  value: number
+}
+
+export const MAX_WATCH_HISTORY = 90
+
+/** Adds a reading to the history when the number moved, or the last point is a day old. */
+export function addWatchPoint(history: WatchPoint[] | undefined, value: number | null, at: number): WatchPoint[] | undefined {
+  if (value === null) return history
+  const list = history ?? []
+  const last = list.at(-1)
+  if (last && last.value === value && at - last.at < 86_400_000) return list
+  return [...list, { at, value }].slice(-MAX_WATCH_HISTORY)
 }
 
 export interface WatchTarget {

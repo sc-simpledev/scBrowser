@@ -27,6 +27,9 @@ export const DEFAULT_BLOCKER: BlockerConfig = { enabled: true, rules: [], messag
 export const DEFAULT_BLOCK_MESSAGE = 'You chose to block this site.'
 /** How long "continue anyway" lasts. */
 export const BLOCK_PASS_MS = 15 * 60_000
+/** "One more minute": a short pass that has to be waited for, longer each time that day. */
+export const GRACE_PASS_MS = 60_000
+export const graceWaitSeconds = (taken: number) => Math.min(60, 5 * 2 ** taken)
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 const shortList = (value: unknown, count: number, length: number) =>

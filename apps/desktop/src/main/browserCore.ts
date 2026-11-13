@@ -58,8 +58,8 @@ const SYNC_EVERY_MS = 10 * 60_000
 const WORKSPACES_KEY = 'workspaces'
 
 const isWorkspace = (value: unknown): value is Workspace => {
-  const { id, name, focus, schedule } = (value ?? {}) as Workspace
-  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean' && (schedule === undefined || schedule === null || isWorkspaceSchedule(schedule))
+  const { id, name, focus, schedule, vpn } = (value ?? {}) as Workspace
+  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean' && (schedule === undefined || schedule === null || isWorkspaceSchedule(schedule)) && (vpn === undefined || typeof vpn === 'boolean')
 }
 
 /** Tests point pings at a local page. */
@@ -434,8 +434,9 @@ export class BrowserCore {
           wake: (tab) => {
             const handle = this.lastFocused
             if (!handle || handle.window.isDestroyed()) return false
-            handle.tabs.create(tab.url, { activate: false, container: tab.container })
-            handle.actions.notify(`Back from snooze: ${tab.title || tab.url}`)
+            const id = handle.tabs.create(tab.url, { activate: false, container: tab.container })
+            if (tab.group && typeof id === 'number') handle.tabs.setGroup([id], tab.group)
+            handle.actions.notify(tab.group ? `Back from snooze into “${tab.group}”` : `Back from snooze: ${tab.title || tab.url}`)
             return true
           }
         })

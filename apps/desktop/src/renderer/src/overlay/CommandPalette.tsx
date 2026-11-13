@@ -4,13 +4,13 @@ import { matchPalette, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
 
 const ROW_HEIGHT = 36
 
-export function CommandPalette({ x, y }: { x: number; y: number }) {
+export function CommandPalette({ x, y, recent, skills }: { x: number; y: number; recent: string[]; skills: { id: string; name: string }[] }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const byKeyboard = useRef(false)
-  const commands = useMemo(() => matchPalette(query), [query])
+  const commands = useMemo(() => matchPalette(query, { recent, skills }), [query, recent, skills])
 
   const close = () => void window.scbOverlay.invoke('overlay:palette-close')
   const run = (id: string | undefined) => {

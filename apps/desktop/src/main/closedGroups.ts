@@ -16,9 +16,9 @@ export class ClosedGroups {
     return Array.isArray(saved) ? (saved as ClosedGroup[]) : []
   }
 
-  add(name: string, tabs: ClosedGroup['tabs'], now = Date.now()): ClosedGroup | null {
+  add(name: string, tabs: ClosedGroup['tabs'], now = Date.now(), split = false): ClosedGroup | null {
     if (tabs.length === 0) return null
-    const group: ClosedGroup = { id: randomUUID(), name, closedAt: now, tabs }
+    const group: ClosedGroup = { id: randomUUID(), name, closedAt: now, tabs, ...(split ? { split: true } : {}) }
     // Closing a group of the same name again replaces the older copy.
     this.kv.set(this.key, [group, ...this.list().filter((other) => other.name !== name)].slice(0, MAX_CLOSED_GROUPS))
     return group

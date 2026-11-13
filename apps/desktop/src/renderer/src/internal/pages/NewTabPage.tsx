@@ -13,6 +13,10 @@ import {
   briefPreview,
   speechText,
   stopwatch,
+  WIDGET_TIME_LABELS,
+  WIDGET_TIMES,
+  widgetShownAt,
+  type WidgetTime,
   type StudyState,
   GETTING_STARTED,
   type GettingStartedId,
@@ -876,9 +880,21 @@ function WidgetList({ config, update }: { config: NewTabConfig; update: Update }
   }
   return (
     <Group title="Widgets">
-      {widgets.map(({ id, size }, index) => (
+      {widgets.map(({ id, size, when }, index) => (
         <div key={id} className="flex items-center gap-1">
           <span className="min-w-0 flex-1 truncate">{name(id)}</span>
+          <Select
+            aria-label={`When to show ${name(id)}`}
+            title="Show it only at some times of day"
+            value={when ?? 'always'}
+            onChange={(e) => update({ widgets: widgets.map((w) => (w.id === id ? { ...w, when: e.target.value as WidgetTime } : w)) })}
+          >
+            {WIDGET_TIMES.map((time) => (
+              <option key={time} value={time}>
+                {WIDGET_TIME_LABELS[time]}
+              </option>
+            ))}
+          </Select>
           <Select
             aria-label={`${name(id)} width`}
             value={size}
@@ -1161,14 +1177,14 @@ export function NewTabPage() {
             </p>
           )}
           {!isPrivate && <BriefBanner issues={briefs} />}
-          {config.widgets.map(({ id, size }, index) => (
+          {config.widgets.filter((widget) => widgetShownAt(widget.when, new Date())).map(({ id, size }, index, shown) => (
             <Fragment key={id}>
               {/* A widget with nothing to show leaves no gap. */}
               <div className={cx('min-w-0 empty:hidden', size === 'full' && 'col-span-2')}>
                 <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
               </div>
               {/* Someone new sees it under the search box, or after the first widget without one. */}
-              {index === Math.max(0, config.widgets.findIndex((widget) => widget.id === 'search')) && getStarted}
+              {index === Math.max(0, shown.findIndex((widget) => widget.id === 'search')) && getStarted}
             </Fragment>
           ))}
           {config.widgets.length === 0 && getStarted}

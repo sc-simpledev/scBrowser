@@ -6,6 +6,21 @@ export interface ReadingItem {
   addedAt: number
   readAt: number | null
   summary: string | null
+  /** Minutes to read, from the page's word count when it was saved or summarised. */
+  minutes?: number | null
+}
+
+/** Minutes to read some text, at a steady 230 words a minute. */
+export const readingMinutes = (text: string) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 230))
+
+/**
+ * Something from the unread list that fits the time: the longest that fits, or else the shortest.
+ * Pages saved before reading times were kept count as unknown and are left out.
+ */
+export function pickForMinutes(items: ReadingItem[], minutes: number): ReadingItem | null {
+  const timed = items.filter((item) => item.readAt === null && typeof item.minutes === 'number')
+  const fits = timed.filter((item) => item.minutes! <= minutes).toSorted((a, b) => b.minutes! - a.minutes!)
+  return fits[0] ?? timed.toSorted((a, b) => a.minutes! - b.minutes!)[0] ?? null
 }
 
 export const MAX_READING_ITEMS = 500

@@ -138,3 +138,10 @@
     translate: 250% 0;
   }
 }
+
+/* The sidebar timer takes a faint wash of its activity's colour while it runs. */
+.sc-sidebar-timer.is-live {
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--hued) 12%, transparent), transparent 70%),
+    var(--sc-surface);
+}

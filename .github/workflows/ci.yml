@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      installers:
+        description: Build installers to download from this run
+        type: boolean
+        default: true
+
+# A newer push to the same branch makes an older run pointless, so it's stopped to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   server-worker:
@@ -26,7 +36,54 @@ jobs:
       - run: npx wrangler deploy --dry-run --outdir dist
         env:
           WRANGLER_SEND_METRICS: 'false'
-  check:
+
+  linux:
+    # The end-to-end suite split in two, run side by side. Typecheck and unit tests run in the first.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: linux (${{ matrix.shard }} of 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - if: matrix.shard == 1
+        run: pnpm typecheck
+      - if: matrix.shard == 1
+        run: pnpm test
+      - run: pnpm build
+      - name: End-to-end tests (virtual display)
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          xvfb-run -a pnpm exec playwright test --shard=${{ matrix.shard }}/2
+
+  windows:
+    # Windows checks types, unit tests and a smoke set of end-to-end tests: the core of browsing,
+    # settings and the coding agent's paths, which once broke only here. The full suite runs on Linux.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: End-to-end smoke tests
+        run: pnpm exec playwright test e2e/browser.spec.ts e2e/omnibox.spec.ts e2e/settings.spec.ts e2e/release045.spec.ts e2e/release048.spec.ts
+
+  installers:
+    # Only when run by hand: releases build their own, and this used to add minutes to every push.
+    if: github.event_name == 'workflow_dispatch' && inputs.installers
     strategy:
       fail-fast: false
       matrix:
@@ -40,23 +97,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
-      - name: End-to-end tests (Linux, virtual display)
-        if: runner.os == 'Linux'
-        run: |
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          xvfb-run -a pnpm exec playwright test
-      - name: End-to-end tests (Windows)
-        if: runner.os == 'Windows'
-        run: pnpm exec playwright test
-      - name: Build installers
-        # A failing test shouldn't stop people getting a build to try.
-        if: ${{ !cancelled() }}
-        run: pnpm dist
+      - run: pnpm dist
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
         # Running out of storage isn't a broken build. Releases don't use these.
         continue-on-error: true
         with:

@@ -1,5 +1,6 @@
 import { studySession } from './focusTimer'
-import { MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
+import { extractContext } from './ai/pageText'
+import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
@@ -86,6 +87,8 @@ const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = Number(process.env.SCB_E2E && process.env.SCB_SLEEP_CHECK_MS) || 60_000
 const VPN_MENU_ROWS = 15
 const WINDOW_KEY = 'window'
+/** The palette's most recent commands, newest first. */
+const PALETTE_RECENT_KEY = 'palette:recent'
 const ZOOM_KEY = 'site-zoom'
 const WELCOME_KEY = 'welcome:done'
 const WELCOME_URL = 'sc://welcome'
@@ -173,6 +176,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     send('ui:focus-omnibox')
   }
   let fullBeforeVideo = false
+  /** The VPN was turned on by switching into a workspace that wants it. */
+  let vpnByWorkspace = false
   const tabs = new TabManager(window, {
     otherWindow: isApp ? (url, container) => core.browser().tabs.create(url, { container }) : undefined,
     appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
@@ -243,6 +248,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       sidebarSites.setHidden(resizing, 'resizing')
     },
     onSplit: () => core.onboarding.mark('split'),
+    keepSplitPairs: () => settings.get().splitPairs,
     onActivate: (tab) => {
       // A preview belongs to the page it was opened from.
       preview.close()
@@ -260,6 +266,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!window.isDestroyed() && !isPrivate) {
         history.recordVisit(url)
         core.readingList?.markVisited(url)
+        core.snoozed?.visited(url)
       }
     },
     onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
@@ -299,6 +306,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     onWorkspaceChange: (next, previous) => {
       if (next.focus !== previous?.focus) settings.set({ focusMode: next.focus })
+      // A workspace that wants the VPN turns it on, and leaving it turns off only what it turned on.
+      if (isPrivate || vpn.state().connections.length === 0) return
+      if (next.vpn && !vpn.summary().enabled) {
+        vpnByWorkspace = true
+        void vpn.turnOn().then(() => notify(`VPN on for ${next.name}`)).catch(() => notify(`Couldn't turn the VPN on for ${next.name}`))
+      } else if (!next.vpn && previous?.vpn && vpnByWorkspace && vpn.summary().enabled) {
+        vpnByWorkspace = false
+        void vpn.setEnabled(false).then(() => notify('VPN off'))
+      }
     }
   }, core.savedWorkspaces())
 
@@ -330,6 +346,26 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page, part) => tabs.openInternal(`sc://${page}${part ? `/#${part}` : ''}`),
     openCode: () => tabs.openInternal('sc://assistant/?mode=code'),
+    studyMenu: (x, y) => {
+      const study = core.study
+      if (!study) return notify('Private windows keep no focus timer')
+      const running = study.running()
+      const prefs = study.prefs()
+      Menu.buildFromTemplate([
+        ...study.subjects().map((subject) => ({
+          label: subject.name,
+          type: 'radio' as const,
+          checked: running?.subjectId === subject.id,
+          click: () => study.start(subject.id)
+        })),
+        { type: 'separator' },
+        { label: 'Stopwatch', type: 'radio', checked: prefs.mode === 'stopwatch', enabled: !running, click: () => study.setPrefs({ mode: 'stopwatch' }) },
+        { label: `Countdown (${prefs.rounds} × ${prefs.focusMinutes} min)`, type: 'radio', checked: prefs.mode === 'countdown', enabled: !running, click: () => study.setPrefs({ mode: 'countdown' }) },
+        { type: 'separator' },
+        ...(running || study.onBreak() ? [{ label: 'Stop the timer', click: () => study.stop() }] : []),
+        { label: 'Open the focus timer', click: () => tabs.openInternal('sc://focus') }
+      ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+    },
     toggleStudy: () => {
       const study = core.study
       if (!study) return notify('Private windows keep no focus timer')
@@ -369,7 +405,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         .catch(() => notify("Reader view can't open this page"))
     },
     togglePalette: () => {
-      overlay.togglePalette()
+      const recent = kv.get(PALETTE_RECENT_KEY)
+      overlay.togglePalette({ recent: Array.isArray(recent) ? recent.filter((id): id is string => typeof id === 'string') : [], skills: isPrivate ? [] : aiStore.skills().map(({ id, name }) => ({ id, name })) })
       core.onboarding.mark('palette')
     },
     searchTabs: () => overlay.toggleTabSearch(searchRowsEverywhere()),
@@ -505,8 +542,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!list) return notify('Private windows keep no reading list')
       if (!active || !/^(https?|file):/i.test(url)) return notify('Only web pages can go on the reading list')
       const already = list.has(url)
-      list.add(url, active.title)
+      const item = list.add(url, active.title)
       notify(already ? 'Already on your reading list' : 'Added to your reading list')
+      // How long it takes to read, from the words on the page, read in an isolated world.
+      const contents = tabs.contentsFor(active.id)
+      if (!already && contents)
+        void extractContext(contents)
+          .then((page) => page?.text.trim() && list.patch(item.id, { minutes: readingMinutes(page.text) }))
+          .catch(() => undefined)
     },
     closeGroup: (name, keep) => {
       const saved = tabs.closeGroup(name)
@@ -536,13 +579,35 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (wakeAt === null) return
       const saved = tabs.archiveTab(id)
       if (!saved) return notify("This tab can't be snoozed")
+      const wakeHost = choice === 'site' ? snoozeHost(saved.url) : null
       try {
-        store.add(saved, wakeAt)
-        notify(`Snoozed until ${new Date(wakeAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Find it in Archived tabs`)
+        store.add(saved, wakeAt, { wakeHost })
+        notify(wakeHost ? `Snoozed until you next open ${wakeHost}. Find it in Archived tabs` : `Snoozed until ${new Date(wakeAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Find it in Archived tabs`)
       } catch (error) {
         tabs.create(saved.url, { container: saved.container ?? null })
         notify(error instanceof Error ? error.message : "Couldn't snooze this tab")
       }
+    },
+    snoozeGroup: (name, choice) => {
+      const store = core.snoozed
+      if (!store) return notify('Private windows keep no snoozed tabs')
+      const wakeAt = snoozeUntil(choice, Date.now())
+      if (wakeAt === null) return
+      const members = tabs.snapshot().tabs.filter((tab) => tab.group === name && !tab.pinned && /^(https?|file):/i.test(tab.url))
+      if (members.length === 0) return notify('Nothing in this group can be snoozed')
+      if (members.length >= tabs.snapshot().tabs.length) tabs.create()
+      let count = 0
+      for (const tab of members) {
+        const saved = tabs.archiveTab(tab.id)
+        if (!saved) continue
+        try {
+          store.add(saved, wakeAt, { group: name })
+          count++
+        } catch {
+          tabs.create(saved.url, { container: saved.container ?? null })
+        }
+      }
+      notify(`Snoozed “${name}” (${count} ${count === 1 ? 'tab' : 'tabs'}) until ${new Date(wakeAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`)
     },
     watchPage: (part) => {
       const watcher = core.watcher
@@ -644,6 +709,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     {
       onPaletteRun: (id) => {
         if (id.startsWith(AI_COMMAND)) return runTabCommand(id.slice(AI_COMMAND.length))
+        if (id.startsWith(SKILL_COMMAND)) {
+          const skill = aiStore.skills().find((candidate) => candidate.id === id.slice(SKILL_COMMAND.length))
+          return skill ? send('ui:assistant-prompt', { text: skill.prompt, selection: null, includePage: true }) : undefined
+        }
+        if (!isPrivate) {
+          const saved = kv.get(PALETTE_RECENT_KEY)
+          kv.set(PALETTE_RECENT_KEY, [id, ...(Array.isArray(saved) ? saved.filter((other) => other !== id) : [])].slice(0, 6))
+        }
         const patch = settingCommandPatch(id, settings.get())
         if (!patch) return paletteActions[id]?.()
         settings.set(patch)
@@ -786,15 +859,19 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       notify("Couldn't install this app")
     }
   }
-  function saveWorkspace({ id, name, focus, schedule }: WorkspaceEdit) {
+  function saveWorkspace({ id, name, focus, schedule, vpn: wantsVpn }: WorkspaceEdit) {
     const title = name.trim().slice(0, 40)
     if (!title) return
     if (id) {
-      core.storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus, schedule } : workspace)))
+      core.storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus, schedule, vpn: wantsVpn } : workspace)))
+      if (id === tabs.workspace.id && wantsVpn && !isPrivate && vpn.state().connections.length > 0 && !vpn.summary().enabled) {
+        vpnByWorkspace = true
+        void vpn.turnOn().catch(() => undefined)
+      }
       if (id === tabs.workspace.id && focus !== settings.get().focusMode) settings.set({ focusMode: focus })
       return
     }
-    const created = { id: crypto.randomUUID(), name: title, focus, schedule }
+    const created = { id: crypto.randomUUID(), name: title, focus, schedule, vpn: wantsVpn }
     core.storeWorkspaces([...tabs.workspaceList(), created])
     tabs.switchWorkspace(created.id)
   }
@@ -806,6 +883,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       name: workspace?.name ?? '',
       focus: workspace?.focus ?? false,
       schedule: workspace?.schedule ?? null,
+      vpn: workspace?.vpn ?? false,
+      vpnAvailable: !isPrivate && vpn.state().connections.length > 0,
       canRemove: !!workspace && workspace.id !== DEFAULT_WORKSPACE.id,
       x: Math.round(Math.max(8, Math.min(width - WORKSPACE_POPUP.width - 8, x))),
       y: Math.round(Math.max(8, Math.min(height - WORKSPACE_POPUP.height - 8, y)))
@@ -917,6 +996,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!ready) return notify('Nothing in your history from yesterday')
       tabs.create('sc://assistant')
     },
+    'recap-week': () => {
+      if (isPrivate) return notify('Private windows keep no history to recap')
+      if (!aiStore.status().ready) return notify('Choose a model in AI settings first')
+      const ready = prepareRecap({ history, unread: () => (core.readingList?.list() ?? []).filter((item) => item.readAt === null), disabledHosts: () => aiStore.disabledHosts(), setPendingPrompt: (text) => ai.setPendingPrompt(text) }, Date.now(), 'week')
+      if (!ready) return notify('Nothing in your history from the past week')
+      tabs.create('sc://assistant')
+    },
     'add-to-sidebar': actions.addToSidebar,
     'watch-page': () => actions.watchPage(false),
     'reading-list-add': actions.addToReadingList,
@@ -925,6 +1011,17 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'watched-pages': () => actions.openPage('watching'),
     'ai-briefs': () => actions.openPage('briefs'),
     'study-timer': () => actions.openPage('focus'),
+    'save-split': () => {
+      const pair = tabs.splitPair()
+      if (!pair) return notify('Open two tabs in split view first')
+      const list = tabs.snapshot().tabs
+      const both = pair.flatMap((id) => list.filter((tab) => tab.id === id && /^(https?|file):/i.test(tab.url)))
+      if (both.length !== 2) return notify('Only web pages can be saved as a pair')
+      const short = (title: string) => (title.length > 30 ? `${title.slice(0, 29).trimEnd()}…` : title)
+      const name = `${short(both[0]!.title || both[0]!.url)} + ${short(both[1]!.title || both[1]!.url)}`
+      core.tabSets.add(name, both.map((tab) => ({ url: tab.url, title: tab.title, container: tab.container })), Date.now(), true)
+      notify('Saved this split view. Open it again from Archived tabs')
+    },
     'research-tabs': () => {
       const picked = tabs.snapshot().tabs.filter((tab) => /^https?:/i.test(tab.url)).slice(0, MAX_MENTIONED_TABS)
       if (picked.length === 0) return notify('Open some web pages to research first')

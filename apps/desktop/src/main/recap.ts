@@ -1,4 +1,4 @@
-import { recapPrompt, yesterdayRange, type HistoryEntry } from '@scbrowser/shared'
+import { MAX_RECAP_PAGES, recapPrompt, weekRange, yesterdayRange, type HistoryEntry, type RecapSpan } from '@scbrowser/shared'
 
 interface RecapDeps {
   history: { between: (after: number, before: number, limit?: number) => HistoryEntry[] }
@@ -11,12 +11,12 @@ interface RecapDeps {
  * Lines up a recap of yesterday for the assistant page to send when it opens. False if there's
  * nothing from yesterday. Sites with AI turned off are left out.
  */
-export function prepareRecap({ history, unread, disabledHosts, setPendingPrompt }: RecapDeps, now = Date.now()): boolean {
+export function prepareRecap({ history, unread, disabledHosts, setPendingPrompt }: RecapDeps, now = Date.now(), span: RecapSpan = 'yesterday'): boolean {
   const off = disabledHosts()
   const allowed = (url: string) => URL.canParse(url) && !off.includes(new URL(url).host)
-  const { after, before } = yesterdayRange(now)
-  const visits = history.between(after, before).filter((visit) => allowed(visit.url))
+  const { after, before } = span === 'week' ? weekRange(now) : yesterdayRange(now)
+  const visits = history.between(after, before, MAX_RECAP_PAGES * 4).filter((visit) => allowed(visit.url))
   if (visits.length === 0) return false
-  setPendingPrompt(recapPrompt('yesterday', visits, unread().filter((item) => allowed(item.url))))
+  setPendingPrompt(recapPrompt(span === 'week' ? 'over the past week' : 'yesterday', visits, unread().filter((item) => allowed(item.url)), span === 'week'))
   return true
 }

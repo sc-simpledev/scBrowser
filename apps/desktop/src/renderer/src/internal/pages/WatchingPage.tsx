@@ -16,6 +16,39 @@ const when = (time: number) => {
   return new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+/** The watched number over time, as a small line with its lowest and highest. */
+function History({ watch }: { watch: Watch }) {
+  const points = watch.history ?? []
+  if (points.length < 2) return null
+  const values = points.map((point) => point.value)
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  const span = high - low || 1
+  const first = points[0]!.at
+  const width = Math.max(1, points.at(-1)!.at - first)
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${(((point.at - first) / width) * 240).toFixed(1)},${(36 - ((point.value - low) / span) * 32).toFixed(1)}`).join(' ')
+  const target = watch.target
+  const targetY = target && target.value >= low && target.value <= high ? 36 - ((target.value - low) / span) * 32 : null
+  const date = (time: number) => new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return (
+    <div className="flex items-center gap-4 text-xs text-text-muted">
+      <svg role="img" aria-label={`From ${points[0]!.value} on ${date(first)} to ${points.at(-1)!.value} now, lowest ${low}, highest ${high}`} viewBox="0 0 240 40" className="h-10 w-60 shrink-0 overflow-visible">
+        {targetY !== null && <line x1="0" x2="240" y1={targetY} y2={targetY} strokeDasharray="3 3" className="stroke-border-strong" />}
+        <path d={path} fill="none" strokeWidth="1.75" strokeLinejoin="round" className="stroke-accent" />
+        <circle cx={(((points.at(-1)!.at - first) / width) * 240).toFixed(1)} cy={(36 - ((points.at(-1)!.value - low) / span) * 32).toFixed(1)} r="2.5" className="fill-accent" />
+      </svg>
+      <div className="flex flex-col tabular-nums">
+        <span>
+          Lowest <span className="font-medium text-text">{low}</span> · highest <span className="font-medium text-text">{high}</span>
+        </span>
+        <span className="text-text-faint">
+          {points.length} readings since {date(first)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 /** For a watched price or count: only say so when the number passes a figure. */
 function NumberAlert({ watch, reload }: { watch: Watch; reload: () => void }) {
   const [direction, setDirection] = useState(watch.target?.direction ?? 'below')
@@ -105,6 +138,7 @@ function WatchCard({ watch, reload }: { watch: Watch; reload: () => void }) {
         </IconButton>
       </div>
       {watch.selector && typeof watch.value === 'number' && <NumberAlert watch={watch} reload={reload} />}
+      {watch.selector && <History watch={watch} />}
       {watch.summary && <p className="text-text-muted select-text">{watch.summary}</p>}
       {changed && (
         <div className="flex flex-col gap-1">

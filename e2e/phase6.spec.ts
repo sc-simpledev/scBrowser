@@ -86,7 +86,7 @@ test('a blocked site shows a message, and both ways out work', async () => {
 
   await go(h, site.url('/alpha'))
   const again = await h.page('sc://blocked')
-  await again.getByRole('button', { name: 'Continue to the site' }).click()
+  await again.getByRole('button', { name: 'Continue for 15 minutes' }).click()
   await expect(activeTab(h)).toContainText('Alpha page')
 })
 

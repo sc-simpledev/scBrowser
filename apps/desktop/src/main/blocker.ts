@@ -1,4 +1,4 @@
-import { blockedPageUrl, blockReason, BLOCK_PASS_MS, hostToClassify, pickMessage } from '@scbrowser/shared'
+import { blockedPageUrl, blockReason, BLOCK_PASS_MS, GRACE_PASS_MS, graceWaitSeconds, hostToClassify, localDay, pickMessage } from '@scbrowser/shared'
 import { parseSiteCategory, siteCategoryPrompt } from '@scbrowser/ai'
 import type { SettingsStore } from './settings'
 import type { KeyValueRepo } from './storage/kv'
@@ -24,6 +24,8 @@ export class SiteBlocker {
   private cache: CategoryCache
   private readonly pending = new Map<string, Promise<string | null>>()
   private readonly passes = new Map<string, number>()
+  /** "One more minute" passes taken today, and when the wait for the next one began, by host. */
+  private readonly graces = new Map<string, { day: string; taken: number; askedAt: number | null }>()
 
   constructor(
     private readonly settings: SettingsStore,
@@ -76,6 +78,33 @@ export class SiteBlocker {
     if (hosts.length >= MAX_CACHED_HOSTS) delete this.cache.hosts[hosts[0]!]
     this.cache.hosts[host] = category
     this.kv.set(CACHE_KEY, this.cache)
+  }
+
+  private grace(host: string, now: number) {
+    const day = localDay(now)
+    const current = this.graces.get(host)
+    if (current?.day === day) return current
+    const fresh = { day, taken: 0, askedAt: null }
+    this.graces.set(host, fresh)
+    return fresh
+  }
+
+  /** Starts the wait for "one more minute" on this site. Returns how many seconds it is. */
+  askGrace(url: string, now = Date.now()): number {
+    const grace = this.grace(new URL(url).hostname, now)
+    grace.askedAt = now
+    return graceWaitSeconds(grace.taken)
+  }
+
+  /** Lets the site through for a minute, once the wait is over. False if it isn't yet. */
+  takeGrace(url: string, now = Date.now()): boolean {
+    const host = new URL(url).hostname
+    const grace = this.grace(host, now)
+    if (grace.askedAt === null || now - grace.askedAt < graceWaitSeconds(grace.taken) * 1000 - 250) return false
+    grace.taken++
+    grace.askedAt = null
+    this.passes.set(host, now + GRACE_PASS_MS)
+    return true
   }
 
   /** The person chose to continue, so leave this site alone for a while. */

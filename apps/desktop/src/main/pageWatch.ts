@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { net, Notification } from 'electron'
 import { withHiddenPage } from './hiddenPage'
-import { diffWatchText, isSafeSelector, MAX_WATCHES, meetsTarget, normaliseWatchText, watchNumber, type PageWatch, type WatchInterval, type WatchTarget } from '@scbrowser/shared'
+import { addWatchPoint, diffWatchText, isSafeSelector, MAX_WATCHES, meetsTarget, normaliseWatchText, watchNumber, type PageWatch, type WatchInterval, type WatchTarget } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'watch:pages'
@@ -121,6 +121,8 @@ export class PageWatcher {
       const first = current.lastCheckedAt === null || (!current.lastText && current.error !== null)
       const target = current.target ?? null
       const hit = target !== null && value !== null && meetsTarget(value, target)
+      const history = addWatchPoint(current.history, value, Date.now())
+      if (history !== current.history) this.patch(id, { history })
       if (first || text === current.lastText) return this.patch(id, { lastText: text, lastCheckedAt: Date.now(), error: null, value, hit })
       const { added, removed } = diffWatchText(current.lastText, text)
       // Only reordering, which pages do without anything really changing.

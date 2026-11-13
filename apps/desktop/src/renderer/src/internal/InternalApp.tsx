@@ -26,8 +26,8 @@ const BriefsPage = lazy(() => import('./pages/BriefsPage').then((m) => ({ defaul
 const FocusPage = lazy(() => import('./pages/FocusPage').then((m) => ({ default: m.FocusPage })))
 const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
 
-/** `bare` pages draw their own heading. */
-const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType; bare?: boolean }> = {
+/** `bare` pages draw their own heading; `wide` ones use more of the window. */
+const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType; bare?: boolean; wide?: boolean }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
   ai: { title: 'AI', icon: Bot, component: AiPage },
   assistant: { title: 'Assistant', icon: MessageCircle, component: AssistantPage },
@@ -43,7 +43,7 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
   briefs: { title: 'AI Briefs', icon: Newspaper, component: BriefsPage, bare: true },
-  focus: { title: 'Focus timer', icon: AlarmClock, component: FocusPage },
+  focus: { title: 'Focus timer', icon: AlarmClock, component: FocusPage, bare: true, wide: true },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
@@ -133,7 +133,7 @@ function SettingsSections() {
 
 function PageFrame() {
   const current = (location.host in pages ? location.host : 'settings') as InternalPage
-  const { title, component: Page, bare } = pages[current]
+  const { title, component: Page, bare, wide } = pages[current]
 
   useEffect(() => {
     document.title = title
@@ -172,7 +172,7 @@ function PageFrame() {
           </main>
         ) : (
           <main className="min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10 max-[720px]:px-5 max-[720px]:py-6">
+            <div className={cx('mx-auto flex flex-col gap-6 px-10 py-10 max-[720px]:px-5 max-[720px]:py-6', wide ? 'max-w-264' : 'max-w-180')}>
               {!bare && <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">{title}</h1>}
               <Page />
             </div>

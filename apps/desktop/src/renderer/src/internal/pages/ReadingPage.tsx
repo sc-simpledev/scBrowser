@@ -1,7 +1,7 @@
-import { BookMarked, Check, Sparkles, X } from 'lucide-react'
+import { BookMarked, Check, Clock, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import type { ReadingItem } from '@scbrowser/shared'
+import { pickForMinutes, type ReadingItem } from '@scbrowser/shared'
 import { api } from '../api'
 import { EmptyState } from '../EmptyState'
 import { ReplyMarkdown } from '../../shared/ReplyContent'
@@ -23,7 +23,8 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
             {item.title || item.url}
           </button>
           <div className="truncate text-xs text-text-faint">
-            {hostOf(item.url)} · Saved {new Date(item.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+            {hostOf(item.url)}
+            {typeof item.minutes === 'number' && ` · ${item.minutes} min read`} · Saved {new Date(item.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
           </div>
         </div>
         {item.summary ? (
@@ -65,6 +66,35 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
         </div>
       )}
     </li>
+  )
+}
+
+/** Opens something from the unread list that fits the time there is. */
+function QuickRead({ items, reload }: { items: ReadingItem[]; reload: () => void }) {
+  const [minutes, setMinutes] = useState(10)
+  const pick = pickForMinutes(items, minutes)
+  const timed = items.some((item) => item.readAt === null && typeof item.minutes === 'number')
+  if (!timed) return null
+  return (
+    <div className="flex h-6 items-center overflow-hidden rounded-sm border border-border">
+      <button
+        type="button"
+        disabled={!pick}
+        title={pick ? `${pick.title || pick.url}, ${pick.minutes} min` : undefined}
+        onClick={() => pick && void api().invoke('reading:open', pick.id).then(reload)}
+        className="flex h-full items-center gap-1 px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
+      >
+        <Clock aria-hidden size={11} strokeWidth={1.75} />
+        Read something in
+      </button>
+      <select aria-label="Minutes to read" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="h-full border-l border-border bg-transparent px-1 text-text outline-none">
+        {[5, 10, 15, 30].map((choice) => (
+          <option key={choice} value={choice}>
+            {choice} min
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }
 
@@ -135,6 +165,7 @@ export function ReadingPage() {
             Summarise unread{waiting.length > 0 ? ` (${waiting.length})` : ''}
           </button>
         )}
+        <QuickRead items={items} reload={load} />
         <button
           type="button"
           disabled={unread.length === 0}

@@ -20,6 +20,8 @@ export interface BrowserActions {
   openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'briefs' | 'focus' | 'archive' | 'highlights' | 'reading', part?: string) => void
   /** Stops the focus timer, or starts its last subject again. */
   toggleStudy: () => void
+  /** The sidebar timer's menu at this point of the window. */
+  studyMenu: (x: number, y: number) => void
   openCode: () => void
   toggleAssistant: () => void
   passwordMenu: () => void
@@ -61,6 +63,8 @@ export interface BrowserActions {
   tweakSiteHelp: () => void
   /** Closes a tab until a time, when it opens again by itself. */
   snoozeTab: (id: number, choice: SnoozeChoice) => void
+  /** Snoozes every tab in a group; they come back into it together. */
+  snoozeGroup: (name: string, choice: SnoozeChoice) => void
   /** Closes a tab group, keeping it to reopen later unless `keep` is false. */
   closeGroup: (name: string, keep: boolean) => void
   closedGroups: () => ClosedGroup[]

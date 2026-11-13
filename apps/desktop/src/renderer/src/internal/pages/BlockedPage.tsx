@@ -2,6 +2,32 @@ import { useEffect, useState } from 'react'
 import { Button } from '@scbrowser/ui'
 import { api } from '../api'
 
+/**
+ * A minute on the site, after a short wait that doubles each time today. Waiting a few seconds is
+ * often enough to remember why the site was blocked.
+ */
+function OneMoreMinute({ url }: { url: string }) {
+  const [left, setLeft] = useState<number | null>(null)
+  useEffect(() => {
+    if (left === null || left <= 0) return
+    const timer = setTimeout(() => setLeft(left - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [left])
+  if (left === null)
+    return <Button onClick={() => void api().invoke('blocker:grace-wait', url).then(setLeft)}>One more minute</Button>
+  if (left > 0)
+    return (
+      <Button disabled aria-live="polite" className="tabular-nums">
+        Wait {left} s…
+      </Button>
+    )
+  return (
+    <Button variant="primary" onClick={() => void api().invoke('blocker:grace', url)}>
+      Open for one minute
+    </Button>
+  )
+}
+
 /** Shown instead of a blocked site. Leaving or continuing is always the person's choice. */
 export function BlockedPage() {
   const params = new URLSearchParams(location.search)
@@ -30,7 +56,10 @@ export function BlockedPage() {
           <Button variant="primary" onClick={() => void api().invoke('blocker:leave')}>
             Go to a new tab
           </Button>
-          <Button onClick={() => void api().invoke('blocker:proceed', url)}>Continue to the site</Button>
+          <OneMoreMinute url={url} />
+          <Button variant="ghost" onClick={() => void api().invoke('blocker:proceed', url)}>
+            Continue for 15 minutes
+          </Button>
         </div>
       </div>
     </main>

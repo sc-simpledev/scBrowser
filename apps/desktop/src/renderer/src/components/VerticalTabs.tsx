@@ -8,6 +8,7 @@ import { Tab } from './Tab'
 import { TabGroupHeader } from './TabGroupHeader'
 import { VerticalBookmarks, useVerticalBookmarks } from './VerticalBookmarks'
 import { WorkspaceBar } from './WorkspaceBar'
+import { SidebarTimer } from './SidebarTimer'
 
 const MIN_SIDEBAR = 180
 const MAX_SIDEBAR = 480
@@ -27,6 +28,7 @@ export function VerticalTabs() {
   const pinnedCount = tabs.filter((tab) => tab.pinned).length
   const toggle = () => void window.scb.invoke('settings:set', { verticalTabsCollapsed: !collapsed })
   const sideBookmarks = useVerticalBookmarks()
+  const showTimer = useApp((s) => s.settings.sidebarTimer)
   const folded = useApp((s) => s.settings.collapsedTabGroups)
   const groupSize = (name: string) => tabs.filter((tab) => tab.group === name).length
 
@@ -124,6 +126,7 @@ export function VerticalTabs() {
           </button>
         )}
       </div>
+      {showTimer && <SidebarTimer rail={collapsed} />}
       {collapsed && (
         <div className="shrink-0 self-center border-t border-border pt-1">
           <WorkspaceBar direction="column" showAdd />

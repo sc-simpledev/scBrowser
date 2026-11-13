@@ -40,6 +40,8 @@ export interface Workspace {
   focus: boolean
   /** Switches to this workspace by itself at the start of these hours, and back at the end. */
   schedule?: WorkspaceSchedule | null
+  /** Turns the VPN on while this workspace is open, and off again when leaving if it turned it on. */
+  vpn?: boolean
 }
 
 export interface WorkspaceSchedule {

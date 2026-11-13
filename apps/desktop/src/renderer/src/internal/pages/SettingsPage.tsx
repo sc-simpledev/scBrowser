@@ -327,6 +327,9 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
         <Row setting="tabTree" label="Tab tree" hint="With tabs down the side, a tab opened from a link sits indented under the tab it came from." keywords="nested tree indent children">
           <Switch label="Tab tree" checked={settings.tabTree} onChange={(tabTree) => update({ tabTree })} />
         </Row>
+        <Row setting="sidebarTimer" label="Focus timer in the sidebar" hint="With tabs down the side, the focus timer sits under them, to start and stop it from any page." keywords="timer pomodoro study focus sidebar">
+          <Switch label="Focus timer in the sidebar" checked={settings.sidebarTimer} onChange={(sidebarTimer) => update({ sidebarTimer })} />
+        </Row>
         <Row setting="tabSleepButton" label="Sleep button on tabs" hint="A moon beside each tab's close button puts it to sleep, freeing its memory until you open it again.">
           <Switch label="Sleep button on tabs" checked={settings.tabSleepButton} onChange={(tabSleepButton) => update({ tabSleepButton })} />
         </Row>

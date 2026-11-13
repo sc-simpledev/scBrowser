@@ -20,6 +20,21 @@ export type NewTabWidgetId = (typeof NEW_TAB_WIDGETS)[number]['id']
 export interface NewTabWidget {
   id: NewTabWidgetId
   size: 'full' | 'half'
+  /** Only shown at this time of day. Absent means always. */
+  when?: WidgetTime
+}
+
+export const WIDGET_TIMES = ['always', 'morning', 'day', 'evening'] as const
+export type WidgetTime = (typeof WIDGET_TIMES)[number]
+export const WIDGET_TIME_LABELS: Record<WidgetTime, string> = { always: 'Always', morning: 'Mornings', day: 'Daytime', evening: 'Evenings' }
+
+/** Mornings are 5 to 12, daytime 12 to 6 pm, evenings 6 pm to 5 am. */
+export function widgetShownAt(when: WidgetTime | undefined, now: Date): boolean {
+  const hour = now.getHours()
+  if (!when || when === 'always') return true
+  if (when === 'morning') return hour >= 5 && hour < 12
+  if (when === 'day') return hour >= 12 && hour < 18
+  return hour >= 18 || hour < 5
 }
 
 export interface NewTabLink {
@@ -86,7 +101,7 @@ const isLink = (value: unknown): value is NewTabLink => {
 const isWidgets = (value: unknown): value is NewTabWidget[] =>
   Array.isArray(value) &&
   new Set(value.map((w: NewTabWidget) => w?.id)).size === value.length &&
-  value.every((w: NewTabWidget) => NEW_TAB_WIDGETS.some(({ id }) => id === w?.id) && (w.size === 'full' || w.size === 'half'))
+  value.every((w: NewTabWidget) => NEW_TAB_WIDGETS.some(({ id }) => id === w?.id) && (w.size === 'full' || w.size === 'half') && (w.when === undefined || (WIDGET_TIMES as readonly unknown[]).includes(w.when)))
 
 const inRange = (value: unknown, max: number) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max
 

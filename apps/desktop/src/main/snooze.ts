@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { MAX_SNOOZED, type SnoozedTab } from '@scbrowser/shared'
+import { MAX_SNOOZED, snoozeHost, type SnoozedTab } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'tabs:snoozed'
@@ -35,10 +35,10 @@ export class SnoozeService {
     return Array.isArray(saved) ? (saved as SnoozedTab[]).toSorted((a, b) => a.wakeAt - b.wakeAt) : []
   }
 
-  add(tab: { url: string; title: string; container?: string | null }, wakeAt: number): SnoozedTab {
+  add(tab: { url: string; title: string; container?: string | null }, wakeAt: number, options: { wakeHost?: string | null; group?: string | null } = {}): SnoozedTab {
     const all = this.list()
     if (all.length >= MAX_SNOOZED) throw new Error(`You can snooze ${MAX_SNOOZED} tabs at most.`)
-    const snoozed: SnoozedTab = { id: randomUUID(), url: tab.url, title: tab.title.slice(0, 300), container: tab.container ?? null, snoozedAt: this.deps.now?.() ?? Date.now(), wakeAt }
+    const snoozed: SnoozedTab = { id: randomUUID(), url: tab.url, title: tab.title.slice(0, 300), container: tab.container ?? null, snoozedAt: this.deps.now?.() ?? Date.now(), wakeAt, wakeHost: options.wakeHost ?? null, group: options.group ?? null }
     this.deps.kv.set(KEY, [...all, snoozed])
     return snoozed
   }
@@ -49,6 +49,17 @@ export class SnoozeService {
     const found = all.find((tab) => tab.id === id) ?? null
     if (found) this.deps.kv.set(KEY, all.filter((tab) => tab !== found))
     return found
+  }
+
+  /** A page on this site was opened: the tabs waiting for it come back. */
+  visited(url: string): void {
+    const host = snoozeHost(url)
+    if (!host) return
+    for (const tab of this.list()) {
+      if (tab.wakeHost !== host) continue
+      if (!this.deps.wake(tab)) return
+      this.take(tab.id)
+    }
   }
 
   /** Opens every tab whose time has come. */

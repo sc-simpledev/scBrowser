@@ -49,12 +49,34 @@ export const SETTING_COMMANDS: (PaletteCommand & { patch: Partial<Settings> })[]
 ]
 
 /** Commands, then the setting changes matching what's typed. Settings only show once something is typed, so the list stays short. */
-export function matchPalette(query: string): PaletteCommand[] {
-  if (!query.trim()) return matchCommands(query)
+/** The start of a palette id that runs a saved assistant skill, followed by its id. */
+export const SKILL_COMMAND = 'skill:'
+
+/**
+ * What the palette lists for what's typed. With nothing typed, recent commands come first. Saved
+ * skills whose name matches are offered before handing a sentence to the AI.
+ */
+export function matchPalette(query: string, context: { recent?: string[]; skills?: { id: string; name: string }[] } = {}): PaletteCommand[] {
+  const { recent = [], skills = [] } = context
+  if (!query.trim()) {
+    const all = matchCommands(query)
+    const first = recent.flatMap((id) => all.filter((command) => command.id === id))
+    return [...first, ...all.filter((command) => !first.includes(command))]
+  }
   const asked = query.replace(/\s+/g, ' ').trim()
+  const words = asked.toLowerCase().split(' ').filter((word) => word.length > 2)
+  const skillRows: PaletteCommand[] = skills
+    .filter((skill) => {
+      const name = skill.name.toLowerCase()
+      return name.includes(asked.toLowerCase()) || (words.length > 0 && words.some((word) => name.includes(word)))
+    })
+    .slice(0, 3)
+    .map((skill) => ({ id: `${SKILL_COMMAND}${skill.id}`, label: `Run skill: ${skill.name}` }))
   // A sentence rather than a command name: "close all youtube tabs". The AI works out the steps.
   const ai: PaletteCommand[] = asked.length >= 8 && asked.includes(' ') ? [{ id: `${AI_COMMAND}${asked.slice(0, 200)}`, label: `Do it with AI: “${asked.length > 48 ? `${asked.slice(0, 47)}…` : asked}”`, ai: true }] : []
-  return [...matchCommands(query), ...matchCommands(query, SETTING_COMMANDS), ...ai]
+  const ranked = matchCommands(query)
+  const byRecent = [...ranked.filter((command) => recent.includes(command.id)), ...ranked.filter((command) => !recent.includes(command.id))]
+  return [...byRecent, ...matchCommands(query, SETTING_COMMANDS), ...skillRows, ...ai]
 }
 
 /** The start of a palette id that carries a request for the AI, followed by the request. */

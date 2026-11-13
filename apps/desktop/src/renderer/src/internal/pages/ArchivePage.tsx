@@ -1,4 +1,4 @@
-import { AlarmClock, Archive, Layers, RotateCcw, X } from 'lucide-react'
+import { AlarmClock, Archive, Layers, RotateCcw, X, Columns2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { ARCHIVE_CHOICES, type ArchivedTab, type ClosedGroup, type Settings, type SnoozedTab } from '@scbrowser/shared'
@@ -36,11 +36,9 @@ function SavedTabSets() {
         <ul className="flex flex-col">
           {sets.map((set) => (
             <li key={set.id} className="flex h-9 items-center gap-2 rounded-md px-1.5 hover:bg-surface-hover">
-              <Layers aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+              {set.split ? <Columns2 aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" /> : <Layers aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />}
               <span className="min-w-0 flex-1 truncate">{set.name}</span>
-              <span className="shrink-0 text-xs text-text-faint">
-                {set.tabs.length} {set.tabs.length === 1 ? 'tab' : 'tabs'}
-              </span>
+              <span className="shrink-0 text-xs text-text-faint">{set.split ? 'Split view' : `${set.tabs.length} ${set.tabs.length === 1 ? 'tab' : 'tabs'}`}</span>
               <Button variant="ghost" onClick={() => void api().invoke('tabsets:open', set.id)}>
                 Open
               </Button>
@@ -121,7 +119,7 @@ export function ArchivePage() {
                 <button type="button" className="min-w-0 flex-1 truncate text-left" title={tab.url} onClick={() => void api().invoke('snooze:wake', tab.id).then(load)}>
                   {tab.title || hostOf(tab.url)}
                 </button>
-                <span className="shrink-0 text-xs text-text-faint">Back {new Date(tab.wakeAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span>
+                <span className="shrink-0 text-xs text-text-faint">{tab.wakeHost ? `Back when you open ${tab.wakeHost}` : `Back ${new Date(tab.wakeAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`}{tab.group ? ` · into ${tab.group}` : ''}</span>
                 <Button variant="ghost" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => void api().invoke('snooze:wake', tab.id).then(load)}>
                   Open now
                 </Button>

@@ -78,6 +78,8 @@ interface TabManagerOptions {
   onActivate: (tab: TabState) => void
   /** Split view has started. */
   onSplit?: () => void
+  /** Whether a split left by switching tabs comes back when either side is picked again. */
+  keepSplitPairs?: () => boolean
   /** The new tab page finished loading, which pulls keyboard focus into it. */
   onNewTabLoaded: () => void
   /** A tab committed a navigation (including same-document ones). */
@@ -153,6 +155,8 @@ export class TabManager {
   private fullscreenId: TabId | null = null
   /** Left and right tabs while split view is on. */
   private split: [TabId, TabId] | null = null
+  /** A split left by switching to another tab, which comes back when either side is picked again. */
+  private parked: { ids: [TabId, TabId]; ratio: number; linked: boolean } | null = null
   private splitRatio = SPLIT_RATIO.standard
   /** Links clicked on the left side open on the right, for reading down a list of results. */
   private splitLinked = false
@@ -431,8 +435,8 @@ export class TabManager {
   }
 
   /** A closed group's tabs, back together under its name (or a fresh one if that's taken), sleeping until looked at. */
-  openGroup(name: string, saved: { url: string; title: string; container: string | null }[]): void {
-    if (saved.length === 0) return
+  openGroup(name: string, saved: { url: string; title: string; container: string | null }[]): TabId[] {
+    if (saved.length === 0) return []
     const taken = this.groupNames()
     let group = name
     for (let n = 2; taken.includes(group); n++) group = `${name} ${n}`
@@ -445,6 +449,7 @@ export class TabManager {
     }
     this.activate(ids[0]!)
     this.emitChange()
+    return ids
   }
 
   /**
@@ -589,7 +594,13 @@ export class TabManager {
       this.emitChange()
       return
     }
-    if (this.split) this.endSplit()
+    if (this.split) {
+      if (this.options.keepSplitPairs?.() ?? true) this.parked = { ids: [...this.split], ratio: this.splitRatio, linked: this.splitLinked }
+      this.endSplit()
+    }
+    // Back to one side of a pair left a moment ago: the pair comes back together.
+    const pair = this.parked?.ids.includes(id) ? this.parked : null
+    const partner = pair ? this.tabs.get(pair.ids.find((other) => other !== id)!) : undefined
     if (this.activeId !== null && this.activeId !== id) {
       const previous = this.tabs.get(this.activeId)
       if (previous) {
@@ -604,8 +615,23 @@ export class TabManager {
     next.lastActiveAt = Date.now()
     this.applyBounds()
     next.view?.setVisible(true)
+    if (pair && partner && partner.state.workspace === next.state.workspace) {
+      this.parked = null
+      this.split = [pair.ids[0], pair.ids[1]]
+      this.splitRatio = pair.ratio
+      this.splitLinked = pair.linked
+      this.wake(partner)
+      partner.lastActiveAt = Date.now()
+      partner.view?.setVisible(true)
+      this.applyBounds()
+    }
     this.options.onActivate(next.state)
     this.emitChange()
+  }
+
+  /** The two tabs of split view, for saving them as a pair. */
+  splitPair(): [TabId, TabId] | null {
+    return this.split ? [...this.split] : null
   }
 
   /** Shows `id` beside the active tab. */
@@ -625,6 +651,7 @@ export class TabManager {
   /** Splits with the tab after the active one, or ends split view if it's on. */
   toggleSplit(): void {
     if (this.split) {
+      this.parked = null
       this.endSplit()
       return
     }
@@ -661,9 +688,10 @@ export class TabManager {
     void contents.loadURL(url).catch(() => undefined)
   }
 
-  /** Ends split view, keeping this side open. */
+  /** Ends split view, keeping this side open. The pair isn't remembered. */
   keepSplitSide(id: TabId): void {
     if (!this.split?.includes(id)) return
+    this.parked = null
     if (id !== this.activeId) this.activate(id)
     this.endSplit()
   }

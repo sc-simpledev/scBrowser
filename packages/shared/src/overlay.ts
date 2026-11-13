@@ -146,6 +146,9 @@ export interface WorkspaceEditorState {
   name: string
   focus: boolean
   schedule: WorkspaceSchedule | null
+  vpn: boolean
+  /** Whether any VPN connection has been added, so the switch can do something. */
+  vpnAvailable: boolean
   canRemove: boolean
   x: number
   y: number
@@ -185,11 +188,21 @@ export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'>
   return SITE_POPUP.header + 5 * SITE_POPUP.row + blocked + permissions + SITE_POPUP.footer + 10
 }
 
+/** The palette's place, with what it shows before anything is typed and the skills it can run. */
+export interface PaletteState {
+  x: number
+  y: number
+  /** Command ids, newest first. */
+  recent: string[]
+  skills: { id: string; name: string }[]
+}
+
 export interface WorkspaceEdit {
   id: string | null
   name: string
   focus: boolean
   schedule: WorkspaceSchedule | null
+  vpn: boolean
 }
 
 export interface BookmarkEdit {
@@ -212,7 +225,7 @@ export interface LinkPreviewState {
 export interface OverlayView extends OverlayState {
   permission: PermissionPopupState | null
   /** Left edge and top of the command palette, when it's open. */
-  palette: { x: number; y: number } | null
+  palette: PaletteState | null
   tabSearch: TabSearchState | null
   appLink: AppLinkPromptState | null
   extensionsPopup: ExtensionsPopupState | null
@@ -252,7 +265,7 @@ export const EXTENSIONS_POPUP = { width: 320, rowHeight: 36, chrome: 98, maxHeig
 export const APP_LINK_POPUP = { width: 360, height: 132 }
 export const PASSWORD_POPUP = { width: 340, height: 96, inset: 8 }
 export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
-export const WORKSPACE_POPUP = { width: 320, height: 318 }
+export const WORKSPACE_POPUP = { width: 320, height: 362 }
 /** The header above a link preview's page, and how far the card keeps from the page's edges. */
 export const LINK_PREVIEW = { header: 44, inset: 40, maxWidth: 1180, minWidth: 360 }
 

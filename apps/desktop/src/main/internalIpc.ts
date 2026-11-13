@@ -3,7 +3,7 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { BrowserActions } from './actions'
@@ -502,6 +502,19 @@ export function registerInternalIpc(services: InternalServices): () => void {
       blocker.pass(address)
       tabs.navigate(id, address)
     },
+    'blocker:grace-wait': (url) => {
+      const address = text(url)
+      if (!/^https?:\/\//i.test(address) || !URL.canParse(address)) throw new Error('Invalid address')
+      return blocker.askGrace(address)
+    },
+    'blocker:grace': (url) => {
+      const address = text(url)
+      const id = caller && tabs.tabIdFor(caller)
+      if (!id || !/^https?:\/\//i.test(address) || !URL.canParse(address)) throw new Error('Invalid address')
+      if (!blocker.takeGrace(address)) throw new Error('Wait a moment longer.')
+      core.study?.noteGaveIn()
+      tabs.navigate(id, address)
+    },
     'blocker:leave': () => {
       const id = caller && tabs.tabIdFor(caller)
       if (id) tabs.navigate(id, '')
@@ -708,7 +721,9 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'tabsets:save': (name) => core.tabSets.add(text(name, 80).trim() || 'Saved tabs', tabs.openTabList()),
     'tabsets:open': (id) => {
       const set = core.tabSets.list().find((candidate) => candidate.id === text(id, 64))
-      if (set) tabs.openGroup(set.name, set.tabs)
+      if (!set) return
+      const ids = tabs.openGroup(set.name, set.tabs)
+      if (set.split && ids.length === 2) tabs.startSplit(ids[1]!)
     },
     'tabsets:remove': (id) => void core.tabSets.take(text(id, 64)),
     'memory:list': () => aiStore.memory(),
@@ -721,6 +736,24 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'highlights:open': (id) => {
       const found = core.highlights?.list().find((highlight) => highlight.id === text(id, 64))
       if (found && /^(https?|file):/i.test(found.url)) core.openSource({ tabId: null, url: found.url }, { quote: found.text, seconds: null })
+    },
+    'highlights:to-notes': (ids) => {
+      const wanted = new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(0, MAX_HIGHLIGHTS) : [])
+      const chosen = (core.highlights?.list() ?? []).filter((highlight) => wanted.has(highlight.id))
+      if (chosen.length === 0) return 'Pick some highlights first'
+      const current = settings.get().newTab
+      const room = MAX_NOTES_LENGTH - current.notes.length - 2
+      if (room < 100) return 'Your notes are full. Make some room on the new tab page first.'
+      const lines = highlightNoteLines(chosen)
+      const note = lines.length <= room ? lines : `${lines.slice(0, room - 1).trimEnd()}…`
+      settings.set({ newTab: { ...current, notes: current.notes.trim() ? `${current.notes.trimEnd()}\n\n${note}` : note } })
+      return lines.length <= room ? `Added ${chosen.length === 1 ? 'it' : `all ${chosen.length}`} to your notes on the new tab page` : 'Added what fitted to your notes'
+    },
+    'highlights:brief': (ids) => {
+      const wanted = new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string').slice(0, MAX_HIGHLIGHTS) : [])
+      const chosen = (core.highlights?.list() ?? []).filter((highlight) => wanted.has(highlight.id)).toSorted((a, b) => b.createdAt - a.createdAt)
+      if (chosen.length === 0) throw new Error('Pick some highlights first.')
+      briefs().save(null, { title: 'Your highlights', topic: highlightsBriefTopic(chosen), time: '08:00', frequency: 'weekly', weekday: 1, length: 'medium', onlyNew: true })
     },
     'highlights:report': (ids) => {
       if (!Array.isArray(ids) || ids.length > MAX_HIGHLIGHTS) throw new Error('Too many highlights')
@@ -759,10 +792,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'mini-apps:open': (id) => core.miniApps.launch(text(id, 64), process.platform === 'darwin' ? undefined : iconPath),
     'mini-apps:remove': (id) => core.miniApps.remove(text(id, 64)),
     'privacy:week': () => core.privacyStats?.week() ?? null,
-    'history:recap': () => {
+    'history:recap': (span) => {
       const tab = caller && tabs.tabIdFor(caller)
       if (isPrivate || !tab || !aiStore.status().ready) return false
-      const ready = prepareRecap({ history, unread: () => (core.readingList?.list() ?? []).filter((item) => item.readAt === null), disabledHosts: () => aiStore.disabledHosts(), setPendingPrompt: (prompt) => ai.setPendingPrompt(prompt) })
+      const ready = prepareRecap({ history, unread: () => (core.readingList?.list() ?? []).filter((item) => item.readAt === null), disabledHosts: () => aiStore.disabledHosts(), setPendingPrompt: (prompt) => ai.setPendingPrompt(prompt) }, Date.now(), span === 'week' ? 'week' : 'yesterday')
       if (ready) tabs.navigate(tab, 'sc://assistant')
       return ready
     },
@@ -892,7 +925,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const [message] = withContext([{ role: 'user', content: 'Summarise this article.' }], [{ ...page, ...trimPage(page.text, 60_000) }], null)
       const summary = (await ai.complete(READING_SUMMARY_PROMPT, message!.content)).trim()
       if (!summary) throw new Error('The AI sent back nothing.')
-      core.readingList?.patch(item.id, { summary: summary.slice(0, 4000), ...(page.title && !item.title ? { title: page.title } : {}) })
+      core.readingList?.patch(item.id, { summary: summary.slice(0, 4000), minutes: readingMinutes(page.text), ...(page.title && !item.title ? { title: page.title } : {}) })
       return summary
     },
     'updates:state': () => updates.state(),

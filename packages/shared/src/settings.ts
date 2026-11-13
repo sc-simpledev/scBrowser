@@ -125,6 +125,10 @@ export interface Settings {
   tabSleepButton: boolean
   /** Side tabs are drawn as a tree: a tab opened from a link sits indented under the tab it came from. */
   tabTree: boolean
+  /** The focus timer under the side tabs. Only shown with vertical tabs. */
+  sidebarTimer: boolean
+  /** Split view comes back when either of its tabs is picked again after switching away. */
+  splitPairs: boolean
   /** Tab groups folded down to their name. */
   collapsedTabGroups: string[]
   spellCheck: boolean
@@ -231,6 +235,8 @@ export const DEFAULT_SETTINGS: Settings = {
   bookmarksLayout: 'horizontal',
   tabSleepButton: false,
   tabTree: true,
+  sidebarTimer: false,
+  splitPairs: true,
   collapsedTabGroups: [],
   spellCheck: true,
   spellLanguage: '',
@@ -318,6 +324,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   bookmarksLayout: (v) => v === 'horizontal' || v === 'vertical',
   tabSleepButton: (v) => typeof v === 'boolean',
   tabTree: (v) => typeof v === 'boolean',
+  sidebarTimer: (v) => typeof v === 'boolean',
+  splitPairs: (v) => typeof v === 'boolean',
   collapsedTabGroups: (v) => Array.isArray(v) && v.length <= 200 && v.every((name) => typeof name === 'string' && name.length <= 60),
   spellCheck: (v) => typeof v === 'boolean',
   spellLanguage: (v) => typeof v === 'string' && /^([a-zA-Z-]{2,16})?$/.test(v),

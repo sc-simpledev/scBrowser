@@ -19,6 +19,8 @@ export interface StudySession {
   end: number
   /** Blocked sites tried during the session, by host. */
   distractions?: Record<string, number>
+  /** Times the person took "one more minute" on a blocked site during it. */
+  gaveIn?: number
 }
 
 export interface StudyRunning {
@@ -31,6 +33,7 @@ export interface StudyRunning {
   round?: number
   rounds?: number
   distractions?: Record<string, number>
+  gaveIn?: number
 }
 
 /** The break between two countdown rounds. The next round starts by itself when it's over. */
@@ -83,6 +86,8 @@ export interface StudyState {
   pausedReason: 'away' | null
   /** Blocked sites tried today while the timer ran, most first. */
   distractions: { host: string; count: number }[]
+  /** "One more minute" passes taken today while the timer ran. */
+  gaveIn: number
   now: number
 }
 
@@ -91,6 +96,9 @@ export interface StudySummary {
   running: { subject: string; hue: number; startedAt: number; endsAt: number | null; round: number; rounds: number } | null
   /** Between countdown rounds: when the break ends. */
   breakUntil: number | null
+  /** What Start would time when nothing runs: the last activity, or the first. */
+  next: { subject: string; hue: number } | null
+  mode: StudyMode
   /** Today's finished study, not counting the running session. */
   todayBefore: number
   goalMinutes: number
@@ -190,6 +198,14 @@ export function studyDuration(ms: number): string {
   const m = minutes % 60
   if (h === 0) return `${m} min`
   return m === 0 ? `${h} h` : `${h} h ${m} min`
+}
+
+/** `10h 41m`, `45m`, `4h`: for tight spaces. */
+export function shortDuration(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000)
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`
 }
 
 export const goalLabel = (minutes: number) => (minutes === 0 ? 'No goal' : studyDuration(minutes * 60_000))

@@ -62,6 +62,17 @@ export function HistoryPage() {
         >
           Recap yesterday
         </Button>
+        <Button
+          title="A recap of the past seven days, grouped by theme, from page titles and addresses"
+          onClick={() => {
+            setNote(null)
+            void api()
+              .invoke('history:recap', 'week')
+              .then((started) => !started && setNote("There's nothing from the past week to recap, or no AI model is chosen yet."))
+          }}
+        >
+          Recap my week
+        </Button>
         <ConfirmButton disabled={entries.length === 0} confirmLabel="Clear everything?" onConfirm={() => void api().invoke('history:clear').then(load)}>
           Clear all
         </ConfirmButton>

@@ -319,13 +319,15 @@ function StudyChip() {
   }, [])
   const running = summary?.running
   const breakUntil = summary?.breakUntil ?? null
+  // The sidebar has its own timer, so the chip would only repeat it.
+  const inSidebar = useApp((s) => s.settings.sidebarTimer && s.settings.tabLayout === 'vertical')
   useEffect(() => {
     if (!running && !breakUntil) return
     setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [running, breakUntil])
-  if (!summary || (!running && !breakUntil)) return null
+  if (!summary || (!running && !breakUntil) || inSidebar) return null
   const today = summary.todayBefore + (running ? Math.max(0, now - running.startedAt) : 0)
   const left = running?.endsAt ? running.endsAt - now : breakUntil ? breakUntil - now : null
   const shown = left !== null ? stopwatch(Math.max(0, left) + 999) : stopwatch(today)

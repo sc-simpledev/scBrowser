@@ -1,6 +1,6 @@
 import { Menu, type BaseWindow, type WebContents } from 'electron'
 import { tweakSite } from './ai/siteTweak'
-import { MAX_TWEAK_REQUEST } from '@scbrowser/shared'
+import { MAX_TWEAK_REQUEST, SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil } from '@scbrowser/shared'
 import {
   engineById,
   isCitationSource,
@@ -248,6 +248,7 @@ const validators: Validators = {
   'study:summary': noArgs,
   'study:open': noArgs,
   'study:toggle': noArgs,
+  'study:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
   'bookmarks:overflow-menu': (args): args is [BarItem[], number, number] =>
     args.length === 3 &&
     Array.isArray(args[0]) &&
@@ -361,6 +362,10 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
               const id = tabs.create()
               if (id !== null && id !== undefined) tabs.setGroup([id], name)
             }
+          },
+          {
+            label: 'Snooze group',
+            submenu: SNOOZE_CHOICES.filter((choice) => choice !== 'site' && snoozeUntil(choice, Date.now()) !== null).map((choice) => ({ label: SNOOZE_LABELS[choice], click: () => actions.snoozeGroup(name, choice) }))
           },
           { type: 'separator' },
           { label: 'Ungroup', click: () => tabs.ungroup(name) },
@@ -497,9 +502,10 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       tabs.openInternal(latest ? `sc://briefs/#${latest.id}` : 'sc://briefs')
     },
     'briefs:dismiss': () => core.briefs?.markSeen(null),
-    'study:summary': () => core.study?.summary() ?? { running: null, breakUntil: null, todayBefore: 0, goalMinutes: 0 },
+    'study:summary': () => core.study?.summary() ?? { running: null, breakUntil: null, next: null, mode: 'stopwatch', todayBefore: 0, goalMinutes: 0 },
     'study:open': () => tabs.openInternal('sc://focus'),
     'study:toggle': () => actions.toggleStudy(),
+    'study:menu': (x, y) => actions.studyMenu(x, y),
     'bookmarks:overflow-menu': (items, x, y) => {
       const open = (url: string) => {
         if (tabs.active) actions.openAddress(tabs.active.id, url)

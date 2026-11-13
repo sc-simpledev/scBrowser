@@ -14,6 +14,7 @@ import type { BriefInput, BriefIssue, BriefPrefs, BriefState, BriefSummary } fro
 import type { SnoozedTab } from './snooze'
 import type { StudyPrefs, StudyState, StudySubject, StudySummary } from './study'
 import type { PrivacyWeek } from './privacy'
+import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
 import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderReview, CoderStatus } from './coder'
@@ -149,6 +150,8 @@ export interface ChromeCommands {
   'study:open': () => void
   /** Stops the running timer, or starts the last subject again. */
   'study:toggle': () => void
+  /** The sidebar timer's menu: pick an activity, the mode, or open the page. */
+  'study:menu': (x: number, y: number) => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
   'profiles:menu': (x: number, y: number) => void
   /** Opens a sidebar site, or closes it if it's the one showing. */
@@ -334,6 +337,7 @@ export const COMMAND_CHANNELS = [
   'study:summary',
   'study:open',
   'study:toggle',
+  'study:menu',
   'bookmarks:overflow-menu',
   'profiles:menu',
   'sidebar-sites:toggle',
@@ -509,6 +513,10 @@ export interface InternalCommands {
   /** The message for the block page in this tab. */
   'blocker:message': () => string
   'blocker:proceed': (url: string) => void
+  /** Starts the wait for one more minute on a blocked site. Returns the seconds to wait. */
+  'blocker:grace-wait': (url: string) => number
+  /** Lets the blocked site through for a minute, once the wait is over. */
+  'blocker:grace': (url: string) => void
   'blocker:leave': () => void
   /** The PDF in this tab, or null if it can't be fetched. */
   'pdf:load': () => Uint8Array | null
@@ -640,6 +648,10 @@ export interface InternalCommands {
   'reading:digest': () => void
   /** Saves highlights as a Markdown file. False if cancelled. */
   'highlights:export': () => boolean
+  /** Adds these highlights to the new tab's notes. Returns what to say. */
+  'highlights:to-notes': (ids: string[]) => string
+  /** Sets up a weekly brief on what's new about these highlights. */
+  'highlights:brief': (ids: string[]) => void
   /** Keeps a page the assistant wrote as an app of its own. Returns its name. */
   'mini-apps:keep': (name: string, content: string) => string
   'mini-apps:list': () => { id: string; name: string; createdAt: number }[]
@@ -648,7 +660,7 @@ export interface InternalCommands {
   /** What was blocked in the last seven days. Null in private windows, which count nothing. */
   'privacy:week': () => PrivacyWeek | null
   /** Lines up a recap of yesterday's browsing and opens the assistant with it. False if there's nothing to recap. */
-  'history:recap': () => boolean
+  'history:recap': (span?: RecapSpan) => boolean
   'briefs:state': () => BriefState
   'briefs:summary': () => BriefSummary
   /** The newest few, with only the start of their text, for the new tab. */
@@ -794,6 +806,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'reports:clear',
   'blocker:message',
   'blocker:proceed',
+  'blocker:grace-wait',
+  'blocker:grace',
   'blocker:leave',
   'pdf:load',
   'pdf:save',
@@ -894,6 +908,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'reading:summarise',
   'reading:digest',
   'highlights:export',
+  'highlights:to-notes',
+  'highlights:brief',
   'mini-apps:keep',
   'mini-apps:list',
   'mini-apps:open',

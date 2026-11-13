@@ -42,6 +42,35 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.6.3',
+    date: '2026-11-14',
+    items: [
+      'The focus timer has a new look: a ring that fills towards your goal, activities beside it, today on a timeline, and its settings folded away.',
+      'Show the focus timer under your side tabs, from Settings or the timer’s own settings. It’s off unless you turn it on.',
+      'Watched prices keep a history, drawn as a small chart with the lowest and highest.',
+      'Snooze a tab until you next open its site, or snooze a whole tab group from its menu.',
+      'Split view comes back when you return to either of its tabs, and a split can be saved as a pair to open again.',
+      'The command palette shows your recent commands first and offers matching skills.',
+      'The reading list shows how long each page takes to read, and picks something that fits the minutes you have.',
+      'A blocked site offers “One more minute” after a short wait that grows each time that day.',
+      'Recap your week from History or the palette.',
+      'Send highlights to your new tab notes, or get a weekly brief on what’s new about them.',
+      'A workspace can turn the VPN on while it’s open.',
+      'New tab widgets can show only in the morning, the daytime or the evening.',
+      'The More menu and the tab menu are grouped, with AI, Focus, Library and More tools in their own sections.'
+    ]
+  },
+  {
+    version: '0.6.2',
+    date: '2026-11-14',
+    items: [
+      'A focus timer for any kind of work: a stopwatch or countdown rounds per activity, a daily goal, a week of bars and a 12-week calendar. It pauses when you step away.',
+      'AI Briefs have a new look, today’s briefs as one edition with Listen to all, followed stories, briefs from your reading list or your focus week, and Save as PDF, Markdown or to your notes.',
+      'Workspaces can switch in and out by themselves at set hours.',
+      'VPN pings show one round trip through the server, so they match other ping tools.'
+    ]
+  },
+  {
     version: '0.6.1',
     date: '2026-11-13',
     items: [

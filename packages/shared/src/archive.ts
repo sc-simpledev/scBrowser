@@ -21,6 +21,8 @@ export interface ClosedGroup {
   name: string
   closedAt: number
   tabs: { url: string; title: string; container: string | null }[]
+  /** Two tabs saved from split view, which open side by side again. */
+  split?: boolean
 }
 
 export const MAX_CLOSED_GROUPS = 30

@@ -238,6 +238,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
     { label: tab?.pinned ? 'Unpin tab' : 'Pin tab', click: () => tabs.setPinned(id, !tab?.pinned) },
     { label: tab?.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !tab?.muted) },
+    { type: 'separator' },
     splitIds.length > 0
       ? { label: 'End split view', click: () => tabs.endSplit() }
       : { label: 'Open in split view', enabled: id !== activeId, click: () => tabs.startSplit(id) },
@@ -249,13 +250,14 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
         { label: 'No container', click: () => tabs.reopenInContainer(id, null) }
       ]
     },
-    { label: 'Sleep tab', enabled: !tab?.isSleeping && open.length > 1, click: () => tabs.sleep(id) },
-    { label: 'Archive tab', enabled: open.length > 1 && !tab?.pinned, click: () => actions.archiveTab(id) },
+    { type: 'separator' },
     {
       label: 'Snooze tab',
       enabled: open.length > 1 && !tab?.pinned && /^(https?|file):/i.test(tab?.url ?? ''),
       submenu: SNOOZE_CHOICES.filter((choice) => snoozeUntil(choice, Date.now()) !== null).map((choice) => ({ label: SNOOZE_LABELS[choice], click: () => actions.snoozeTab(id, choice) }))
     },
+    { label: 'Sleep tab', enabled: !tab?.isSleeping && open.length > 1, click: () => tabs.sleep(id) },
+    { label: 'Archive tab', enabled: open.length > 1 && !tab?.pinned, click: () => actions.archiveTab(id) },
     { type: 'separator' },
     { label: 'Add to new group', enabled: !tab?.pinned, click: () => tabs.setGroup([id], tabs.freshGroupName()) },
     {
@@ -264,17 +266,23 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
       submenu: tabs.groupNames().filter((name) => name !== tab?.group).map((name) => ({ label: name, click: () => tabs.setGroup([id], name) }))
     },
     ...(tab?.group ? [{ label: 'Remove from group', click: () => tabs.setGroup([id], null) }] : []),
+    ...(tabs.groupNames().length > 0 ? [{ label: 'Remove all tab groups', click: () => tabs.clearGroups() }] : []),
     { type: 'separator' },
-    ...researchRows(tab, open, tabs),
+    {
+      label: 'With AI',
+      submenu: [
+        ...researchRows(tab, open, tabs),
+        { type: 'separator' as const },
+        { label: 'Organise tabs into groups', click: actions.organiseTabs },
+        { label: 'Clean up tabs', click: actions.cleanupTabs }
+      ]
+    },
     { type: 'separator' },
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
     { type: 'separator' },
-    { label: 'Organise tabs into groups', click: actions.organiseTabs },
-    { label: 'Remove tab groups', click: () => tabs.clearGroups() },
-    { label: 'Clean up tabs', click: actions.cleanupTabs },
-    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     { label: 'Reopen closed tab', click: () => tabs.reopenClosed() },
+    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     ...closedGroupRows(actions)
   ]).popup({ window })
 }
@@ -423,33 +431,58 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
         { type: 'separator' }
       ]
     : []
+  const onPage = !!active && /^https?:/i.test(effectiveUrl(active.url))
   Menu.buildFromTemplate([
     ...updateRow,
     ...spareRows,
     { label: 'New tab', accelerator: 'CmdOrCtrl+T', click: () => tabs.create() },
     { label: 'New window', accelerator: 'CmdOrCtrl+N', click: () => actions.openWindow() },
+    { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
+    { type: 'separator' },
     { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => tabs.reopenClosed() },
-    { label: 'Open file…', accelerator: 'CmdOrCtrl+O', click: actions.openFile },
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     { type: 'checkbox', label: 'Split view', checked: tabs.snapshot().splitIds.length > 0, enabled: tabs.snapshot().tabs.length > 1, click: () => tabs.toggleSplit() },
     { type: 'separator' },
     { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
-    { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
-    { label: 'AI Briefs', click: () => actions.openPage('briefs') },
-    { label: 'Focus timer', click: () => actions.openPage('focus') },
-    { label: 'Terra Code (beta)', click: () => actions.openCode() },
-    { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
+    { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
+    {
+      label: 'Bookmarks',
+      submenu: [
+        { label: 'All bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
+        { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'CmdOrCtrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar }
+      ]
+    },
+    {
+      label: 'Library',
+      submenu: [
+        { label: 'Reading list', click: () => actions.openPage('reading') },
+        { label: 'Highlights', click: () => actions.openPage('highlights') },
+        { label: 'Watched pages', click: () => actions.openPage('watching') },
+        { label: 'Archived and snoozed tabs', click: () => actions.openPage('archive') }
+      ]
+    },
+    { type: 'separator' },
+    {
+      label: 'AI',
+      submenu: [
+        { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
+        { label: 'AI Briefs', click: () => actions.openPage('briefs') },
+        { label: 'Terra Code (beta)', click: () => actions.openCode() },
+        { label: 'Translate page', enabled: onPage, submenu: translateRows(actions) },
+        { type: 'separator' },
+        { label: 'AI settings', click: () => actions.openPage('ai') }
+      ]
+    },
+    {
+      label: 'Focus',
+      submenu: [
+        { label: 'Focus timer', click: () => actions.openPage('focus') },
+        { label: 'Start or stop the timer', click: actions.toggleStudy },
+        { label: 'Site blocker', click: () => actions.openPage('blocker') }
+      ]
+    },
     { label: 'VPN', click: () => actions.openPage('vpn') },
     { type: 'separator' },
-    { label: 'Bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
-    { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
-    { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'CmdOrCtrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
-    { type: 'separator' },
-    { label: 'Find in page…', accelerator: 'CmdOrCtrl+F', click: actions.openFind },
-    { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
-    { label: 'Command palette', accelerator: 'CmdOrCtrl+K', click: actions.togglePalette },
-    { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', click: actions.screenshot },
-    { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: onActive((id) => tabs.print(id)) },
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,
       submenu: [
@@ -458,13 +491,25 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
         { label: 'Reset', accelerator: 'CmdOrCtrl+0', click: onActive((id) => tabs.setZoom(id, 1)) }
       ]
     },
+    { label: 'Find in page…', accelerator: 'CmdOrCtrl+F', click: actions.openFind },
+    { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
+    { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: onActive((id) => tabs.print(id)) },
+    { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', click: actions.screenshot },
     { label: 'Full screen', accelerator: 'F11', click: actions.toggleFullscreen },
-    { label: 'View page source', accelerator: 'CmdOrCtrl+U', enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
-    { label: 'Translate page', enabled: !!active && /^https?:/i.test(active.url), submenu: translateRows(actions) },
-    { label: 'Install this site as an app…', enabled: !!active && /^https?:/i.test(effectiveUrl(active.url)), click: actions.installApp },
-    { type: 'checkbox', label: 'Performance Mode', checked: actions.performanceMode.enabled(), click: actions.performanceMode.toggle },
-    { label: 'Task Manager', accelerator: 'Shift+Esc', click: () => actions.openPage('tasks') },
-    { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) },
+    { type: 'separator' },
+    {
+      label: 'More tools',
+      submenu: [
+        { label: 'Command palette', accelerator: 'CmdOrCtrl+K', click: actions.togglePalette },
+        { label: 'Open file…', accelerator: 'CmdOrCtrl+O', click: actions.openFile },
+        { label: 'Install this site as an app…', enabled: onPage, click: actions.installApp },
+        { type: 'checkbox', label: 'Performance Mode', checked: actions.performanceMode.enabled(), click: actions.performanceMode.toggle },
+        { type: 'separator' },
+        { label: 'Task Manager', accelerator: 'Shift+Esc', click: () => actions.openPage('tasks') },
+        { label: 'View page source', accelerator: 'CmdOrCtrl+U', enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
+        { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) }
+      ]
+    },
     { type: 'separator' },
     { label: 'Settings', click: () => actions.openPage('settings') },
     { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: actions.quit }

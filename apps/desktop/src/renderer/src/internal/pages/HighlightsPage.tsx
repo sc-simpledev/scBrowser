@@ -1,4 +1,4 @@
-import { FileText, Highlighter, X } from 'lucide-react'
+import { FileText, Highlighter, X, Newspaper, StickyNote } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input } from '@scbrowser/ui'
 import { MAX_NOTE_CHARS, type Highlight } from '@scbrowser/shared'
@@ -40,6 +40,7 @@ function NoteField({ highlight, onSaved }: { highlight: Highlight; onSaved: () =
 export function HighlightsPage() {
   const [highlights, setHighlights] = useState<Highlight[] | null>(null)
   const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
   const load = useCallback(() => void api().invoke('highlights:list').then(setHighlights), [])
   useEffect(() => {
     load()
@@ -66,6 +67,32 @@ export function HighlightsPage() {
         <Button variant="ghost" title="Save all highlights and notes as a Markdown file" disabled={highlights.length === 0} onClick={() => void api().invoke('highlights:export')}>
           Export
         </Button>
+      </div>
+      <div className="-mt-3 flex flex-wrap items-center gap-2">
+        <Button variant="ghost" className="h-7 px-2" disabled={shown.length === 0} onClick={() => void api().invoke('highlights:to-notes', shown.map((highlight) => highlight.id)).then(setStatus)}>
+          <StickyNote aria-hidden size={13} strokeWidth={1.75} />
+          Add {query ? 'these' : 'all'} to new tab notes
+        </Button>
+        <Button
+          variant="ghost"
+          className="h-7 px-2"
+          disabled={shown.length === 0}
+          title="A weekly brief on what's new about the things you highlighted. Only their words go into the search."
+          onClick={() =>
+            void api()
+              .invoke('highlights:brief', shown.map((highlight) => highlight.id))
+              .then(() => (location.href = 'sc://briefs/'))
+              .catch((error: unknown) => setStatus(error instanceof Error ? error.message.replace(/^.*Error: /, '') : "Couldn't set up the brief"))
+          }
+        >
+          <Newspaper aria-hidden size={13} strokeWidth={1.75} />
+          Brief me on what's new about {query ? 'these' : 'them'}
+        </Button>
+        {status && (
+          <span role="status" className="text-xs text-text-muted">
+            {status}
+          </span>
+        )}
       </div>
       <p className="text-xs text-text-faint">Only your highlighted words and notes go to the AI for a report, not the rest of the pages.</p>
       {highlights.length === 0 && <EmptyState icon={Highlighter} title="Nothing highlighted yet">Select some words on a page, right-click and pick Highlight. They’ll be marked whenever you come back.</EmptyState>}

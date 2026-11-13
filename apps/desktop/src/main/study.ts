@@ -116,7 +116,7 @@ export class StudyService {
     if (length < MIN_STUDY_SESSION_MS) return
     const oldest = this.now() - (STUDY_HISTORY_DAYS + 1) * 86_400_000
     const kept = this.sessions().filter((session) => session.end > oldest)
-    const session: StudySession = { id: randomUUID(), subjectId: running.subjectId, start: running.startedAt, end: running.startedAt + length, ...(running.distractions ? { distractions: running.distractions } : {}) }
+    const session: StudySession = { id: randomUUID(), subjectId: running.subjectId, start: running.startedAt, end: running.startedAt + length, ...(running.distractions ? { distractions: running.distractions } : {}), ...(running.gaveIn ? { gaveIn: running.gaveIn } : {}) }
     this.deps.kv.set(SESSIONS, [...kept, session])
   }
 
@@ -163,6 +163,12 @@ export class StudyService {
     if (!running || !URL.canParse(url)) return
     const host = new URL(url).hostname.replace(/^www\./, '')
     this.deps.kv.set(RUNNING, { ...running, distractions: addDistraction(running.distractions, host) })
+  }
+
+  /** The person let themselves through a blocked site for a minute while the timer ran. */
+  noteGaveIn(): void {
+    const running = this.running()
+    if (running) this.deps.kv.set(RUNNING, { ...running, gaveIn: (running.gaveIn ?? 0) + 1 })
   }
 
   /**
@@ -273,6 +279,7 @@ export class StudyService {
       streak: studyStreak(days),
       pausedReason: this.pausedReason,
       distractions: sumDistractions([...todays.map((session) => session.distractions), running?.distractions]),
+      gaveIn: todays.reduce((sum, session) => sum + (session.gaveIn ?? 0), running?.gaveIn ?? 0),
       now
     }
   }
@@ -296,6 +303,11 @@ export class StudyService {
     return {
       running: running ? { subject: subject?.name ?? 'Focus', hue: subject?.hue ?? 200, startedAt: Math.max(running.startedAt, midnight), endsAt: running.endsAt ?? null, round: running.round ?? 1, rounds: running.rounds ?? 1 } : null,
       breakUntil: paused?.until ?? null,
+      next: (() => {
+        const last = this.lastSubject()
+        return last ? { subject: last.name, hue: last.hue } : null
+      })(),
+      mode: this.prefs().mode,
       todayBefore,
       goalMinutes: this.prefs().goalMinutes
     }

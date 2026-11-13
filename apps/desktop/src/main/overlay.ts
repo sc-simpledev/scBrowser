@@ -27,7 +27,7 @@ import {
   type SiteControlsState,
   type SiteAction,
   isSiteAction,
-  PALETTE_POPUP, isWorkspaceSchedule } from '@scbrowser/shared'
+  PALETTE_POPUP, isWorkspaceSchedule, type PaletteState } from '@scbrowser/shared'
 
 import { route, unroute } from './ipcRouter'
 
@@ -41,7 +41,7 @@ export class Overlay {
   readonly view: WebContentsView
   private state: OverlayState = EMPTY_OVERLAY
   private permission: PermissionPopupState | null = null
-  private palette: { x: number; y: number } | null = null
+  private palette: PaletteState | null = null
   private tabSearch: TabSearchState | null = null
   private appLink: AppLinkPromptState | null = null
   private extensionsPopup: ExtensionsPopupState | null = null
@@ -189,10 +189,10 @@ export class Overlay {
       this.hooks.onPopupClosed()
     })
     handle('overlay:workspace-save', (edit) => {
-      const { id, name, focus, schedule } = (edit ?? {}) as WorkspaceEdit
-      if ((id !== null && typeof id !== 'string') || typeof name !== 'string' || name.length > 40 || typeof focus !== 'boolean') throw new Error('Invalid workspace')
+      const { id, name, focus, schedule, vpn } = (edit ?? {}) as WorkspaceEdit
+      if ((id !== null && typeof id !== 'string') || typeof name !== 'string' || name.length > 40 || typeof focus !== 'boolean' || typeof vpn !== 'boolean') throw new Error('Invalid workspace')
       if (schedule !== null && !isWorkspaceSchedule(schedule)) throw new Error('Invalid schedule')
-      this.hooks.onWorkspaceSave({ id, name, focus, schedule })
+      this.hooks.onWorkspaceSave({ id, name, focus, schedule, vpn })
       this.closeWorkspaceEditor()
     })
     handle('overlay:workspace-remove', (id) => {
@@ -400,13 +400,13 @@ export class Overlay {
     return { x: Math.max(0, Math.round((width - PALETTE_POPUP.width) / 2)), y: PALETTE_POPUP.top }
   }
 
-  togglePalette(): void {
+  togglePalette(extra: Pick<PaletteState, 'recent' | 'skills'> = { recent: [], skills: [] }): void {
     if (this.palette) {
       this.closePalette()
       return
     }
     this.tabSearch = null
-    this.palette = this.centred()
+    this.palette = { ...this.centred(), ...extra }
     this.render()
     this.view.webContents.focus()
   }

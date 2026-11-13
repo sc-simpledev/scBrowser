@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { activeTab, go, launch, omnibox, serveSite, setSetting, shortcut, titled, type Harness, type Site } from './app'
+import { activeTab, go, launch, omnibox, serveSite, setSetting, titled, type Harness, type Site } from './app'
 
 let h: Harness
 let site: Site
@@ -49,9 +49,13 @@ test('screenshot saves a PNG and confirms it', async () => {
   await setSetting(h, { downloadDir: h.profile })
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
-  // Keyboard focus reaches the page a moment after its title appears.
-  await expect.poll(() => h.app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? '')).toContain('/alpha')
-  await shortcut(h, 'S', ['control', 'shift'])
+  // The keys go straight to the page: with other test windows open, it may never get real focus.
+  await h.app.evaluate(() => {
+    const tabs = (globalThis as unknown as { scbTabs: { active: { id: number }; contentsFor: (id: number) => Electron.WebContents } }).scbTabs
+    const page = tabs.contentsFor(tabs.active.id)
+    page.sendInputEvent({ type: 'keyDown', keyCode: 'S', modifiers: ['control', 'shift'] })
+    page.sendInputEvent({ type: 'keyUp', keyCode: 'S', modifiers: ['control', 'shift'] })
+  })
   const overlay = await h.overlay()
   await expect(overlay.getByRole('status')).toContainText('Screenshot saved')
   const file = readdirSync(h.profile).find((name) => name.startsWith('Screenshot'))
