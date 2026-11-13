@@ -3,7 +3,7 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { BrowserActions } from './actions'
@@ -175,6 +175,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
   const briefs = () => {
     if (!core.briefs) throw new Error("Private windows don't keep briefs.")
     return core.briefs
+  }
+  const study = () => {
+    if (!core.study) throw new Error("Private windows don't keep a focus timer.")
+    return core.study
   }
 
   /** Picks a saved Terra Code chat back up after a restart, from what its screen showed. */
@@ -795,12 +799,60 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'briefs:issue': (id) => core.briefs?.issues().find((issue) => issue.id === text(id, 64)) ?? null,
     'briefs:ask': (id, question) => briefs().ask(text(id, 64), text(question, MAX_BRIEF_QUESTION)),
+    'briefs:follow': (id, story) => {
+      briefs().follow(text(id, 64), text(story, 2_000))
+      return briefs().state()
+    },
+    'briefs:unfollow': (id, story) => {
+      briefs().unfollow(text(id, 64), text(story, 2_000))
+      return briefs().state()
+    },
+    'briefs:to-notes': (id) => {
+      const issue = core.briefs?.issues().find((candidate) => candidate.id === text(id, 64))
+      if (!issue) throw new Error('That brief no longer exists.')
+      const current = settings.get().newTab
+      const date = new Date(issue.createdAt).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+      const room = MAX_NOTES_LENGTH - current.notes.length - 4
+      if (room < 200) return 'Your notes are full. Make some room on the new tab page first.'
+      const body = `${issue.title} (${date})\n${briefPlainText(issue.text)}`
+      const fits = body.length <= room
+      const note = fits ? body : `${body.slice(0, room - 1).trimEnd()}…`
+      settings.set({ newTab: { ...current, notes: current.notes.trim() ? `${current.notes.trimEnd()}\n\n${note}` : note } })
+      return fits ? 'Added to your notes on the new tab page' : 'Added the start of it to your notes: the rest didn\'t fit'
+    },
+    'site-icons:for': (hosts) => (Array.isArray(hosts) ? bookmarks.iconsFor(hosts.filter((host): host is string => typeof host === 'string').slice(0, 50).map((host) => host.slice(0, 253))) : {}),
     'snooze:list': () => core.snoozed?.list() ?? [],
     'snooze:wake': (id) => {
       const found = core.snoozed?.take(text(id, 64))
       if (found && /^(https?|file):/i.test(found.url)) tabs.create(found.url, { container: found.container })
     },
     'snooze:remove': (id) => void core.snoozed?.take(text(id, 64)),
+    'study:state': () => study().state(),
+    'study:start': (id) => {
+      study().start(text(id, 64))
+      return study().state()
+    },
+    'study:stop': () => {
+      study().stop()
+      return study().state()
+    },
+    'study:subject-save': (id, subject) => {
+      if (!isStudySubjectInput(subject)) throw new Error('Invalid subject')
+      study().saveSubject(id === null ? null : text(id, 64), subject)
+      return study().state()
+    },
+    'study:subject-remove': (id) => {
+      study().removeSubject(text(id, 64))
+      return study().state()
+    },
+    'study:session-remove': (id) => {
+      study().removeSession(text(id, 64))
+      return study().state()
+    },
+    'study:prefs': (prefs) => {
+      study().setPrefs(prefs)
+      return study().state()
+    },
     'onboarding:state': () => core.onboarding.state(),
     'onboarding:mark': (id) => {
       if (isGettingStartedId(id)) core.onboarding.mark(id)

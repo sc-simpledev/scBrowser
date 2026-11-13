@@ -10,6 +10,7 @@ import {
   type AssistantRequest,
   type BarItem,
   type BriefSummary,
+  type StudySummary,
   type Bookmark,
   type ChromeCommands,
   type CommandChannel,
@@ -244,6 +245,9 @@ const validators: Validators = {
   'briefs:summary': noArgs,
   'briefs:open': noArgs,
   'briefs:dismiss': noArgs,
+  'study:summary': noArgs,
+  'study:open': noArgs,
+  'study:toggle': noArgs,
   'bookmarks:overflow-menu': (args): args is [BarItem[], number, number] =>
     args.length === 3 &&
     Array.isArray(args[0]) &&
@@ -284,7 +288,7 @@ interface IpcServices {
   ai: AiService
   chats: ChatsRepo
   privacy: PrivacyService
-  core: { openSource: (source: { tabId: number | null; url: string }, target: { quote: string | null; seconds: number | null }) => void; briefs: { summary: () => BriefSummary; markSeen: (id: string | null) => void } | null; onboarding: { mark: (id: 'assistant') => void } }
+  core: { openSource: (source: { tabId: number | null; url: string }, target: { quote: string | null; seconds: number | null }) => void; briefs: { summary: () => BriefSummary; markSeen: (id: string | null) => void } | null; study: { summary: () => StudySummary } | null; onboarding: { mark: (id: 'assistant') => void } }
   sidebar: { sites: SidebarSites; addCurrent: () => void; menu: (url: string, x: number, y: number) => void }
 }
 
@@ -493,6 +497,9 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       tabs.openInternal(latest ? `sc://briefs/#${latest.id}` : 'sc://briefs')
     },
     'briefs:dismiss': () => core.briefs?.markSeen(null),
+    'study:summary': () => core.study?.summary() ?? { running: null, breakUntil: null, todayBefore: 0, goalMinutes: 0 },
+    'study:open': () => tabs.openInternal('sc://focus'),
+    'study:toggle': () => actions.toggleStudy(),
     'bookmarks:overflow-menu': (items, x, y) => {
       const open = (url: string) => {
         if (tabs.active) actions.openAddress(tabs.active.id, url)

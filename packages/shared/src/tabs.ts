@@ -38,6 +38,44 @@ export interface Workspace {
   name: string
   /** Turns Focus Mode on while this workspace is open. */
   focus: boolean
+  /** Switches to this workspace by itself at the start of these hours, and back at the end. */
+  schedule?: WorkspaceSchedule | null
+}
+
+export interface WorkspaceSchedule {
+  /** Days of the week, 0 for Sunday. */
+  days: number[]
+  /** Local times as `HH:MM`. A `to` before `from` runs past midnight. */
+  from: string
+  to: string
+}
+
+export const DEFAULT_WORKSPACE_SCHEDULE: WorkspaceSchedule = { days: [1, 2, 3, 4, 5], from: '09:00', to: '17:00' }
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/
+
+export const isWorkspaceSchedule = (value: unknown): value is WorkspaceSchedule => {
+  const { days, from, to } = (value ?? {}) as WorkspaceSchedule
+  return Array.isArray(days) && days.length <= 7 && days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) && typeof from === 'string' && HH_MM.test(from) && typeof to === 'string' && HH_MM.test(to) && from !== to
+}
+
+/** Whether a schedule covers this moment. Hours past midnight belong to the day they started on. */
+export function workspaceScheduledNow(schedule: WorkspaceSchedule, now: Date): boolean {
+  const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3))
+  const at = now.getHours() * 60 + now.getMinutes()
+  const from = minutes(schedule.from)
+  const to = minutes(schedule.to)
+  if (from < to) return schedule.days.includes(now.getDay()) && at >= from && at < to
+  if (at >= from) return schedule.days.includes(now.getDay())
+  return at < to && schedule.days.includes((now.getDay() + 6) % 7)
+}
+
+/** `Mon–Fri, 09:00–17:00` */
+export function workspaceScheduleLabel(schedule: WorkspaceSchedule): string {
+  const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const sorted = [1, 2, 3, 4, 5, 6, 0].filter((day) => schedule.days.includes(day))
+  const days = sorted.length === 7 ? 'Every day' : sorted.join() === '1,2,3,4,5' ? 'Mon–Fri' : sorted.join() === '6,0' ? 'Weekends' : sorted.map((day) => names[day]).join(', ')
+  return `${days}, ${schedule.from}–${schedule.to}`
 }
 
 export const DEFAULT_WORKSPACE: Workspace = { id: 'main', name: 'Personal', focus: false }

@@ -100,7 +100,8 @@ export function ReadingPage() {
   }
   return (
     <>
-      <div role="group" aria-label="Show" className="flex items-center gap-1.5 text-xs">
+      <div className="flex items-center gap-1.5 text-xs">
+        <div role="group" aria-label="Show" className="flex gap-0.5 rounded-md border border-border bg-surface p-[3px]">
         {(
           [
             ['unread', `Unread ${unread.length}`],
@@ -112,11 +113,12 @@ export function ReadingPage() {
             type="button"
             aria-pressed={show === value}
             onClick={() => setShow(value)}
-            className={cx('flex h-6 items-center rounded-sm border px-2', show === value ? 'border-(--sc-accent) text-text' : 'border-border text-text-muted hover:bg-surface-hover')}
+            className={cx('flex h-6 items-center rounded-sm px-2.5 font-medium tabular-nums transition-colors', show === value ? 'bg-text text-surface' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
           >
             {label}
           </button>
         ))}
+        </div>
         {batch ? (
           <span role="status" className="ml-auto text-text-muted tabular-nums">
             {batch.done < batch.total ? `Summarising ${batch.done + 1} of ${batch.total}…` : `Summarised ${batch.total - batch.failed} of ${batch.total}${batch.failed ? `. ${batch.failed} couldn't be read.` : '.'}`}

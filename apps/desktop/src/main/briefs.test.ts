@@ -231,3 +231,40 @@ describe('brief preview', () => {
     expect(briefPreview('- Short one about markets [1].\n## Next\n1. **Bold** move [2: "quote"]')).toBe('Short one about markets. Next Bold move')
   })
 })
+
+describe('brief sources and followed stories', () => {
+  it('opens a web brief with the stories it follows, each with a search of its own', async () => {
+    const { briefs, deps } = service()
+    const schedule = briefs.save(null, input())
+    briefs.follow(schedule.id, '  the chip [2] export rules ')
+    expect(briefs.schedules()[0]!.follows).toEqual(['the chip export rules'])
+    await briefs.run(schedule.id)
+    expect(deps.search.mock.calls.map((call) => call[0])).toEqual(['latest AI news', 'the chip export rules'])
+    expect(deps.write.mock.calls[0]![1]).toContain('Stories you follow')
+    briefs.unfollow(schedule.id, 'the chip export rules')
+    expect(briefs.schedules()[0]!.follows).toEqual([])
+  })
+
+  it('writes a reading list brief from saved pages, with no web search', async () => {
+    const readingPages = vi.fn(async () => [page(7)])
+    const { briefs, deps } = service({ readingPages })
+    const schedule = briefs.save(null, input({ source: 'reading', topic: 'ignored' }))
+    expect(schedule).toMatchObject({ title: 'Reading list catch-up', sites: [], onlyNew: false })
+    await briefs.run(schedule.id)
+    expect(deps.search).not.toHaveBeenCalled()
+    expect(deps.write.mock.calls[0]![0]).toContain('reading list')
+    expect(() => briefs.follow(schedule.id, 'anything')).toThrow('Only briefs from the web')
+  })
+
+  it('recaps the focus week from the timer alone, and says when there is nothing to recap', async () => {
+    let week: string | null = null
+    const { briefs, deps } = service({ focusWeek: () => week })
+    const schedule = briefs.save(null, input({ source: 'focus' }))
+    await expect(briefs.run(schedule.id)).rejects.toThrow('nothing from the last two weeks')
+    week = 'Total this week: 9 h.'
+    const issue = await briefs.run(schedule.id)
+    expect(deps.write.mock.calls[0]![1]).toContain('<focus-week>\nTotal this week: 9 h.')
+    expect(issue.sources).toEqual([])
+    expect(deps.search).not.toHaveBeenCalled()
+  })
+})

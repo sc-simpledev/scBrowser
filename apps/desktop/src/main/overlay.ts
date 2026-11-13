@@ -27,8 +27,7 @@ import {
   type SiteControlsState,
   type SiteAction,
   isSiteAction,
-  PALETTE_POPUP
-} from '@scbrowser/shared'
+  PALETTE_POPUP, isWorkspaceSchedule } from '@scbrowser/shared'
 
 import { route, unroute } from './ipcRouter'
 
@@ -190,9 +189,10 @@ export class Overlay {
       this.hooks.onPopupClosed()
     })
     handle('overlay:workspace-save', (edit) => {
-      const { id, name, focus } = (edit ?? {}) as WorkspaceEdit
+      const { id, name, focus, schedule } = (edit ?? {}) as WorkspaceEdit
       if ((id !== null && typeof id !== 'string') || typeof name !== 'string' || name.length > 40 || typeof focus !== 'boolean') throw new Error('Invalid workspace')
-      this.hooks.onWorkspaceSave({ id, name, focus })
+      if (schedule !== null && !isWorkspaceSchedule(schedule)) throw new Error('Invalid schedule')
+      this.hooks.onWorkspaceSave({ id, name, focus, schedule })
       this.closeWorkspaceEditor()
     })
     handle('overlay:workspace-remove', (id) => {

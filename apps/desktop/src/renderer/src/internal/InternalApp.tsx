@@ -1,4 +1,4 @@
-import { Activity, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Newspaper, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
+import { Activity, AlarmClock, Archive, Bookmark, BookMarked, Bot, Download, Eye, FlaskConical, Globe, Highlighter, History, KeyRound, MessageCircle, Newspaper, Settings, ShieldBan, type LucideIcon } from 'lucide-react'
 import { lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
@@ -23,9 +23,11 @@ const WatchingPage = lazy(() => import('./pages/WatchingPage').then((m) => ({ de
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then((m) => ({ default: m.HighlightsPage })))
 const ReadingPage = lazy(() => import('./pages/ReadingPage').then((m) => ({ default: m.ReadingPage })))
 const BriefsPage = lazy(() => import('./pages/BriefsPage').then((m) => ({ default: m.BriefsPage })))
+const FocusPage = lazy(() => import('./pages/FocusPage').then((m) => ({ default: m.FocusPage })))
 const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
 
-const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType }> = {
+/** `bare` pages draw their own heading. */
+const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType; bare?: boolean }> = {
   settings: { title: 'Settings', icon: Settings, component: SettingsPage },
   ai: { title: 'AI', icon: Bot, component: AiPage },
   assistant: { title: 'Assistant', icon: MessageCircle, component: AssistantPage },
@@ -40,7 +42,8 @@ const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: 
   highlights: { title: 'Highlights', icon: Highlighter, component: HighlightsPage },
   watching: { title: 'Watched pages', icon: Eye, component: WatchingPage },
   archive: { title: 'Archived tabs', icon: Archive, component: ArchivePage },
-  briefs: { title: 'AI Briefs', icon: Newspaper, component: BriefsPage },
+  briefs: { title: 'AI Briefs', icon: Newspaper, component: BriefsPage, bare: true },
+  focus: { title: 'Focus timer', icon: AlarmClock, component: FocusPage },
   flags: { title: 'Flags', icon: FlaskConical, component: FlagsPage }
 }
 
@@ -49,7 +52,8 @@ const NAV: { label: string | null; pages: InternalPage[] }[] = [
   { label: null, pages: ['settings'] },
   { label: 'Library', pages: ['history', 'bookmarks', 'downloads', 'reading', 'highlights', 'watching', 'archive'] },
   { label: 'AI', pages: ['assistant', 'briefs', 'ai'] },
-  { label: 'Privacy', pages: ['passwords', 'vpn', 'blocker'] }
+  { label: 'Focus', pages: ['focus', 'blocker'] },
+  { label: 'Privacy', pages: ['passwords', 'vpn'] }
 ]
 const NAV_ADVANCED: InternalPage[] = ['tasks', 'flags']
 
@@ -62,7 +66,7 @@ function NavLink({ page, current }: { page: InternalPage; current: InternalPage 
         aria-label={title}
         title={title}
         aria-current={page === current ? 'page' : undefined}
-        className={cx('flex h-7.5 shrink-0 items-center gap-2.5 rounded-md px-2 transition-colors', page === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
+        className={cx('flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2 transition-colors', page === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
       >
         <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0" />
         <span className="truncate max-[720px]:sr-only">{title}</span>
@@ -129,7 +133,7 @@ function SettingsSections() {
 
 function PageFrame() {
   const current = (location.host in pages ? location.host : 'settings') as InternalPage
-  const { title, component: Page } = pages[current]
+  const { title, component: Page, bare } = pages[current]
 
   useEffect(() => {
     document.title = title
@@ -169,7 +173,7 @@ function PageFrame() {
         ) : (
           <main className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex max-w-180 flex-col gap-6 px-10 py-10 max-[720px]:px-5 max-[720px]:py-6">
-              <h1 className="text-xl font-semibold tracking-[-0.03em]">{title}</h1>
+              {!bare && <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">{title}</h1>}
               <Page />
             </div>
           </main>

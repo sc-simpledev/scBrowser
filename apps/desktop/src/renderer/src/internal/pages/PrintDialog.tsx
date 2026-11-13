@@ -1,7 +1,7 @@
 import { FileDown, Printer, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
+import { Button, cx, IconButton, Input, Select, Switch, Segmented } from '@scbrowser/ui'
 import { DEFAULT_PRINT, pagesIn, parsePageRanges, type PrintChoice, type PrinterChoice } from '@scbrowser/shared'
 import { api } from '../api'
 
@@ -47,24 +47,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function Segmented<T extends string | boolean>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (value: T) => void }) {
-  return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-md border border-border p-0.5">
-      {options.map(([option, text]) => (
-        <button
-          key={String(option)}
-          type="button"
-          role="radio"
-          aria-checked={value === option}
-          onClick={() => onChange(option)}
-          className={cx('h-7 flex-1 rounded-sm px-2 text-sm', value === option ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:text-text')}
-        >
-          {text}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 /**
  * A print box drawn by scTerra, with a live preview, in place of the system's own. The system box

@@ -85,7 +85,7 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'use MIDI devices'
 }
 
-export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'passwords', 'downloads', 'blocker', 'vpn', 'tasks', 'watching', 'archive', 'highlights', 'reading', 'briefs', 'flags'] as const
+export const INTERNAL_PAGES = ['settings', 'ai', 'assistant', 'history', 'bookmarks', 'passwords', 'downloads', 'blocker', 'vpn', 'tasks', 'watching', 'archive', 'highlights', 'reading', 'briefs', 'focus', 'flags'] as const
 export type InternalPage = (typeof INTERNAL_PAGES)[number]
 
 /** A site installed with its own window and system shortcut. */

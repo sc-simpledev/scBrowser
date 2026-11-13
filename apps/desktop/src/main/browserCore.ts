@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -30,10 +30,11 @@ import { ReadingList } from './readingList'
 import { MiniApps } from './miniApps'
 import { BriefService } from './briefs'
 import { SnoozeService } from './snooze'
+import { StudyService } from './study'
 import { PrivacyStats } from './privacyStats'
 import { onBannerRejected } from './cookieBanners'
 import { Onboarding } from './onboarding'
-import { webContext } from './ai/webSearch'
+import { readResult, webContext } from './ai/webSearch'
 import { pdfPageUrl } from './internal/pdf'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { ChatsRepo } from './storage/chats'
@@ -57,8 +58,8 @@ const SYNC_EVERY_MS = 10 * 60_000
 const WORKSPACES_KEY = 'workspaces'
 
 const isWorkspace = (value: unknown): value is Workspace => {
-  const { id, name, focus } = (value ?? {}) as Workspace
-  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean'
+  const { id, name, focus, schedule } = (value ?? {}) as Workspace
+  return typeof id === 'string' && typeof name === 'string' && typeof focus === 'boolean' && (schedule === undefined || schedule === null || isWorkspaceSchedule(schedule))
 }
 
 /** Tests point pings at a local page. */
@@ -157,6 +158,8 @@ export class BrowserCore {
   readonly briefs: BriefService | null
   /** Tabs put away until later. Private windows have none. */
   readonly snoozed: SnoozeService | null
+  /** The study timer. Private windows have none. */
+  readonly study: StudyService | null
   /** Counts of what was blocked, for the new tab. Private windows count nothing. */
   readonly privacyStats: PrivacyStats | null
   readonly onboarding: Onboarding
@@ -228,6 +231,7 @@ export class BrowserCore {
       },
       screen: (url, contents): string | null | Promise<string | null> => (this.ownerOf(contents) || this.extraPages.has(contents) ? this.blocker.screen(url) : null),
       onScreenedOut: (url, reason, contents) => {
+        this.study?.noteDistraction(url)
         // Only a tab can show the block page, as it's an sc:// page that needs the tab's bridge.
         const elsewhere = this.extraPages.get(contents)
         if (elsewhere) return elsewhere(url)
@@ -410,6 +414,15 @@ export class BrowserCore {
           write: (system, user, maxTokens) => backgroundAi.write(system, user, maxTokens),
           search: (query, options) => webContext(query, (url) => URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host), options),
           online: () => net.isOnline(),
+          readingPages: async (read) => {
+            const off = (url: string) => URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)
+            const unread = (this.readingList?.list() ?? []).filter((item) => item.readAt === null).toSorted((a, b) => b.addedAt - a.addedAt)
+            if (unread.length === 0) return []
+            const pages = (await Promise.all(unread.filter((item) => !off(item.url)).slice(0, read).map((item) => readResult({ url: item.url, title: item.title })))).filter((page) => page !== null)
+            const list = { title: 'My unread reading list', url: 'sc://reading/', text: unread.slice(0, 40).map((item, i) => `${i + 1}. ${item.title || item.url}\n${item.url}${item.summary ? `\nSummary: ${item.summary.slice(0, 500)}` : ''}`).join('\n\n') }
+            return [...pages, list]
+          },
+          focusWeek: () => this.study?.weekText() ?? null,
           onChange: (summary) => this.broadcast('briefs:changed', summary),
           onReady: (issue, startup) => this.briefReady(issue.id, issue.title, startup)
         })
@@ -427,6 +440,17 @@ export class BrowserCore {
           }
         })
     app.on('will-quit', () => this.snoozed?.destroy())
+    this.study = isPrivate
+      ? null
+      : new StudyService({
+          kv,
+          idleSeconds: () => powerMonitor.getSystemIdleTime(),
+          focusMode: () => settings.get().focusMode,
+          setFocusMode: (focusMode) => settings.set({ focusMode, focusUntil: 0, focusBreakUntil: 0, studyRound: 0 }),
+          onChange: (summary) => this.broadcast('study:changed', summary),
+          notify: (text) => this.focused()?.actions.notify(text)
+        })
+    app.on('will-quit', () => this.study?.destroy())
     const stopSaver = startMemorySaver({
       enabled: () => settings.get().memorySaver,
       // On Linux `free` leaves out memory the system can hand back at once (disk cache), so it reads as
@@ -454,6 +478,46 @@ export class BrowserCore {
       )
     )
     app.on('will-quit', stopFocus)
+    const stopSchedules = this.startWorkspaceSchedules()
+    app.on('will-quit', stopSchedules)
+  }
+
+  /**
+   * Workspaces with hours switch every browser window to themselves as their hours begin, and back
+   * to the first workspace as they end, if they're still the open one. Only the moment of change
+   * counts, so switching by hand in between is left alone.
+   */
+  private startWorkspaceSchedules(): () => void {
+    let inside = new Set<string>()
+    let first = true
+    const check = () => {
+      const now = new Date()
+      const scheduled = this.savedWorkspaces().filter((workspace) => workspace.schedule)
+      const current = new Set(scheduled.filter((workspace) => workspaceScheduledNow(workspace.schedule!, now)).map((workspace) => workspace.id))
+      const started = scheduled.find((workspace) => current.has(workspace.id) && !inside.has(workspace.id))
+      const ended = scheduled.filter((workspace) => inside.has(workspace.id) && !current.has(workspace.id))
+      for (const handle of this.windows) {
+        if (handle.kind !== 'browser') continue
+        for (const workspace of ended) if (handle.tabs.workspace.id === workspace.id && !started) handle.tabs.switchWorkspace(DEFAULT_WORKSPACE.id)
+        if (started && handle.tabs.workspace.id !== started.id) {
+          handle.tabs.switchWorkspace(started.id)
+          if (!first) handle.actions.notify(`Switched to ${started.name}: ${workspaceScheduleLabel(started.schedule!)}`)
+        }
+      }
+      // A window that isn't open yet at the start gets its turn on the next check.
+      if (this.windows.length > 0) {
+        inside = current
+        first = false
+      }
+    }
+    const timer = setInterval(check, 30_000)
+    const soon = setTimeout(check, 3_000)
+    timer.unref?.()
+    soon.unref?.()
+    return () => {
+      clearInterval(timer)
+      clearTimeout(soon)
+    }
   }
 
   /** Clears what this computer remembers about a site, then reloads its open tabs so they start fresh. */

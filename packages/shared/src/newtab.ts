@@ -11,6 +11,7 @@ export const NEW_TAB_WIDGETS = [
   { id: 'reading', name: 'Reading list' },
   { id: 'watching', name: 'Watched pages' },
   { id: 'briefs', name: 'AI Briefs' },
+  { id: 'focus', name: 'Focus timer' },
   { id: 'privacy', name: 'Privacy this week' }
 ] as const
 

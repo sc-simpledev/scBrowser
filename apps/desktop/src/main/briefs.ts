@@ -10,7 +10,13 @@ import {
   briefPrompt,
   briefQuery,
   briefTitle,
+  cleanFollow,
   DEFAULT_BRIEF_PREFS,
+  FOCUS_RECAP_PROMPT,
+  followsNote,
+  MAX_BRIEF_FOLLOWS,
+  readingBriefPrompt,
+  SOURCE_TOPICS,
   HOSTED_BRIEFS_PER_DAY,
   localDay,
   MAX_BRIEF_ISSUES,
@@ -54,6 +60,10 @@ export interface BriefDeps {
   write: (system: string, user: string, maxTokens: number) => Promise<string>
   search: (query: string, options: { recency: Recency; read: number; sites: string[] }) => Promise<PageContext[]>
   online: () => boolean
+  /** Unread reading list pages, read for a reading list brief, with a list of all of them last. Empty when nothing is unread. */
+  readingPages?: (read: number) => Promise<PageContext[]>
+  /** The focus timer's last week in words, or null with nothing to recap. */
+  focusWeek?: () => string | null
   onChange: (summary: BriefSummary) => void
   /** A brief has just been written. `startup` when it was soon after scTerra opened. */
   onReady: (issue: BriefIssue, startup: boolean) => void
@@ -141,9 +151,12 @@ export class BriefService {
 
   save(id: string | null, input: BriefInput): BriefSchedule {
     const now = this.now()
-    const topic = input.topic.replace(/\s+/g, ' ').trim()
-    const title = input.title.trim() || briefTitle(topic)
-    const fields = { title, topic, time: input.time, frequency: input.frequency, weekday: input.weekday, length: input.length, sites: input.sites ?? [], onlyNew: input.onlyNew ?? false }
+    const source = input.source ?? 'web'
+    const fixed = source === 'web' ? null : SOURCE_TOPICS[source]
+    const topic = fixed?.topic ?? input.topic.replace(/\s+/g, ' ').trim()
+    const title = input.title.trim() || fixed?.title || briefTitle(topic)
+    const web = source === 'web'
+    const fields = { title, topic, time: input.time, frequency: input.frequency, weekday: input.weekday, length: input.length, sites: web ? (input.sites ?? []) : [], onlyNew: web && (input.onlyNew ?? false), source }
     const schedules = this.schedules()
     if (id === null) {
       if (schedules.length >= MAX_BRIEF_SCHEDULES) throw new Error(`You can have ${MAX_BRIEF_SCHEDULES} briefs at most.`)
@@ -170,6 +183,24 @@ export class BriefService {
     const schedule = this.schedules().find((candidate) => candidate.id === id)
     if (!schedule) return
     this.patch(id, { paused, ...(paused ? {} : { nextRunAt: nextBriefRun(schedule, this.now(), schedule.lastRunAt), error: null }) })
+  }
+
+  /** Follows a story in a web brief: each brief after this opens with what's new on it. */
+  follow(id: string, story: string): void {
+    const schedule = this.schedules().find((candidate) => candidate.id === id)
+    if (!schedule) throw new Error('That brief no longer exists.')
+    if ((schedule.source ?? 'web') !== 'web') throw new Error('Only briefs from the web can follow stories.')
+    const clean = cleanFollow(story)
+    if (!clean) throw new Error('Say which story to follow.')
+    const follows = schedule.follows ?? []
+    if (follows.some((other) => other.toLowerCase() === clean.toLowerCase())) return
+    if (follows.length >= MAX_BRIEF_FOLLOWS) throw new Error(`A brief can follow ${MAX_BRIEF_FOLLOWS} stories at most.`)
+    this.patch(id, { follows: [...follows, clean] })
+  }
+
+  unfollow(id: string, story: string): void {
+    const schedule = this.schedules().find((candidate) => candidate.id === id)
+    if (schedule) this.patch(id, { follows: (schedule.follows ?? []).filter((other) => other !== story) })
   }
 
   setPrefs(prefs: Partial<BriefPrefs>): void {
@@ -243,14 +274,8 @@ export class BriefService {
       if (hosted && this.hostedUsed() >= HOSTED_BRIEFS_PER_DAY) {
         throw new BriefLimitError(`You've had today's ${HOSTED_BRIEFS_PER_DAY} briefs on scTerra AI. Briefs on your own API key have no limit.`)
       }
-      const recency: Recency = schedule.frequency === 'daily' ? 'd' : 'w'
-      const pages = await this.deps.search(briefQuery(schedule.topic), { recency, read: BRIEF_PAGES[schedule.length], sites: schedule.sites ?? [] })
-      if (pages.length === 0) throw new Error("The web search didn't find anything on this topic.")
-      const numbered = pages.map((page, index) => ({ ...page, id: index + 1 }))
-      const previous = schedule.onlyNew ? this.issues().find((issue) => issue.scheduleId === id) : undefined
-      const request = `Write my ${schedule.length} brief on: ${schedule.topic}${previous ? previousBriefNote(previous.text, previous.createdAt) : ''}`
-      const [message] = withContext([{ role: 'user', content: request }], numbered, null)
-      const text = (await this.deps.write(briefPrompt(schedule.length, now), message!.content, BRIEF_TOKENS[schedule.length])).trim()
+      const { system, user, numbered } = await this.request(schedule, now)
+      const text = (await this.deps.write(system, user, BRIEF_TOKENS[schedule.length])).trim()
       if (!text) throw new Error('The AI sent back nothing.')
       if (hosted) this.deps.kv.set(HOSTED_KEY, { day: localDay(this.now()), count: this.hostedUsed() + 1 })
 
@@ -269,6 +294,38 @@ export class BriefService {
       else if (current) this.patch(id, { error: message })
       throw error
     }
+  }
+
+  /** What to send for a brief: the instructions, the request with its pages, and the pages to cite. */
+  private async request(schedule: BriefSchedule, now: number): Promise<{ system: string; user: string; numbered: (PageContext & { id: number })[] }> {
+    const source = schedule.source ?? 'web'
+    if (source === 'focus') {
+      const week = this.deps.focusWeek?.() ?? null
+      if (!week) throw new Error('The focus timer has nothing from the last two weeks to recap yet.')
+      return { system: FOCUS_RECAP_PROMPT, user: `<focus-week>\n${week}\n</focus-week>\n\nWrite my weekly recap.`, numbered: [] }
+    }
+    if (source === 'reading') {
+      const pages = (await this.deps.readingPages?.(BRIEF_PAGES[schedule.length])) ?? []
+      if (pages.length === 0) throw new Error('Nothing is waiting in your reading list.')
+      const numbered = pages.map((page, index) => ({ ...page, id: index + 1 }))
+      const [message] = withContext([{ role: 'user', content: 'Catch me up on my unread reading list.' }], numbered, null)
+      return { system: readingBriefPrompt(schedule.length, now), user: message!.content, numbered }
+    }
+    const recency: Recency = schedule.frequency === 'daily' ? 'd' : 'w'
+    const pages = await this.deps.search(briefQuery(schedule.topic), { recency, read: BRIEF_PAGES[schedule.length], sites: schedule.sites ?? [] })
+    if (pages.length === 0) throw new Error("The web search didn't find anything on this topic.")
+    // A followed story gets a search of its own, keeping only the best page read for it.
+    const follows = schedule.follows ?? []
+    for (const story of follows.slice(0, 3)) {
+      const found = await this.deps.search(story, { recency, read: 1, sites: [] }).catch(() => [])
+      const page = found.find((candidate) => !candidate.title.startsWith('Web search:') && !pages.some((other) => other.url === candidate.url))
+      if (page) pages.push(page)
+    }
+    const numbered = pages.map((page, index) => ({ ...page, id: index + 1 }))
+    const previous = schedule.onlyNew ? this.issues().find((issue) => issue.scheduleId === schedule.id) : undefined
+    const request = `Write my ${schedule.length} brief on: ${schedule.topic}${previous ? previousBriefNote(previous.text, previous.createdAt) : ''}${followsNote(follows)}`
+    const [message] = withContext([{ role: 'user', content: request }], numbered, null)
+    return { system: briefPrompt(schedule.length, now), user: message!.content, numbered }
   }
 
   /** When to try a failed brief again: tomorrow after the daily limit, soon after a passing failure. */

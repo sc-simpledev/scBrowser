@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -12,6 +12,8 @@ import {
   type Bookmark,
   briefPreview,
   speechText,
+  stopwatch,
+  type StudyState,
   GETTING_STARTED,
   type GettingStartedId,
   type OnboardingState,
@@ -700,6 +702,68 @@ function BriefsMenu({ issues }: { issues: BriefIssue[] }) {
   )
 }
 
+/** Today's focused time, and a button per activity to start or stop the timer from the new tab. */
+function FocusWidget() {
+  const [state, setState] = useState<StudyState | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const load = useCallback(() => void api().invoke('study:state').then(setState).catch(() => undefined), [])
+  useEffect(() => {
+    load()
+    const refresh = () => document.visibilityState === 'visible' && load()
+    document.addEventListener('visibilitychange', refresh)
+    return () => document.removeEventListener('visibilitychange', refresh)
+  }, [load])
+  const running = state?.running ?? null
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [running])
+  if (!state) return null
+  const midnight = new Date(now).setHours(0, 0, 0, 0)
+  const live = running ? Math.max(0, now - Math.max(running.startedAt, midnight)) : 0
+  const today = (state.days.at(-1)?.total ?? 0) + live
+  const goal = state.prefs.goalMinutes * 60_000
+  const act = (call: Promise<StudyState>) => void call.then(setState).catch(() => load())
+  return (
+    <Card title="Focus timer">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-2xl leading-none font-light tracking-[-0.03em] tabular-nums">{stopwatch(today)}</span>
+          <span className="truncate text-xs text-text-muted">{goal > 0 ? `of ${state.prefs.goalMinutes / 60} h today` : 'today'}</span>
+        </div>
+        {goal > 0 && (
+          <div aria-hidden className="h-1 overflow-hidden rounded-full bg-surface-active">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (today / goal) * 100)}%` }} />
+          </div>
+        )}
+      </div>
+      <div className="-mx-1 flex flex-wrap gap-1">
+        {state.subjects.slice(0, 6).map((subject) => {
+          const on = running?.subjectId === subject.id
+          return (
+            <button
+              key={subject.id}
+              type="button"
+              aria-pressed={on}
+              aria-label={on ? `Stop ${subject.name}` : `Start ${subject.name}`}
+              style={{ '--hue': subject.hue } as CSSProperties}
+              className={cx('sc-hued flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors', on ? 'bg-[var(--hued-soft)] text-[var(--hued)]' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
+              onClick={() => act(on ? api().invoke('study:stop') : api().invoke('study:start', subject.id))}
+            >
+              {on ? <Pause aria-hidden size={11} strokeWidth={2.25} /> : <Play aria-hidden size={11} strokeWidth={2.25} className="text-[var(--hued)]" />}
+              {subject.name}
+            </button>
+          )
+        })}
+      </div>
+      <button type="button" className="self-start text-xs text-text-muted transition-colors hover:text-text" onClick={() => openNewTab('sc://focus')}>
+        Open the timer
+      </button>
+    </Card>
+  )
+}
+
 function NotesWidget({ notes, update }: { notes: string; update: Update }) {
   const [text, setText] = useState(notes)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -778,6 +842,8 @@ function Widget({ id, config, update, keepChats }: { id: NewTabWidgetId; config:
       return <BriefsWidget />
     case 'privacy':
       return <PrivacyWidget />
+    case 'focus':
+      return <FocusWidget />
   }
 }
 

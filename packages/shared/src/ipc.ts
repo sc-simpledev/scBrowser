@@ -12,6 +12,7 @@ import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval, WatchTarget } from './watch'
 import type { BriefInput, BriefIssue, BriefPrefs, BriefState, BriefSummary } from './briefs'
 import type { SnoozedTab } from './snooze'
+import type { StudyPrefs, StudyState, StudySubject, StudySummary } from './study'
 import type { PrivacyWeek } from './privacy'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
@@ -143,6 +144,11 @@ export interface ChromeCommands {
   /** Opens the newest unread brief, or the briefs page. */
   'briefs:open': () => void
   'briefs:dismiss': () => void
+  'study:summary': () => StudySummary
+  /** Opens sc://focus. */
+  'study:open': () => void
+  /** Stops the running timer, or starts the last subject again. */
+  'study:toggle': () => void
   'bookmarks:overflow-menu': (items: BarItem[], x: number, y: number) => void
   'profiles:menu': (x: number, y: number) => void
   /** Opens a sidebar site, or closes it if it's the one showing. */
@@ -183,6 +189,7 @@ export interface ChromeEvents {
   'ui:site-colour': string | null
   'updates:changed': UpdateState
   'briefs:changed': BriefSummary
+  'study:changed': StudySummary
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
   'overlay:clear-tooltip': void
@@ -324,6 +331,9 @@ export const COMMAND_CHANNELS = [
   'briefs:summary',
   'briefs:open',
   'briefs:dismiss',
+  'study:summary',
+  'study:open',
+  'study:toggle',
   'bookmarks:overflow-menu',
   'profiles:menu',
   'sidebar-sites:toggle',
@@ -359,6 +369,7 @@ export const EVENT_CHANNELS = [
   'ui:site-colour',
   'updates:changed',
   'briefs:changed',
+  'study:changed',
   'omnibox:answer-action',
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
@@ -656,10 +667,25 @@ export interface InternalCommands {
   'briefs:issue': (id: string) => BriefIssue | null
   /** A question about a brief, answered from it and its sources. Nothing is saved. */
   'briefs:ask': (id: string, question: string) => string
+  /** Follows a story in a web brief. */
+  'briefs:follow': (scheduleId: string, story: string) => BriefState
+  'briefs:unfollow': (scheduleId: string, story: string) => BriefState
+  /** Adds a brief to the notes on the new tab page. Returns what to say. */
+  'briefs:to-notes': (id: string) => string
+  /** Saved icons for these hosts, as data addresses. Only sites that were bookmarked have one. */
+  'site-icons:for': (hosts: string[]) => Record<string, string>
   'snooze:list': () => SnoozedTab[]
   /** Opens a snoozed tab now. */
   'snooze:wake': (id: string) => void
   'snooze:remove': (id: string) => void
+  'study:state': () => StudyState
+  'study:start': (subjectId: string) => StudyState
+  'study:stop': () => StudyState
+  /** Null adds a new one. */
+  'study:subject-save': (id: string | null, subject: Omit<StudySubject, 'id'>) => StudyState
+  'study:subject-remove': (id: string) => StudyState
+  'study:session-remove': (id: string) => StudyState
+  'study:prefs': (prefs: Partial<StudyPrefs>) => StudyState
   'onboarding:state': () => OnboardingState
   /** Shows how one of the Get started list works, by doing it, and ticks it off. */
   'onboarding:try': (id: GettingStartedId) => void
@@ -886,9 +912,20 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'briefs:prefs',
   'briefs:issue',
   'briefs:ask',
+  'briefs:follow',
+  'briefs:unfollow',
+  'briefs:to-notes',
+  'site-icons:for',
   'snooze:list',
   'snooze:wake',
   'snooze:remove',
+  'study:state',
+  'study:start',
+  'study:stop',
+  'study:subject-save',
+  'study:subject-remove',
+  'study:session-remove',
+  'study:prefs',
   'onboarding:state',
   'onboarding:try',
   'onboarding:mark',

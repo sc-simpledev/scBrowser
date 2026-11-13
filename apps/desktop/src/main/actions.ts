@@ -17,7 +17,9 @@ export interface BrowserActions {
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
-  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'briefs' | 'archive' | 'highlights' | 'reading', part?: string) => void
+  openPage: (page: 'settings' | 'ai' | 'history' | 'bookmarks' | 'passwords' | 'downloads' | 'blocker' | 'vpn' | 'tasks' | 'watching' | 'briefs' | 'focus' | 'archive' | 'highlights' | 'reading', part?: string) => void
+  /** Stops the focus timer, or starts its last subject again. */
+  toggleStudy: () => void
   openCode: () => void
   toggleAssistant: () => void
   passwordMenu: () => void

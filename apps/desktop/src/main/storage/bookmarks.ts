@@ -70,6 +70,18 @@ export class BookmarksRepo {
     }))
   }
 
+  /** Saved icons for these hosts, with or without `www.`. */
+  iconsFor(hosts: string[]): Record<string, string> {
+    const wanted = new Set(hosts)
+    const found: Record<string, string> = {}
+    for (const { host, icon } of this.iconsQuery.all() as unknown as { host: string; icon: string }[]) {
+      const bare = host.replace(/^www\./, '')
+      if (wanted.has(host)) found[host] = icon
+      if (wanted.has(bare)) found[bare] ??= icon
+    }
+    return found
+  }
+
   setIcon(host: string, icon: string): void {
     this.saveIcon.run(host, icon)
   }

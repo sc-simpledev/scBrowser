@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, Newspaper, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { containerPartition, fullToolbarOrder, type BriefSummary, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
+import { stopwatch, containerPartition, fullToolbarOrder, type BriefSummary, type StudySummary, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
@@ -306,6 +306,48 @@ function BriefChip() {
   )
 }
 
+/**
+ * The focus timer while it runs: today's total ticking for the stopwatch, the time left for a
+ * countdown, or the break's time left, in the activity's colour.
+ */
+function StudyChip() {
+  const [summary, setSummary] = useState<StudySummary | null>(null)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    void window.scb.invoke('study:summary').then(setSummary)
+    return window.scb.on('study:changed', setSummary)
+  }, [])
+  const running = summary?.running
+  const breakUntil = summary?.breakUntil ?? null
+  useEffect(() => {
+    if (!running && !breakUntil) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [running, breakUntil])
+  if (!summary || (!running && !breakUntil)) return null
+  const today = summary.todayBefore + (running ? Math.max(0, now - running.startedAt) : 0)
+  const left = running?.endsAt ? running.endsAt - now : breakUntil ? breakUntil - now : null
+  const shown = left !== null ? stopwatch(Math.max(0, left) + 999) : stopwatch(today)
+  const label = breakUntil
+    ? `Focus timer: break, ${shown} left. Open the timer`
+    : running?.endsAt
+      ? `Focus timer: ${running.subject}, round ${running.round} of ${running.rounds}, ${shown} left. Open the timer`
+      : `Focus timer: ${running!.subject}, ${shown} today. Open the timer`
+  return (
+    <IconButton
+      label={label}
+      style={{ '--hue': running?.hue ?? 200 } as CSSProperties}
+      className={cx('sc-hued w-auto gap-1.5 px-2 text-xs font-medium tabular-nums', breakUntil ? 'text-text-muted' : 'bg-[var(--hued-soft)] text-[var(--hued)] hover:bg-[var(--hued-soft)]')}
+      onClick={() => void window.scb.invoke('study:open')}
+    >
+      {breakUntil ? <Coffee aria-hidden size={13} strokeWidth={1.75} /> : <span aria-hidden className={cx('size-1.5 rounded-full bg-[var(--hued)]', !running?.endsAt && 'animate-pulse')} />}
+      {running?.endsAt && running.rounds > 1 && <span className="opacity-70">{running.round}/{running.rounds}</span>}
+      {shown}
+    </IconButton>
+  )
+}
+
 /** Holds one toolbar item, which can be dragged to another place in the bar. */
 function Slot({ slot, dragging, target, onDrag, onTarget, onDrop, children }: {
   slot: ToolbarSlot
@@ -422,6 +464,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       {/* These stay at the end of the bar, wherever everything else has been dragged. */}
       <PrivateBadge />
       <FocusChip />
+      <StudyChip />
       <BriefChip />
       <UpdateButton />
       {showProfiles && !compact && (

@@ -71,3 +71,75 @@
 [data-settings-searching] [data-settings-group]:not(:has([data-setting])) {
   display: none;
 }
+
+/* Study calendar: five steps from nothing to the day's goal. */
+.sc-heat {
+  background: var(--sc-surface-active);
+}
+.sc-heat[data-level='1'] {
+  background: color-mix(in oklab, var(--sc-accent) 28%, var(--sc-surface-active));
+}
+.sc-heat[data-level='2'] {
+  background: color-mix(in oklab, var(--sc-accent) 52%, var(--sc-surface-active));
+}
+.sc-heat[data-level='3'] {
+  background: color-mix(in oklab, var(--sc-accent) 76%, var(--sc-surface-active));
+}
+.sc-heat[data-level='4'] {
+  background: var(--sc-accent);
+}
+
+/* The timer's card takes a faint glow of the running subject's colour, or the accent at rest. */
+.sc-focus-hero {
+  background:
+    radial-gradient(80% 70% at 50% -10%, color-mix(in oklab, var(--hued, var(--sc-accent)) 14%, transparent), transparent 70%),
+    var(--sc-surface);
+}
+
+/*
+ * AI Briefs: a calm reading room. A masthead with a soft wash of the accent, and briefs set
+ * larger and looser than chat replies, for reading rather than skimming.
+ */
+.sc-briefs-masthead {
+  background:
+    radial-gradient(60% 90% at 0% 0%, color-mix(in oklab, var(--sc-accent) 22%, transparent), transparent 70%),
+    radial-gradient(50% 80% at 100% 0%, color-mix(in oklab, oklch(0.7 0.12 calc(var(--sc-hue) + 60)) 18%, transparent), transparent 70%),
+    radial-gradient(70% 60% at 60% 120%, color-mix(in oklab, oklch(0.7 0.1 calc(var(--sc-hue) - 50)) 14%, transparent), transparent 70%),
+    var(--sc-surface);
+}
+
+.sc-brief-prose .sc-prose {
+  gap: calc(var(--sc-space) * 3);
+  font-size: var(--sc-text-md);
+  line-height: 1.7;
+  color: var(--sc-text);
+}
+
+.sc-brief-prose .sc-prose h1,
+.sc-brief-prose .sc-prose h2,
+.sc-brief-prose .sc-prose h3 {
+  margin-top: calc(var(--sc-space) * 3);
+  letter-spacing: -0.015em;
+}
+
+.sc-brief-prose .sc-prose h1,
+.sc-brief-prose .sc-prose h2 {
+  font-size: 17px;
+}
+
+.sc-brief-prose .sc-prose h3 {
+  font-size: var(--sc-text-md);
+}
+
+.sc-brief-prose .sc-prose ul,
+.sc-brief-prose .sc-prose ol {
+  gap: calc(var(--sc-space) * 2);
+}
+
+.sc-brief-prose .sc-prose li::marker {
+  color: var(--sc-accent);
+}
+
+.sc-brief-prose .sc-prose strong {
+  color: var(--sc-text);
+}

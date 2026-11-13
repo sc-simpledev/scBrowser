@@ -45,6 +45,8 @@
   --sc-text-md: 15px;
   --sc-text-lg: 20px;
   --sc-text-xl: 28px;
+  /* Page headings, as in the scSpace style. */
+  --sc-text-display: 40px;
   --sc-leading-tight: 1.2;
   --sc-leading-normal: 1.45;
   --sc-weight-regular: 400;

@@ -133,34 +133,67 @@ export interface ProbeTarget {
 
 export const DEFAULT_PROBE: ProbeTarget = { host: 'cp.cloudflare.com', port: 80 }
 
-const probeRequest = (path: string, { host, port }: ProbeTarget) => `GET ${path} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: close\r\n\r\n`
+const probeRequest = (path: string, { host, port }: ProbeTarget) => `GET ${path} HTTP/1.1\r\nHost: ${host}:${port}\r\nConnection: keep-alive\r\n\r\n`
 
-/** Runs `talk` over a socket, resolving with the milliseconds it took or null at the deadline. */
-function timedExchange(host: string, port: number, timeout: number, talk: (socket: Socket, finish: (ok: boolean) => void) => void): Promise<number | null> {
+/**
+ * Runs `talk` over a socket. `finish(true)` resolves with the milliseconds since the start,
+ * `finish(ms)` with that figure, and `finish(false)` with null. If the socket fails or the
+ * deadline passes first, it resolves with whatever `fallback` was set to, null at first.
+ */
+function timedExchange(host: string, port: number, timeout: number, talk: (socket: Socket, finish: (result: boolean | number) => void, setFallback: (ms: number) => void) => void): Promise<number | null> {
   return new Promise((resolve) => {
     const started = performance.now()
+    let fallback: number | null = null
     const socket = connect({ host, port })
-    const timer = setTimeout(() => finish(false), timeout)
-    function finish(ok: boolean) {
+    const timer = setTimeout(() => done(fallback), timeout)
+    function done(result: number | null) {
       clearTimeout(timer)
       socket.destroy()
-      resolve(ok ? Math.round(performance.now() - started) : null)
+      resolve(result === null ? null : Math.max(1, Math.round(result)))
     }
-    socket.once('error', () => finish(false))
-    socket.once('close', () => finish(false))
-    talk(socket, finish)
+    const finish = (result: boolean | number) => done(result === false ? null : result === true ? performance.now() - started : result)
+    socket.once('error', () => done(fallback))
+    socket.once('close', () => done(fallback))
+    talk(socket, finish, (ms) => (fallback = ms))
   })
 }
 
 const isNoContent = (reply: Buffer) => /^HTTP\/1\.[01] 204/.test(reply.toString('latin1'))
+const headersEnd = (reply: Buffer) => reply.includes('\r\n\r\n')
 
-/** Asks a SOCKS5 proxy for the test page. Only an exact empty 204 counts, so a block page doesn't pass. */
+/**
+ * Loads the test page twice over one open connection. The first load proves the connection
+ * carries traffic, but its time includes the tunnel's handshakes and a DNS lookup, so it reads
+ * far slower than the server really is. The second is a single round trip through the server,
+ * which is what other ping tools report. If the server won't take a second request, the first
+ * load's time stands. Only an exact empty 204 counts, so a block page doesn't pass.
+ */
+function twoLoads(socket: Socket, request: string, finish: (result: boolean | number) => void, setFallback: (ms: number) => void, started: number): (data: Buffer) => void {
+  let reply = Buffer.alloc(0)
+  let warmFrom = 0
+  return (data) => {
+    reply = Buffer.concat([reply, data])
+    if (!headersEnd(reply) && reply.length < 4096) return
+    if (!isNoContent(reply)) return finish(warmFrom > 0 ? performance.now() - started : false)
+    if (warmFrom > 0) return finish(performance.now() - warmFrom)
+    setFallback(performance.now() - started)
+    reply = Buffer.alloc(0)
+    warmFrom = performance.now()
+    socket.write(request)
+  }
+}
+
+/** Asks a SOCKS5 proxy for the test page, and times a second request through it. */
 export function probeSocks(host: string, port: number, target: ProbeTarget, timeout: number): Promise<number | null> {
-  return timedExchange(host, port, timeout, (socket, finish) => {
+  const started = performance.now()
+  return timedExchange(host, port, timeout, (socket, finish, setFallback) => {
     let stage = 0
     let reply = Buffer.alloc(0)
+    const request = probeRequest('/generate_204', target)
+    const loads = twoLoads(socket, request, finish, setFallback, started)
     socket.on('connect', () => socket.write(Buffer.from([5, 1, 0])))
     socket.on('data', (data) => {
+      if (stage === 2) return loads(data)
       reply = Buffer.concat([reply, data])
       if (stage === 0 && reply.length >= 2) {
         if (reply[0] !== 5 || reply[1] !== 0) return finish(false)
@@ -168,12 +201,16 @@ export function probeSocks(host: string, port: number, target: ProbeTarget, time
         reply = Buffer.alloc(0)
         const name = Buffer.from(target.host)
         socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, name.length]), name, Buffer.from([target.port >> 8, target.port & 255])]))
-      } else if (stage === 1 && reply.length >= 10) {
+      } else if (stage === 1 && reply.length >= 5) {
         if (reply[1] !== 0) return finish(false)
+        // The reply ends with the bound address, whose length depends on its type.
+        const size = reply[3] === 4 ? 22 : reply[3] === 3 ? 7 + reply[4]! : 10
+        if (reply.length < size) return
         stage = 2
-        reply = Buffer.alloc(0)
-        socket.write(probeRequest('/generate_204', target))
-      } else if (stage === 2 && reply.length >= 12) finish(isNoContent(reply))
+        const rest = reply.subarray(size)
+        if (rest.length > 0) loads(rest)
+        socket.write(request)
+      }
     })
   })
 }
@@ -181,9 +218,11 @@ export function probeSocks(host: string, port: number, target: ProbeTarget, time
 /** The same check for a plain proxy, which Chromium can use directly. */
 function probeProxy(link: ParsedLink, target: ProbeTarget, timeout: number): Promise<number | null> {
   if (link.protocol === 'socks5') return probeSocks(link.host, link.port, target, timeout)
-  return timedExchange(link.host, link.port, timeout, (socket, finish) => {
-    socket.on('connect', () => socket.write(probeRequest(`http://${target.host}:${target.port}/generate_204`, target)))
-    socket.on('data', (data) => finish(isNoContent(data)))
+  const started = performance.now()
+  return timedExchange(link.host, link.port, timeout, (socket, finish, setFallback) => {
+    const request = probeRequest(`http://${target.host}:${target.port}/generate_204`, target)
+    socket.on('connect', () => socket.write(request))
+    socket.on('data', twoLoads(socket, request, finish, setFallback, started))
   })
 }
 

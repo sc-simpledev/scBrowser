@@ -1,3 +1,4 @@
+import type { WorkspaceSchedule } from './tabs'
 import type { SiteFont } from './siteFont'
 import type { BookmarkGroup, PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
@@ -144,6 +145,7 @@ export interface WorkspaceEditorState {
   id: string | null
   name: string
   focus: boolean
+  schedule: WorkspaceSchedule | null
   canRemove: boolean
   x: number
   y: number
@@ -187,6 +189,7 @@ export interface WorkspaceEdit {
   id: string | null
   name: string
   focus: boolean
+  schedule: WorkspaceSchedule | null
 }
 
 export interface BookmarkEdit {
@@ -249,7 +252,7 @@ export const EXTENSIONS_POPUP = { width: 320, rowHeight: 36, chrome: 98, maxHeig
 export const APP_LINK_POPUP = { width: 360, height: 132 }
 export const PASSWORD_POPUP = { width: 340, height: 96, inset: 8 }
 export const CLEANUP_POPUP = { width: 480, height: 420, top: 72 }
-export const WORKSPACE_POPUP = { width: 300, height: 188 }
+export const WORKSPACE_POPUP = { width: 320, height: 318 }
 /** The header above a link preview's page, and how far the card keeps from the page's edges. */
 export const LINK_PREVIEW = { header: 44, inset: 40, maxWidth: 1180, minWidth: 360 }
 

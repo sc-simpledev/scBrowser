@@ -139,6 +139,39 @@ describe('VpnService', () => {
   })
 })
 
+describe('VPN ping', () => {
+  it('reports a warm round trip, not the slow first load with its handshakes', async () => {
+    // The first request on a connection waits, as a tunnel's setup and a DNS lookup would.
+    const seen = new WeakMap<object, number>()
+    const server = createHttp((req, res) => {
+      const count = (seen.get(req.socket) ?? 0) + 1
+      seen.set(req.socket, count)
+      setTimeout(() => res.writeHead(204).end(), count === 1 ? 300 : 0)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { vpn } = setup()
+    await vpn.add(`http://127.0.0.1:${(server.address() as AddressInfo).port}#Near`, null)
+    const [near] = vpn.state().connections
+    const results = await vpn.ping([near!.id], 2000)
+    expect(results[near!.id]).toBeLessThan(150)
+    server.close()
+  })
+
+  it('keeps the first load when the server closes after it', async () => {
+    const server = createHttp((_req, res) => {
+      res.setHeader('connection', 'close')
+      setTimeout(() => res.writeHead(204).end(), 200)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { vpn } = setup()
+    await vpn.add(`http://127.0.0.1:${(server.address() as AddressInfo).port}#Once`, null)
+    const [once] = vpn.state().connections
+    const results = await vpn.ping([once!.id], 2000)
+    expect(results[once!.id]).toBeGreaterThanOrEqual(190)
+    server.close()
+  })
+})
+
 describe('VpnService saving', () => {
   it('keeps the change and says so when the system cannot encrypt', async () => {
     const { deps } = setup()

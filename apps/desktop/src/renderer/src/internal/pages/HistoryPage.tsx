@@ -27,11 +27,11 @@ export function HistoryPage() {
 
   return (
     <>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Input
           aria-label="Search history"
           placeholder="Search, or describe what you remember"
-          className="flex-1"
+          className="min-w-56 flex-1"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />

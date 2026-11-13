@@ -274,13 +274,13 @@ test('ask about a report, save it as a template, a remembered quiz, and the extr
 
 test('settings offer the version before this one, and a study session shows its round', async () => {
   await h.close()
-  pages['/releases'] = JSON.stringify([{ tag_name: 'v0.6.1' }, { tag_name: 'v0.5.5' }, { tag_name: 'v0.4.9' }])
+  pages['/releases'] = JSON.stringify([{ tag_name: 'v0.6.2' }, { tag_name: 'v0.6.1' }, { tag_name: 'v0.4.9' }])
   h = await launch(undefined, [], { SCB_UPDATE_URL: site.url('/feed'), SCB_RELEASES_API_URL: site.url('/releases'), SCB_UPDATE_DELAY: '600000' })
   await go(h, 'sc://settings/#about')
   const settings = await h.page('sc://settings')
-  await expect(settings.getByText('Go back to version 0.5.5')).toBeVisible()
+  await expect(settings.getByText('Go back to version 0.6.1')).toBeVisible()
   await settings.getByRole('button', { name: 'Go back' }).click()
-  await expect(settings.getByRole('button', { name: 'Download 0.5.5' })).toBeVisible()
+  await expect(settings.getByRole('button', { name: 'Download 0.6.1' })).toBeVisible()
   await shot(settings, 'go-back')
 
   await setSetting(h, { focusMode: true, focusUntil: Date.now() + 25 * 60_000, studyRound: 2, studyRounds: 4 })

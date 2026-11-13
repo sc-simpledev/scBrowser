@@ -1,5 +1,5 @@
 import { studySession } from './focusTimer'
-import { AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
+import { MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
@@ -330,6 +330,18 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
     openPage: (page, part) => tabs.openInternal(`sc://${page}${part ? `/#${part}` : ''}`),
     openCode: () => tabs.openInternal('sc://assistant/?mode=code'),
+    toggleStudy: () => {
+      const study = core.study
+      if (!study) return notify('Private windows keep no focus timer')
+      if (study.running()) {
+        study.stop()
+        return notify('Focus timer stopped')
+      }
+      const subject = study.lastSubject()
+      if (!subject) return tabs.openInternal('sc://focus')
+      study.start(subject.id)
+      notify(`Focus timer started: ${subject.name}`)
+    },
     toggleAssistant: () => send('ui:assistant-toggle'),
     passwordMenu: () => openPasswordMenu(),
     readAloud: () => {
@@ -774,15 +786,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       notify("Couldn't install this app")
     }
   }
-  function saveWorkspace({ id, name, focus }: WorkspaceEdit) {
+  function saveWorkspace({ id, name, focus, schedule }: WorkspaceEdit) {
     const title = name.trim().slice(0, 40)
     if (!title) return
     if (id) {
-      core.storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus } : workspace)))
+      core.storeWorkspaces(tabs.workspaceList().map((workspace) => (workspace.id === id ? { ...workspace, name: title, focus, schedule } : workspace)))
       if (id === tabs.workspace.id && focus !== settings.get().focusMode) settings.set({ focusMode: focus })
       return
     }
-    const created = { id: crypto.randomUUID(), name: title, focus }
+    const created = { id: crypto.randomUUID(), name: title, focus, schedule }
     core.storeWorkspaces([...tabs.workspaceList(), created])
     tabs.switchWorkspace(created.id)
   }
@@ -793,6 +805,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       id: workspace?.id ?? null,
       name: workspace?.name ?? '',
       focus: workspace?.focus ?? false,
+      schedule: workspace?.schedule ?? null,
       canRemove: !!workspace && workspace.id !== DEFAULT_WORKSPACE.id,
       x: Math.round(Math.max(8, Math.min(width - WORKSPACE_POPUP.width - 8, x))),
       y: Math.round(Math.max(8, Math.min(height - WORKSPACE_POPUP.height - 8, y)))
@@ -911,6 +924,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     highlights: () => actions.openPage('highlights'),
     'watched-pages': () => actions.openPage('watching'),
     'ai-briefs': () => actions.openPage('briefs'),
+    'study-timer': () => actions.openPage('focus'),
+    'research-tabs': () => {
+      const picked = tabs.snapshot().tabs.filter((tab) => /^https?:/i.test(tab.url)).slice(0, MAX_MENTIONED_TABS)
+      if (picked.length === 0) return notify('Open some web pages to research first')
+      tabs.create(`sc://assistant/?preset=brief&tabs=${picked.map((tab) => tab.id).join(',')}`)
+    },
+    'study-toggle': () => actions.toggleStudy(),
     'get-started': () => {
       core.onboarding.setShown(true)
       tabs.openInternal('sc://newtab')
@@ -939,8 +959,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'focus-25': () => actions.focusFor(25),
     'focus-50': () => actions.focusFor(50),
     'study-session': () => {
-      settings.set(studySession())
-      notify('Study session started: round 1 of 4, 25 minutes of focus')
+      const study = core.study
+      const subject = study?.lastSubject()
+      if (!study || !subject) return void settings.set(studySession())
+      study.start(subject.id, { mode: 'countdown', focusMode: true })
+      const { focusMinutes, rounds } = study.prefs()
+      notify(`Focus countdown started: ${subject.name}, round 1 of ${rounds}, ${focusMinutes} minutes`)
     },
     'focus-mode': () => {
       const focusMode = !settings.get().focusMode

@@ -122,7 +122,8 @@ export async function searchWeb(query: string, recency?: Recency): Promise<Searc
   return parseResults(await response.text())
 }
 
-async function readResult(result: SearchResult): Promise<PageContext | null> {
+/** Reads one page as plain text, as the web search does. Null if it can't be read. */
+export async function readResult(result: Pick<SearchResult, 'url' | 'title'>): Promise<PageContext | null> {
   try {
     const response = await get(result.url, { headers: { Accept: 'text/html,application/xhtml+xml' }, timeout: PAGE_TIMEOUT_MS })
     if (!response.ok || !/html|text\/plain/i.test(response.headers.get('content-type') ?? '')) return null

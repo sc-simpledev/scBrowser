@@ -34,6 +34,7 @@
   --text-md: var(--sc-text-md);
   --text-lg: var(--sc-text-lg);
   --text-xl: var(--sc-text-xl);
+  --text-display: var(--sc-text-display);
 
   --font-weight-regular: var(--sc-weight-regular);
   --font-weight-medium: var(--sc-weight-medium);
@@ -115,4 +116,20 @@
 .sc-scroll-quiet:hover,
 .sc-scroll-quiet:focus-within {
   scrollbar-color: var(--sc-border-strong) transparent;
+}
+
+/*
+ * A colour picked by hue, for study subjects and brief monograms. Set `--hue` on the element.
+ * Lightness and chroma match the accent, so every hue sits at the same weight.
+ */
+.sc-hued {
+  --hued: oklch(0.65 0.13 var(--hue, 200));
+  --hued-soft: oklch(0.65 0.13 var(--hue, 200) / 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sc-hued {
+    --hued: oklch(0.74 0.13 var(--hue, 200));
+    --hued-soft: oklch(0.74 0.13 var(--hue, 200) / 0.16);
+  }
 }
