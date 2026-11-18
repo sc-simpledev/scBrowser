@@ -10,6 +10,9 @@ import { frontmatter, mcpConfig } from './coderProject'
 import { MemoryCoderTrust } from './coderTrust'
 import { sandboxAvailable } from './coderTools'
 
+/** These steps use POSIX shell commands; on Windows Terra Code's commands go through cmd.exe. */
+const posixOnly = process.platform === 'win32'
+
 let root = ''
 let home = ''
 beforeEach(async () => {
@@ -116,7 +119,7 @@ describe('commands and rules', () => {
 })
 
 describe('live and background commands', () => {
-  it('streams what a command prints, and keeps a background job running to read later', async () => {
+  it.skipIf(posixOnly)('streams what a command prints, and keeps a background job running to read later', async () => {
     const { coder, seen } = scripted([
       tool({ tool: 'run', command: 'echo live-output' }),
       tool({ tool: 'run', command: 'echo started; sleep 0.3; echo later; sleep 30', background: true }),
@@ -154,7 +157,7 @@ describe('rewind', () => {
 })
 
 describe('compaction', () => {
-  it('summarises the start of a long session, keeping recent turns and the task', async () => {
+  it.skipIf(posixOnly)('summarises the start of a long session, keeping recent turns and the task', async () => {
     const replies = [...Array.from({ length: 10 }, (_, i) => tool({ tool: 'run', command: `head -c 30000 /dev/zero | tr '\\0' x; echo ${i}` })), 'Done.']
     const { coder, seen } = scripted(replies)
     const { events, emit } = collect(coder, () => 'allow')
@@ -221,7 +224,7 @@ describe('the project', () => {
     expect(seen[4]!.messages.at(-1)!.content).toContain('Bump the version, then tag.')
   })
 
-  it("asks before a project's hooks run, then runs them after edits", async () => {
+  it.skipIf(posixOnly)("asks before a project's hooks run, then runs them after edits", async () => {
     await mkdir(join(root, '.terra'))
     await writeFile(join(root, '.terra', 'hooks.json'), JSON.stringify({ afterEdit: [{ command: 'printf formatted > "$TERRA_FILE"', match: '*.txt' }] }))
     const { coder, seen } = scripted([tool({ tool: 'write', path: 'a.txt', content: 'messy' }), 'Done.'])
