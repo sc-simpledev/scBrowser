@@ -42,7 +42,7 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
-    version: '0.6.4',
+    version: '0.6.5',
     date: '2026-11-19',
     items: [
       'The address bar fills in the rest of a site you’ve bookmarked or visited as you type. Backspace takes it away.',

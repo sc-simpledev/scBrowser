@@ -2,9 +2,9 @@
 
 Ideas for polishing what's already there, not new features. Each one names where it lives so it can be picked up on its own. Roughly in order of how much difference they'd make day to day.
 
-## Built in 0.6.4
+## Built in 0.6.5
 
-Items 1 to 13 are in 0.6.4: site icons and bold matches in address bar rows, Shift+Delete for history rows, Ctrl+Enter, `@bookmarks`/`@history`/`@tabs`/`@ai`, unit conversions (no currencies), Paste and go, the whole address on hover, Recently closed, hover cards on side tabs, folding tab tree branches, double-click to even out split view, and dropping a tab on the page to split.
+Items 1 to 13 are in 0.6.5: site icons and bold matches in address bar rows, Shift+Delete for history rows, Ctrl+Enter, `@bookmarks`/`@history`/`@tabs`/`@ai`, unit conversions (no currencies), Paste and go, the whole address on hover, Recently closed, hover cards on side tabs, folding tab tree branches, double-click to even out split view, and dropping a tab on the page to split.
 
 ## New tab and briefs
 
