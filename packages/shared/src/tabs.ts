@@ -27,6 +27,38 @@ export interface TabState {
   parentId?: TabId | null
   /** How far in to draw it under the tabs it came from, for the tab tree. 0 is the top level. */
   depth?: number
+  /** Its branch is folded away in the tab tree. */
+  collapsed?: boolean
+}
+
+export interface TreeFolds {
+  /** Tabs inside a folded branch. */
+  hidden: Set<TabId>
+  /** Tabs with a branch under them, folded or not. */
+  parents: Set<TabId>
+  /** How many tabs each folded tab is holding. */
+  counts: Map<TabId, number>
+}
+
+/** Reads the tab tree from tabs in order with their depths: which have branches, and what folding hides. */
+export function treeFolds(tabs: readonly Pick<TabState, 'id' | 'depth' | 'collapsed'>[]): TreeFolds {
+  const hidden = new Set<TabId>()
+  const parents = new Set<TabId>()
+  const counts = new Map<TabId, number>()
+  let folder: { id: TabId; depth: number } | null = null
+  tabs.forEach((tab, index) => {
+    const depth = tab.depth ?? 0
+    if (folder && depth > folder.depth) {
+      hidden.add(tab.id)
+      counts.set(folder.id, (counts.get(folder.id) ?? 0) + 1)
+    } else folder = null
+    const next = tabs[index + 1]
+    if (next && (next.depth ?? 0) > depth) {
+      parents.add(tab.id)
+      if (tab.collapsed && !folder) folder = { id: tab.id, depth }
+    }
+  })
+  return { hidden, parents, counts }
 }
 
 /** Deeper branches are drawn at this level, so titles keep their room. */

@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, treeFolds, resolveOmniboxInput, DEFAULT_SEARCH_ENGINE, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -238,6 +238,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
     { label: tab?.pinned ? 'Unpin tab' : 'Pin tab', click: () => tabs.setPinned(id, !tab?.pinned) },
     { label: tab?.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !tab?.muted) },
+    ...(treeFolds(open).parents.has(id) ? [{ label: tab?.collapsed ? 'Expand branch' : 'Collapse branch', click: () => tabs.toggleCollapsed(id) }] : []),
     { type: 'separator' },
     splitIds.length > 0
       ? { label: 'End split view', click: () => tabs.endSplit() }
@@ -281,7 +282,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Close', click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
     { type: 'separator' },
-    { label: 'Reopen closed tab', click: () => tabs.reopenClosed() },
+    ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     ...closedGroupRows(actions)
   ]).popup({ window })
@@ -299,6 +300,41 @@ function researchRows(tab: SnapshotTab | undefined, open: SnapshotTab[], tabs: B
     ...(group.length > 1 ? [{ label: `Make a report from this group (${Math.min(group.length, MAX_MENTIONED_TABS)})`, click: report(group) }] : []),
     { label: all.length > MAX_MENTIONED_TABS ? `Make a report from the first ${MAX_MENTIONED_TABS} tabs` : 'Make a report from all tabs', enabled: all.length > 1, click: report(all) }
   ]
+}
+
+const MENU_TITLE = 48
+
+/** Reopen closed tab, and beside it the last few to pick from once there's more than one. */
+function closedTabRows(tabs: BrowserActions['tabs']): MenuItemConstructorOptions[] {
+  const closed = tabs.recentlyClosed(10)
+  const name = ({ title, url }: { title: string; url: string }) => {
+    const text = title || url
+    return text.length > MENU_TITLE ? `${text.slice(0, MENU_TITLE - 1)}…` : text
+  }
+  return [
+    { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', enabled: closed.length > 0, click: () => tabs.reopenClosed() },
+    ...(closed.length > 1
+      ? [{ label: 'Recently closed', submenu: closed.map((tab, index) => ({ label: name(tab), click: () => tabs.reopenClosed(index) })) }]
+      : [])
+  ]
+}
+
+/** The address bar's right-click menu. Paste and go never runs a pasted script. */
+export async function popupOmniboxMenu(actions: BrowserActions, window: BaseWindow): Promise<void> {
+  const pasted = (await Promise.resolve(clipboard.readText())).trim().replace(/^javascript:/i, '').slice(0, 4096)
+  const isSearch = !!pasted && resolveOmniboxInput(pasted) === DEFAULT_SEARCH_ENGINE.template.replace('%s', encodeURIComponent(pasted))
+  const active = actions.tabs.active
+  Menu.buildFromTemplate([
+    { role: 'undo', label: 'Undo' },
+    { role: 'redo', label: 'Redo' },
+    { type: 'separator' },
+    { role: 'cut', label: 'Cut' },
+    { role: 'copy', label: 'Copy' },
+    { role: 'paste', label: 'Paste', enabled: !!pasted },
+    { label: isSearch ? 'Paste and search' : 'Paste and go', enabled: !!pasted && !!active, click: () => active && actions.openAddress(active.id, pasted) },
+    { type: 'separator' },
+    { role: 'selectAll', label: 'Select all' }
+  ]).popup({ window })
 }
 
 function closedGroupRows(actions: BrowserActions): MenuItemConstructorOptions[] {
@@ -439,7 +475,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { label: 'New window', accelerator: 'CmdOrCtrl+N', click: () => actions.openWindow() },
     { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
     { type: 'separator' },
-    { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => tabs.reopenClosed() },
+    ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     { type: 'checkbox', label: 'Split view', checked: tabs.snapshot().splitIds.length > 0, enabled: tabs.snapshot().tabs.length > 1, click: () => tabs.toggleSplit() },
     { type: 'separator' },

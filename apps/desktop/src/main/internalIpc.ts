@@ -465,7 +465,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'newtab:top-sites': (limit) => history.top(Math.min(int(limit), 24)).filter((entry) => isHttpUrl(entry.url)),
     'newtab:suggest': async (query) => {
       const input = text(query, 1024)
-      const { searchEngine, searchSuggestions, suggestionSources } = settings.get()
+      const { searchEngine, searchSuggestions, suggestionSources, addressCalculator } = settings.get()
       const engine = engineById(searchEngine)
       const phrases = searchSuggestions ? await fetchSearchSuggestions(input, engine).catch(() => []) : []
       return buildSuggestions(input, {
@@ -476,6 +476,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
         searchSuggestions: phrases,
         engine,
         assistantReady: false,
+        calculator: addressCalculator,
         sources: suggestionSources.filter((source) => source === 'history' || source === 'bookmarks')
       })
     },

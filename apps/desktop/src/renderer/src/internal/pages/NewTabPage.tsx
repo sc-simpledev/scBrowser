@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -35,6 +35,7 @@ import {
 } from '@scbrowser/shared'
 import { ReplyContent } from '../../shared/ReplyContent'
 import { useSpeak } from '../../shared/speak'
+import { useAutofill } from '../../shared/useAutofill'
 import { api, applyPerformance, applyTint } from '../api'
 import { ColorPicker } from '../ColorPicker'
 
@@ -91,13 +92,20 @@ function GreetingWidget({ name }: { name: string }) {
 }
 
 const SUGGEST_DELAY_MS = 120
-const SUGGESTION_ICONS: Partial<Record<SuggestionKind, LucideIcon>> = { bookmark: Star, history: History, navigate: Globe }
+const SUGGESTION_ICONS: Partial<Record<SuggestionKind, LucideIcon>> = { bookmark: Star, history: History, navigate: Globe, calc: Calculator }
 
-function SearchWidget() {
+function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [selected, setSelected] = useState(-1)
   const [open, setOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // The rows already hold the matching bookmarks and visits, best first.
+  const urls = useMemo(
+    () => suggestions.flatMap((row) => ((row.kind === 'bookmark' || row.kind === 'history') && row.action.type === 'navigate' ? [row.action.url] : [])),
+    [suggestions]
+  )
+  const { autofill, value, noteInput, accept, dismiss } = useAutofill(query, urls, inputRef, autofillOn)
 
   useEffect(() => {
     const input = query.trim()
@@ -120,6 +128,7 @@ function SearchWidget() {
 
   const pick = (row: Suggestion) => {
     if (row.action.type === 'navigate') openHere(row.action.url)
+    if (row.action.type === 'copy') void navigator.clipboard.writeText(row.action.text)
   }
   const showing = open && suggestions.length > 0
 
@@ -131,6 +140,7 @@ function SearchWidget() {
         e.preventDefault()
         const row = suggestions[selected]
         if (showing && row) pick(row)
+        else if (autofill) openHere(autofill.url)
         else if (query.trim()) openHere(query.trim())
       }}
     >
@@ -146,15 +156,24 @@ function SearchWidget() {
           spellCheck={false}
           autoComplete="off"
           className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-faint"
-          value={query}
+          ref={inputRef}
+          value={value ?? ''}
           onChange={(e) => {
+            noteInput(e)
             setQuery(e.target.value)
             setOpen(true)
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') setOpen(false)
+            if (e.key === 'Escape') {
+              setOpen(false)
+              dismiss()
+            }
+            if ((e.key === 'ArrowRight' || e.key === 'End') && !e.shiftKey) {
+              const kept = accept()
+              if (kept !== null) setQuery(kept)
+            }
             if (!showing || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
             e.preventDefault()
             const count = suggestions.length
@@ -181,6 +200,7 @@ function SearchWidget() {
                 <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
                 <span className="min-w-0 shrink truncate">{row.title}</span>
                 {row.detail && <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{row.detail}</span>}
+                {row.kind === 'calc' && <span className="ml-auto shrink-0 text-2xs font-medium text-text-muted">Copy</span>}
               </li>
             )
           })}
@@ -818,14 +838,14 @@ function CalendarWidget() {
   )
 }
 
-function Widget({ id, config, update, keepChats }: { id: NewTabWidgetId; config: NewTabConfig; update: Update; keepChats: boolean }) {
+function Widget({ id, config, update, keepChats, autofill }: { id: NewTabWidgetId; config: NewTabConfig; update: Update; keepChats: boolean; autofill: boolean }) {
   switch (id) {
     case 'greeting':
       return <GreetingWidget name={config.name} />
     case 'clock':
       return <ClockWidget config={config} />
     case 'search':
-      return <SearchWidget />
+      return <SearchWidget autofillOn={autofill} />
     case 'ai':
       return <QuickAiWidget keepChats={keepChats} />
     case 'shortcuts':
@@ -1181,7 +1201,7 @@ export function NewTabPage() {
             <Fragment key={id}>
               {/* A widget with nothing to show leaves no gap. */}
               <div className={cx('min-w-0 empty:hidden', size === 'full' && 'col-span-2')}>
-                <Widget id={id} config={config} update={update} keepChats={settings.saveChats} />
+                <Widget id={id} config={config} update={update} keepChats={settings.saveChats} autofill={settings.addressAutofill} />
               </div>
               {/* Someone new sees it under the search box, or after the first widget without one. */}
               {index === Math.max(0, shown.findIndex((widget) => widget.id === 'search')) && getStarted}

@@ -75,6 +75,10 @@ export interface Settings {
   searchSuggestions: boolean
   /** What else the address bar suggests. */
   suggestionSources: SuggestionSourceId[]
+  /** Complete a typed address inline from bookmarks, history and open tabs. */
+  addressAutofill: boolean
+  /** Answer sums like 7*8 in the address bar and the new tab search box. */
+  addressCalculator: boolean
   theme: 'system' | 'light' | 'dark'
   tabLayout: 'horizontal' | 'vertical'
   verticalTabsCollapsed: boolean
@@ -205,6 +209,8 @@ export const DEFAULT_SETTINGS: Settings = {
   searchEngine: 'google',
   searchSuggestions: true,
   suggestionSources: SUGGESTION_SOURCES.map((source) => source.id),
+  addressAutofill: true,
+  addressCalculator: true,
   theme: 'system',
   tabLayout: 'vertical',
   verticalTabsCollapsed: false,
@@ -299,6 +305,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   tabLayout: (v) => oneOf(v, ['horizontal', 'vertical']),
   verticalTabsCollapsed: (v) => typeof v === 'boolean',
   bookmarksBar: (v) => oneOf(v, ['always', 'new-tab', 'bookmarks-page']),
+  addressAutofill: (v) => typeof v === 'boolean',
+  addressCalculator: (v) => typeof v === 'boolean',
   suggestionSources: (v) => Array.isArray(v) && v.every((id) => SUGGESTION_SOURCES.some((source) => source.id === id)),
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,

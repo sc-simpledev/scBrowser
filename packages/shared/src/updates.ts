@@ -42,6 +42,22 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.6.4',
+    date: '2026-11-19',
+    items: [
+      'The address bar fills in the rest of a site you’ve bookmarked or visited as you type. Backspace takes it away.',
+      'Type a sum like 7*8, or a conversion like 5 km in miles or 30 c to f, and the answer shows in the list. Picking it copies it.',
+      'Suggestions show the part you typed in bold, and bookmarked sites with their own icons.',
+      'Type @bookmarks, @history, @tabs or @ai to search just that. Backspace on an empty box goes back.',
+      'Shift+Delete removes the chosen history row. Ctrl+Enter turns a word into www.word.com.',
+      'Right-click the address bar for Paste and go, and rest the pointer on a cut-off address to see all of it.',
+      'Recently closed lists the last ten tabs you closed, beside Reopen closed tab.',
+      'Side tabs show a card with the whole title, the site and its memory when the pointer rests on them.',
+      'Fold a branch of the tab tree from its icon or the tab menu. Picking a folded tab opens the branch again.',
+      'Drag a tab onto the page to open it beside the one you’re on. Double-click the split view divider to even it out.'
+    ]
+  },
+  {
     version: '0.6.3',
     date: '2026-11-14',
     items: [

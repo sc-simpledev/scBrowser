@@ -389,6 +389,12 @@ function SearchPage({ settings, update }: { settings: Settings; update: Update }
             onToggle={(id, on) => update({ suggestionSources: on ? [...settings.suggestionSources, id] : settings.suggestionSources.filter((other) => other !== id) })}
           />
         </Row>
+        <Row setting="addressAutofill" label="Complete addresses as you type" hint="Fills in the rest of a site you've bookmarked, visited or have open. Backspace or Delete takes it away." keywords="autofill autocomplete inline complete omnibox">
+          <Switch label="Complete addresses as you type" checked={settings.addressAutofill} onChange={(addressAutofill) => update({ addressAutofill })} />
+        </Row>
+        <Row setting="addressCalculator" label="Calculator" hint="Type a sum like 7*8 to see the answer. Picking it copies the answer." keywords="maths math calculator sum arithmetic omnibox">
+          <Switch label="Calculator" checked={settings.addressCalculator} onChange={(addressCalculator) => update({ addressCalculator })} />
+        </Row>
       </Section>
     </>
   )

@@ -14,6 +14,8 @@ const SWITCHES: [keyof Settings, string][] = [
   ['tabTree', 'the tab tree in side tabs'],
   ['spellCheck', 'spell checking'],
   ['searchSuggestions', 'search suggestions'],
+  ['addressAutofill', 'completing addresses as you type'],
+  ['addressCalculator', 'the address bar calculator'],
   ['askWhereToSave', 'asking where to save downloads'],
   ['saveChats', 'keeping assistant chats'],
   ['passwordAutoFill', 'filling passwords by themselves'],

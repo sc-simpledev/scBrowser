@@ -12,6 +12,8 @@ interface ResizeHandleProps {
   /** Called once it's let go, for saving. */
   onCommit: (width: number) => void
   onDragging?: (dragging: boolean) => void
+  /** Double-click puts it back where it started out. */
+  onReset?: () => void
   className?: string
 }
 
@@ -19,7 +21,7 @@ const KEY_STEP = 16
 const RELEASED_MOVES = 3
 
 /** A thin strip over a sidebar's border. Also works from the keyboard, with the arrow keys. */
-export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging, className = '' }: ResizeHandleProps) {
+export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, onDragging, onReset, className = '' }: ResizeHandleProps) {
   const stopDrag = useRef<(() => void) | null>(null)
   const callbacks = useRef({ onWidth, onCommit, onDragging })
   callbacks.current = { onWidth, onCommit, onDragging }
@@ -70,6 +72,8 @@ export function ResizeHandle({ label, edge, width, min, max, onWidth, onCommit, 
         stopDrag.current = finish
         callbacks.current.onDragging?.(true)
       }}
+      onDoubleClick={onReset}
+      title={onReset ? 'Drag to resize. Double-click to reset' : undefined}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
         e.preventDefault()

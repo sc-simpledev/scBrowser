@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSuggestions, MAX_SUGGESTIONS, type HistoryEntry } from './omnibox'
+import { buildSuggestions, inlineAutofill, MAX_SUGGESTIONS, type HistoryEntry } from './omnibox'
 import type { TabState } from './tabs'
 
 const tab = (id: number, url: string, title = ''): TabState => ({
@@ -95,5 +95,51 @@ describe('buildSuggestions', () => {
     })
     expect(result).toHaveLength(MAX_SUGGESTIONS)
     expect(result.at(-1)).toMatchObject({ kind: 'search-suggestion', title: 'site map' })
+  })
+})
+
+describe('inlineAutofill', () => {
+  const urls = ['https://www.github.com/sc-simpledev/scBrowser', 'https://news.ycombinator.com/item?id=1', 'http://localhost:5173/app']
+
+  it('completes a typed host to the site home, keeping what was typed', () => {
+    expect(inlineAutofill('git', urls)).toEqual({ text: 'github.com/', url: 'https://www.github.com/' })
+    expect(inlineAutofill('GIT', urls)?.text).toBe('GIThub.com/')
+    expect(inlineAutofill('www.git', urls)?.text).toBe('www.github.com/')
+    expect(inlineAutofill('https://news', urls)).toEqual({ text: 'https://news.ycombinator.com/', url: 'https://news.ycombinator.com/' })
+    expect(inlineAutofill('local', urls)?.url).toBe('http://localhost:5173/')
+  })
+
+  it('completes past a slash to the whole saved address', () => {
+    expect(inlineAutofill('github.com/sc', urls)).toEqual({ text: 'github.com/sc-simpledev/scBrowser', url: urls[0] })
+  })
+
+  it('takes candidates in order', () => {
+    expect(inlineAutofill('g', ['https://gitlab.com/', 'https://github.com/'])?.url).toBe('https://gitlab.com/')
+  })
+
+  it('leaves searches, sums and non-matches alone', () => {
+    expect(inlineAutofill('git hub', urls)).toBeNull()
+    expect(inlineAutofill('7*8', urls)).toBeNull()
+    expect(inlineAutofill('gitx', urls)).toBeNull()
+    expect(inlineAutofill('', urls)).toBeNull()
+    expect(inlineAutofill('git', ['sc://newtab', 'file:///home/git'])).toBeNull()
+  })
+})
+
+describe('calculator row', () => {
+  it('sits under what Enter does and copies the answer', () => {
+    const rows = buildSuggestions('7*8', { history: [], tabs: [], activeTabId: null })
+    expect(rows[0]!.kind).toBe('search')
+    expect(rows[1]).toMatchObject({ kind: 'calc', title: '7*8 = 56', action: { type: 'copy', text: '56' } })
+  })
+
+  it('can be turned off, and plain searches get none', () => {
+    expect(buildSuggestions('7*8', { history: [], tabs: [], activeTabId: null, calculator: false }).some((r) => r.kind === 'calc')).toBe(false)
+    expect(buildSuggestions('weather today', { history: [], tabs: [], activeTabId: null }).some((r) => r.kind === 'calc')).toBe(false)
+  })
+
+  it('leads with the completed address when there is one', () => {
+    const [first] = buildSuggestions('git', { history: [], tabs: [], activeTabId: null, autofill: { text: 'github.com/', url: 'https://github.com/' } })
+    expect(first).toMatchObject({ kind: 'navigate', action: { type: 'navigate', url: 'https://github.com/' } })
   })
 })

@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { session, WebContentsView, type AuthInfo, type AuthenticationResponseDetails, type BaseWindow, type Session, type WebContents, type BrowserWindowConstructorOptions } from 'electron'
+import { app, session, WebContentsView, type AuthInfo, type AuthenticationResponseDetails, type BaseWindow, type Session, type WebContents, type BrowserWindowConstructorOptions } from 'electron'
 import {
   containerPartition,
   DEFAULT_WORKSPACE,
@@ -43,6 +43,8 @@ export interface SavedTab {
   muted?: boolean
   /** Where in the saved list the tab that opened this one is, for the tab tree. */
   parent?: number
+  /** Its branch is folded in the tab tree. */
+  collapsed?: boolean
 }
 
 interface Tab {
@@ -542,11 +544,60 @@ export class TabManager {
     this.activate(copy.state.id)
   }
 
-  reopenClosed(): void {
-    const saved = this.closed.shift()
+  /** `index` counts back from the most recently closed, as `recentlyClosed` lists them. */
+  reopenClosed(index = 0): void {
+    const [saved] = this.closed.splice(index, 1)
     if (!saved) return
-    const tab = this.addTab(saved.url, { ...saved, workspace: this.workspaceId }, this.activeId ?? undefined)
+    // A tab comes back unfolded, as the branch it folded didn't come with it.
+    const tab = this.addTab(saved.url, { ...saved, workspace: this.workspaceId, collapsed: undefined }, this.activeId ?? undefined)
     this.activate(tab.state.id)
+  }
+
+  /** The newest closed tabs, for the Recently closed menu. */
+  recentlyClosed(limit = 10): { title: string; url: string }[] {
+    return this.closed.slice(0, limit).map(({ title, url }) => ({ title, url }))
+  }
+
+  /**
+   * Folds or unfolds the branch under a tab in the tab tree. Folding away the open tab
+   * moves to the folded one, so the page in view is never hidden in the list.
+   */
+  toggleCollapsed(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    const branch = this.branch(id)
+    if (!tab.state.collapsed && branch.length === 0) return
+    tab.state.collapsed = !tab.state.collapsed || undefined
+    if (tab.state.collapsed && this.activeId !== null && branch.includes(this.activeId)) this.activate(id)
+    else this.emitChange()
+  }
+
+  /** The tabs hanging under this one, however deep. */
+  private branch(id: TabId): TabId[] {
+    const shown = this.visible
+    const depths = this.depths(shown)
+    const start = shown.indexOf(id)
+    if (start === -1) return []
+    const found: TabId[] = []
+    for (let index = start + 1; index < shown.length && depths.get(shown[index]!)! > depths.get(id)!; index++) found.push(shown[index]!)
+    return found
+  }
+
+  /** Unfolds whatever branches hide this tab, so a tab picked from anywhere shows in the list. */
+  private unfoldTo(id: TabId): void {
+    const shown = this.visible
+    const depths = this.depths(shown)
+    let index = shown.indexOf(id)
+    let depth = depths.get(id) ?? 0
+    for (index--; index >= 0 && depth > 0; index--) {
+      const other = shown[index]!
+      const otherDepth = depths.get(other)!
+      if (otherDepth < depth) {
+        const state = this.tabs.get(other)!.state
+        if (state.collapsed) state.collapsed = undefined
+        depth = otherDepth
+      }
+    }
   }
 
   /** `index` counts the tabs in view, which may have others in between them. */
@@ -611,6 +662,7 @@ export class TabManager {
       }
     }
     this.activeId = id
+    this.unfoldTo(id)
     this.wake(next)
     next.lastActiveAt = Date.now()
     this.applyBounds()
@@ -646,6 +698,34 @@ export class TabManager {
     this.applyBounds()
     this.emitChange()
     this.options.onSplit?.()
+  }
+
+  /** Split view with `id` on the given side of the active tab, as when a tab is dropped on the page. */
+  splitWith(id: TabId, side: 'left' | 'right'): void {
+    if (this.activeId === null || id === this.activeId || !this.tabs.has(id)) return
+    this.startSplit(id)
+    if (side === 'left') this.swapSplit()
+    this.activate(id)
+  }
+
+  /** A JPEG of the page in view, small enough to send to the browser UI. */
+  async capture(): Promise<string | null> {
+    const contents = this.activeId === null ? undefined : this.tabs.get(this.activeId)?.view?.webContents
+    if (!contents || contents.isDestroyed()) return null
+    try {
+      const image = await contents.capturePage()
+      return image.isEmpty() ? null : `data:image/jpeg;base64,${image.toJPEG(80).toString('base64')}`
+    } catch {
+      return null
+    }
+  }
+
+  /** The process memory behind a tab, in KB, or null while it sleeps. */
+  memoryOf(id: TabId): number | null {
+    const contents = this.tabs.get(id)?.view?.webContents
+    if (!contents || contents.isDestroyed()) return null
+    const pid = contents.getOSProcessId()
+    return app.getAppMetrics().find((metric) => metric.pid === pid)?.memory.workingSetSize ?? null
   }
 
   /** Splits with the tab after the active one, or ends split view if it's on. */
@@ -1232,7 +1312,8 @@ export class TabManager {
         workspace: saved?.workspace ?? this.workspaceId,
         pinned: saved?.pinned ?? false,
         audible: false,
-        muted: saved?.muted ?? false
+        muted: saved?.muted ?? false,
+        collapsed: saved?.collapsed || undefined
       },
       view: null,
       saved,
@@ -1341,8 +1422,8 @@ export class TabManager {
   private toSaved(tab: Tab): SavedTab {
     // What was saved when it fell asleep has the page, but a tab can be pinned or moved in its sleep.
     if (tab.saved) {
-      const { container, group, workspace, pinned, muted } = tab.state
-      return { ...tab.saved, container, group, workspace, pinned, muted, lastActiveAt: tab.lastActiveAt }
+      const { container, group, workspace, pinned, muted, collapsed } = tab.state
+      return { ...tab.saved, container, group, workspace, pinned, muted, collapsed, lastActiveAt: tab.lastActiveAt }
     }
     const { url, title, faviconUrl } = tab.state
     const contents = tab.view?.webContents
@@ -1361,7 +1442,8 @@ export class TabManager {
       workspace: tab.state.workspace,
       lastActiveAt: tab.lastActiveAt,
       pinned: tab.state.pinned,
-      muted: tab.state.muted
+      muted: tab.state.muted,
+      collapsed: tab.state.collapsed
     }
   }
 

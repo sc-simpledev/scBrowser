@@ -16,6 +16,8 @@ export interface OmniboxPopupState {
   selectedIndex: number
   /** Replaces the rows once the person has asked a question. */
   answer: OmniboxAnswer | null
+  /** What was typed, so rows can show the part that matched. */
+  query?: string
 }
 
 export interface OmniboxAnswer {
@@ -31,6 +33,40 @@ export interface TooltipState {
   anchor: PageRect
   label: string
   shortcut?: string
+  /** A second, quieter line, which makes it a small card (tab hover cards). */
+  detail?: string
+  /** Below the anchor, or beside it to the right (for side tabs). */
+  placement?: 'below' | 'right'
+  /** Lets a long label wrap, for full addresses. */
+  wrap?: boolean
+}
+
+/** A card's width: a label over this many characters wraps. */
+export const TOOLTIP_CARD = { width: 300, wrapWidth: 480, lineHeight: 16, padding: 12 }
+
+/** How much room a tooltip or card takes, worked out from its text, since the overlay sizes to fit before drawing. */
+export function tooltipSize(tooltip: Pick<TooltipState, 'label' | 'shortcut' | 'detail' | 'wrap'>): { width: number; height: number } {
+  const { label, shortcut, detail, wrap } = tooltip
+  if (!detail && !wrap) {
+    const text = label.length + (shortcut ? shortcut.length + 2 : 0)
+    return { width: Math.min(TOOLTIP_REGION.maxWidth, text * TOOLTIP_REGION.charWidth + TOOLTIP_REGION.padding), height: TOOLTIP_REGION.height }
+  }
+  const max = wrap ? TOOLTIP_CARD.wrapWidth : TOOLTIP_CARD.width
+  const perLine = Math.floor((max - TOOLTIP_CARD.padding * 2) / TOOLTIP_REGION.charWidth)
+  // Titles stop at two lines; addresses wrap as far as they go.
+  const labelLines = Math.min(wrap ? 12 : 2, Math.max(1, Math.ceil(label.length / perLine)))
+  const width = Math.min(max, Math.max(label.length, detail?.length ?? 0) * TOOLTIP_REGION.charWidth + TOOLTIP_CARD.padding * 2)
+  return { width, height: (labelLines + (detail ? 1 : 0)) * TOOLTIP_CARD.lineHeight + TOOLTIP_CARD.padding + (detail ? 4 : 0) }
+}
+
+/** Where a tooltip's box goes in the window. */
+export function tooltipBox(tooltip: TooltipState): PageRect {
+  const { anchor } = tooltip
+  const { width, height } = tooltipSize(tooltip)
+  if (tooltip.placement === 'right') return { x: anchor.x + anchor.width + TOOLTIP_GAP, y: Math.round(anchor.y + anchor.height / 2 - height / 2), width, height }
+  // A wrapped address starts where the text does; anything else centres under its anchor.
+  const x = tooltip.wrap ? anchor.x - TOOLTIP_CARD.padding / 2 : anchor.x + anchor.width / 2 - width / 2
+  return { x, y: anchor.y + anchor.height + TOOLTIP_GAP, width, height }
 }
 
 export interface OverlayState {
@@ -304,17 +340,7 @@ export function overlayRegions(state: OverlayView): PageRect[] {
   for (const popup of popups) {
     if (popup) regions.push({ x: popup.x - OVERLAY_MARGIN, y: popup.y - OVERLAY_MARGIN, width: popup.width + OVERLAY_MARGIN * 2, height: popup.height + OVERLAY_MARGIN * 2 })
   }
-  if (state.tooltip) {
-    const { anchor, label, shortcut } = state.tooltip
-    const text = label.length + (shortcut ? shortcut.length + 2 : 0)
-    const width = Math.min(TOOLTIP_REGION.maxWidth, text * TOOLTIP_REGION.charWidth + TOOLTIP_REGION.padding)
-    regions.push({
-      x: anchor.x + anchor.width / 2 - width / 2,
-      y: anchor.y + anchor.height + TOOLTIP_GAP,
-      width,
-      height: TOOLTIP_REGION.height
-    })
-  }
+  if (state.tooltip) regions.push(tooltipBox(state.tooltip))
   if (state.bookmarkEditor) {
     regions.push({
       x: state.bookmarkEditor.x - OVERLAY_MARGIN,

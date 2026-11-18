@@ -1,6 +1,7 @@
 import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
+import { treeFolds } from '@scbrowser/shared'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
@@ -31,6 +32,9 @@ export function VerticalTabs() {
   const showTimer = useApp((s) => s.settings.sidebarTimer)
   const folded = useApp((s) => s.settings.collapsedTabGroups)
   const groupSize = (name: string) => tabs.filter((tab) => tab.group === name).length
+  // The rail has no tree to fold, so everything shows there.
+  const tabTree = useApp((s) => s.settings.tabTree)
+  const folds = useMemo(() => (tabTree && !collapsed ? treeFolds(tabs) : null), [tabTree, collapsed, tabs])
 
   return (
     <aside
@@ -96,8 +100,8 @@ export function VerticalTabs() {
                   Other
                 </div>
               ))}
-            {/* A folded group still shows its open tab, so the page in view is never hidden. */}
-            {!(tab.group && folded.includes(tab.group) && tab.id !== activeId && !collapsed) && <Tab
+            {/* A folded group or branch still shows its open tab, so the page in view is never hidden. */}
+            {!(tab.group && folded.includes(tab.group) && tab.id !== activeId && !collapsed) && !(folds?.hidden.has(tab.id) && tab.id !== activeId) && <Tab
               tab={tab}
               index={index}
               active={tab.id === activeId}
@@ -105,6 +109,7 @@ export function VerticalTabs() {
               layout={collapsed ? 'rail' : 'vertical'}
               draggingId={draggingId}
               onDragState={setDraggingId}
+              fold={folds?.parents.has(tab.id) ? { collapsed: !!tab.collapsed, count: folds.counts.get(tab.id) ?? 0 } : undefined}
             />}
           </Fragment>
         ))}

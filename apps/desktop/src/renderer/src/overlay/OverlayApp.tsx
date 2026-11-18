@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, TooltipBubble } from '@scbrowser/ui'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Button, cx, TooltipBubble } from '@scbrowser/ui'
 import {
   EMPTY_OVERLAY,
   OVERLAY_MARGIN,
@@ -9,6 +9,8 @@ import {
   shortcutLabel,
   TOAST_POPUP,
   TOOLTIP_GAP,
+  tooltipBox,
+  type TooltipState,
   type OverlayEvents,
   type PermissionPopupState
 } from '@scbrowser/shared'
@@ -66,6 +68,7 @@ export function OverlayApp() {
             <SuggestionList
               suggestions={omnibox.suggestions}
               selectedIndex={omnibox.selectedIndex}
+              query={omnibox.query}
               onPick={(index) => void window.scbOverlay.invoke('overlay:pick', index)}
             />
           )}
@@ -100,7 +103,9 @@ export function OverlayApp() {
       {cleanup && <CleanupPopup cleanup={cleanup} x={cleanup.x - origin.x} y={cleanup.y - origin.y} />}
       {siteControls && <SiteControls state={siteControls} x={siteControls.x - origin.x} y={siteControls.y - origin.y} />}
       {workspaceEditor && <WorkspaceEditor key={workspaceEditor.id ?? 'new'} editor={workspaceEditor} x={workspaceEditor.x - origin.x} y={workspaceEditor.y - origin.y} />}
-      {tooltip && (
+      {tooltip && (tooltip.detail || tooltip.wrap || tooltip.placement === 'right') ? (
+        <TooltipCard key={`${tooltip.label}:${tooltip.anchor.x}:${tooltip.anchor.y}`} tooltip={tooltip} origin={origin} />
+      ) : tooltip && (
         <PlacedTooltip
           key={`${tooltip.label}:${tooltip.anchor.x}`}
           centerX={tooltip.anchor.x + tooltip.anchor.width / 2 - origin.x}
@@ -139,6 +144,35 @@ function PermissionPopup({ popup, origin }: { popup: PermissionPopupState; origi
           Allow
         </Button>
       </div>
+    </div>
+  )
+}
+
+/** Lets an address wrap after its slashes and other separators, rather than mid-word. */
+function breakAtSlashes(address: string) {
+  return address.split(/(?<=[/?&=#])/).map((part, index) => (
+    <Fragment key={index}>
+      {index > 0 && <wbr />}
+      {part}
+    </Fragment>
+  ))
+}
+
+/**
+ * A tooltip with more to say: a side tab's hover card (title, then site and memory) beside it, or
+ * a whole address under the address bar. Sized as `tooltipBox` worked out, so the overlay fits it.
+ */
+function TooltipCard({ tooltip, origin }: { tooltip: TooltipState; origin: { x: number; y: number } }) {
+  // The overlay is sized to exactly this box, so it goes where it was worked out to.
+  const box = tooltipBox(tooltip)
+  return (
+    <div
+      role="tooltip"
+      className="sc-tooltip absolute flex flex-col justify-center rounded-md border border-border bg-surface px-3 py-1.5 text-xs leading-4 text-text shadow-2"
+      style={{ left: box.x - origin.x, top: box.y - origin.y, width: box.width, height: box.height }}
+    >
+      <span className={cx(tooltip.wrap ? '[overflow-wrap:anywhere]' : 'line-clamp-2 font-medium')}>{tooltip.wrap ? breakAtSlashes(tooltip.label) : tooltip.label}</span>
+      {tooltip.detail && <span className="mt-1 truncate text-text-muted">{tooltip.detail}</span>}
     </div>
   )
 }

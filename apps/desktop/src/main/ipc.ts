@@ -1,10 +1,11 @@
-import { Menu, type BaseWindow, type WebContents } from 'electron'
+import { clipboard, Menu, type BaseWindow, type WebContents } from 'electron'
 import { tweakSite } from './ai/siteTweak'
 import { MAX_TWEAK_REQUEST, SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil } from '@scbrowser/shared'
 import {
   engineById,
   isCitationSource,
   isCitationTarget,
+  isOmniboxScope,
   MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
   type AssistantRequest,
@@ -29,7 +30,7 @@ import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
 import type { ExtensionManager } from './extensions'
-import { popupAppMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
+import { popupAppMenu, popupOmniboxMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { PrivacyService } from './privacy/service'
@@ -64,12 +65,16 @@ const isSuggestion = (value: unknown): value is Suggestion => {
   const { action } = value
   const validAction =
     (action.type === 'navigate' && isShortString(action.url)) || (action.type === 'switch-tab' && isId(action.tabId)) ||
-    ((action.type === 'ask' || action.type === 'ask-page') && isShortString(action.text))
+    ((action.type === 'ask' || action.type === 'ask-page' || action.type === 'copy') && isShortString(action.text)) ||
+    (action.type === 'scope' && isOmniboxScope(action.scope))
   return validAction && isShortString(value.id) && isShortString(value.kind, 32) && isShortString(value.title) &&
-    (value.detail === undefined || isShortString(value.detail))
+    (value.detail === undefined || isShortString(value.detail)) &&
+    (value.icon === undefined || (isShortString(value.icon, MAX_ICON_CHARS) && value.icon.startsWith('data:image/')))
 }
 
 const MAX_CONVERSATION_CHARS = 2_000_000
+/** Saved site icons are small; this only keeps a runaway one out. */
+const MAX_ICON_CHARS = 200_000
 
 export const isAssistantRequest = (value: unknown): value is AssistantRequest => {
   if (!record(value) || !Array.isArray(value.messages) || value.messages.length === 0 || value.messages.length > 500) return false
@@ -122,6 +127,7 @@ const isOverlayState = (value: unknown): value is OverlayState => {
       isRect(omnibox.anchor) &&
       (omnibox.answer === null || isAnswer(omnibox.answer)) &&
       Number.isInteger(omnibox.selectedIndex) &&
+      (omnibox.query === undefined || isShortString(omnibox.query, 4096)) &&
       Array.isArray(omnibox.suggestions) &&
       omnibox.suggestions.length <= MAX_SUGGESTIONS &&
       omnibox.suggestions.every(isSuggestion))
@@ -129,8 +135,11 @@ const isOverlayState = (value: unknown): value is OverlayState => {
     tooltip === null ||
     (record(tooltip) &&
       isRect(tooltip.anchor) &&
-      isShortString(tooltip.label, 200) &&
-      (tooltip.shortcut === undefined || isShortString(tooltip.shortcut, 40)))
+      isShortString(tooltip.label, 600) &&
+      (tooltip.shortcut === undefined || isShortString(tooltip.shortcut, 40)) &&
+      (tooltip.detail === undefined || isShortString(tooltip.detail, 200)) &&
+      (tooltip.placement === undefined || tooltip.placement === 'below' || tooltip.placement === 'right') &&
+      (tooltip.wrap === undefined || typeof tooltip.wrap === 'boolean'))
   return omniboxOk && tooltipOk
 }
 
@@ -148,6 +157,7 @@ const validators: Validators = {
   'layout:page-rect': (args): args is [PageRect] => args.length === 1 && isRect(args[0]),
   'history:search': queryArg,
   'search:suggestions': queryArg,
+  'omnibox:copy': (args): args is [string] => args.length === 1 && isShortString(args[0], 200),
   'overlay:set': (args): args is [OverlayState] => args.length === 1 && isOverlayState(args[0]),
   'tabs:move': (args): args is [number, number] => args.length === 2 && isId(args[0]) && isId(args[1]),
   'tabs:mute': (args): args is [number, boolean] => args.length === 2 && isId(args[0]) && typeof args[1] === 'boolean',
@@ -159,6 +169,13 @@ const validators: Validators = {
   'tabs:split-toggle': noArgs,
   'tabs:split-ratio': (args): args is [number] => args.length === 1 && typeof args[0] === 'number' && Number.isFinite(args[0]),
   'tabs:split-swap': noArgs,
+  'tabs:split-with': (args): args is [number, 'left' | 'right'] => args.length === 2 && isId(args[0]) && (args[1] === 'left' || args[1] === 'right'),
+  'tabs:collapse': idArg,
+  'tabs:memory': idArg,
+  'tabs:capture': noArgs,
+  'omnibox:context-menu': noArgs,
+  'omnibox:refocus': noArgs,
+  'history:forget': (args): args is [string] => args.length === 1 && isShortString(args[0]),
   'tabs:split-link': noArgs,
   'tabs:split-keep': (args): args is [number] => args.length === 1 && Number.isInteger(args[0]),
   'tabs:context-menu': idArg,
@@ -323,6 +340,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       const { searchSuggestions, searchEngine } = settings.get()
       return searchSuggestions ? fetchSearchSuggestions(query, engineById(searchEngine)) : []
     },
+    'omnibox:copy': (text) => clipboard.writeText(text),
     'overlay:set': (state) => overlay.set(state),
     'tabs:move': (id, index) => tabs.move(id, index),
     'tabs:mute': (id, muted) => tabs.setMuted(id, muted),
@@ -334,6 +352,15 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:split-toggle': () => tabs.toggleSplit(),
     'tabs:split-ratio': (ratio) => tabs.setSplitRatio(ratio),
     'tabs:split-swap': () => tabs.swapSplit(),
+    'tabs:split-with': (id, side) => tabs.splitWith(id, side),
+    'tabs:collapse': (id) => tabs.toggleCollapsed(id),
+    'tabs:memory': async (id) => tabs.memoryOf(id),
+    'tabs:capture': () => tabs.capture(),
+    'omnibox:context-menu': () => popupOmniboxMenu(actions, window),
+    'omnibox:refocus': () => {
+      if (!chromeUi.isDestroyed()) chromeUi.focus()
+    },
+    'history:forget': (url) => history.delete(url),
     'tabs:split-link': () => tabs.toggleSplitLinked(),
     'tabs:split-keep': (id) => tabs.keepSplitSide(id),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),

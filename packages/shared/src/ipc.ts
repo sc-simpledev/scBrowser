@@ -46,6 +46,22 @@ export interface ChromeCommands {
   'layout:page-rect': (rect: PageRect) => void
   'history:search': (query: string) => HistoryEntry[]
   'search:suggestions': (query: string) => Promise<string[]>
+  /** The address bar's calculator answer. Plain text only, never read back. */
+  'omnibox:copy': (text: string) => void
+  /** Cut, copy, paste and Paste and go for the address bar. */
+  'omnibox:context-menu': () => void
+  /** Gives the keyboard back to the address bar after a row was clicked in the overlay. */
+  'omnibox:refocus': () => void
+  /** Shift+Delete on a history row in the address bar. */
+  'history:forget': (url: string) => void
+  /** Memory the tab's process uses, in KB, or null while it sleeps. */
+  'tabs:memory': (id: TabId) => Promise<number | null>
+  /** Folds or unfolds the branch under a tab in the tab tree. */
+  'tabs:collapse': (id: TabId) => void
+  /** Opens split view with this tab on the given side of the active one. */
+  'tabs:split-with': (id: TabId, side: 'left' | 'right') => void
+  /** A picture of the page in view, to stand in for it while a tab is dragged over it. */
+  'tabs:capture': () => Promise<string | null>
   'overlay:set': (state: OverlayState) => void
   'tabs:move': (id: TabId, index: number) => void
   'tabs:mute': (id: TabId, muted: boolean) => void
@@ -254,6 +270,14 @@ export const COMMAND_CHANNELS = [
   'layout:page-rect',
   'history:search',
   'search:suggestions',
+  'omnibox:copy',
+  'omnibox:context-menu',
+  'omnibox:refocus',
+  'history:forget',
+  'tabs:memory',
+  'tabs:collapse',
+  'tabs:split-with',
+  'tabs:capture',
   'overlay:set',
   'tabs:move',
   'tabs:mute',

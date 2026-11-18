@@ -3,8 +3,61 @@ import { ArrowLeftRight, Code2, Link2, Maximize2, X } from 'lucide-react'
 import { DEVTOOLS_BAR, isNewTabUrl, SPLIT_GAP, SPLIT_RATIO, splitPanes, splitRoom, type PageRect, type TabState } from '@scbrowser/shared'
 import { cx, IconButton } from '@scbrowser/ui'
 import { ResizeHandle } from '../shared/ResizeHandle'
+import { endTabDrag, useTabDrag } from '../state/tabDrag'
 import { useTabs } from '../state/tabs'
 import { Favicon } from './Favicon'
+
+/**
+ * While a tab is dragged, the page is a picture with two halves to drop it on. The half under the
+ * pointer shows where the tab would go, drawn as the split card it would become.
+ */
+function SplitDropZones({ picture, width, height }: { picture: string; width: number; height: number }) {
+  const id = useTabDrag((s) => s.id)
+  const tab = useTabs((s) => s.tabs.find((other) => other.id === id))
+  const [side, setSide] = useState<'left' | 'right' | null>(null)
+  const panes = splitPanes({ x: 0, y: 0, width, height }, SPLIT_RATIO.standard)
+  const target = side === 'left' ? panes[0].card : side === 'right' ? panes[1].card : null
+  const title = tab ? tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url) : ''
+  return (
+    <div
+      data-testid="split-drop"
+      className="absolute top-0 left-0 overflow-hidden"
+      style={{ width, height }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        const { left } = e.currentTarget.getBoundingClientRect()
+        setSide(e.clientX - left < width / 2 ? 'left' : 'right')
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSide(null)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const where = side ?? (e.clientX - e.currentTarget.getBoundingClientRect().left < width / 2 ? 'left' : 'right')
+        if (id !== null) void window.scb.invoke('tabs:split-with', id, where)
+        endTabDrag()
+      }}
+    >
+      <img src={picture} alt="" draggable={false} className="pointer-events-none size-full object-cover" style={{ objectPosition: "left top" }} />
+      {target && (
+        <>
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-bg/40" />
+          <div
+            className="pointer-events-none absolute flex items-center justify-center rounded-(--sc-split-radius) border border-(--sc-accent) bg-accent-soft/80 shadow-[0_0_0_3px_var(--sc-accent-soft)] backdrop-blur-[2px]"
+            style={{ left: target.x, top: target.y, width: target.width, height: target.height }}
+          >
+            <span className="flex max-w-[80%] items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-text shadow-2">
+              {tab && <Favicon url={tab.faviconUrl} pageUrl={tab.url} isLoading={false} />}
+              <span className="truncate">{title}</span>
+              <span className="shrink-0 text-text-muted">{side === 'left' ? 'on the left' : 'on the right'}</span>
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 /** One side of split view: a card round the page, with the tab's name and what can be done with it. */
 function SplitCard({ tab, rect, active, linked }: { tab: TabState; rect: PageRect; active: boolean; linked: boolean | null }) {
@@ -95,9 +148,11 @@ export function PageSlot() {
   const shownRatio = dragWidth !== null && room > 0 ? dragWidth / room : ratio
   const panes = splitPanes({ x: 0, y: 0, width: pagesWidth, height: slotHeight }, shownRatio)
   const sides = splitIds.map((id) => allTabs.find((tab) => tab.id === id))
+  const dragPicture = useTabDrag((s) => s.picture)
 
   return (
     <div ref={ref} className={cx('relative min-h-0 min-w-0 flex-1', splitOn ? 'bg-transparent' : 'bg-surface')}>
+      {dragPicture && !splitOn && <SplitDropZones picture={dragPicture} width={pagesWidth} height={slotHeight} />}
       {shownDocked > 0 && (
         <div className="absolute inset-y-0 right-0" style={{ width: shownDocked + SPLIT_GAP / 2 }}>
           <div aria-hidden className="absolute inset-y-0 left-0 w-px -translate-x-1/2 bg-border-strong" />
@@ -145,6 +200,10 @@ export function PageSlot() {
                 setDragWidth(null)
               }}
               onDragging={(dragging) => void window.scb.invoke('layout:resizing', dragging)}
+              onReset={() => {
+                setDragWidth(null)
+                void window.scb.invoke('tabs:split-ratio', SPLIT_RATIO.standard)
+              }}
               className="pointer-events-auto rounded-full"
             />
           </div>

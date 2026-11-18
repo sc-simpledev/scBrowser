@@ -1,10 +1,72 @@
-import { Moon, Volume2, VolumeX, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Moon, Volume2, VolumeX, X } from 'lucide-react'
+import { useCallback, useEffect, useRef } from 'react'
 import { cx } from '@scbrowser/ui'
 import { CONTAINERS, isNewTabUrl, type TabState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
+import { useOverlay } from '../state/overlay'
+import { endTabDrag, startTabDrag } from '../state/tabDrag'
 import { Favicon } from './Favicon'
 
 const tabTitle = (tab: TabState) => tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
+
+const HOVER_CARD_DELAY_MS = 600
+
+/** Where a tab is, in a word: the site's host, or scTerra for its own pages. */
+function placeOf(url: string): string {
+  if (isNewTabUrl(url)) return 'New tab'
+  if (url.startsWith('sc://')) return 'scTerra'
+  try {
+    return new URL(url).host.replace(/^www\./, '') || url
+  } catch {
+    return url
+  }
+}
+
+const memoryText = (kb: number) => (kb >= 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.max(1, Math.round(kb / 1024))} MB`)
+
+/** The second line of a side tab's hover card: where it is, and what it's costing. */
+function cardDetail(tab: TabState, memoryKb: number | null): string {
+  const parts = [placeOf(tab.url)]
+  if (tab.isSleeping) parts.push('Sleeping')
+  else if (memoryKb) parts.push(`${memoryText(memoryKb)} memory`)
+  if (tab.muted) parts.push('Muted')
+  return parts.join(' · ')
+}
+
+/**
+ * A small card beside a side tab after the pointer rests on it: the whole title, the site and how
+ * much memory it uses. Drawn in the overlay like tooltips, so it clears the moment the pointer moves on.
+ */
+function useHoverCard(tab: TabState, enabled: boolean) {
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const shown = useRef(false)
+  /** Still under the pointer, checked once the memory figure comes back. */
+  const inside = useRef(false)
+  const current = useRef(tab)
+  current.current = tab
+  const hide = useCallback(() => {
+    clearTimeout(timer.current)
+    inside.current = false
+    if (!shown.current) return
+    shown.current = false
+    useOverlay.getState().setTooltip(null)
+  }, [])
+  useEffect(() => hide, [hide])
+  const show = (element: HTMLElement) => {
+    clearTimeout(timer.current)
+    if (!enabled) return
+    inside.current = true
+    timer.current = setTimeout(async () => {
+      const latest = current.current
+      const memory = latest.isSleeping ? null : await window.scb.invoke('tabs:memory', latest.id).catch(() => null)
+      if (!element.isConnected || !inside.current) return
+      const { x, y, width, height } = element.getBoundingClientRect()
+      shown.current = true
+      useOverlay.getState().setTooltip({ anchor: { x, y, width, height }, label: tabTitle(latest), detail: cardDetail(latest, memory), placement: 'right' })
+    }, HOVER_CARD_DELAY_MS)
+  }
+  return { show, hide }
+}
 
 interface TabProps {
   tab: TabState
@@ -15,6 +77,8 @@ interface TabProps {
   index: number
   draggingId: number | null
   onDragState: (id: number | null) => void
+  /** Its place in the tab tree: whether it has a branch, folded or not, and how many tabs the fold holds. */
+  fold?: { collapsed: boolean; count: number }
 }
 
 /** Shows when a tab has sound or is muted, and switches that with a click. */
@@ -60,7 +124,27 @@ function FaviconCloseButton({ tab, onClose }: { tab: TabState; onClose: () => vo
   )
 }
 
-export function Tab({ tab, active, split, layout, index, draggingId, onDragState }: TabProps) {
+/** A tab's icon that folds its branch: the icon until the pointer is on it, then which way it'll go. */
+function FoldButton({ tab, collapsed }: { tab: TabState; collapsed: boolean }) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown
+  return (
+    <button
+      type="button"
+      aria-label={collapsed ? 'Expand branch' : 'Collapse branch'}
+      aria-expanded={!collapsed}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={() => void window.scb.invoke('tabs:collapse', tab.id)}
+      className="group/fold relative grid size-5 shrink-0 place-items-center rounded-sm hover:bg-surface-active"
+    >
+      <span className="grid place-items-center group-hover/fold:opacity-0 group-focus-visible/fold:opacity-0">
+        <Favicon url={tab.faviconUrl} pageUrl={tab.url} isLoading={tab.isLoading} />
+      </span>
+      <Chevron aria-hidden size={13} strokeWidth={2} className="absolute text-text-muted opacity-0 group-hover/fold:opacity-100 group-focus-visible/fold:opacity-100" />
+    </button>
+  )
+}
+
+export function Tab({ tab, active, split, layout, index, draggingId, onDragState, fold }: TabProps) {
   const close = () => void window.scb.invoke('tabs:close', tab.id)
   const side = layout !== 'horizontal'
   const iconOnly = tab.pinned || layout === 'rail'
@@ -68,19 +152,28 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
   const sleepButton = useApp((s) => s.settings.tabSleepButton) && !iconOnly && !tab.isSleeping
   // The tab tree: branches step in under the tab they were opened from. Only where there's room for it.
   const depth = useApp((s) => s.settings.tabTree) && layout === 'vertical' && !tab.pinned ? (tab.depth ?? 0) : 0
+  // Side tabs get a hover card; across the top, the title is already most of what's there.
+  const card = useHoverCard(tab, side)
 
   return (
     <div
       role="tab"
       aria-selected={active}
       tabIndex={active ? 0 : -1}
-      title={tabTitle(tab)}
+      title={side ? undefined : tabTitle(tab)}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
+        card.hide()
         onDragState(tab.id)
+        void startTabDrag(tab.id)
       }}
-      onDragEnd={() => onDragState(null)}
+      onDragEnd={() => {
+        onDragState(null)
+        endTabDrag()
+      }}
+      onPointerEnter={(e) => card.show(e.currentTarget)}
+      onPointerLeave={card.hide}
       onDragOver={(e) => {
         if (draggingId === null) return
         e.preventDefault()
@@ -95,12 +188,16 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       data-tab-id={tab.id}
       data-index={index}
       onMouseDown={(e) => {
+        card.hide()
         if (e.button === 0) void window.scb.invoke('tabs:activate', tab.id)
       }}
       onAuxClick={(e) => {
         if (e.button === 1) close()
       }}
-      onContextMenu={() => void window.scb.invoke('tabs:context-menu', tab.id)}
+      onContextMenu={() => {
+        card.hide()
+        void window.scb.invoke('tabs:context-menu', tab.id)
+      }}
       data-active={active || undefined}
       data-depth={depth || undefined}
       style={depth > 0 ? { marginLeft: depth * 12, width: `calc(100% - ${depth * 12}px)` } : undefined}
@@ -128,6 +225,8 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
     >
       {layout === 'rail' && !tab.pinned ? (
         <FaviconCloseButton tab={tab} onClose={close} />
+      ) : layout === 'vertical' && !tab.pinned && fold ? (
+        <FoldButton tab={tab} collapsed={fold.collapsed} />
       ) : layout === 'vertical' && !tab.pinned ? (
         // The same box as the New tab row's icon, so the two line up.
         <span className="grid size-5 shrink-0 place-items-center">
@@ -139,6 +238,11 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       {!iconOnly && (
         <span className={cx('min-w-0 flex-1 truncate @max-[64px]:hidden', tab.isSleeping && 'text-text-faint')}>
           {tabTitle(tab)}
+        </span>
+      )}
+      {fold?.collapsed && fold.count > 0 && (
+        <span aria-label={`${fold.count} more in this branch`} className="shrink-0 px-0.5 text-2xs font-medium tabular-nums text-text-faint @max-[96px]:hidden">
+          +{fold.count}
         </span>
       )}
       {container && (

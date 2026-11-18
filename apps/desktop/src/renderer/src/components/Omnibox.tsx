@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import {
   buildSuggestions,
+  completeDomain,
+  OMNIBOX_SCOPES,
+  scopeFromInput,
+  type OmniboxScope,
   displayUrl,
   effectiveUrl,
   engineById,
@@ -14,11 +18,23 @@ import {
 } from '@scbrowser/shared'
 import { clack, hasFlag } from '../shared/funFlags'
 import { useApp } from '../state/app'
+import { useAutofill } from '../shared/useAutofill'
 import { useAssistant } from '../state/assistant'
 import { useOverlay } from '../state/overlay'
 import { useActiveTab, useTabs } from '../state/tabs'
 
 const SEARCH_SUGGESTION_DELAY_MS = 120
+/** How long the pointer rests on a cut-off address before the whole of it shows. */
+const ADDRESS_TOOLTIP_DELAY_MS = 600
+const MAX_TOOLTIP_ADDRESS = 600
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host.replace(/^www\./, '')
+  } catch {
+    return null
+  }
+}
 
 /** Splits a URL so the host can be emphasised and the rest de-emphasised. */
 function formatUrl(url: string): { prefix: string; host: string; rest: string } | null {
@@ -56,7 +72,7 @@ function SecurityIcon({ url, editing }: { url: string; editing: boolean }) {
 }
 
 /** History and search-engine matches for the current draft; stale responses are dropped. */
-function useMatches(draft: string | null) {
+function useMatches(draft: string | null, scope: OmniboxScope | null) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [phrases, setPhrases] = useState<string[]>([])
 
@@ -68,15 +84,20 @@ function useMatches(draft: string | null) {
       return
     }
     let current = true
-    void window.scb.invoke('history:search', query).then((entries) => current && setHistory(entries))
-    const timer = setTimeout(() => {
-      void window.scb.invoke('search:suggestions', query).then((list) => current && setPhrases(list))
-    }, SEARCH_SUGGESTION_DELAY_MS)
+    // A scope only needs its own rows: nothing goes to the search engine from @bookmarks.
+    if (!scope || scope === 'history') void window.scb.invoke('history:search', query).then((entries) => current && setHistory(entries))
+    else setHistory([])
+    if (scope) setPhrases([])
+    const timer = scope
+      ? undefined
+      : setTimeout(() => {
+          void window.scb.invoke('search:suggestions', query).then((list) => current && setPhrases(list))
+        }, SEARCH_SUGGESTION_DELAY_MS)
     return () => {
       current = false
       clearTimeout(timer)
     }
-  }, [draft])
+  }, [draft, scope])
 
   return { history, phrases }
 }
@@ -90,6 +111,8 @@ export function Omnibox() {
   const searchEngine = useApp((s) => s.settings.searchEngine)
   const assistantReady = useAssistant((s) => s.status.ready)
   const sources = useApp((s) => s.settings.suggestionSources)
+  const autofillOn = useApp((s) => s.settings.addressAutofill)
+  const calculator = useApp((s) => s.settings.addressCalculator)
   const protection = useApp((s) => s.settings.trackingProtection)
   const hidden = useApp((s) => s.settings.hiddenToolbarItems)
   const compact = useApp((s) => s.compact)
@@ -101,16 +124,32 @@ export function Omnibox() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [answer, setAnswer] = useState<OmniboxAnswer | null>(null)
+  const [scope, setScope] = useState<OmniboxScope | null>(null)
+  /** History rows removed with Shift+Delete, kept out until the next search brings fresh rows. */
+  const [forgotten, setForgotten] = useState<ReadonlySet<string>>(new Set())
+  const setTooltip = useOverlay((s) => s.setTooltip)
+  const tooltipTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const answerStream = useRef<string | null>(null)
   const saveChats = useApp((s) => s.settings.saveChats)
 
   const url = tab ? displayUrl(tab.url) : ''
   const bookmarked = bookmarks.some((b) => b.url === url)
   const protectionOff = !!tab && URL.canParse(tab.url) && privacyOffHosts.includes(new URL(tab.url).host)
-  const value = draft ?? url
   const formatted = !focused && draft === null ? formatUrl(url) : null
 
-  const { history, phrases } = useMatches(draft)
+  const { history: found, phrases } = useMatches(draft, scope)
+  const history = useMemo(() => (forgotten.size ? found.filter((entry) => !forgotten.has(entry.url)) : found), [found, forgotten])
+  // Bookmarks first, then history by how often it's visited, then open tabs.
+  const autofillUrls = useMemo(
+    () => [
+      ...(sources.includes('bookmarks') ? bookmarks.map((b) => b.url) : []),
+      ...(sources.includes('history') ? history.map((h) => h.url) : []),
+      ...(sources.includes('tabs') ? tabs.map((t) => t.url) : [])
+    ],
+    [sources, bookmarks, history, tabs]
+  )
+  const { autofill, value: typed, noteInput, accept, dismiss } = useAutofill(draft, autofillUrls, inputRef, autofillOn && !scope)
+  const value = typed ?? url
   const suggestions = useMemo(
     () =>
       draft === null
@@ -123,9 +162,23 @@ export function Omnibox() {
             searchSuggestions: phrases,
             engine: engineById(searchEngine),
             assistantReady,
-            sources
+            sources,
+            autofill,
+            calculator,
+            scope
           }),
-    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources]
+    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources, autofill, calculator, scope]
+  )
+  // Saved icons only: bookmarked sites, so drawing the list contacts nobody.
+  const iconByHost = useMemo(() => new Map(bookmarks.flatMap((b) => (b.icon && hostOf(b.url) ? [[hostOf(b.url)!, b.icon] as const] : []))), [bookmarks])
+  const rows = useMemo(
+    () =>
+      suggestions.map((row) => {
+        const target = row.action.type === 'navigate' ? row.action.url : row.kind === 'tab' ? row.detail : undefined
+        const icon = row.kind !== 'search' && row.kind !== 'search-suggestion' && target ? iconByHost.get(hostOf(target) ?? '') : undefined
+        return icon ? { ...row, icon } : row
+      }),
+    [suggestions, iconByHost]
   )
   const open = !answer && focused && !dismissed && suggestions.length > 0
   const selected = Math.min(selectedIndex, Math.max(0, suggestions.length - 1))
@@ -136,6 +189,15 @@ export function Omnibox() {
 
   const reset = useCallback(() => {
     setDraft(null)
+    setSelectedIndex(0)
+    setDismissed(false)
+    setScope(null)
+    setForgotten(new Set())
+  }, [])
+
+  const enterScope = useCallback((next: OmniboxScope) => {
+    setScope(next)
+    setDraft('')
     setSelectedIndex(0)
     setDismissed(false)
   }, [])
@@ -200,13 +262,20 @@ export function Omnibox() {
         reset()
         return
       }
-      if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
+      if (action.type === 'scope') {
+        enterScope(action.scope)
+        // A click in the overlay took the keyboard; give it back so typing carries on here.
+        void window.scb.invoke('omnibox:refocus').then(() => inputRef.current?.focus())
+        return
+      }
+      if (action.type === 'copy') void window.scb.invoke('omnibox:copy', action.text)
+      else if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
       else if (action.type === 'ask-page') void window.scb.invoke('ai:open-assistant', action.text)
       else void window.scb.invoke('tabs:navigate', tab.id, action.url)
       reset()
       inputRef.current?.blur()
     },
-    [tab, reset, ask]
+    [tab, reset, ask, enterScope]
   )
 
   useEffect(() => window.scb.on('omnibox:pick', (index) => run(suggestionsRef.current[index])), [run])
@@ -230,16 +299,63 @@ export function Omnibox() {
     const box = boxRef.current
     const publish = () => {
       const { x, y, width, height } = box.getBoundingClientRect()
-      setPopup({ anchor: { x, y, width, height }, suggestions: answer ? [] : suggestions, selectedIndex: selected, answer })
+      setPopup({ anchor: { x, y, width, height }, suggestions: answer ? [] : rows, selectedIndex: selected, answer, query: draft?.trim() ?? '' })
     }
     publish()
     window.addEventListener('resize', publish)
     return () => window.removeEventListener('resize', publish)
-  }, [open, answer, suggestions, selected, setPopup])
+  }, [open, answer, rows, selected, setPopup, draft])
+
+  const hideAddressTip = useCallback(() => {
+    clearTimeout(tooltipTimer.current)
+    if (useOverlay.getState().tooltip?.wrap) setTooltip(null)
+  }, [setTooltip])
+  useEffect(() => hideAddressTip, [hideAddressTip])
+
+  /** The whole address, when the bar has cut it short and nobody's editing it. */
+  const showAddressTip = () => {
+    clearTimeout(tooltipTimer.current)
+    const input = inputRef.current
+    const box = boxRef.current
+    if (!tab || focused || draft !== null || !input || !box || input.scrollWidth <= input.clientWidth + 1) return
+    tooltipTimer.current = setTimeout(() => {
+      // Under the whole bar, lined up with the text.
+      const { x, width } = input.getBoundingClientRect()
+      const { y, height } = box.getBoundingClientRect()
+      const full = effectiveUrl(tab.url)
+      setTooltip({ anchor: { x, y, width, height }, label: full.length > MAX_TOOLTIP_ADDRESS ? `${full.slice(0, MAX_TOOLTIP_ADDRESS - 1)}…` : full, wrap: true })
+    }, ADDRESS_TOOLTIP_DELAY_MS)
+  }
 
   useEffect(() => () => setPopup(null), [setPopup])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const row = open ? suggestions[selected] : undefined
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !scope && !e.altKey) {
+      // Ctrl+Enter: example → https://www.example.com/
+      const target = completeDomain(draft ?? '')
+      if (target && tab) {
+        e.preventDefault()
+        void window.scb.invoke('tabs:navigate', tab.id, target)
+        reset()
+        e.currentTarget.blur()
+        return
+      }
+    }
+    if (e.key === 'Delete' && e.shiftKey && row?.kind === 'history' && row.action.type === 'navigate') {
+      e.preventDefault()
+      const gone = row.action.url
+      void window.scb.invoke('history:forget', gone)
+      setForgotten((current) => new Set([...current, gone]))
+      return
+    }
+    if (e.key === 'Backspace' && scope && !draft && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+      // Backspace on an empty box leaves the scope, as in Firefox.
+      e.preventDefault()
+      setScope(null)
+      setSelectedIndex(0)
+      return
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       if (!open) return
       e.preventDefault()
@@ -248,15 +364,23 @@ export function Omnibox() {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (open) run(suggestions[selected])
+      else if (scope) return
       else if (tab && value.trim()) {
-        void window.scb.invoke('tabs:navigate', tab.id, value)
+        void window.scb.invoke('tabs:navigate', tab.id, autofill?.url ?? value)
         reset()
         e.currentTarget.blur()
       }
+    } else if ((e.key === 'ArrowRight' || e.key === 'End') && autofill && !e.shiftKey) {
+      // Keep the completed address as typed; the caret moves to its end as usual.
+      const kept = accept()
+      if (kept !== null) setDraft(kept)
     } else if (e.key === 'Escape') {
-      // First Escape closes the dropdown, the next restores the page's URL, then blur.
+      // First Escape closes the dropdown and any completion, the next restores the page's URL, then blur.
       if (answer) closeAnswer()
-      else if (open) setDismissed(true)
+      else if (open || autofill) {
+        setDismissed(true)
+        dismiss()
+      } else if (scope) reset()
       else if (draft !== null) reset()
       else e.currentTarget.blur()
     }
@@ -277,7 +401,12 @@ export function Omnibox() {
       }}
     >
       <SecurityIcon url={url} editing={focused && draft !== null} />
-      <div className="sc-address relative min-w-0 flex-1">
+      {scope && (
+        <span className="-ml-0.5 shrink-0 rounded-sm bg-accent-soft px-1.5 text-xs font-medium leading-5 text-accent">
+          {OMNIBOX_SCOPES.find((option) => option.id === scope)!.name}
+        </span>
+      )}
+      <div className="sc-address relative min-w-0 flex-1" onPointerEnter={showAddressTip} onPointerLeave={hideAddressTip} onPointerDown={hideAddressTip}>
         <input
           ref={inputRef}
           value={value}
@@ -294,18 +423,36 @@ export function Omnibox() {
           aria-expanded={open}
           aria-autocomplete="list"
           aria-label="Search or enter address"
-          placeholder="Search or enter address"
+          placeholder={scope ? OMNIBOX_SCOPES.find((option) => option.id === scope)!.hint : 'Search or enter address'}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            hideAddressTip()
+            void window.scb.invoke('omnibox:context-menu')
+          }}
           onChange={(e) => {
             if (hasFlag('clicky-keys')) clack()
+            noteInput(e)
+            // `@bookmarks ` and the like switch to that scope, keeping whatever follows.
+            const scoped = scope ? null : scopeFromInput(e.target.value)
+            if (scoped && (scoped.scope !== 'ai' || assistantReady)) {
+              enterScope(scoped.scope)
+              setDraft(scoped.rest)
+              return
+            }
             setDraft(e.target.value)
             setSelectedIndex(0)
             setDismissed(false)
           }}
           onFocus={(e) => {
+            hideAddressTip()
             setFocused(true)
             e.currentTarget.select()
           }}
-          onBlur={() => setFocused(false)}
+          onBlur={() => {
+            setFocused(false)
+            // An empty scope left behind goes away, once a click on one of its rows has had time to arrive.
+            if (scope && !draft) setTimeout(() => document.activeElement !== inputRef.current && reset(), 400)
+          }}
           onKeyDown={onKeyDown}
           className={cx(
             'w-full bg-transparent text-sm text-text outline-none placeholder:text-text-faint',
