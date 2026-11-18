@@ -7,6 +7,15 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+/**
+ * Windows' own tar reads zip files. PowerShell's Expand-Archive broke on the runners in November 2026,
+ * when Windows PowerShell started loading PowerShell 7's archive module. The full path keeps Git's
+ * GNU tar, which can't read zips, from being found first.
+ */
+function unzipOnWindows(archive, folder) {
+  execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', archive, '-C', folder])
+}
+
 const VERSION = 'v26.10.31'
 const BUILDS = {
   linux: { file: 'Xray-linux-64.zip', sha256: 'e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214', binary: 'xray' },
@@ -32,7 +41,7 @@ if (!existsSync(stamp)) {
   const archive = join(temporary, build.file)
   writeFileSync(archive, bytes)
   if (process.platform === 'win32') {
-    execFileSync('powershell', ['-NoProfile', '-Command', 'Expand-Archive', '-LiteralPath', archive, '-DestinationPath', temporary])
+    unzipOnWindows(archive, temporary)
   } else {
     execFileSync('unzip', ['-q', '-o', archive, build.binary, 'LICENSE', '-d', temporary])
   }
@@ -57,7 +66,7 @@ if (process.platform === 'win32' && !existsSync(wintunStamp)) {
   const temporary = mkdtempSync(join(tmpdir(), 'wintun-'))
   const archive = join(temporary, 'wintun.zip')
   writeFileSync(archive, bytes)
-  execFileSync('powershell', ['-NoProfile', '-Command', 'Expand-Archive', '-LiteralPath', archive, '-DestinationPath', temporary])
+  unzipOnWindows(archive, temporary)
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
   copyFileSync(join(temporary, 'wintun', 'bin', arch, 'wintun.dll'), join(out, 'wintun.dll'))
   copyFileSync(join(temporary, 'wintun', 'LICENSE.txt'), join(out, 'wintun-LICENSE.txt'))
