@@ -1,10 +1,13 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { localDay, memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderStatus, type ModelRef } from '@scbrowser/shared'
+import { localDay, memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
-import { webContext } from './webSearch'
-import { Coder } from './coder'
+import { readResult, webContext } from './webSearch'
+import { Coder, git, type CoderBrowserHost, type CoderMcpHost } from './coder'
+import { parsePdf } from './pdfText'
+import { sandboxAvailable, type SandboxMode } from './coderTools'
+import type { CoderTrust } from './coderTrust'
 import { reportCallText } from './reportCall'
 import { CoderCheckpoints, CoderSnapshots } from './coderStorage'
 import { join } from 'node:path'
@@ -51,7 +54,7 @@ export class AiService {
     private readonly contentsFor: (tabId: number) => WebContents | undefined,
     private readonly tabIdOf: (contents: WebContents) => number | null = () => null,
     /** Where Terra Code keeps checkpoints, and whether it may. Absent for background work. */
-    coderHome?: { dir: string; keep: () => boolean },
+    coderHome?: CoderHome,
     private readonly memoryOn: () => boolean = () => false
   ) {
     const checkpoints = coderHome && new CoderCheckpoints(join(coderHome.dir, 'checkpoints'))
@@ -59,28 +62,38 @@ export class AiService {
     void checkpoints?.prune()
     void snapshots?.prune()
     this.coder = new Coder({
-      chat: (messages, system, signal, onText) => this.collect(this.chatRef(), system, messages, signal, MAX_OUTPUT_TOKENS, onText),
+      chat: (messages, system, signal, options) => this.collect(this.coderRef(options?.model), system, messages, signal, MAX_OUTPUT_TOKENS, options?.onText, undefined, options),
       native: {
-        available: () => {
-          const chat = this.store.roles().chat
+        available: (model) => {
+          const chat = model ?? this.store.roles().chat
           const provider = chat && this.store.provider(chat.providerId)
           return !!provider && (!provider.hosted || HOSTED_NATIVE_TOOLS)
         },
-        chat: async (messages, system, tools, signal, onText) => {
-          const ref = this.chatRef()
-          const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: MAX_OUTPUT_TOKENS, signal, tools })
+        chat: async (messages, system, tools, signal, options) => {
+          const ref = this.coderRef(options?.model)
+          const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: MAX_OUTPUT_TOKENS, signal, tools, ...(options?.effort ? { effort: options.effort } : {}) })
           let text = ''
           const uses: ToolUse[] = []
           for await (const event of stream) {
             if (event.type === 'text') {
               text += event.text
-              onText?.(text)
+              options?.onText?.(text)
             } else if (event.type === 'tool') uses.push(event.use)
-            else if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+            else if (event.type === 'usage') {
+              this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+              options?.onUsage?.(event.inputTokens, event.outputTokens)
+            }
           }
           return { text, uses }
         }
       },
+      webFetch: async (url) => {
+        if (URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)) return 'AI is turned off for that site, so it was not read.'
+        const page = await readResult({ url, title: url })
+        return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
+      },
+      readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, mcp: coderHome.mcp, browser: coderHome.browser } : {}),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
         const pages = await webContext(query, isSiteOff)
@@ -107,6 +120,19 @@ export class AiService {
     }
   }
 
+  /** A task from the command line (`scterra code …`), waiting for Terra Code to open. */
+  private pendingCode: string | null = null
+
+  setPendingCode(task: string): void {
+    this.pendingCode = task
+  }
+
+  takePendingCode(): { task: string } | null {
+    const task = this.pendingCode
+    this.pendingCode = null
+    return task === null ? null : { task }
+  }
+
   /** A question from the address bar, waiting for the assistant page to load. */
   private pendingPrompt: string | null = null
 
@@ -120,6 +146,24 @@ export class AiService {
     return text
   }
 
+  /** The session's own model if it still exists, else the assistant's. */
+  private coderRef(model?: ModelRef | null): ModelRef {
+    if (model && this.store.provider(model.providerId)) return model
+    return this.chatRef()
+  }
+
+  /** Models Terra Code can be switched to: each provider's known models, listed once. */
+  async coderModels(): Promise<CoderModelChoice[]> {
+    const roles = Object.values(this.store.roles()).filter((ref): ref is ModelRef => !!ref)
+    const choices: CoderModelChoice[] = []
+    for (const provider of this.store.providers()) {
+      const listed = await Promise.race([this.models(provider.id).then((found) => found.models), new Promise<string[]>((done) => setTimeout(() => done([]), 4000))])
+      const names = [...new Set([...roles.filter((ref) => ref.providerId === provider.id).map((ref) => ref.model), ...provider.models, ...listed])].slice(0, 80)
+      for (const model of names) choices.push({ providerId: provider.id, providerName: provider.name, model })
+    }
+    return choices
+  }
+
   private chatRef(): ModelRef {
     const chat = this.store.roles().chat
     if (!chat) throw new AiError('not-found', 'Choose a model in AI settings first.')
@@ -129,22 +173,26 @@ export class AiService {
   /** Agentic coding (beta), on the chat model. Long replies, as it writes whole files. */
   readonly coder: Coder
 
-  coderStatus(folder: string): CoderStatus {
+  async coderStatus(folder: string): Promise<CoderStatus> {
     const chat = this.store.roles().chat
     const provider = chat && this.store.provider(chat.providerId)
     const status = this.store.status()
-    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running }
+    const isGit = folder ? (await git(folder, ['rev-parse', '--is-inside-work-tree'])) === 'true' : false
+    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running, git: isGit, sandboxAvailable: sandboxAvailable() }
   }
 
-  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void): Promise<string> {
+  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void, extra: { onUsage?: (input: number, output: number) => void; effort?: 'low' | 'medium' | 'high' | null } = {}): Promise<string> {
     let text = ''
-    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal })
+    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal, ...(extra.effort ? { effort: extra.effort } : {}) })
     for await (const event of stream) {
       if (event.type === 'text') {
         text += event.text
         onText?.(text)
       }
-      if (event.type === 'usage') this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+      if (event.type === 'usage') {
+        this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
+        extra.onUsage?.(event.inputTokens, event.outputTokens)
+      }
       if (event.type === 'stop') onStop?.(event.reason)
     }
     return text
@@ -303,4 +351,16 @@ export class AiService {
     })
     return trimmed
   }
+}
+
+/** What Terra Code needs from the window it lives in. */
+export interface CoderHome {
+  dir: string
+  keep: () => boolean
+  trust?: CoderTrust
+  sandbox?: () => SandboxMode
+  autoCompact?: () => boolean
+  autoCheck?: () => boolean
+  mcp?: CoderMcpHost
+  browser?: CoderBrowserHost
 }

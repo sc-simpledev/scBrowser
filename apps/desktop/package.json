@@ -2,7 +2,7 @@
   "name": "@scbrowser/desktop",
   "desktopName": "scterra.desktop",
   "productName": "scTerra",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "A modern, AI-native browser for Linux, Windows and macOS.",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@ghostery/adblocker": "^2.20.3",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@mozilla/readability": "^0.6.0",
     "@scbrowser/ai": "workspace:*",
     "@scbrowser/shared": "workspace:*",

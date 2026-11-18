@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { AiError, errorForStatus, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
+import { AiError, errorForStatus, imageParts, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
 
 /** Current models, which accept `output_config.effort` and refusal fallbacks. */
 const SUPPORTS_FALLBACKS = /^claude-(opus-5|sonnet-5-5|fable-5-1)/
@@ -17,11 +17,25 @@ function toAiError(error: unknown, name: string): unknown {
 
 /** Plain turns stay plain; tool turns become the content blocks the API expects. */
 export function toAnthropicMessages(messages: ChatMessage[]) {
-  return messages.map(({ role, content, toolUses, toolResults }) => {
+  const pictures = (urls: string[]) =>
+    urls.flatMap((url) => {
+      const parts = imageParts(url)
+      return parts ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: parts.mediaType, data: parts.data } }] : []
+    })
+  return messages.map(({ role, content, images, toolUses, toolResults }) => {
     const said = content ? [{ type: 'text' as const, text: content }] : []
     if (toolUses?.length) return { role, content: [...said, ...toolUses.map(({ id, name, input }) => ({ type: 'tool_use' as const, id, name, input: input ?? {} }))] }
-    if (toolResults?.length) return { role, content: [...toolResults.map(({ id, output }) => ({ type: 'tool_result' as const, tool_use_id: id, content: output })), ...said] }
-    return { role, content }
+    if (toolResults?.length) {
+      return {
+        role,
+        content: [
+          ...toolResults.map(({ id, output, images: shots }) => ({ type: 'tool_result' as const, tool_use_id: id, content: shots?.length ? [{ type: 'text' as const, text: output }, ...pictures(shots)] : output })),
+          ...said
+        ]
+      }
+    }
+    const shown = role === 'user' ? pictures(images ?? []) : []
+    return { role, content: shown.length ? [...said, ...shown] : content }
   })
 }
 
@@ -45,7 +59,7 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
       }
     },
 
-    async *chat({ model, system, messages, maxTokens, signal, tools }: ChatRequest): AsyncGenerator<ChatEvent> {
+    async *chat({ model, system, messages, maxTokens, signal, tools, effort }: ChatRequest): AsyncGenerator<ChatEvent> {
       // Gateways that imitate this API won't know Anthropic-only options, so they're limited to the real one.
       const fallbacks = config.firstParty && SUPPORTS_FALLBACKS.test(model)
       const stream = client.beta.messages.stream(
@@ -55,7 +69,7 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
           system,
           messages: toAnthropicMessages(messages),
           ...(tools?.length ? { tools: tools.map(({ name, description, parameters }) => ({ name, description, input_schema: parameters as { type: 'object' } })) } : {}),
-          ...(SUPPORTS_EFFORT.test(model) ? { output_config: { effort: 'low' as const } } : {}),
+          ...(SUPPORTS_EFFORT.test(model) ? { output_config: { effort: effort ?? ('low' as const) } } : {}),
           ...(fallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {})
         },
         { signal }

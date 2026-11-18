@@ -224,7 +224,10 @@ describe('tool turns', () => {
   })
 
   it('every tool spec produces a valid call shape', () => {
-    expect(CODER_TOOLS.map((tool) => tool.name).sort()).toEqual(['delete', 'edit', 'explore', 'glob', 'list', 'move', 'read', 'run', 'search', 'todo', 'web', 'write'])
+    expect(CODER_TOOLS.map((tool) => tool.name).sort()).toEqual(['delete', 'diagnostics', 'edit', 'explore', 'fetch', 'glob', 'kill', 'list', 'move', 'output', 'patch', 'preview', 'read', 'run', 'search', 'tabs', 'todo', 'web', 'write'])
+    // Every tool the model is offered can be read back as a call.
+    const samples: Record<string, object> = { delete: { path: 'a' }, diagnostics: {}, edit: { path: 'a', edits: [{ find: 'a', replace: 'b' }] }, explore: { task: 't' }, fetch: { url: 'https://a.test' }, glob: { pattern: '*' }, kill: { job: 1 }, list: { path: '.' }, move: { from: 'a', to: 'b' }, output: { job: 1 }, patch: { files: [{ path: 'a', edits: [{ find: 'a', replace: 'b' }] }] }, preview: { action: 'open', url: 'http://localhost:3000' }, read: { path: 'a' }, run: { command: 'ls' }, search: { pattern: 'x' }, tabs: { action: 'list' }, todo: { items: [{ text: 'a', done: false }] }, web: { query: 'q' }, write: { path: 'a', content: '' } }
+    for (const tool of CODER_TOOLS) expect(nativeCall({ id: 'a', name: tool.name, input: samples[tool.name] }), tool.name).not.toBeNull()
     expect(nativeCall({ id: 'a', name: 'edit', input: { path: 'x', edits: [{ find: 'a', replace: 'b' }] } })).toMatchObject({ tool: 'edit' })
     expect(nativeCall({ id: 'a', name: 'edit', input: null })).toBeNull()
   })

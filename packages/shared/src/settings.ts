@@ -182,6 +182,14 @@ export interface Settings {
   /** The project folder agentic coding (beta) works in, on this computer only. */
   coderFolder: string
   coderMode: 'plan' | 'ask' | 'edits'
+  /** Fences Terra Code's commands in (Linux, with bubblewrap): project-only writes, and optionally no network. */
+  coderSandbox: 'off' | 'project' | 'offline'
+  /** Summarise the start of a long Terra Code session by itself, rather than dropping old output. */
+  coderAutoCompact: boolean
+  /** Run the project's checker after Terra Code edits, where it runs without asking. */
+  coderAutoCheck: boolean
+  /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
+  coderNotify: boolean
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -273,6 +281,10 @@ export const DEFAULT_SETTINGS: Settings = {
   memorySaver: true,
   coderFolder: '',
   coderMode: 'ask',
+  coderSandbox: 'off',
+  coderAutoCompact: true,
+  coderAutoCheck: true,
+  coderNotify: true,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   focusUntil: 0,
@@ -366,6 +378,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   memorySaver: (v) => typeof v === 'boolean',
   coderFolder: (v) => typeof v === 'string' && v.length <= 4096,
   coderMode: (v) => v === 'plan' || v === 'ask' || v === 'edits',
+  coderSandbox: (v) => v === 'off' || v === 'project' || v === 'offline',
+  coderAutoCompact: (v) => typeof v === 'boolean',
+  coderAutoCheck: (v) => typeof v === 'boolean',
+  coderNotify: (v) => typeof v === 'boolean',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,

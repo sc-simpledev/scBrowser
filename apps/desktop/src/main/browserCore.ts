@@ -97,6 +97,8 @@ export interface BrowserWindowHandle {
   openExtensionsPopup: (popup: ExtensionsPopupState, refresh?: boolean) => void
   passwordsChanged: () => void
   hidePages: (hidden: boolean) => void
+  /** Terra Code in a folder, with a task to start, as `scterra code …` asks. */
+  openCode: (folder: string, task: string) => void
   /** What to save so this window comes back after a restart. */
   saved: () => SavedSession
 }

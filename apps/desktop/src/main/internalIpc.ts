@@ -1,4 +1,7 @@
-import { transcriptOf } from './ai/coder'
+import { coderHandlers } from './ai/coderIpc'
+import type { CoderBrowserHost } from './ai/coder'
+import type { CoderMcp } from './ai/coderMcp'
+import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -75,6 +78,12 @@ interface InternalServices {
   updates: UpdateService
   /** The intro's tab takes over the window, or gives it back. */
   setIntro: (tabId: number | null) => void
+  coderTrust: CoderTrust
+  coderMcp: CoderMcp | undefined
+  coderBrowser: CoderBrowserHost
+  coderHome: string
+  /** Brings the window and the tab holding this page to the front. */
+  focusContents: (contents: WebContents) => void
 }
 
 /** Designs picked per report, as `chat id → title → design`. Small, so it lives in one kv entry. */
@@ -168,7 +177,6 @@ type Dispatch = (event: IpcMainInvokeEvent, channel: unknown, args: unknown[]) =
 /** One per window. A page's calls go to the window holding its tab. */
 const dispatchers = new Map<TabManager, Dispatch>()
 
-const MAX_CODE_CHAT_CHARS = 6_000_000
 
 export function registerInternalIpc(services: InternalServices): () => void {
   const { core, window, tabs, actions, settings, history, bookmarks, downloads, permissions, onBookmarksChanged, aiStore, ai, chats, privacy, extensions, sync, reporter, blocker, vpn, passwords, updates, setIntro } = services
@@ -179,17 +187,6 @@ export function registerInternalIpc(services: InternalServices): () => void {
   const study = () => {
     if (!core.study) throw new Error("Private windows don't keep a focus timer.")
     return core.study
-  }
-
-  /** Picks a saved Terra Code chat back up after a restart, from what its screen showed. */
-  const savedCodeMessages = (id: string) => {
-    const saved = chats.getCode(id)
-    if (!saved) return undefined
-    try {
-      return transcriptOf((JSON.parse(saved.data) as { items?: unknown }).items)
-    } catch {
-      return undefined
-    }
   }
 
   // Set for each call, so replies go back to the page that asked.
@@ -630,88 +627,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'archive:remove': (id) => void core.archive.take(text(id, 64)),
     'archive:clear': () => core.archive.clear(),
-    'coder:status': () => {
-      coderOnly()
-      return ai.coderStatus(settings.get().coderFolder)
-    },
-    'coder:pick-folder': async () => {
-      coderOnly()
-      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: 'Choose a project folder', properties: ['openDirectory', 'createDirectory'] })
-      const folder = result.canceled ? undefined : result.filePaths[0]
-      if (!folder) return null
-      settings.set({ coderFolder: folder })
-      return folder
-    },
-    'coder:open-folder': () => {
-      coderOnly()
-      const { coderFolder } = settings.get()
-      if (coderFolder) void shell.openPath(coderFolder)
-    },
-    'coder:run': (sessionId, task) => {
-      const sender = coderOnly()
-      const { coderFolder, coderMode } = settings.get()
-      if (!coderFolder) throw new Error('Choose a project folder first.')
-      const id = text(sessionId, 64)
-      // Leaving the page leaves nobody to answer its questions, so the run ends with it. Going to a saved chat is one such move.
-      const stop = () => ai.coder.stop(id)
-      sender.once('did-navigate', stop)
-      void ai.coder
-        .run(id, coderFolder, text(task, CODER_MAX_TASK_CHARS), coderMode, (event) => {
-          if (!sender.isDestroyed()) sender.send('coder:event', event)
-        }, savedCodeMessages(id))
-        .finally(() => {
-          if (!sender.isDestroyed()) sender.off('did-navigate', stop)
-        })
-    },
-    'coder:steer': (sessionId, message) => {
-      coderOnly()
-      return ai.coder.steer(text(sessionId, 64), text(message, CODER_MAX_TASK_CHARS))
-    },
-    'coder:save': (sessionId, title, data) => {
-      coderOnly()
-      const { saveChats, coderFolder } = settings.get()
-      if (saveChats && coderFolder) chats.saveCode(text(sessionId, 64), text(title, 20_000), coderFolder, text(data, MAX_CODE_CHAT_CHARS))
-    },
-    'coder:open': (sessionId) => {
-      coderOnly()
-      const saved = chats.getCode(text(sessionId, 64))
-      if (saved && saved.folder !== settings.get().coderFolder) settings.set({ coderFolder: saved.folder })
-      return saved
-    },
-    'coder:answer': (id, answer) => {
-      coderOnly()
-      if (answer !== 'allow' && answer !== 'always' && answer !== 'deny') throw new Error('Invalid answer')
-      ai.coder.answer(text(id, 64), answer)
-    },
-    'coder:stop': (sessionId) => {
-      coderOnly()
-      ai.coder.stop(text(sessionId, 64))
-    },
-    'coder:reset': (sessionId) => {
-      coderOnly()
-      ai.coder.reset(text(sessionId, 64))
-    },
-    'coder:changes': (sessionId) => {
-      coderOnly()
-      return ai.coder.changes(text(sessionId, 64))
-    },
-    'coder:diff': (sessionId, path) => {
-      coderOnly()
-      return ai.coder.diff(text(sessionId, 64), text(path, 1024))
-    },
-    'coder:undo': (sessionId, path) => {
-      coderOnly()
-      return ai.coder.undo(text(sessionId, 64), path === undefined ? undefined : text(path, 1024))
-    },
-    'coder:review': (sessionId, path) => {
-      coderOnly()
-      return ai.coder.review(text(sessionId, 64), text(path, 1024))
-    },
-    'coder:decide': (sessionId, path, hunk, decision) => {
-      coderOnly()
-      if (decision !== 'accept' && decision !== 'reject') throw new Error('Invalid decision')
-      return ai.coder.decide(text(sessionId, 64), text(path, 1024), hunk === null ? null : text(hunk, 64), decision)
-    },
+    ...coderHandlers({ window, tabs, settings, chats, kv: core.services.kv, ai, trust: services.coderTrust, mcp: services.coderMcp, browser: services.coderBrowser, home: services.coderHome, coderOnly, focus: services.focusContents }),
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {
       const group = core.closedGroups.take(text(id, 64))

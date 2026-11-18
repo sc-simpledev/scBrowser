@@ -1,5 +1,5 @@
 import { readServerEvents } from './sse'
-import { AiError, errorForStatus, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
+import { AiError, errorForStatus, imageParts, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
 
 interface ChatChunk {
   choices?: { delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string | null }[]
@@ -9,14 +9,27 @@ interface ChatChunk {
 
 /** Tool results are messages of their own in this format, one per call. */
 export function toOpenAiMessages(messages: ChatMessage[]): unknown[] {
-  return messages.flatMap(({ role, content, toolUses, toolResults }): unknown[] => {
+  const pictures = (urls: string[]) => urls.filter((url) => imageParts(url)).map((url) => ({ type: 'image_url', image_url: { url } }))
+  return messages.flatMap(({ role, content, images, toolUses, toolResults }): unknown[] => {
     if (toolUses?.length) {
       return [{ role, content: content || null, tool_calls: toolUses.map(({ id, name, input }) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(input ?? {}) } })) }]
     }
-    if (toolResults?.length) return [...toolResults.map(({ id, output }) => ({ role: 'tool', tool_call_id: id, content: output })), ...(content ? [{ role, content }] : [])]
-    return [{ role, content }]
+    if (toolResults?.length) {
+      // A tool message can only hold text, so pictures from tools follow as the person's turn.
+      const shown = pictures(toolResults.flatMap((result) => result.images ?? []))
+      return [
+        ...toolResults.map(({ id, output }) => ({ role: 'tool', tool_call_id: id, content: output })),
+        ...(shown.length ? [{ role: 'user', content: [{ type: 'text', text: '(Pictures from the tool results above.)' }, ...shown] }] : []),
+        ...(content ? [{ role, content }] : [])
+      ]
+    }
+    const shown = role === 'user' ? pictures(images ?? []) : []
+    return [shown.length ? { role, content: [...(content ? [{ type: 'text', text: content }] : []), ...shown] } : { role, content }]
   })
 }
+
+/** Only models that think take a reasoning effort; others would turn the request down. */
+const TAKES_EFFORT = /(^|\/)(o\d|gpt-5)/i
 
 function parsedArguments(text: string): unknown {
   try {
@@ -59,7 +72,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
       return (body.data ?? []).flatMap((m) => (typeof m.id === 'string' ? [m.id] : []))
     },
 
-    async *chat({ model, system, messages, maxTokens, signal, tools }: ChatRequest): AsyncGenerator<ChatEvent> {
+    async *chat({ model, system, messages, maxTokens, signal, tools, effort }: ChatRequest): AsyncGenerator<ChatEvent> {
       const response = await send('/chat/completions', {
         method: 'POST',
         signal,
@@ -70,6 +83,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
           stream_options: { include_usage: true },
           max_tokens: maxTokens,
           messages: [{ role: 'system', content: system }, ...toOpenAiMessages(messages)],
+          ...(effort && TAKES_EFFORT.test(model) ? { reasoning_effort: effort } : {}),
           ...(tools?.length ? { tools: tools.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } })) } : {})
         })
       })

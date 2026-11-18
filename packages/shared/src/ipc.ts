@@ -17,7 +17,7 @@ import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderReview, CoderStatus } from './coder'
+import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderModelChoice, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderWorktree, McpServerConfig } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -636,7 +636,52 @@ export interface InternalCommands {
   'coder:status': () => CoderStatus
   'coder:pick-folder': () => string | null
   'coder:open-folder': () => void
-  'coder:run': (sessionId: string, task: string) => void
+  'coder:run': (sessionId: string, task: string, options?: CoderRunOptions) => void
+  /** Stops one running command, leaving the session working. */
+  'coder:stop-tool': (sessionId: string, toolId: string) => void
+  /** Puts the conversation and files back to just before a message. Returns that message. */
+  'coder:rewind': (sessionId: string, turnId: string) => { task: string; files: number }
+  /** Summarises the session so far, as /compact asks. False if there was too little to summarise. */
+  'coder:compact': (sessionId: string) => boolean
+  /** A copy of the session to carry on in, saved as a chat of its own. Returns its id. */
+  'coder:fork': (sessionId: string) => string | null
+  /** Saves a session as Markdown where the person picks. */
+  'coder:export': (title: string, markdown: string) => boolean
+  'coder:models': () => CoderModelChoice[]
+  /** Permissions, MCP servers, agents, skills, commands and hooks for the open folder. */
+  'coder:setup': () => CoderSetup
+  'coder:set-rules': (rules: { allow: string[]; deny: string[] }) => void
+  /** Adds a note to the project's TERRA.md. Returns the file. */
+  'coder:remember': (note: string) => string
+  /** Files in the project matching what's typed after @. */
+  'coder:files': (query: string) => string[]
+  /** Open tabs to pick with @. */
+  'coder:tabs': () => { id: number; title: string; url: string }[]
+  'coder:job-stop': (sessionId: string, jobId: number) => void
+  /** Sessions working right now, even in the background. */
+  'coder:running': () => string[]
+  /** What a session's latest run did, for showing one that worked while another chat was on screen. */
+  'coder:replay': (sessionId: string) => { turnId: string | null; task: string; events: CoderEvent[]; running: boolean } | null
+  /** Adds or changes one of the person's own MCP servers. Empty secret values keep what was saved. */
+  'coder:mcp-save': (server: McpServerConfig) => void
+  'coder:mcp-remove': (name: string) => void
+  /** Lets a project's own MCP server run, or stops trusting it. */
+  'coder:mcp-trust': (name: string, trusted: boolean) => void
+  'coder:mcp-restart': (name: string) => void
+  /** Lets this project's hooks run, or stops them. */
+  'coder:hooks-trust': (trusted: boolean) => void
+  /** A separate git worktree for this session, on a branch of its own. */
+  'coder:worktree': (sessionId: string) => CoderWorktree
+  'coder:worktree-info': (sessionId: string) => CoderWorktree | null
+  /** Merges the worktree's branch into the branch it came from. Returns what git said. */
+  'coder:worktree-merge': (sessionId: string) => string
+  'coder:worktree-remove': (sessionId: string) => void
+  /** A commit message for the session's changes, written by the quick model. */
+  'coder:commit-message': (sessionId: string) => string
+  /** Commits the session's changes (or everything, with `all`), on a new branch if one is named. */
+  'coder:commit': (sessionId: string, message: string, branch: string | null, all: boolean) => string
+  /** A task handed over from the command line (`scterra code …`), taken once. */
+  'coder:pending': () => { task: string } | null
   /** A message for a run already under way, read at its next step. False if nothing is running. */
   'coder:steer': (sessionId: string, text: string) => boolean
   /** Keeps what the chat shows. The folder is recorded by the main process, not taken from the page. */
@@ -920,6 +965,32 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:undo',
   'coder:review',
   'coder:decide',
+  'coder:stop-tool',
+  'coder:rewind',
+  'coder:compact',
+  'coder:fork',
+  'coder:export',
+  'coder:models',
+  'coder:setup',
+  'coder:set-rules',
+  'coder:remember',
+  'coder:files',
+  'coder:tabs',
+  'coder:job-stop',
+  'coder:running',
+  'coder:replay',
+  'coder:mcp-save',
+  'coder:mcp-remove',
+  'coder:mcp-trust',
+  'coder:mcp-restart',
+  'coder:hooks-trust',
+  'coder:worktree',
+  'coder:worktree-info',
+  'coder:worktree-merge',
+  'coder:worktree-remove',
+  'coder:commit-message',
+  'coder:commit',
+  'coder:pending',
   'highlights:list',
   'highlights:note',
   'highlights:remove',

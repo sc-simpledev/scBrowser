@@ -22,6 +22,16 @@ export interface CoderCheckpoint {
   /** Files whose earlier version isn't text, as the snapshot object that holds them. */
   opaque: [string, string][]
   seen: [string, number][]
+  /** Where each turn started, and how the session's files were then, for rewinding to it. */
+  marks?: [string, CoderMark][]
+}
+
+export interface CoderMark {
+  /** How many messages there were before this turn. -1 once the start was summarised away. */
+  at: number
+  /** The session's changed files as they were when the turn started (null: missing). */
+  files: [string, string | null][]
+  task: string
 }
 
 export class CoderCheckpoints {

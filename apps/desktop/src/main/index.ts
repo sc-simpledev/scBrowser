@@ -2,6 +2,8 @@ import { rememberOwnUserAgent } from './googleSignIn'
 import { cpSync, existsSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { stat } from 'node:fs/promises'
+import { codeFromArgv } from './codeArgs'
 import { app, Menu, net } from 'electron'
 import { HOSTED_AI_URL } from '@scbrowser/shared'
 import { AiStore } from './ai/store'
@@ -77,6 +79,12 @@ function urlsFromArgv(argv: string[]): string[] {
 
 let core: BrowserCore | null = null
 
+/** Only a real folder, as a terminal can be anywhere. */
+async function openCode({ folder, task }: { folder: string; task: string }): Promise<void> {
+  const info = await stat(folder).catch(() => null)
+  if (info?.isDirectory()) core?.browser().openCode(folder, task)
+}
+
 /** On a Mac, links from other apps arrive as events, and can come before the window exists. */
 const earlyUrls: string[] = []
 const openFromSystem = (event: Electron.Event, url: string) => {
@@ -109,8 +117,16 @@ const isCrash = (reason: string) => reason !== 'clean-exit' && reason !== 'kille
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', (_event, argv) => {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
     if (!core) return
+    const code = codeFromArgv(argv, workingDirectory, app.isPackaged ? 1 : 2)
+    if (code) {
+      const { window } = core.browser()
+      void openCode(code)
+      if (window.isMinimized()) window.restore()
+      window.focus()
+      return
+    }
     const webApp = webAppUrlFromArgv(argv)
     if (webApp) {
       core.openWindow({ kind: 'app', urls: [webApp] })
@@ -167,6 +183,8 @@ if (!app.requestSingleInstanceLock()) {
     )
     // A shortcut to an installed site opens just that, leaving the browser for when it's asked for.
     const webApp = webAppUrlFromArgv(process.argv)
+    const code = codeFromArgv(process.argv, process.cwd(), app.isPackaged ? 1 : 2)
+    if (code) setTimeout(() => void openCode(code), 1500)
     const first = webApp ? core.openWindow({ kind: 'app', urls: [webApp] }) : core.openWindow({ urls: [...urlsFromArgv(process.argv), ...earlyUrls] })
     if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: first.tabs, scbActions: first.actions, scbExtensions: core.extensions, scbSync: core.sync, scbVpn: core.vpn, scbReporter: reporter, scbUpdates: core.updates, scbCore: core })
   })

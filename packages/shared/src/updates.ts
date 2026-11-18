@@ -42,6 +42,21 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.7.0',
+    date: '2026-11-19',
+    items: [
+      'Terra Code connects to MCP servers: your own, kept encrypted, and a project’s, once you allow them. It asks before using each tool.',
+      'Type / in Terra Code for commands such as /init, /review, /compact and /undo, plus your project’s own. Type @ to attach a file or an open tab, and paste pictures in.',
+      'Rewind to before any message you sent: the files and the conversation go back together.',
+      '“Always allow npm test* here” remembers a command for the project. Commands that only look never ask, and you can block others in Terra Code settings.',
+      'Dev servers can keep running in the background, and command output shows as it arrives, with a Stop for each command.',
+      'Terra Code can open your dev server in a tab beside yours, read it, catch console errors, take a screenshot, and click or type with your OK.',
+      'Long sessions are summarised before the model’s memory fills, and a small meter shows how full it is.',
+      'Choose the model and how hard it thinks for each session, commit with a written message, and work in a separate git copy that merges back.',
+      'Project agents, skills and hooks from .terra/, a Linux sandbox for commands, notifications, and scterra code "task" from a terminal.'
+    ]
+  },
+  {
     version: '0.6.5',
     date: '2026-11-19',
     items: [

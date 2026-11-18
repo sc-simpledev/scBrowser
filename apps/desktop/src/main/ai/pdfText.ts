@@ -10,7 +10,7 @@ export interface PdfText {
 }
 
 /** Parses PDF bytes in a separate process, which is killed if it takes too long. */
-function parse(data: Uint8Array): Promise<PdfText | null> {
+export function parsePdf(data: Uint8Array): Promise<PdfText | null> {
   return new Promise((resolve) => {
     const child = utilityProcess.fork(pdfWorkerPath, [], { serviceName: 'scTerra PDF reader' })
     const finish = (result: PdfText | null) => {
@@ -33,5 +33,5 @@ export async function readPdf(contents: WebContents, url: string): Promise<PdfTe
   if (!response.ok) return null
   if (Number(response.headers.get('content-length')) > MAX_BYTES) return null
   const bytes = new Uint8Array(await response.arrayBuffer())
-  return bytes.length > MAX_BYTES ? null : parse(bytes)
+  return bytes.length > MAX_BYTES ? null : parsePdf(bytes)
 }

@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { globToRegExp } from '@scbrowser/ai'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -139,7 +141,7 @@ export async function moveFile(from: string, to: string): Promise<void> {
   await rename(from, to)
 }
 
-export async function searchFiles(folder: string, path: string, pattern: string, glob: string | null = null): Promise<string> {
+export async function searchFiles(folder: string, path: string, pattern: string, glob: string | null = null, context = 0): Promise<string> {
   // Shown relative to the real folder, which can differ from the one given (short names on Windows, /private on Macs).
   const root = await realpath(folder)
   let regex: RegExp
@@ -156,8 +158,18 @@ export async function searchFiles(folder: string, path: string, pattern: string,
     const bytes = await readFile(full).catch(() => null)
     if (!bytes || bytes.subarray(0, 4000).includes(0)) return true
     const lines = bytes.toString('utf8').split('\n')
+    let shownTo = -1
     for (let i = 0; i < lines.length && hits.length < MAX_SEARCH_HITS; i++) {
-      if (regex.test(lines[i]!)) hits.push(`${name}:${i + 1}: ${lines[i]!.trim().slice(0, 240)}`)
+      if (!regex.test(lines[i]!)) continue
+      if (context === 0) {
+        hits.push(`${name}:${i + 1}: ${lines[i]!.trim().slice(0, 240)}`)
+        continue
+      }
+      // With context, nearby lines come too, as grep -C does, and runs that touch share one block.
+      const from = Math.max(shownTo + 1, i - context)
+      if (shownTo !== -1 && from > shownTo + 1) hits.push('--')
+      for (let j = from; j <= Math.min(lines.length - 1, i + context); j++) hits.push(`${name}${j === i ? ':' : '-'}${j + 1}${j === i ? ':' : '-'} ${lines[j]!.slice(0, 240)}`)
+      shownTo = Math.min(lines.length - 1, i + context)
     }
     return hits.length < MAX_SEARCH_HITS
   })
@@ -238,30 +250,76 @@ export function commandEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
   return clean
 }
 
+/** How commands are fenced in: not at all, only able to write in the project, or that with no network too. */
+export type SandboxMode = 'off' | 'project' | 'offline'
+
+let bwrapPath: string | null | undefined
+/** Linux only, and only where bubblewrap is installed. */
+export function sandboxAvailable(): boolean {
+  if (process.platform !== 'linux') return false
+  if (bwrapPath === undefined) bwrapPath = ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'].find((path) => existsSync(path)) ?? null
+  return bwrapPath !== null
+}
+
+/** Caches package managers and build tools write to, which a sandboxed build still needs. */
+const WRITABLE_CACHES = ['.cache', '.npm', '.pnpm-store', '.local/share/pnpm', '.yarn', '.bun', '.cargo', '.rustup', 'go', '.m2', '.gradle', '.nuget', '.deno']
+
+/**
+ * The program and arguments that run `command` in the person's shell, inside bubblewrap when asked:
+ * the whole system readable, but only the project, the temporary folder and build caches writable,
+ * and with `offline` no network at all.
+ */
+export function shellCommand(root: string, command: string, sandbox: SandboxMode = 'off'): { file: string; args: string[] } {
+  const windows = process.platform === 'win32'
+  const shell = windows ? (process.env.ComSpec ?? 'cmd.exe') : (process.env.SHELL || '/bin/bash')
+  const args = windows ? ['/d', '/s', '/c', command] : ['-lc', command]
+  if (sandbox === 'off' || !sandboxAvailable()) return { file: shell, args }
+  const home = homedir()
+  const caches = WRITABLE_CACHES.map((name) => join(home, name)).filter((path) => existsSync(path))
+  return {
+    file: bwrapPath!,
+    args: [
+      '--ro-bind', '/', '/',
+      '--dev', '/dev',
+      '--proc', '/proc',
+      '--tmpfs', '/tmp',
+      ...caches.flatMap((path) => ['--bind', path, path]),
+      '--bind', root, root,
+      '--chdir', root,
+      '--die-with-parent',
+      ...(sandbox === 'offline' ? ['--unshare-net'] : []),
+      '--', shell, ...args
+    ]
+  }
+}
+
+export interface ShellOptions {
+  signal: AbortSignal
+  timeoutMs?: number
+  sandbox?: SandboxMode
+  /** Each piece of output as it arrives. */
+  onOutput?: (text: string) => void
+  env?: NodeJS.ProcessEnv
+}
+
 /** Runs through the person's own shell in the project folder, and is stopped after two minutes or on request. */
-export function runCommand(root: string, command: string, signal: AbortSignal, timeoutMs = COMMAND_TIMEOUT_MS): Promise<{ ok: boolean; output: string }> {
+export function runCommand(root: string, command: string, signal: AbortSignal, timeoutMs = COMMAND_TIMEOUT_MS, options: Omit<ShellOptions, 'signal' | 'timeoutMs'> = {}): Promise<{ ok: boolean; output: string; code: number | null }> {
   return new Promise((done) => {
     const windows = process.platform === 'win32'
-    const shell = windows ? (process.env.ComSpec ?? 'cmd.exe') : (process.env.SHELL || '/bin/bash')
-    const args = windows ? ['/d', '/s', '/c', command] : ['-lc', command]
+    const { file, args } = shellCommand(root, command, options.sandbox)
     let output = ''
     let finished = false
-    const child = spawn(shell, args, { cwd: root, env: commandEnv(), detached: !windows, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(file, args, { cwd: root, env: { ...commandEnv(), ...options.env }, detached: !windows, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     const add = (chunk: Buffer) => {
-      output += chunk.toString('utf8')
+      const text = chunk.toString('utf8')
+      output += text
+      options.onOutput?.(text)
       // Holds on to a little more than gets shown, which keeps the tail.
       if (output.length > MAX_OUTPUT * 4) output = output.slice(0, MAX_OUTPUT) + output.slice(-MAX_OUTPUT * 2)
     }
     child.stdout.on('data', add)
     child.stderr.on('data', add)
-    const kill = () => {
-      try {
-        if (windows) spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true })
-        else if (child.pid) process.kill(-child.pid, 'SIGKILL')
-      } catch {
-        child.kill('SIGKILL')
-      }
-    }
+    const kill = () => killTree(child)
     const timer = setTimeout(() => {
       output += `\n(stopped after ${Math.round(timeoutMs / 1000)} seconds)`
       kill()
@@ -277,9 +335,19 @@ export function runCommand(root: string, command: string, signal: AbortSignal, t
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       const status = error ? `\n(couldn't start: ${error.message})` : `\n(exit code ${code ?? 'none'})`
-      done({ ok: !error && code === 0, output: clip(output.trimEnd() + status) })
+      done({ ok: !error && code === 0, output: clip(output.trimEnd() + status), code })
     }
     child.on('error', (error) => finish(null, error))
     child.on('close', (code) => finish(code))
   })
+}
+
+/** Stops a command and everything it started. */
+export function killTree(child: ChildProcess): void {
+  try {
+    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true })
+    else if (child.pid) process.kill(-child.pid, 'SIGKILL')
+  } catch {
+    child.kill('SIGKILL')
+  }
 }

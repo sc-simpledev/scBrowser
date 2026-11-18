@@ -59,6 +59,9 @@ import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTab
 import { prepareRecap } from './recap'
 import { rewriteSelection, togglePageGoogleTranslation, togglePageTranslation } from './ai/pageTools'
 import { AiService } from './ai/service'
+import { coderBrowser } from './ai/coderBrowser'
+import { CoderMcp } from './ai/coderMcp'
+import { KvCoderTrust } from './ai/coderTrust'
 import type { BrowserCore, BrowserWindowHandle, Send, WindowOptions } from './browserCore'
 import { uniquePath } from './downloads'
 import { HttpAuthService, type AuthPrompt } from './httpAuth'
@@ -689,7 +692,32 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     for (const contents of tabs.allContents()) void applySiteTweaks(contents, next)
   })
   const stopSidebarPrune = settings.subscribe((next) => sidebarSites.prune(next.sidebarSites.map((site) => site.url)))
-  const ai = new AiService(aiStore, (id) => core.contentsFor(id), (contents) => core.tabIdFor(contents), { dir: join(app.getPath('userData'), 'terra-code'), keep: () => settings.get().saveChats }, () => settings.get().aiMemory)
+  const coderHome = join(app.getPath('userData'), 'terra-code')
+  const coderTrust = new KvCoderTrust(kv)
+  const coderMcp = new CoderMcp(kv, coderTrust)
+  const coderBrowserHost = coderBrowser({
+    // Beside the person's tab, without taking its place.
+    create: (url) => tabs.create(url, { activate: false, afterId: tabs.active?.id }),
+    contentsFor: (id) => tabs.contentsFor(id),
+    tabs: () => tabs.snapshot().tabs,
+    isSiteOff: (url) => URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)
+  })
+  const ai = new AiService(
+    aiStore,
+    (id) => core.contentsFor(id),
+    (contents) => core.tabIdFor(contents),
+    {
+      dir: coderHome,
+      keep: () => settings.get().saveChats,
+      trust: coderTrust,
+      sandbox: () => settings.get().coderSandbox,
+      autoCompact: () => settings.get().coderAutoCompact,
+      autoCheck: () => settings.get().coderAutoCheck,
+      mcp: coderMcp,
+      browser: coderBrowserHost
+    },
+    () => settings.get().aiMemory
+  )
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
@@ -1452,6 +1480,11 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     raiseOverlay: () => overlay.raise(),
     setExtensionFrame: (rect, view) => overlay.setExtensionFrame(rect, view),
     openExtensionsPopup: (popup, refresh) => overlay.openExtensionsPopup(popup, refresh),
+    openCode: (folder, task) => {
+      settings.set({ coderFolder: folder })
+      if (task) ai.setPendingCode(task)
+      tabs.create('sc://assistant/?mode=code')
+    },
     passwordsChanged: () => {
       if (passwords.unlocked) {
         tabs.allContents().forEach(watchTab)
@@ -1522,7 +1555,17 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     vpn,
     passwords,
     updates,
-    setIntro
+    setIntro,
+    coderTrust,
+    coderMcp,
+    coderBrowser: coderBrowserHost,
+    coderHome,
+    focusContents: (contents) => {
+      window.show()
+      window.focus()
+      const id = tabs.tabIdFor(contents)
+      if (id !== null) tabs.activate(id)
+    }
   })
   const appLinks = new AppLinks(core.services.permissions, {
     show: (prompt) => overlay.setAppLink(prompt && { ...prompt, x: tabs.page.x + 8, y: tabs.page.y + 8 }),
@@ -1582,6 +1625,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     nativeTheme.off('updated', syncTheme)
     disposeIpc()
     disposeInternalIpc()
+    ai.coder.dispose()
+    void coderMcp.closeAll()
     overlay.destroy()
     // After the overlay, which went with the window: this clears any save offer it was showing.
     if (pendingLogin) clearTimeout(pendingLogin.timer)

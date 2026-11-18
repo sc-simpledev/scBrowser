@@ -20,10 +20,21 @@ export interface ToolOutput {
   id: string
   tool: string
   output: string
+  /** Pictures the tool returned, such as a screenshot, as data addresses. */
+  images?: string[]
 }
 
-/** A conversation turn, which may carry the provider-native tool calls and their results. */
-export type ChatMessage = AssistantMessage & { toolUses?: ToolUse[]; toolResults?: ToolOutput[] }
+/** A conversation turn, which may carry pictures (data addresses) and the provider-native tool calls and their results. */
+export type ChatMessage = AssistantMessage & { images?: string[]; toolUses?: ToolUse[]; toolResults?: ToolOutput[] }
+
+/** How hard a model that can think should think. Only sent where the model takes it. */
+export type ChatEffort = 'low' | 'medium' | 'high'
+
+/** A data address split into what the APIs want, or null if it isn't a base64 picture. */
+export function imageParts(url: string): { mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string } | null {
+  const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url)
+  return match ? { mediaType: match[1] as 'image/png', data: match[2]! } : null
+}
 
 export interface ChatRequest {
   model: string
@@ -32,6 +43,7 @@ export interface ChatRequest {
   maxTokens: number
   signal?: AbortSignal
   tools?: ToolSpec[]
+  effort?: ChatEffort
 }
 
 export type ChatEvent =
