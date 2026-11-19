@@ -1,4 +1,5 @@
 import {
+  ArrowDown,
   ArrowLeft,
   ArrowUp,
   Bot,
@@ -22,6 +23,7 @@ import {
   Monitor,
   MoreHorizontal,
   Move,
+  PanelRight,
   Plug,
   Plus,
   Search,
@@ -41,8 +43,11 @@ import { Button, cx, IconButton, Input } from '@scbrowser/ui'
 import {
   CODE_CHAT_PREFIX,
   CODER_BUILTIN_COMMANDS,
+  CODER_EFFORTS,
   CODER_INIT_TASK,
+  isCoderEffort,
   reviewTask,
+  type CoderAgentRun,
   type CoderAnswer,
   type CoderChange,
   type CoderDecision,
@@ -56,15 +61,18 @@ import {
   type CoderRunMode,
   type CoderStatus,
   type CoderTodo,
+  type Settings,
   type CoderToolName,
   type CoderWorktree
 } from '@scbrowser/shared'
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
-import { applyEvent, emptyState, savedItems, sessionMarkdown, type CodeState, type Item } from './codeState'
+import { applyEvent, emptyState, savedItems, sessionMarkdown, shortDuration, type CodeState, type Item } from './codeState'
+import { AgentCard, Checklist, CopyButton, ReasoningBlock, useElapsed } from './CodeParts'
 import { CodeSettings } from './CodeSettings'
-import { Composer, type ModelPick, type SendPayload } from './Composer'
+import { Composer, effortLabel, type ModelPick, type SendPayload } from './Composer'
+import { SessionPanel } from './SessionPanel'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   list: FolderTree,
@@ -92,11 +100,11 @@ const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   hook: Webhook
 }
 
-const STARTERS = [
-  { label: 'Explain this project', task: 'Explain how this project is put together: what it does, the main parts and where they live, and how to run and test it.' },
-  { label: 'Find and fix a bug', task: 'Run the project’s tests or checks, find what fails, and fix it.' },
-  { label: 'Review my changes', task: '/review' },
-  { label: 'Write TERRA.md for this project', task: '/init' }
+const STARTERS: { label: string; task: string; icon: LucideIcon }[] = [
+  { label: 'Explain this project', icon: Compass, task: 'Explain how this project is put together: what it does, the main parts and where they live, and how to run and test it.' },
+  { label: 'Find and fix a bug', icon: Stethoscope, task: 'Run the project’s tests or checks, find what fails, and fix it.' },
+  { label: 'Review my changes', icon: GitCommitHorizontal, task: '/review' },
+  { label: 'Write TERRA.md for this project', icon: FilePen, task: '/init' }
 ]
 
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
@@ -213,13 +221,47 @@ function describeTools(tools: ToolItem[]): string {
   return parts.length > 1 ? text.replace(/(?<=, )[A-Z]/g, (letter) => letter.toLowerCase()) : text
 }
 
-/** Several steps in a row fold into one line, so the conversation stays readable. */
-function ToolGroup({ tools, onStop }: { tools: ToolItem[]; onStop: (id: string) => void }) {
+interface Helpers {
+  runs: Map<string, CoderAgentRun>
+  /** Each helper's own steps, by its run id. */
+  steps: Map<string, ToolItem[]>
+}
+
+/** A step that sent a helper off shows as the helper's card, with its own steps inside. */
+function StepRow({ item, onStop, helpers }: { item: ToolItem; onStop: (id: string) => void; helpers: Helpers }) {
+  const run = helpers.runs.get(item.id)
+  if (!run) return <ToolRow item={item} onStop={onStop} />
+  const steps = helpers.steps.get(item.id) ?? []
+  return (
+    <AgentCard run={run}>
+      {steps.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          {steps.map((step) => (
+            <ToolRow key={step.id} item={step} onStop={onStop} />
+          ))}
+        </div>
+      )}
+    </AgentCard>
+  )
+}
+
+/** Several steps in a row fold into one line, so the conversation stays readable. Helpers stay in view. */
+function ToolGroup({ tools, onStop, helpers }: { tools: ToolItem[]; onStop: (id: string) => void; helpers: Helpers }) {
   const running = tools.some((tool) => tool.ok === null)
   const failed = tools.filter((tool) => tool.ok === false).length
   const [chosen, setChosen] = useState<boolean | null>(null)
   const open = chosen ?? running
-  if (tools.length === 1) return <ToolRow item={tools[0]!} onStop={onStop} />
+  const sent = tools.filter((tool) => helpers.runs.has(tool.id))
+  // Helpers sent off together read best as their cards side by side in the flow, not folded away.
+  if (sent.length > 0 && sent.length === tools.length)
+    return (
+      <div className="flex flex-col gap-1.5">
+        {tools.map((tool) => (
+          <StepRow key={tool.id} item={tool} onStop={onStop} helpers={helpers} />
+        ))}
+      </div>
+    )
+  if (tools.length === 1) return <StepRow item={tools[0]!} onStop={onStop} helpers={helpers} />
   return (
     <div className="flex flex-col gap-0.5">
       <button type="button" aria-expanded={open} onClick={() => setChosen(!open)} className="flex h-6.5 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover">
@@ -231,7 +273,7 @@ function ToolGroup({ tools, onStop }: { tools: ToolItem[]; onStop: (id: string) 
       {open && (
         <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2">
           {tools.map((tool) => (
-            <ToolRow key={tool.id} item={tool} onStop={onStop} />
+            <StepRow key={tool.id} item={tool} onStop={onStop} helpers={helpers} />
           ))}
         </div>
       )}
@@ -277,39 +319,6 @@ function ApprovalCard({ item, onAnswer }: { item: Extract<Item, { kind: 'approva
         </Button>
       </div>
     </div>
-  )
-}
-
-/** The plan as one line above the message box, which opens to show every step. */
-function TodoList({ items }: { items: CoderTodo[] }) {
-  const [open, setOpen] = useState(false)
-  const done = items.filter((item) => item.done).length
-  const current = items.find((item) => !item.done)
-  return (
-    <section aria-label="Plan" className="flex flex-col">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors hover:bg-surface-hover">
-        <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
-        <ListChecks aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
-        <span className="shrink-0 font-medium">Plan</span>
-        <span className="min-w-0 flex-1 truncate text-text-muted">{current?.text ?? 'All steps done'}</span>
-        <span className="shrink-0 text-text-faint tabular-nums">
-          {done} of {items.length}
-        </span>
-      </button>
-      {open && (
-        <ul className="flex flex-col gap-1 px-1.5 pt-1 pb-1.5">
-          {items.map((item, i) => (
-            <li key={i} className={cx('flex items-start gap-2 text-xs', item.done ? 'text-text-faint line-through' : 'text-text')}>
-              <span aria-hidden className={cx('mt-0.5 grid size-3 shrink-0 place-items-center rounded-sm border', item.done ? 'border-success bg-success text-surface' : 'border-border-strong')}>
-                {item.done && <Check size={9} strokeWidth={3} />}
-              </span>
-              <span className="sr-only">{item.done ? 'Done: ' : 'To do: '}</span>
-              {item.text}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }
 
@@ -666,6 +675,7 @@ export interface CodeWorkspaceProps {
 interface SavedData {
   items: Item[]
   todo: CoderTodo[]
+  agents?: CoderAgentRun[]
   model?: ModelPick | null
   effort?: CoderEffort | null
 }
@@ -675,8 +685,14 @@ const HELP = `Terra Code works on files in your project folder. It asks before c
 - **/** shows commands: ${CODER_BUILTIN_COMMANDS.map((command) => `/${command.name}`).join(', ')}, and any in the project’s .terra/commands.
 - **@** attaches a file from the project, or one of your open tabs.
 - Paste or drop pictures into the box for models that can see them.
+- **Shift+Tab** switches between Plan, Ask and Auto-edit. **Esc** stops it. **↑** brings back what you sent before.
+- The brain button sets how hard the model thinks (**/effort high**). Its reasoning shows folded above each step, if you turn that on in settings.
+- It can hand work to helpers: **explore** reads around, **general** takes on a piece of the change. Several run side by side, and the session panel lists them.
 - Hover a message you sent to rewind the files and conversation to before it.
 - Settings (the gear) has command permissions, MCP servers, agents, skills, hooks and the sandbox.`
+
+/** Below this width the session panel floats over the conversation instead of sitting beside it. */
+const PANEL_BESIDE_WIDTH = 980
 
 /** Terra Code (beta): a model works on files in one folder, and asks before changing anything. */
 export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading }: CodeWorkspaceProps) {
@@ -693,13 +709,29 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const [worktree, setWorktree] = useState<CoderWorktree | null>(null)
   const [seed, setSeed] = useState<{ text: string; at: number } | null>(null)
   const [modelMenu, setModelMenu] = useState(0)
+  const [prefs, setPrefs] = useState<Settings | null>(null)
+  /** Beside the conversation, remembered; floating over it on narrow screens, only when asked for. */
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [floatOpen, setFloatOpen] = useState(false)
+  const [narrow, setNarrow] = useState(false)
+  const [awayFromEnd, setAwayFromEnd] = useState(false)
+  const sizeWatch = useRef<ResizeObserver | null>(null)
+  // A callback, as the screen only draws once its status has loaded.
+  const rootRef = useCallback((node: HTMLDivElement | null) => {
+    sizeWatch.current?.disconnect()
+    sizeWatch.current = null
+    if (!node) return
+    sizeWatch.current = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? 0) < PANEL_BESIDE_WIDTH))
+    sizeWatch.current.observe(node)
+  }, [])
   const session = useRef(chat ?? `${CODE_CHAT_PREFIX}${crypto.randomUUID()}`)
   const onChatRef = useRef(onChat)
   onChatRef.current = onChat
   /** What to send again when Retry is pressed after a network failure. */
   const lastTask = useRef<{ text: string; options: { images: string[]; mentions: SendPayload['mentions']; runMode?: CoderRunMode } } | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
-  const { items, todo, changes, jobs, context, streaming, step, working, retrySeconds } = state
+  const { items, todo, changes, jobs, context, streaming, reasoning, step, working, retrySeconds, runStartedAt } = state
+  const showReasoning = prefs?.coderShowReasoning ?? true
   const note = (text: string, error = false) => setState((current) => ({ ...current, items: [...current.items, { kind: 'note', text, error }] }))
 
   const refresh = useCallback(
@@ -717,8 +749,20 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   useEffect(() => {
     refresh()
     loadCommands()
-    void api().invoke('settings:get').then((settings) => setMode(settings.coderMode))
-    const onVisible = () => document.visibilityState === 'visible' && refresh()
+    void api()
+      .invoke('settings:get')
+      .then((settings) => {
+        setPrefs(settings)
+        setMode(settings.coderMode)
+        setPanelOpen(settings.coderPanel)
+        // A new session starts at the chosen level; a saved one brings its own.
+        if (!chat) setEffort(settings.coderEffort)
+      })
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      refresh()
+      void api().invoke('settings:get').then(setPrefs)
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [refresh, loadCommands])
@@ -733,7 +777,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       let next = emptyState()
       if (saved) {
         const data = JSON.parse(saved.data) as SavedData
-        next = { ...next, items: data.items, todo: data.todo }
+        next = { ...next, items: data.items, todo: data.todo, agents: data.agents ?? [] }
         setModel(data.model ?? null)
         setEffort(data.effort ?? null)
       }
@@ -767,13 +811,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     const id = session.current
     const save = () => {
       unsaved.current = null
-      const data: SavedData = { items: savedItems(items), todo, model, effort }
+      const data: SavedData = { items: savedItems(items), todo, agents: state.agents, model, effort }
       void api().invoke('coder:save', id, first.shown ?? first.text, JSON.stringify(data)).then(() => onChatRef.current?.(id))
     }
     unsaved.current = save
     const timer = setTimeout(save, 400)
     return () => clearTimeout(timer)
-  }, [items, todo, model, effort])
+  }, [items, todo, state.agents, model, effort])
   useEffect(() => {
     const leave = () => unsaved.current?.()
     window.addEventListener('pagehide', leave)
@@ -792,7 +836,21 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   useEffect(() => {
     const log = logRef.current
     if (log && log.scrollHeight - log.scrollTop - log.clientHeight < 200) log.scrollTop = log.scrollHeight
-  }, [items, step, streaming, todo])
+  }, [items, step, streaming, reasoning, todo])
+
+  // The panel sits beside the conversation when there's room, and floats over it when there isn't.
+  const shown = narrow ? floatOpen : panelOpen
+  const togglePanel = (open = !shown) => {
+    // Floating, it's a quick look that covers the conversation, so it's never remembered.
+    if (narrow) return setFloatOpen(open)
+    setPanelOpen(open)
+    void api().invoke('settings:set', { coderPanel: open })
+  }
+
+  const scrollToEnd = () => {
+    const log = logRef.current
+    if (log) log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' })
+  }
 
   const start = useCallback(
     (task: string, { show = true, shown, images = [], mentions = [], runMode }: { show?: boolean; shown?: string; images?: string[]; mentions?: SendPayload['mentions']; runMode?: CoderRunMode } = {}) => {
@@ -802,6 +860,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         ...current,
         working: true,
         step: 1,
+        runStartedAt: Date.now(),
         items: show ? [...current.items, { kind: 'task', text: task, turnId, ...(shown ? { shown } : {}), ...(images.length ? { pictures: images.length } : {}) }] : current.items
       }))
       void api()
@@ -925,6 +984,21 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'export':
         exportSession()
         return true
+      case 'effort': {
+        const wanted = args.toLowerCase().replace(/[\s-]/g, '')
+        const level = wanted === 'auto' ? null : CODER_EFFORTS.find((option) => option.id === wanted || option.label.toLowerCase().replace(/\s/g, '') === wanted)?.id
+        if (!args) note(`Thinking: ${effortLabel(effort)}. Choose with /effort low, medium, high, xhigh, max or auto.`)
+        else if (level === undefined) note(`There’s no ${args} level. Try low, medium, high, xhigh, max or auto.`, true)
+        else {
+          chooseEffort(level)
+          note(`Thinking set to ${effortLabel(level)}.`)
+        }
+        return true
+      }
+      case 'agents':
+      case 'stats':
+        togglePanel(true)
+        return true
       case 'settings':
       case 'permissions':
       case 'mcp':
@@ -1002,26 +1076,50 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     void api().invoke('settings:set', { coderMode })
   }
 
+  /** For this session, and as where new ones start. */
+  function chooseEffort(coderEffort: CoderEffort | null) {
+    if (coderEffort !== null && !isCoderEffort(coderEffort)) return
+    setEffort(coderEffort)
+    setPrefs((current) => current && { ...current, coderEffort })
+    void api().invoke('settings:set', { coderEffort })
+  }
+
+  const helpers = useMemo<Helpers>(() => {
+    const runs = new Map(state.agents.map((run) => [run.id, run]))
+    const steps = new Map<string, ToolItem[]>()
+    for (const item of items) if (item.kind === 'tool' && item.agent) steps.set(item.agent, [...(steps.get(item.agent) ?? []), item])
+    return { runs, steps }
+  }, [items, state.agents])
+
+  const history = useMemo(() => items.flatMap((item) => (item.kind === 'task' ? [item.shown ?? item.text] : [])).slice(-50), [items])
+
   const blocks = useMemo(() => {
     const out: (Exclude<Item, ToolItem> | { kind: 'tools'; tools: ToolItem[] })[] = []
     for (const item of items) {
       const last = out.at(-1)
-      // The plan has its own line above the box, so its updates needn't fill the conversation too.
+      // The checklist has its own place, so its updates needn't fill the conversation too.
       if (item.kind === 'tool' && item.tool === 'todo') continue
+      // A helper's own steps show inside its card.
+      if (item.kind === 'tool' && item.agent) continue
+      if (item.kind === 'reasoning' && !showReasoning) continue
       // The card says what's being asked, and an allowed step carries on as its own row.
       if (item.kind === 'approval' && (item.answer === 'allow' || item.answer === 'always')) continue
       // Waiting, the card stands for the step; declined, its "Declined" line does.
       const step = last?.kind === 'tools' ? last.tools.at(-1) : undefined
-      if (item.kind === 'approval' && last?.kind === 'tools' && ((item.answer === null && step?.ok === null) || (item.answer === 'deny' && step?.ok !== true))) {
+      // A helper waiting on its own step's approval keeps its card.
+      const isHelper = !!step && (step.tool === 'agent' || step.tool === 'explore')
+      if (item.kind === 'approval' && last?.kind === 'tools' && !isHelper && ((item.answer === null && step?.ok === null) || (item.answer === 'deny' && step?.ok !== true))) {
         last.tools.pop()
         if (last.tools.length === 0) out.pop()
       }
+      // Helpers keep a block of their own, so their cards never fold away with other steps.
+      const helperStep = (tool: ToolItem) => tool.tool === 'agent' || tool.tool === 'explore'
       if (item.kind !== 'tool') out.push(item)
-      else if (last?.kind === 'tools') last.tools.push(item)
+      else if (last?.kind === 'tools' && helperStep(last.tools[0]!) === helperStep(item)) last.tools.push(item)
       else out.push({ kind: 'tools', tools: [item] })
     }
     return out
-  }, [items])
+  }, [items, showReasoning])
 
   if (statusError) return <p className="p-6 text-sm text-danger">{statusError}</p>
   if (!status) return null
@@ -1051,12 +1149,28 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         (error: Error) => note(cleanError(error.message), true)
       )
 
+  const firstTask = items.find((item): item is Extract<Item, { kind: 'task' }> => item.kind === 'task')
+  const title = firstTask ? (firstTask.shown ?? firstTask.text).split('\n')[0]! : null
+  const compactNow = () => command('/compact')
+  const panelBeside = panelOpen && !narrow && screen === 'log'
+  const panelFloating = floatOpen && narrow && screen === 'log'
+  const sandboxLabel = !status.sandboxAvailable || !prefs || prefs.coderSandbox === 'off' ? 'Off' : prefs.coderSandbox === 'project' ? 'Project only' : 'No network'
+  const modelName = model?.model ?? status.model ?? 'No model'
+  // The panel shows the checklist itself, so above the box it only shows while the panel is closed.
+  const strip = !panelBeside && !panelFloating
+
   const controls = (
     <>
-      <Button variant="ghost" onClick={pickFolder} title={status.folder ?? undefined} className="min-w-0">
-        <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
-        <span className="max-w-60 truncate">{status.folder ? folderName(status.folder) : 'Choose a project folder'}</span>
+      <Button variant="ghost" onClick={pickFolder} title={status.folder ? `${status.folder}\nChoose another folder` : undefined} className="min-w-0 shrink! px-2">
+        <FolderOpen aria-hidden size={13} strokeWidth={1.75} className="shrink-0" />
+        <span className="max-w-48 truncate @max-[400px]:hidden">{status.folder ? folderName(status.folder) : 'Choose a project folder'}</span>
       </Button>
+      {(worktree || status.branch) && !worktree && (
+        <span title={`On branch ${status.branch}`} className="flex h-6 min-w-0 shrink items-center gap-1 rounded-md px-1.5 font-mono text-2xs text-text-faint @max-[640px]:hidden">
+          <GitBranch aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
+          <span className="truncate">{status.branch}</span>
+        </span>
+      )}
       {worktree && (
         <Menu label={`Separate copy on ${worktree.branch}`} icon={<span className="flex items-center gap-1 px-1 font-mono text-2xs text-text-muted"><GitBranch aria-hidden size={12} strokeWidth={1.75} />{worktree.branch}</span>}>
           {(close) => (
@@ -1069,9 +1183,17 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
           )}
         </Menu>
       )}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
-        <IconButton size="sm" label="Terra Code settings" aria-pressed={screen === 'settings'} onClick={() => setScreen(screen === 'settings' ? 'log' : 'settings')}>
-          <Settings2 size={14} strokeWidth={1.75} />
+      {title && (
+        <>
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border @max-[560px]:hidden" />
+          <span title={title} className="min-w-0 flex-1 truncate px-1 text-xs text-text-muted @max-[560px]:hidden">
+            {title}
+          </span>
+        </>
+      )}
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <IconButton size="sm" label="New session" onClick={newSession}>
+          <Plus size={14} strokeWidth={1.75} />
         </IconButton>
         <Menu label="More" icon={<MoreHorizontal size={14} strokeWidth={1.75} />}>
           {(close) => (
@@ -1083,166 +1205,268 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
             </>
           )}
         </Menu>
-        <IconButton size="sm" label="New session" onClick={newSession}>
-          <Plus size={14} strokeWidth={1.75} />
+        <IconButton size="sm" label="Terra Code settings" aria-pressed={screen === 'settings'} onClick={() => setScreen(screen === 'settings' ? 'log' : 'settings')}>
+          <Settings2 size={14} strokeWidth={1.75} />
+        </IconButton>
+        <span aria-hidden className="mx-1 h-4 w-px bg-border @max-[400px]:hidden" />
+        <IconButton size="sm" label={shown ? 'Hide the session panel' : 'Show the session panel'} aria-pressed={shown && screen === 'log'} disabled={screen !== 'log'} onClick={() => togglePanel()}>
+          <PanelRight size={14} strokeWidth={1.75} />
         </IconButton>
       </div>
     </>
   )
 
+  const panel = (
+    <SessionPanel
+      status={status}
+      worktree={worktree}
+      mode={mode}
+      modelName={modelName}
+      providerName={model?.providerName ?? status.providerName}
+      effort={effort}
+      showReasoning={showReasoning}
+      sandbox={sandboxLabel}
+      state={state}
+      onClose={() => togglePanel(false)}
+      onOpenFolder={() => void api().invoke('coder:open-folder')}
+      onReview={() => setScreen('review')}
+      onCommit={() => setCommitting(true)}
+      onCompact={compactNow}
+      onStopJob={(id) => void api().invoke('coder:job-stop', session.current, id)}
+      onSettings={() => setScreen('settings')}
+    />
+  )
+
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+    <div ref={rootRef} className="flex h-full min-w-0 flex-col">
+      <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-border px-3">
         {leading}
         {controls}
       </div>
 
-      {screen === 'review' && (
-        <ReviewScreen
-          session={session.current}
-          files={changes}
-          busy={working}
-          onClose={closeScreen}
-          onChange={(files, said) => setState((current) => ({ ...current, changes: files, items: said ? [...current.items, { kind: 'note', text: said, error: false }] : current.items }))}
-        />
-      )}
-      {screen === 'settings' && <CodeSettings sandboxAvailable={status.sandboxAvailable} onClose={() => (closeScreen(), loadCommands())} />}
-
-      <div ref={logRef} hidden={screen !== 'log'} role="log" aria-label="Terra Code" className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-200 flex-col gap-3 px-6 py-6">
-          {status.hosted && !hostedNoteClosed && (
-            <div role="note" className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-muted">
-              <KeyRound aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
-              <span className="min-w-0 flex-1">Coding uses many requests. Your own API key avoids the free {status.providerName ?? 'scTerra AI'} daily limit.</span>
-              <a href="sc://ai/" className="shrink-0 font-medium text-accent hover:text-accent-hover">
-                Add a key
-              </a>
-              <IconButton size="sm" label="Close this note" className="size-5!" onClick={closeHostedNote}>
-                <X size={12} strokeWidth={1.75} />
-              </IconButton>
-            </div>
+      <div className="relative flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {screen === 'review' && (
+            <ReviewScreen
+              session={session.current}
+              files={changes}
+              busy={working}
+              onClose={closeScreen}
+              onChange={(files, said) => setState((current) => ({ ...current, changes: files, items: said ? [...current.items, { kind: 'note', text: said, error: false }] : current.items }))}
+            />
           )}
-          {items.length === 0 && (
-            <div className="flex flex-col gap-5 pt-[12vh]">
-              <div className="flex flex-col gap-1.5">
-                <h2 className="text-xl font-semibold tracking-[-0.02em]">{status.folder ? `What should we do in ${folderName(status.folder)}?` : 'Pick a project to work on'}</h2>
-                <p className="max-w-130 text-sm text-text-muted">
-                  {status.folder ? 'Terra Code reads your files, edits them and runs commands such as tests. Type / for commands and @ to attach a file or tab.' : 'Terra Code can only reach files inside the folder you choose, and asks before running anything.'}
-                </p>
+          {screen === 'settings' && (
+            <CodeSettings
+              sandboxAvailable={status.sandboxAvailable}
+              onClose={() => {
+                closeScreen()
+                loadCommands()
+                void api().invoke('settings:get').then(setPrefs)
+              }}
+            />
+          )}
+
+          <div className="relative flex min-h-0 flex-1 flex-col" hidden={screen !== 'log'}>
+            <div
+              ref={logRef}
+              role="log"
+              aria-label="Terra Code"
+              onScroll={(e) => {
+                const log = e.currentTarget
+                setAwayFromEnd(log.scrollHeight - log.scrollTop - log.clientHeight > 400)
+              }}
+              className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto"
+            >
+              <div className="mx-auto flex max-w-200 flex-col gap-3 px-6 py-6 max-[760px]:px-3">
+                {status.hosted && !hostedNoteClosed && (
+                  <div role="note" className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-muted">
+                    <KeyRound aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+                    <span className="min-w-0 flex-1">Coding uses many requests. Your own API key avoids the free {status.providerName ?? 'scTerra AI'} daily limit.</span>
+                    <a href="sc://ai/" className="shrink-0 font-medium text-accent hover:text-accent-hover">
+                      Add a key
+                    </a>
+                    <IconButton size="sm" label="Close this note" className="size-5!" onClick={closeHostedNote}>
+                      <X size={12} strokeWidth={1.75} />
+                    </IconButton>
+                  </div>
+                )}
+                {items.length === 0 && (
+                  <div className="flex flex-col gap-6 pt-[10vh]">
+                    <div className="flex flex-col gap-1.5">
+                      <h2 className="text-xl font-semibold tracking-[-0.02em]">{status.folder ? `What should we do in ${folderName(status.folder)}?` : 'Pick a project to work on'}</h2>
+                      <p className="max-w-130 text-sm text-text-muted">
+                        {status.folder ? 'Terra Code reads your files, edits them and runs commands such as tests. Type / for commands and @ to attach a file or tab.' : 'Terra Code can only reach files inside the folder you choose, and asks before running anything.'}
+                      </p>
+                    </div>
+                    {!status.folder && (
+                      <div>
+                        <Button variant="primary" onClick={pickFolder}>
+                          <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
+                          Choose a project folder
+                        </Button>
+                      </div>
+                    )}
+                    {status.folder && status.ready && (
+                      <div className="grid grid-cols-2 gap-2 max-[640px]:grid-cols-1">
+                        {STARTERS.map((starter) => (
+                          <button key={starter.label} type="button" onClick={() => send({ text: starter.task, images: [], mentions: [] })} className="group flex h-11 min-w-0 items-center gap-2.5 rounded-lg border border-border px-3 text-left transition-colors hover:border-border-strong hover:bg-surface-hover">
+                            <starter.icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint transition-colors group-hover:text-accent" />
+                            <span className="min-w-0 flex-1 truncate text-sm">{starter.label}</span>
+                            <ArrowUp aria-hidden size={13} strokeWidth={1.75} className="shrink-0 rotate-45 text-text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {status.folder && status.ready && (
+                      <p className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-text-faint">
+                        <span>
+                          <Kbd>Shift</Kbd> <Kbd>Tab</Kbd> switch mode
+                        </span>
+                        <span>
+                          <Kbd>/</Kbd> commands
+                        </span>
+                        <span>
+                          <Kbd>@</Kbd> files and tabs
+                        </span>
+                        <span>
+                          <Kbd>↑</Kbd> earlier messages
+                        </span>
+                        <span>
+                          <Kbd>Esc</Kbd> stop
+                        </span>
+                      </p>
+                    )}
+                    {!status.ready && (
+                      <p className="text-sm text-text-muted">
+                        It needs a model first.{' '}
+                        <a href="sc://ai/" className="text-accent hover:text-accent-hover">
+                          Open AI settings
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                )}
+                {blocks.map((item, i) => {
+                  switch (item.kind) {
+                    case 'task':
+                      return <TaskBubble key={i} item={item} canRewind={!!item.turnId && !working} onRewind={() => rewind(item.turnId!)} />
+                    case 'text':
+                      return (
+                        <div key={i} className="group/text relative text-sm select-text">
+                          <ReplyMarkdown text={item.text} onOpenLink={(href) => void api().invoke('browser:open', href)} />
+                          <div className="absolute -bottom-1 left-0 flex translate-y-full opacity-0 transition-opacity group-hover/text:opacity-100 focus-within:opacity-100">
+                            <CopyButton text={item.text} label="Copy reply" />
+                          </div>
+                        </div>
+                      )
+                    case 'reasoning':
+                      return <ReasoningBlock key={i} text={item.text} />
+                    case 'tools':
+                      return <ToolGroup key={item.tools[0]!.id} tools={item.tools} onStop={stopTool} helpers={helpers} />
+                    case 'approval':
+                      return <ApprovalCard key={item.id} item={item} onAnswer={(choice) => answer(item.id, choice)} />
+                    case 'note':
+                      return item.network ? (
+                        <AiNetworkHelp
+                          key={i}
+                          message={item.text}
+                          loadHasVpn={loadHasVpn}
+                          useVpn={() => api().invoke('vpn:use-default')}
+                          onRetry={retry}
+                          onOpenVpn={() => void api().invoke('browser:open', 'sc://vpn/')}
+                        />
+                      ) : (
+                        <div key={i} className={cx('flex items-center gap-2 text-xs', item.error ? 'text-danger' : 'text-text-faint')}>
+                          {item.error && <CircleAlert aria-hidden size={13} strokeWidth={1.75} />}
+                          {item.text}
+                        </div>
+                      )
+                  }
+                })}
+                {showReasoning && reasoning && <ReasoningBlock text={reasoning} live={!streaming} />}
+                {streaming && (
+                  <div className="text-sm select-text">
+                    <ReplyMarkdown text={streaming} onOpenLink={(href) => void api().invoke('browser:open', href)} />
+                  </div>
+                )}
+                {working && step !== null && !waiting && !streaming && !(showReasoning && reasoning) && <WorkingLine since={runStartedAt} step={step} retrySeconds={retrySeconds} />}
               </div>
-              {!status.folder && (
-                <div>
-                  <Button variant="primary" onClick={pickFolder}>
-                    <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
-                    Choose a project folder
-                  </Button>
-                </div>
-              )}
-              {status.folder && status.ready && (
-                <div className="flex flex-col border-t border-border">
-                  {STARTERS.map((starter) => (
-                    <button key={starter.label} type="button" onClick={() => send({ text: starter.task, images: [], mentions: [] })} className="group flex h-10 items-center justify-between border-b border-border px-1 text-left text-sm text-text-muted transition-colors hover:text-text">
-                      {starter.label}
-                      <ArrowUp aria-hidden size={13} strokeWidth={1.75} className="rotate-45 opacity-0 transition-opacity group-hover:opacity-100" />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {!status.ready && (
-                <p className="text-sm text-text-muted">
-                  It needs a model first.{' '}
-                  <a href="sc://ai/" className="text-accent hover:text-accent-hover">
-                    Open AI settings
-                  </a>
-                </p>
-              )}
             </div>
-          )}
-          {blocks.map((item, i) => {
-            switch (item.kind) {
-              case 'task':
-                return <TaskBubble key={i} item={item} canRewind={!!item.turnId && !working} onRewind={() => rewind(item.turnId!)} />
-              case 'text':
-                return (
-                  <div key={i} className="text-sm select-text">
-                    <ReplyMarkdown text={item.text} onOpenLink={(href) => void api().invoke('browser:open', href)} />
-                  </div>
-                )
-              case 'tools':
-                return <ToolGroup key={item.tools[0]!.id} tools={item.tools} onStop={stopTool} />
-              case 'approval':
-                return <ApprovalCard key={item.id} item={item} onAnswer={(choice) => answer(item.id, choice)} />
-              case 'note':
-                return item.network ? (
-                  <AiNetworkHelp
-                    key={i}
-                    message={item.text}
-                    loadHasVpn={loadHasVpn}
-                    useVpn={() => api().invoke('vpn:use-default')}
-                    onRetry={retry}
-                    onOpenVpn={() => void api().invoke('browser:open', 'sc://vpn/')}
-                  />
-                ) : (
-                  <div key={i} className={cx('flex items-center gap-2 text-xs', item.error ? 'text-danger' : 'text-text-faint')}>
-                    {item.error && <CircleAlert aria-hidden size={13} strokeWidth={1.75} />}
-                    {item.text}
-                  </div>
-                )
-            }
-          })}
-          {streaming && (
-            <div className="text-sm select-text">
-              <ReplyMarkdown text={streaming} onOpenLink={(href) => void api().invoke('browser:open', href)} />
-            </div>
-          )}
-          {working && step !== null && !waiting && !streaming && <Thinking label={retrySeconds !== null ? `Couldn’t reach the model. Trying again in ${retrySeconds} s` : step > 1 ? `Working · step ${step}` : 'Working'} />}
-        </div>
-      </div>
-
-      <div className={cx('mx-auto w-full max-w-200 shrink-0 flex-col gap-1 px-6 pt-1 pb-3', screen === 'log' ? 'flex' : 'hidden')}>
-        {(todo.length > 0 || changes.length > 0 || jobs.some((job) => job.running) || committing) && (
-          <div className={cx('sc-scroll-quiet flex flex-col overflow-y-auto', committing ? 'max-h-[60vh]' : 'max-h-[40vh]')}>
-            {/* While committing, the commit has the room to itself. */}
-            {!committing && todo.length > 0 && <TodoList items={todo} />}
-            {!committing && <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />}
-            {committing ? (
-              <CommitCard
-                session={session.current}
-                onCancel={() => setCommitting(false)}
-                onDone={(said) => {
-                  setCommitting(false)
-                  setState((current) => ({ ...current, changes: [], items: [...current.items, { kind: 'note', text: said, error: false }] }))
-                }}
-              />
-            ) : (
-              changes.length > 0 && <ChangesBar files={changes} git={status.git || !!worktree} busy={working} onReview={() => setScreen('review')} onCommit={() => setCommitting(true)} />
+            {awayFromEnd && (
+              <button type="button" onClick={scrollToEnd} className="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-2xs text-text-muted shadow-2 transition-colors hover:text-text">
+                <ArrowDown aria-hidden size={12} strokeWidth={1.75} />
+                Latest
+              </button>
             )}
           </div>
+
+          <div className={cx('mx-auto w-full max-w-200 shrink-0 flex-col gap-1.5 px-6 pt-1 pb-3 max-[760px]:px-3', screen === 'log' ? 'flex' : 'hidden')}>
+            {committing ? (
+              <div className="sc-scroll-quiet max-h-[60vh] overflow-y-auto">
+                <CommitCard
+                  session={session.current}
+                  onCancel={() => setCommitting(false)}
+                  onDone={(said) => {
+                    setCommitting(false)
+                    setState((current) => ({ ...current, changes: [], items: [...current.items, { kind: 'note', text: said, error: false }] }))
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                {todo.length > 0 && (strip || working) && !panelBeside && <Checklist items={todo} working={working} />}
+                {(jobs.some((job) => job.running) || changes.length > 0) && (
+                  <div className="flex flex-col rounded-lg border border-border bg-surface px-1">
+                    <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />
+                    {changes.length > 0 && <ChangesBar files={changes} git={status.git || !!worktree} busy={working} onReview={() => setScreen('review')} onCommit={() => setCommitting(true)} />}
+                  </div>
+                )}
+              </>
+            )}
+            <Composer
+              enabled={!!status.folder}
+              ready={status.ready}
+              working={working}
+              placeholder={status.folder ? (working ? 'Add something while it works' : mode === 'plan' ? 'What should it plan?' : 'Describe a change, or ask about the code') : 'Choose a project folder first'}
+              mode={mode}
+              onMode={chooseMode}
+              commands={commands}
+              defaultModel={status.model}
+              model={model}
+              effort={effort}
+              onModel={setModel}
+              onEffort={chooseEffort}
+              history={history}
+              modelMenuRequest={modelMenu}
+              context={context}
+              seed={seed}
+              onSend={send}
+              onStop={() => void api().invoke('coder:stop', session.current)}
+            />
+          </div>
+        </div>
+
+        {panelBeside && <div className="w-76 shrink-0 border-l border-border">{panel}</div>}
+        {panelFloating && (
+          <>
+            <button type="button" aria-label="Hide the session panel" tabIndex={-1} onClick={() => togglePanel(false)} className="absolute inset-0 z-20 bg-bg/50" />
+            <div className="absolute inset-y-0 right-0 z-30 w-80 max-w-[90%] border-l border-border shadow-3">{panel}</div>
+          </>
         )}
-        <Composer
-          enabled={!!status.folder}
-          ready={status.ready}
-          working={working}
-          placeholder={status.folder ? (working ? 'Add something while it works' : mode === 'plan' ? 'What should it plan?' : 'Describe a change, or ask about the code') : 'Choose a project folder first'}
-          mode={mode}
-          onMode={chooseMode}
-          commands={commands}
-          defaultModel={status.model}
-          model={model}
-          effort={effort}
-          onModel={(next, nextEffort) => {
-            setModel(next)
-            setEffort(nextEffort)
-          }}
-          modelMenuRequest={modelMenu}
-          context={context}
-          seed={seed}
-          onSend={send}
-          onStop={() => void api().invoke('coder:stop', session.current)}
-        />
       </div>
     </div>
   )
+}
+
+/** Keys as small caps, for the hints under the starters. */
+const Kbd = ({ children }: { children: ReactNode }) => <kbd className="rounded-sm border border-border bg-surface px-1 py-px font-sans text-2xs text-text-muted">{children}</kbd>
+
+/** What it's doing while there's nothing else to show: the step it's on and for how long. */
+function WorkingLine({ since, step, retrySeconds }: { since: number | null; step: number; retrySeconds: number | null }) {
+  const elapsed = useElapsed(since)
+  if (retrySeconds !== null) return <Thinking label={`Couldn’t reach the model. Trying again in ${retrySeconds} s`} />
+  const parts = ['Working', ...(since !== null && elapsed >= 2000 ? [shortDuration(elapsed)] : []), ...(step > 1 ? [`step ${step}`] : [])]
+  return <Thinking label={parts.join(' · ')} />
 }
 
 const loadHasVpn = () => api().invoke('vpn:state').then((state) => state.connections.length > 0)

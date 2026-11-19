@@ -22,7 +22,9 @@ export function toAnthropicMessages(messages: ChatMessage[]) {
       const parts = imageParts(url)
       return parts ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: parts.mediaType, data: parts.data } }] : []
     })
-  return messages.map(({ role, content, images, toolUses, toolResults }) => {
+  return messages.map(({ role, content, images, toolUses, toolResults, blocks }) => {
+    // Its own record, thinking and all, goes back exactly as it came.
+    if (role === 'assistant' && blocks?.length) return { role, content: blocks as Anthropic.Beta.BetaContentBlockParam[] }
     const said = content ? [{ type: 'text' as const, text: content }] : []
     if (toolUses?.length) return { role, content: [...said, ...toolUses.map(({ id, name, input }) => ({ type: 'tool_use' as const, id, name, input: input ?? {} }))] }
     if (toolResults?.length) {
@@ -37,6 +39,23 @@ export function toAnthropicMessages(messages: ChatMessage[]) {
     const shown = role === 'user' ? pictures(images ?? []) : []
     return { role, content: shown.length ? [...said, ...shown] : content }
   })
+}
+
+/**
+ * A reply that thought, as blocks to send back next time, or null when there's nothing to keep or
+ * it holds something this can't replay faithfully (such as a fallback's boundary).
+ */
+export function replayBlocks(content: Anthropic.Beta.BetaContentBlock[]): Anthropic.Beta.BetaContentBlockParam[] | null {
+  if (!content.some((block) => block.type === 'thinking' || block.type === 'redacted_thinking')) return null
+  const out: Anthropic.Beta.BetaContentBlockParam[] = []
+  for (const block of content) {
+    if (block.type === 'thinking') out.push({ type: 'thinking', thinking: block.thinking, signature: block.signature })
+    else if (block.type === 'redacted_thinking') out.push({ type: 'redacted_thinking', data: block.data })
+    else if (block.type === 'text') out.push({ type: 'text', text: block.text })
+    else if (block.type === 'tool_use') out.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input ?? {} })
+    else return null
+  }
+  return out
 }
 
 export function createAnthropicProvider({ config, secret, fetch }: ProviderOptions): Provider {
@@ -59,7 +78,7 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
       }
     },
 
-    async *chat({ model, system, messages, maxTokens, signal, tools, effort }: ChatRequest): AsyncGenerator<ChatEvent> {
+    async *chat({ model, system, messages, maxTokens, signal, tools, effort, reasoning }: ChatRequest): AsyncGenerator<ChatEvent> {
       // Gateways that imitate this API won't know Anthropic-only options, so they're limited to the real one.
       const fallbacks = config.firstParty && SUPPORTS_FALLBACKS.test(model)
       const stream = client.beta.messages.stream(
@@ -70,6 +89,8 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
           messages: toAnthropicMessages(messages),
           ...(tools?.length ? { tools: tools.map(({ name, description, parameters }) => ({ name, description, input_schema: parameters as { type: 'object' } })) } : {}),
           ...(SUPPORTS_EFFORT.test(model) ? { output_config: { effort: effort ?? ('low' as const) } } : {}),
+          // These models think either way; this only asks for a readable summary of it.
+          ...(reasoning && SUPPORTS_EFFORT.test(model) ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const } } : {}),
           ...(fallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {})
         },
         { signal }
@@ -81,11 +102,16 @@ export function createAnthropicProvider({ config, secret, fetch }: ProviderOptio
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
             yield { type: 'text', text: event.delta.text }
           }
+          if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta' && event.delta.thinking) {
+            yield { type: 'reasoning', text: event.delta.thinking }
+          }
           if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta' && calls.has(event.index) && event.delta.partial_json) {
             yield { type: 'tool-delta', index: event.index, name: calls.get(event.index)!, text: event.delta.partial_json }
           }
         }
         const message = await stream.finalMessage()
+        const replay = replayBlocks(message.content)
+        if (replay) yield { type: 'blocks', blocks: replay }
         for (const block of message.content) if (block.type === 'tool_use') yield { type: 'tool', use: { id: block.id, name: block.name, input: block.input } }
         yield { type: 'usage', inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens }
         yield { type: 'stop', reason: message.stop_reason }

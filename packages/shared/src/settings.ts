@@ -188,6 +188,14 @@ export interface Settings {
   coderAutoCompact: boolean
   /** Run the project's checker after Terra Code edits, where it runs without asking. */
   coderAutoCheck: boolean
+  /** Shows the model's reasoning in Terra Code, where the model gives it. */
+  coderShowReasoning: boolean
+  /** How hard Terra Code's model thinks, unless a session picks otherwise. Null: the model's own default. */
+  coderEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+  /** Which model Terra Code's helpers (explore and agents) use: the session's, or the quick model from AI settings. */
+  coderAgentModel: 'session' | 'quick'
+  /** The session panel beside Terra Code's conversation: context, usage, checklist, helpers and changes. */
+  coderPanel: boolean
   /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
   coderNotify: boolean
   blocker: BlockerConfig
@@ -285,6 +293,10 @@ export const DEFAULT_SETTINGS: Settings = {
   coderAutoCompact: true,
   coderAutoCheck: true,
   coderNotify: true,
+  coderShowReasoning: true,
+  coderEffort: null,
+  coderAgentModel: 'session',
+  coderPanel: true,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   focusUntil: 0,
@@ -382,6 +394,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderAutoCompact: (v) => typeof v === 'boolean',
   coderAutoCheck: (v) => typeof v === 'boolean',
   coderNotify: (v) => typeof v === 'boolean',
+  coderShowReasoning: (v) => typeof v === 'boolean',
+  coderEffort: (v) => v === null || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh' || v === 'max',
+  coderAgentModel: (v) => v === 'session' || v === 'quick',
+  coderPanel: (v) => typeof v === 'boolean',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,

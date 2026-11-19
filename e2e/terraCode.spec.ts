@@ -99,7 +99,7 @@ test('rewinding puts files and the conversation back, and offers the message aga
   await say(page, 'make b')
   await expect(page.getByText('Made b.')).toBeVisible()
   expect(existsSync(join(folder, 'b.txt'))).toBe(true)
-  await page.getByText('make b', { exact: true }).hover()
+  await page.getByRole('log', { name: 'Terra Code' }).getByText('make b', { exact: true }).hover()
   await page.getByRole('button', { name: 'Rewind to before this' }).click()
   await page.getByRole('group', { name: 'Rewind' }).getByRole('button', { name: 'Rewind' }).click()
   await expect(page.getByText(/Rewound: 1 file is back/)).toBeVisible()
@@ -193,10 +193,10 @@ test('the preview tab opens the dev server, reads it and its console errors', as
 test('the model can be chosen for one session, and pictures go with the message', async () => {
   const page = await open()
   await page.getByRole('button', { name: /mock-model/ }).click()
-  const menu = page.getByRole('dialog', { name: 'Model for this session' })
-  await menu.getByRole('radio', { name: 'High' }).click()
-  await menu.getByRole('button', { name: 'mock-model' }).click()
-  await expect(page.getByRole('button', { name: /mock-model · high/ })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Model for this session' }).getByRole('button', { name: 'mock-model' }).click()
+  await page.getByRole('button', { name: /^Thinking: / }).click()
+  await page.getByRole('dialog', { name: 'Thinking' }).getByRole('radio', { name: /^High/ }).click()
+  await expect(page.getByRole('button', { name: 'Thinking: High' })).toBeVisible()
 
   const data = await page.evaluateHandle(() => {
     const transfer = new DataTransfer()
@@ -317,4 +317,50 @@ test('a session can carry on in a copy, which is saved as a chat of its own', as
   await say(page, 'and then')
   await expect(page.getByText('Second answer.')).toBeVisible()
   expect(sent()).toContain('First answer.')
+})
+
+test('reasoning folds above a step, a helper reports back, and the session panel follows along', async () => {
+  const page = await open()
+  const size = (width: number, height: number) => h.app.evaluate(({ BrowserWindow }, [w, ht]) => BrowserWindow.getAllWindows()[0]!.setSize(w!, ht!), [width, height])
+  // Wide enough for the panel to sit beside the conversation.
+  await size(1480, 920)
+  mock!.thinking.push('I should read a.txt before anything else.')
+  mock!.queue.push(
+    `${tool({ tool: 'todo', items: [{ text: 'Look at a.txt', status: 'in_progress' }, { text: 'Report back', status: 'pending' }] })}\n${tool({ tool: 'explore', task: 'What is in a.txt?' })}`,
+    'a.txt holds a greeting.',
+    'It holds a greeting.'
+  )
+  await say(page, 'what is in a.txt')
+  await expect(page.getByText('It holds a greeting.')).toBeVisible()
+  // The reasoning, folded to a line that opens.
+  const thought = page.getByRole('region', { name: 'Reasoning' })
+  await expect(thought).toContainText('Thought')
+  await thought.getByRole('button').click()
+  await expect(thought).toContainText('I should read a.txt before anything else.')
+  // The helper, with what it reported.
+  const helper = page.getByRole('region', { name: 'explore agent' })
+  await expect(helper).toContainText('Done')
+  await helper.getByRole('button').first().click()
+  await expect(helper).toContainText('a.txt holds a greeting.')
+  // The panel, with the checklist and the helper.
+  const panel = page.getByRole('complementary', { name: 'Session' })
+  await expect(panel.getByRole('region', { name: 'Checklist' })).toContainText('0 of 2')
+  await expect(panel.getByRole('region', { name: 'Agents' })).toContainText('explore')
+  await expect(panel.getByRole('region', { name: 'Activity' })).toContainText('Steps')
+  await panel.getByRole('button', { name: 'Hide the session panel' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Checklist' })).toContainText('Look at a.txt')
+  await page.getByRole('button', { name: 'Show the session panel' }).click()
+  await expect(panel).toBeVisible()
+  // Narrow, it floats over the conversation, and only when asked for.
+  await size(820, 820)
+  await expect(panel).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show the session panel' }).click()
+  await expect(panel).toBeVisible()
+  await panel.getByRole('button', { name: 'Hide the session panel' }).click()
+  await expect(panel).toHaveCount(0)
+  // How hard it thinks, from the box.
+  await say(page, '/effort max')
+  await expect(page.getByText('Thinking set to Max.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Thinking: Max' })).toBeVisible()
 })

@@ -42,6 +42,19 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.7.1',
+    date: '2026-11-19',
+    items: [
+      'A session panel beside Terra Code, as in Claude: the folder and branch, model and thinking level, how full its memory is, tokens used, the checklist, helpers, changed files and what it has done.',
+      'Choose how hard the model thinks from the brain button or /effort: Low to Max, five levels, with Auto as Medium for coding.',
+      'See the model’s reasoning, folded above each step (Claude, DeepSeek, Qwen and others that give it). Turn it off in Terra Code settings.',
+      'Helpers: Terra Code can hand work to a general agent or send explore off to read around, several side by side, each shown as a card with its steps and report.',
+      'The checklist shows the step it’s on, and stays open above the box while it works.',
+      'Shift+Tab switches mode, Esc stops, the up arrow brings back earlier messages, replies have a Copy button, and a Latest button jumps back down.',
+      'Fixed: with Claude, the thinking behind each tool call is now sent back with it, as the API expects.'
+    ]
+  },
+  {
     version: '0.7.0',
     date: '2026-11-19',
     items: [

@@ -44,8 +44,8 @@ Tools:
 {"tool":"fetch","url":"https://example.com/docs"} reads one web page as text
 {"tool":"preview","action":"open","url":"http://localhost:5173"} opens a page in a browser tab beside you; then "read" (its text and console errors), "screenshot", "click" with "target" (a CSS selector or the visible text), and "type" with "target" and "text"
 {"tool":"tabs","action":"list"} lists the person's open tabs; {"tool":"tabs","action":"read","tab":12} reads one, such as documentation they have open (they're asked first)
-{"tool":"explore","task":"Find where sessions are created and who calls it. List the files and lines."} sends a helper to read around the project on its own and report back. It can only look, and its reading doesn't fill up your memory. Use it for broad questions across many files, and read files yourself when you already know where to look
-{"tool":"todo","items":[{"text":"Read the router","done":true},{"text":"Add the route","done":false}]} shows the person your plan as a checklist. Use it for any task with three or more steps, and send it again as you finish items
+{"tool":"explore","task":"Find where sessions are created and who calls it. List the files and lines."} sends a helper to read around the project on its own and report back. It can only look, and its reading doesn't fill up your memory. Use it for broad questions across many files, and read files yourself when you already know where to look. Several explore or agent blocks in one reply run side by side
+{"tool":"todo","items":[{"text":"Read the router","status":"completed"},{"text":"Add the route","status":"in_progress"},{"text":"Run the tests","status":"pending"}]} shows the person your plan as a checklist. Use it for any task with three or more steps. Keep exactly one step in_progress while you work, and send the whole list again each time a step starts or finishes
 {"tool":"web","query":"vite 7 config define env"} searches the web and returns the top results' text, for documentation and error messages you don't know
 
 Only tool blocks run. Commands in a bash block, or steps you only describe, do nothing. If you say you'll do something, do it in that same reply with a tool block, and never ask the person to run something you can run yourself. Always mark the fence as tool, and escape newlines inside JSON strings as \\n.
@@ -406,8 +406,19 @@ export function toCall(data: unknown): CoderCall | null {
       const items = d.items.flatMap((item): CoderTodo[] => {
         if (!isObject(item)) return []
         const text = str(first(item, TEXT_KEYS), 300)?.trim()
-        return text ? [{ text, done: item.done === true || item.completed === true || item.status === 'completed' || item.status === 'done' }] : []
+        if (!text) return []
+        const status = typeof item.status === 'string' ? item.status.toLowerCase().replace(/[\s-]/g, '_') : ''
+        const done = item.done === true || item.completed === true || status === 'completed' || status === 'done'
+        const active = !done && (status === 'in_progress' || status === 'active' || status === 'doing' || item.active === true)
+        return [{ text, done, ...(active ? { active: true } : {}) }]
       })
+      // One step at a time: a list marking several as under way keeps the first.
+      let seen = false
+      for (const item of items) {
+        if (!item.active) continue
+        if (seen) delete item.active
+        seen = true
+      }
       return items.length > 0 ? { tool, items } : null
     }
     case 'web': {
@@ -622,11 +633,11 @@ export const CODER_TOOLS: ToolSpec[] = [
     parameters: object({ action: { type: 'string', enum: ['open', 'read', 'screenshot', 'click', 'type'] }, url: text('For open'), target: text('For click and type'), text: text('For type') }, ['action'])
   },
   { name: 'tabs', description: "Lists the person's open browser tabs, or reads one of them (such as documentation they have open). They're asked first.", parameters: object({ action: { type: 'string', enum: ['list', 'read'] }, tab: count('The tab id, for read') }, ['action']) },
-  { name: 'explore', description: "Sends a helper to read around the project on its own and report back. It can only look, and its reading doesn't fill up your memory. Use it for broad questions across many files.", parameters: object({ task: text('The question, and what to report') }) },
+  { name: 'explore', description: "Sends a helper to read around the project on its own and report back. It can only look, and its reading doesn't fill up your memory. Use it for broad questions across many files. Several explore calls in one reply run side by side.", parameters: object({ task: text('The question, and what to report') }) },
   {
     name: 'todo',
-    description: 'Shows the person your plan as a checklist. Use it for any task with three or more steps, and send it again as you finish items.',
-    parameters: object({ items: { type: 'array', items: object({ text: text('The step'), done: { type: 'boolean' } }) } })
+    description: 'Shows the person your plan as a checklist. Use it for any task with three or more steps. Keep exactly one step in_progress while you work, and send the whole list again each time a step starts or finishes.',
+    parameters: object({ items: { type: 'array', items: object({ text: text('The step'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }) } })
   },
   { name: 'web', description: "Searches the web and returns the top results' text, for documentation and error messages you don't know.", parameters: object({ query: text('What to search for') }) }
 ]
@@ -640,7 +651,7 @@ export const CODER_PLAN_TOOLS = CODER_TOOLS.filter((tool) => tool.name === 'run'
 /** The agent and skill tools, offered once there's an agent or skill to name. */
 export const agentToolSpec = (agents: { name: string; description: string }[]): ToolSpec => ({
   name: 'agent',
-  description: `Hands a task to one of the project's agents, which works on its own and reports back. Agents:\n${agents.map((agent) => `- ${agent.name}: ${agent.description}`).join('\n')}`,
+  description: `Hands a task to a helper agent, which works on its own in a fresh conversation and reports back, so its reading doesn't fill your memory. Its changes and commands go through the same approvals as yours. Several agent calls in one reply run side by side, so split independent work (such as separate files or questions) between them. Agents:\n${agents.map((agent) => `- ${agent.name}: ${agent.description}`).join('\n')}`,
   parameters: object({ agent: { type: 'string', enum: agents.map((agent) => agent.name) }, task: text('What it should do, and what to report') })
 })
 
@@ -653,7 +664,7 @@ export const skillToolSpec = (skills: { name: string; description: string }[]): 
 /** For the text protocol: the extra tools this project has, written the way the prompt lists the others. */
 export function extraToolsPrompt({ agents, skills, mcp }: { agents: { name: string; description: string }[]; skills: { name: string; description: string }[]; mcp: ToolSpec[] }): string {
   const parts: string[] = []
-  if (agents.length) parts.push(`Agents you can hand work to, each working on its own and reporting back:\n${agents.map((agent) => `{"tool":"agent","agent":"${agent.name}","task":"..."} ${agent.description}`).join('\n')}`)
+  if (agents.length) parts.push(`Agents you can hand work to, each working on its own in a fresh conversation and reporting back. Several agent blocks in one reply run side by side:\n${agents.map((agent) => `{"tool":"agent","agent":"${agent.name}","task":"..."} ${agent.description}`).join('\n')}`)
   if (skills.length) parts.push(`Skills, whose full instructions you load when the task matches:\n${skills.map((skill) => `{"tool":"skill","name":"${skill.name}"} ${skill.description}`).join('\n')}`)
   if (mcp.length) {
     parts.push(

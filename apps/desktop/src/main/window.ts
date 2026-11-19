@@ -713,6 +713,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       sandbox: () => settings.get().coderSandbox,
       autoCompact: () => settings.get().coderAutoCompact,
       autoCheck: () => settings.get().coderAutoCheck,
+      showReasoning: () => settings.get().coderShowReasoning,
+      agentModel: () => settings.get().coderAgentModel,
       mcp: coderMcp,
       browser: coderBrowserHost
     },

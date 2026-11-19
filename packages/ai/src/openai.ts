@@ -1,8 +1,8 @@
 import { readServerEvents } from './sse'
-import { AiError, errorForStatus, imageParts, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
+import { AiError, errorForStatus, imageParts, type ChatEffort, type ChatEvent, type ChatMessage, type ChatRequest, type Provider, type ProviderOptions } from './types'
 
 interface ChatChunk {
-  choices?: { delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string | null }[]
+  choices?: { delta?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string | null }[]
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null
   error?: { message?: string }
 }
@@ -30,6 +30,9 @@ export function toOpenAiMessages(messages: ChatMessage[]): unknown[] {
 
 /** Only models that think take a reasoning effort; others would turn the request down. */
 const TAKES_EFFORT = /(^|\/)(o\d|gpt-5)/i
+
+/** This format only knows three levels, so the two above high ask for high. */
+export const openAiEffort = (effort: ChatEffort) => (effort === 'xhigh' || effort === 'max' ? 'high' : effort)
 
 function parsedArguments(text: string): unknown {
   try {
@@ -83,7 +86,7 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
           stream_options: { include_usage: true },
           max_tokens: maxTokens,
           messages: [{ role: 'system', content: system }, ...toOpenAiMessages(messages)],
-          ...(effort && TAKES_EFFORT.test(model) ? { reasoning_effort: effort } : {}),
+          ...(effort && TAKES_EFFORT.test(model) ? { reasoning_effort: openAiEffort(effort) } : {}),
           ...(tools?.length ? { tools: tools.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } })) } : {})
         })
       })
@@ -101,6 +104,9 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
         }
         if (chunk.error) throw new AiError('server', `${config.name} stopped with an error.`)
         const choice = chunk.choices?.[0]
+        // DeepSeek, Qwen and vLLM name it reasoning_content; OpenRouter and Ollama, reasoning.
+        const thought = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+        if (typeof thought === 'string' && thought) yield { type: 'reasoning', text: thought }
         if (choice?.delta?.content) yield { type: 'text', text: choice.delta.content }
         for (const part of choice?.delta?.tool_calls ?? []) {
           const index = part.index ?? calls.size

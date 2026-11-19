@@ -7,6 +7,7 @@ import {
   CODER_MAX_IMAGES,
   CODER_MAX_MENTIONS,
   CODER_MAX_TASK_CHARS,
+  isCoderEffort,
   isMcpServerName,
   type CoderEvent,
   type CoderHooksView,
@@ -89,7 +90,7 @@ function runOptions(value: unknown): CoderRunOptions {
     else throw new Error('Invalid model')
   }
   if (value.effort !== undefined) {
-    if (value.effort !== null && value.effort !== 'low' && value.effort !== 'medium' && value.effort !== 'high') throw new Error('Invalid effort')
+    if (value.effort !== null && !isCoderEffort(value.effort)) throw new Error('Invalid effort')
     options.effort = value.effort
   }
   if (value.mode !== undefined) {

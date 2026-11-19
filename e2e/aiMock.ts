@@ -15,6 +15,8 @@ export interface AiMock {
   reply: string[]
   /** Replies to use first, one per request. */
   queue: string[]
+  /** Reasoning to send before a reply, one per request, as DeepSeek-style gateways do. */
+  thinking: string[]
   status: number
   /** Reports to write as a tool call, one per request that offers tools: the call's arguments, in pieces. */
   toolQueue: string[][]
@@ -33,7 +35,7 @@ const anthropicEvent = (type: string, data: object) => `event: ${type}\ndata: ${
 
 /** Speaks both the OpenAI and Anthropic streaming formats. */
 export async function startAiMock(): Promise<AiMock> {
-  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], toolQueue: [], rejectTools: false, finish: [], status: 200, hang: false, server: null! }
+  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], thinking: [], toolQueue: [], rejectTools: false, finish: [], status: 200, hang: false, server: null! }
 
   mock.server = createServer((req, res) => {
     const chunks: Buffer[] = []
@@ -70,6 +72,8 @@ export async function startAiMock(): Promise<AiMock> {
           res.end(`${sse({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }, { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}data: [DONE]\n\n`)
           return
         }
+        const thought = mock.thinking.shift()
+        if (thought) res.write(sse({ choices: [{ delta: { reasoning_content: thought } }] }))
         const queued = mock.queue.shift()
         const parts = queued !== undefined ? [queued] : mock.hang ? mock.reply.slice(0, 1) : mock.reply
         res.write(sse(...parts.map((content) => ({ choices: [{ delta: { content } }] }))))

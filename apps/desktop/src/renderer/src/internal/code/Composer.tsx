@@ -1,7 +1,7 @@
-import { ArrowUp, Check, ChevronDown, FileText, Globe, Slash, Square, X, type LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, Brain, Check, ChevronDown, FileText, Globe, ImagePlus, Slash, Square, X, type LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { CODER_BUILTIN_COMMANDS, CODER_MAX_IMAGES, type CoderEffort, type CoderExtension, type CoderMention, type CoderMode, type CoderModelChoice } from '@scbrowser/shared'
+import { CODER_BUILTIN_COMMANDS, CODER_EFFORTS, CODER_MAX_IMAGES, type CoderEffort, type CoderExtension, type CoderMention, type CoderMode, type CoderModelChoice } from '@scbrowser/shared'
 import { api } from '../api'
 import { shortTokens, type ContextUse } from './codeState'
 
@@ -62,31 +62,38 @@ function ContextRing({ context }: { context: ContextUse }) {
   )
 }
 
-/** The model for this session, and how hard it thinks. */
-function ModelMenu({ pick, effort, onPick, onClose }: { pick: ModelPick | null; effort: CoderEffort | null; onPick: (pick: ModelPick | null, effort: CoderEffort | null) => void; onClose: () => void }) {
+/** Closes a popover like any menu: Escape, or a click anywhere else (the chip that opened it toggles it itself). */
+function useDismiss(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+  useEffect(() => {
+    const away = (event: MouseEvent) => !ref.current?.parentElement?.contains(event.target as Node) && onClose()
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      onClose()
+    }
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', escape, true)
+    return () => {
+      document.removeEventListener('mousedown', away)
+      document.removeEventListener('keydown', escape, true)
+    }
+  }, [ref, onClose])
+}
+
+/** The model for this session. */
+function ModelMenu({ pick, onPick, onClose }: { pick: ModelPick | null; onPick: (pick: ModelPick | null) => void; onClose: () => void }) {
   const [choices, setChoices] = useState<CoderModelChoice[] | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     void api().invoke('coder:models').then(setChoices, () => setChoices([]))
   }, [])
-  // Closes like any menu: Escape, or a click anywhere else (the chip that opened it toggles it itself).
-  useEffect(() => {
-    const away = (event: MouseEvent) => !ref.current?.parentElement?.contains(event.target as Node) && onClose()
-    const escape = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
-    document.addEventListener('mousedown', away)
-    document.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('mousedown', away)
-      document.removeEventListener('keydown', escape)
-    }
-  }, [onClose])
+  useDismiss(ref, onClose)
   const providers = [...new Set((choices ?? []).map((choice) => choice.providerName))]
   const same = (choice: CoderModelChoice) => pick?.providerId === choice.providerId && pick.model === choice.model
-  const efforts: [CoderEffort | null, string][] = [[null, 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]
   return (
     <div ref={ref} role="dialog" aria-label="Model for this session" className="sc-glass-strong absolute bottom-full left-0 z-20 mb-1.5 flex max-h-80 w-72 flex-col overflow-hidden rounded-lg text-text shadow-3">
       <div className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto p-1">
-        <button type="button" onClick={() => onPick(null, effort)} className={cx('flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs', pick === null ? 'bg-accent-soft' : 'hover:bg-surface-hover')}>
+        <button type="button" onClick={() => onPick(null)} className={cx('flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs', pick === null ? 'bg-accent-soft' : 'hover:bg-surface-hover')}>
           <span className="min-w-0 flex-1 truncate">Same as the assistant</span>
           {pick === null && <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-accent" />}
         </button>
@@ -97,7 +104,7 @@ function ModelMenu({ pick, effort, onPick, onClose }: { pick: ModelPick | null; 
             {choices!
               .filter((choice) => choice.providerName === provider)
               .map((choice) => (
-                <button key={`${choice.providerId}:${choice.model}`} type="button" onClick={() => onPick(choice, effort)} className={cx('flex h-7 w-full items-center gap-2 rounded-md px-2 text-left font-mono text-2xs', same(choice) ? 'bg-accent-soft' : 'hover:bg-surface-hover')}>
+                <button key={`${choice.providerId}:${choice.model}`} type="button" onClick={() => onPick(choice)} className={cx('flex h-7 w-full items-center gap-2 rounded-md px-2 text-left font-mono text-2xs', same(choice) ? 'bg-accent-soft' : 'hover:bg-surface-hover')}>
                   <span className="min-w-0 flex-1 truncate">{choice.model}</span>
                   {same(choice) && <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-accent" />}
                 </button>
@@ -105,17 +112,45 @@ function ModelMenu({ pick, effort, onPick, onClose }: { pick: ModelPick | null; 
           </div>
         ))}
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-t border-border px-2 py-1.5">
-        <span className="text-2xs text-text-muted">Thinking</span>
-        <div role="radiogroup" aria-label="Thinking" className="ml-auto flex items-center rounded-md bg-surface-hover p-0.5">
-          {efforts.map(([value, label]) => (
-            <button key={label} type="button" role="radio" aria-checked={effort === value} onClick={() => onPick(pick, value)} className={cx('h-5 rounded-sm px-1.5 text-2xs font-medium transition-colors', effort === value ? 'bg-surface text-text shadow-(--sc-shadow-1)' : 'text-text-muted hover:text-text')}>
-              {label}
-            </button>
-          ))}
-        </div>
+    </div>
+  )
+}
+
+export const effortLabel = (effort: CoderEffort | null) => (effort ? (CODER_EFFORTS.find((option) => option.id === effort)?.label ?? effort) : 'Auto')
+
+/** How hard the model thinks: five levels and Auto, each with what it's for. */
+function EffortMenu({ effort, onPick, onClose }: { effort: CoderEffort | null; onPick: (effort: CoderEffort | null) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useDismiss(ref, onClose)
+  const options: { id: CoderEffort | null; label: string; hint: string }[] = [{ id: null, label: 'Auto', hint: 'Medium for coding, or the model’s own default' }, ...CODER_EFFORTS]
+  return (
+    <div ref={ref} role="dialog" aria-label="Thinking" className="sc-glass-strong absolute bottom-full left-0 z-20 mb-1.5 flex w-72 flex-col rounded-lg p-1 text-text shadow-3">
+      <p className="px-2 pt-1.5 pb-1 text-2xs text-text-faint">How hard the model thinks before acting. Higher is slower and uses more of your limit.</p>
+      <div role="radiogroup" aria-label="Thinking level" className="flex flex-col">
+        {options.map((option) => (
+          <button key={option.label} type="button" role="radio" aria-checked={effort === option.id} onClick={() => onPick(option.id)} className={cx('flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1 text-left', effort === option.id ? 'bg-accent-soft' : 'hover:bg-surface-hover')}>
+            <EffortBars effort={option.id} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-xs">{option.label}</span>
+              <span className="truncate text-2xs text-text-faint">{option.hint}</span>
+            </span>
+            {effort === option.id && <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-accent" />}
+          </button>
+        ))}
       </div>
     </div>
+  )
+}
+
+/** Five small bars, filled to the level. */
+function EffortBars({ effort }: { effort: CoderEffort | null }) {
+  const level = effort ? CODER_EFFORTS.findIndex((option) => option.id === effort) + 1 : 0
+  return (
+    <span aria-hidden className="flex h-3 shrink-0 items-end gap-px">
+      {[1, 2, 3, 4, 5].map((bar) => (
+        <span key={bar} className={cx('w-0.75 rounded-[1px]', bar <= level ? 'bg-accent' : 'bg-border-strong')} style={{ height: `${4 + bar * 1.6}px` }} />
+      ))}
+    </span>
   )
 }
 
@@ -131,7 +166,10 @@ export interface ComposerProps {
   defaultModel: string | null
   model: ModelPick | null
   effort: CoderEffort | null
-  onModel: (model: ModelPick | null, effort: CoderEffort | null) => void
+  onModel: (model: ModelPick | null) => void
+  onEffort: (effort: CoderEffort | null) => void
+  /** What was sent before in this session, newest last, for the up arrow. */
+  history: string[]
   /** Opens the model menu when /model asks. */
   modelMenuRequest: number
   context: ContextUse | null
@@ -142,7 +180,7 @@ export interface ComposerProps {
 }
 
 /** The box at the bottom: the message, with /commands, @files and @tabs, and pictures pasted in. */
-export function Composer({ enabled, ready, working, placeholder, mode, onMode, commands, defaultModel, model, effort, onModel, modelMenuRequest, context, seed, onSend, onStop }: ComposerProps) {
+export function Composer({ enabled, ready, working, placeholder, mode, onMode, commands, defaultModel, model, effort, onModel, onEffort, history, modelMenuRequest, context, seed, onSend, onStop }: ComposerProps) {
   const [draft, setDraft] = useState('')
   const [images, setImages] = useState<string[]>([])
   const [mentions, setMentions] = useState<{ token: string; mention: CoderMention }[]>([])
@@ -152,6 +190,11 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
   const [files, setFiles] = useState<string[]>([])
   const [tabs, setTabs] = useState<{ id: number; title: string; url: string }[] | null>(null)
   const [modelOpen, setModelOpen] = useState(false)
+  const [effortOpen, setEffortOpen] = useState(false)
+  /** How far back the up arrow has gone (0: not looking back), and what was typed before. */
+  const [back, setBack] = useState(0)
+  const typed = useRef('')
+  const picker = useRef<HTMLInputElement>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const box = useRef<HTMLTextAreaElement>(null)
 
@@ -259,14 +302,28 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
     setImages([])
     setMentions([])
     setWarning(null)
+    setBack(0)
   }
 
+  /** Earlier messages with the up and down arrows, as in a terminal. */
+  const recall = (step: 1 | -1) => {
+    const next = Math.max(0, Math.min(history.length, back + step))
+    if (next === back) return false
+    if (back === 0) typed.current = draft
+    setBack(next)
+    const text = next === 0 ? typed.current : history[history.length - next]!
+    setDraft(text)
+    requestAnimationFrame(() => box.current?.setSelectionRange(text.length, text.length))
+    return true
+  }
+
+  const closeEffort = useCallback(() => setEffortOpen(false), [])
   const closeModel = useCallback(() => setModelOpen(false), [])
   const modeInfo = MODES.find((candidate) => candidate.id === mode) ?? MODES[1]!
   const canSend = (!!draft.trim() || images.length > 0) && enabled && ready
 
   return (
-    <div className="relative flex flex-col rounded-lg border border-border bg-field focus-within:border-border-strong">
+    <div className="@container relative flex flex-col rounded-lg border border-border bg-field focus-within:border-border-strong">
       {rows.length > 0 && (
         <ul role="listbox" aria-label={slash !== null ? 'Commands' : 'Files and tabs'} className="sc-glass-strong absolute inset-x-0 bottom-full z-20 mb-1.5 max-h-72 overflow-y-auto rounded-lg p-1 text-text shadow-3">
           {rows.map((row, index) => (
@@ -309,6 +366,7 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
         placeholder={placeholder}
         onChange={(e) => {
           setDraft(e.target.value)
+          setBack(0)
           setCaret(e.target.selectionStart)
           setSelected(0)
           setDismissed(false)
@@ -352,7 +410,25 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             send()
+            return
           }
+          // Shift+Tab steps through Plan, Ask and Auto-edit, as in other coding agents.
+          if (e.key === 'Tab' && e.shiftKey) {
+            e.preventDefault()
+            const at = MODES.findIndex((option) => option.id === mode)
+            onMode(MODES[(at + 1) % MODES.length]!.id)
+            return
+          }
+          if (e.key === 'Escape' && working) {
+            e.preventDefault()
+            onStop()
+            return
+          }
+          const field = e.currentTarget
+          const onFirstLine = !field.value.slice(0, field.selectionStart).includes('\n')
+          const onLastLine = !field.value.slice(field.selectionEnd).includes('\n')
+          if (e.key === 'ArrowUp' && onFirstLine && (draft === '' || back > 0) && recall(1)) e.preventDefault()
+          else if (e.key === 'ArrowDown' && onLastLine && back > 0 && recall(-1)) e.preventDefault()
         }}
         className="max-h-48 min-h-11 resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
       />
@@ -364,35 +440,58 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
               type="button"
               role="radio"
               aria-checked={mode === option.id}
-              title={option.hint}
+              title={`${option.hint} Shift+Tab switches.`}
               onClick={() => onMode(option.id)}
-              className={cx('h-5.5 rounded-sm px-2 text-2xs font-medium transition-colors', mode === option.id ? 'bg-surface text-text shadow-(--sc-shadow-1)' : 'text-text-muted hover:text-text')}
+              className={cx('h-5.5 rounded-sm px-2 text-2xs font-medium transition-colors @max-[380px]:px-1.5', mode === option.id ? 'bg-surface text-text shadow-(--sc-shadow-1)' : 'text-text-muted hover:text-text')}
             >
               {option.label}
             </button>
           ))}
         </div>
+        <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-border @max-[420px]:hidden" />
         <div className="relative min-w-0">
           <button
             type="button"
             aria-haspopup="dialog"
             aria-expanded={modelOpen}
             title={`${modeInfo.hint} Commands you allow run with your own permissions.`}
-            onClick={() => setModelOpen(!modelOpen)}
-            className="flex h-6 max-w-56 min-w-0 items-center gap-1 rounded-md px-1.5 text-2xs text-text-faint transition-colors hover:bg-surface-hover hover:text-text"
+            onClick={() => (setModelOpen(!modelOpen), setEffortOpen(false))}
+            className="flex h-6 max-w-48 min-w-0 items-center gap-1 rounded-md px-1.5 text-2xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <span className="min-w-0 truncate">{model?.model ?? defaultModel ?? 'Model'}</span>
-            {effort && <span className="shrink-0 text-text-faint">· {effort}</span>}
-            <ChevronDown aria-hidden size={11} strokeWidth={1.75} className="shrink-0" />
+            <ChevronDown aria-hidden size={11} strokeWidth={1.75} className="shrink-0 text-text-faint" />
           </button>
           {modelOpen && (
             <ModelMenu
               pick={model}
-              effort={effort}
               onClose={closeModel}
-              onPick={(next, nextEffort) => {
-                onModel(next, nextEffort)
-                if (next !== model) setModelOpen(false)
+              onPick={(next) => {
+                onModel(next)
+                setModelOpen(false)
+              }}
+            />
+          )}
+        </div>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={effortOpen}
+            aria-label={`Thinking: ${effortLabel(effort)}`}
+            title="How hard the model thinks"
+            onClick={() => (setEffortOpen(!effortOpen), setModelOpen(false))}
+            className={cx('flex h-6 items-center gap-1.5 rounded-md px-1.5 text-2xs transition-colors hover:bg-surface-hover hover:text-text', effort ? 'text-text-muted' : 'text-text-faint')}
+          >
+            <Brain aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
+            <span className="@max-[480px]:hidden">{effortLabel(effort)}</span>
+          </button>
+          {effortOpen && (
+            <EffortMenu
+              effort={effort}
+              onClose={closeEffort}
+              onPick={(next) => {
+                onEffort(next)
+                setEffortOpen(false)
               }}
             />
           )}
@@ -400,14 +499,29 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
         <span className="min-w-0 flex-1" />
         {/* Only once it's worth knowing; the summary takes over when it fills. */}
         {context && context.used / Math.max(1, context.limit) >= 0.1 && <ContextRing context={context} />}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])]
+            e.target.value = ''
+            if (files.length) void addImages(files)
+          }}
+        />
+        <IconButton size="sm" label="Attach a picture" className="@max-[340px]:hidden" disabled={!enabled || images.length >= CODER_MAX_IMAGES} onClick={() => picker.current?.click()}>
+          <ImagePlus size={14} strokeWidth={1.75} />
+        </IconButton>
         {working && draft.trim() && (
           <IconButton size="sm" label="Send to Terra Code" className="bg-text! text-surface! hover:opacity-85" onClick={send}>
             <ArrowUp size={14} strokeWidth={2} />
           </IconButton>
         )}
         {working ? (
-          <IconButton size="sm" label="Stop" onClick={onStop}>
-            <Square size={12} strokeWidth={2} />
+          <IconButton size="sm" label="Stop" shortcut="Esc" onClick={onStop} className="bg-surface-hover! text-text!">
+            <Square size={11} strokeWidth={2} className="fill-current" />
           </IconButton>
         ) : (
           <IconButton size="sm" label="Send" disabled={!canSend} className={canSend ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={send}>

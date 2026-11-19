@@ -39,6 +39,25 @@ export type CoderToolName =
 export interface CoderTodo {
   text: string
   done: boolean
+  /** The step it's on now. At most one is. */
+  active?: boolean
+}
+
+/** A helper Terra Code sent off with a task of its own: the built-in explorer, the general agent, or one of the project's. */
+export interface CoderAgentRun {
+  /** The id of the tool step that started it. */
+  id: string
+  name: string
+  task: string
+  state: 'running' | 'done' | 'failed'
+  /** Tools it has used so far. */
+  steps: number
+  /** What it did last, in a few words. */
+  last: string | null
+  /** What it reported back, once done. */
+  report: string | null
+  startedAt: number
+  endedAt: number | null
 }
 
 /** A file changed in this session, compared with how it was before the session first touched it. */
@@ -86,7 +105,12 @@ export type CoderEvent =
   | { sessionId: string; type: 'text'; text: string }
   /** The words of a reply still arriving, so far. Replaced by `text` once it's complete. */
   | { sessionId: string; type: 'stream'; text: string }
-  | { sessionId: string; type: 'tool'; id: string; tool: CoderToolName; summary: string }
+  /** `agent` names the helper run (`CoderAgentRun.id`) that took this step, when it wasn't the main agent. */
+  | { sessionId: string; type: 'tool'; id: string; tool: CoderToolName; summary: string; agent?: string }
+  /** The model's reasoning for this step so far. `final` once the reply is complete. */
+  | { sessionId: string; type: 'reasoning'; text: string; final?: boolean }
+  /** A helper's progress, sent as it starts, after each of its steps, and when it reports. */
+  | { sessionId: string; type: 'agent'; run: CoderAgentRun }
   /** More of what a running command prints, to add to what's shown. */
   | { sessionId: string; type: 'output'; id: string; text: string }
   | { sessionId: string; type: 'tool-result'; id: string; ok: boolean; output: string }
@@ -122,7 +146,17 @@ export interface CoderModelChoice {
 }
 
 /** How hard the model thinks, where it can be told. */
-export type CoderEffort = 'low' | 'medium' | 'high'
+export type CoderEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+export const CODER_EFFORTS: { id: CoderEffort; label: string; hint: string }[] = [
+  { id: 'low', label: 'Low', hint: 'Quick answers and small edits' },
+  { id: 'medium', label: 'Medium', hint: 'A balance of speed and care' },
+  { id: 'high', label: 'High', hint: 'Thinks harder on tricky changes' },
+  { id: 'xhigh', label: 'Extra high', hint: 'Deep work on hard problems. Slower, uses more' },
+  { id: 'max', label: 'Max', hint: 'As much thought as it takes. Slowest' }
+]
+
+export const isCoderEffort = (value: unknown): value is CoderEffort => CODER_EFFORTS.some((effort) => effort.id === value)
 
 /** A separate git worktree a session works in, so sessions running at once don't trip over each other. */
 export interface CoderWorktree {
@@ -142,6 +176,8 @@ export interface CoderStatus {
   running: boolean
   /** Whether the folder is a git repository, for commits and separate copies. */
   git: boolean
+  /** The branch checked out, when it's a git repository. */
+  branch?: string | null
   /** Linux with bubblewrap installed, so commands can be fenced in. */
   sandboxAvailable: boolean
 }
@@ -253,6 +289,9 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'clear', description: 'Start a new session' },
   { name: 'fork', description: 'Carry on in a copy of this session' },
   { name: 'export', description: 'Save this session as Markdown' },
+  { name: 'effort', description: 'How hard the model thinks: low, medium, high, xhigh or max', args: '[level]' },
+  { name: 'agents', description: 'Show the helpers this session sent off' },
+  { name: 'stats', description: 'Show the session panel: context, usage and activity' },
   { name: 'settings', description: 'Permissions, MCP servers, agents, skills and hooks' },
   { name: 'help', description: 'What Terra Code can do' }
 ]

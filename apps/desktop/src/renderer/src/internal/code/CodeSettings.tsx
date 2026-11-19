@@ -1,7 +1,7 @@
 import { ArrowLeft, Plus, RotateCw, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Segmented, Switch } from '@scbrowser/ui'
-import type { CoderExtension, CoderSetup, McpServerConfig, McpServerView, Settings } from '@scbrowser/shared'
+import { CODER_EFFORTS, type CoderEffort, type CoderExtension, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 
 const cleanError = (message: string) => message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -273,6 +273,41 @@ export function CodeSettings({ sandboxAvailable, onClose }: { sandboxAvailable: 
               </Row>
               <Row label="Notify me" hint="When it finishes or needs an answer while scTerra is in the background.">
                 <Switch label="Notify me" checked={settings.coderNotify} onChange={(coderNotify) => update({ coderNotify })} />
+              </Row>
+            </Section>
+          )}
+          {settings && (
+            <Section title="Model" hint="Each session can change these from the message box.">
+              <Row label="Thinking" hint="How hard the model thinks before it acts, for models that can be told. Auto is Medium for coding.">
+                <select
+                  aria-label="Thinking"
+                  value={settings.coderEffort ?? 'auto'}
+                  onChange={(e) => update({ coderEffort: e.target.value === 'auto' ? null : (e.target.value as CoderEffort) })}
+                  className="h-7 rounded-md border border-border bg-field px-2 text-xs outline-none focus:border-border-strong"
+                >
+                  <option value="auto">Auto</option>
+                  {CODER_EFFORTS.map((effort) => (
+                    <option key={effort.id} value={effort.id}>
+                      {effort.label}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+              <Row label="Show the model’s reasoning" hint="A summary of its thinking before each step, folded away. Claude and models such as DeepSeek and Qwen give it; others don’t.">
+                <Switch label="Show the model’s reasoning" checked={settings.coderShowReasoning} onChange={(coderShowReasoning) => update({ coderShowReasoning })} />
+              </Row>
+              <Row label="Model for helpers" hint="Explore and agents work in conversations of their own. The quick model from AI settings is cheaper and faster.">
+                <Segmented
+                  label="Model for helpers"
+                  size="sm"
+                  fill={false}
+                  value={settings.coderAgentModel}
+                  onChange={(coderAgentModel) => update({ coderAgentModel })}
+                  options={[
+                    ['session', 'Same as the session'],
+                    ['quick', 'Quick model']
+                  ]}
+                />
               </Row>
             </Section>
           )}

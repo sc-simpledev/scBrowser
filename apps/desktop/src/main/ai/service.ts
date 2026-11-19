@@ -1,6 +1,6 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
+import { AiError, type ChatEffort, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
 import { localDay, memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
@@ -71,20 +71,26 @@ export class AiService {
         },
         chat: async (messages, system, tools, signal, options) => {
           const ref = this.coderRef(options?.model)
-          const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: MAX_OUTPUT_TOKENS, signal, tools, ...(options?.effort ? { effort: options.effort } : {}) })
+          const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens: MAX_OUTPUT_TOKENS, signal, tools, ...(options?.effort ? { effort: options.effort } : {}), ...(options?.reasoning ? { reasoning: true } : {}) })
           let text = ''
+          let thought = ''
+          let blocks: unknown[] | undefined
           const uses: ToolUse[] = []
           for await (const event of stream) {
             if (event.type === 'text') {
               text += event.text
               options?.onText?.(text)
-            } else if (event.type === 'tool') uses.push(event.use)
+            } else if (event.type === 'reasoning') {
+              thought += event.text
+              options?.onReasoning?.(thought)
+            } else if (event.type === 'blocks') blocks = event.blocks
+            else if (event.type === 'tool') uses.push(event.use)
             else if (event.type === 'usage') {
               this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
               options?.onUsage?.(event.inputTokens, event.outputTokens)
             }
           }
-          return { text, uses }
+          return { text, uses, ...(blocks ? { blocks } : {}) }
         }
       },
       webFetch: async (url) => {
@@ -93,7 +99,8 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, mcp: coderHome.mcp, browser: coderHome.browser } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning } : {}),
+      agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
         const pages = await webContext(query, isSiteOff)
@@ -178,16 +185,22 @@ export class AiService {
     const provider = chat && this.store.provider(chat.providerId)
     const status = this.store.status()
     const isGit = folder ? (await git(folder, ['rev-parse', '--is-inside-work-tree'])) === 'true' : false
-    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running, git: isGit, sandboxAvailable: sandboxAvailable() }
+    const branch = isGit ? await git(folder, ['rev-parse', '--abbrev-ref', 'HEAD']) : null
+    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running, git: isGit, branch: branch && branch !== 'HEAD' ? branch : null, sandboxAvailable: sandboxAvailable() }
   }
 
-  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void, extra: { onUsage?: (input: number, output: number) => void; effort?: 'low' | 'medium' | 'high' | null } = {}): Promise<string> {
+  private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void, extra: { onUsage?: (input: number, output: number) => void; effort?: ChatEffort | null; reasoning?: boolean; onReasoning?: (text: string) => void } = {}): Promise<string> {
     let text = ''
-    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal, ...(extra.effort ? { effort: extra.effort } : {}) })
+    let thought = ''
+    const stream = (await this.provider(ref.providerId)).chat({ model: ref.model, system, messages, maxTokens, signal, ...(extra.effort ? { effort: extra.effort } : {}), ...(extra.reasoning ? { reasoning: true } : {}) })
     for await (const event of stream) {
       if (event.type === 'text') {
         text += event.text
         onText?.(text)
+      }
+      if (event.type === 'reasoning' && extra.onReasoning) {
+        thought += event.text
+        extra.onReasoning(thought)
       }
       if (event.type === 'usage') {
         this.store.addUsage(ref.providerId, ref.model, event.inputTokens, event.outputTokens)
@@ -361,6 +374,9 @@ export interface CoderHome {
   sandbox?: () => SandboxMode
   autoCompact?: () => boolean
   autoCheck?: () => boolean
+  showReasoning?: () => boolean
+  /** Which model helpers use: the session's, or the quick model. */
+  agentModel?: () => 'session' | 'quick'
   mcp?: CoderMcpHost
   browser?: CoderBrowserHost
 }

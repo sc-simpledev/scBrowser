@@ -174,9 +174,32 @@
   }
 }
 
+/* A word that's still being worked on: a light sweeps across it. */
+.sc-shimmer {
+  background: linear-gradient(90deg, var(--sc-text-muted) 0%, var(--sc-text) 45%, var(--sc-text-muted) 90%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: sc-shimmer 1.8s linear infinite;
+}
+
+@keyframes sc-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .sc-thinking i {
+  .sc-thinking i,
+  .sc-shimmer {
     animation: none;
+  }
+  .sc-shimmer {
+    color: var(--sc-text);
   }
 }
 

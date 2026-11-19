@@ -25,10 +25,20 @@ export interface ToolOutput {
 }
 
 /** A conversation turn, which may carry pictures (data addresses) and the provider-native tool calls and their results. */
-export type ChatMessage = AssistantMessage & { images?: string[]; toolUses?: ToolUse[]; toolResults?: ToolOutput[] }
+export type ChatMessage = AssistantMessage & {
+  images?: string[]
+  toolUses?: ToolUse[]
+  toolResults?: ToolOutput[]
+  /**
+   * The provider's own record of an assistant turn, replayed unchanged on the next request. Claude
+   * needs its thinking blocks (with their signatures) sent back with the tool calls they led to.
+   */
+  blocks?: unknown[]
+}
 
 /** How hard a model that can think should think. Only sent where the model takes it. */
-export type ChatEffort = 'low' | 'medium' | 'high'
+export type ChatEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export const CHAT_EFFORTS: readonly ChatEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** A data address split into what the APIs want, or null if it isn't a base64 picture. */
 export function imageParts(url: string): { mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string } | null {
@@ -44,10 +54,16 @@ export interface ChatRequest {
   signal?: AbortSignal
   tools?: ToolSpec[]
   effort?: ChatEffort
+  /** Ask for the model's reasoning as readable text, where it can give it. */
+  reasoning?: boolean
 }
 
 export type ChatEvent =
   | { type: 'text'; text: string }
+  /** A piece of the model's reasoning, shown apart from its reply. */
+  | { type: 'reasoning'; text: string }
+  /** The whole reply in the provider's own form, for replaying it (see `ChatMessage.blocks`). */
+  | { type: 'blocks'; blocks: unknown[] }
   | { type: 'tool'; use: ToolUse }
   /** A piece of a tool call's arguments as they arrive, for calls worth showing while they're written. */
   | { type: 'tool-delta'; index: number; name: string; text: string }

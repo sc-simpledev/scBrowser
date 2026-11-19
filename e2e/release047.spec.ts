@@ -91,7 +91,7 @@ test('Terra Code works inside the assistant, shows its plan and changes, and und
     // Both tool calls in one reply ran.
     expect(mock!.requests).toHaveLength(2)
     expect(readFileSync(join(folder, 'greeting.txt'), 'utf8')).toBe('goodbye\n')
-    await expect(page.getByRole('region', { name: 'Plan' })).toContainText('1 of 2')
+    await expect(page.getByRole('region', { name: 'Checklist' }).first()).toContainText('1 of 2')
     const changed = page.getByRole('region', { name: 'Changed files' })
     await expect(changed).toContainText('2 files changed')
     await changed.getByRole('button', { name: 'Review' }).click()
