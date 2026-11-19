@@ -35,12 +35,41 @@ export type CoderToolName =
   | 'tabs'
   | 'mcp'
   | 'hook'
+  | 'ask'
+  | 'github'
 
 export interface CoderTodo {
   text: string
   done: boolean
   /** The step it's on now. At most one is. */
   active?: boolean
+}
+
+/** A question the model asks the person, with choices to pick from. They can always write their own answer instead. */
+export interface CoderQuestion {
+  question: string
+  /** A word or two for its tab, such as "Database". */
+  header: string
+  options: { label: string; description: string }[]
+  /** More than one choice may be picked. */
+  multiSelect: boolean
+}
+
+/** What the person picked for each question, in order, or their own words. Empty: they skipped it. */
+export type CoderQuestionAnswer = string[]
+
+export const CODER_MAX_QUESTIONS = 4
+export const CODER_MAX_OPTIONS = 6
+
+/** The person's answers to questions, as the model reads them. */
+export function questionAnswerText(questions: CoderQuestion[], answers: CoderQuestionAnswer[] | null): string {
+  if (!answers) return 'The person closed the questions without answering. Decide sensibly yourself, and say what you assumed.'
+  return questions
+    .map((question, index) => {
+      const picked = answers[index] ?? []
+      return `${question.question}\n→ ${picked.length ? picked.join('; ') : '(skipped: decide yourself, and say what you assumed)'}`
+    })
+    .join('\n\n')
 }
 
 /** A helper Terra Code sent off with a task of its own: the built-in explorer, the general agent, or one of the project's. */
@@ -124,8 +153,10 @@ export type CoderEvent =
   | { sessionId: string; type: 'thinking'; step: number }
   /** The model couldn't be reached or was busy, and it's trying again shortly. */
   | { sessionId: string; type: 'retrying'; seconds: number }
-  /** The model's plan, as a checklist. */
-  | { sessionId: string; type: 'todo'; items: CoderTodo[] }
+  /** The model's plan, as a checklist. `by: 'person'` when the person ticked, added or changed steps. */
+  | { sessionId: string; type: 'todo'; items: CoderTodo[]; by?: 'person' }
+  /** The model asks the person something and waits. Answered with `coder:answer-question`. */
+  | { sessionId: string; type: 'question'; id: string; questions: CoderQuestion[] }
   /** Every file this session has changed so far. */
   | { sessionId: string; type: 'changes'; files: CoderChange[] }
   /** Commands left running in the background. */
@@ -295,8 +326,101 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'agents', description: 'Show the helpers this session sent off' },
   { name: 'stats', description: 'Show the session panel: context, usage and activity' },
   { name: 'settings', description: 'Permissions, MCP servers, agents, skills and hooks' },
+  { name: 'todo', description: 'Add a step to the checklist', args: '<step>' },
+  { name: 'cloud', description: 'Run this task in the cloud, on GitHub Actions', args: '<task>' },
   { name: 'help', description: 'What Terra Code can do' }
 ]
+
+export const CODER_MAX_TODO = 40
+export const CODER_MAX_TODO_CHARS = 300
+
+/** The person's changes to a checklist, as the model reads them. */
+export function todoChangeText(items: CoderTodo[]): string {
+  if (items.length === 0) return 'The person cleared your checklist. Carry on without one, or make a new one if it helps.'
+  const lines = items.map((item) => `- [${item.done ? 'x' : item.active ? '~' : ' '}] ${item.text}`)
+  return `The person changed your checklist. This is it now ([x] done, [~] under way). Follow it: do the steps they added, skip the ones they removed, and don't redo what they ticked off. Send it back with todo when you next update it.\n${lines.join('\n')}`
+}
+
+/** A checklist from the page, checked item by item. */
+export function cleanTodo(value: unknown): CoderTodo[] | null {
+  if (!Array.isArray(value) || value.length > CODER_MAX_TODO) return null
+  const items: CoderTodo[] = []
+  let active = false
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null
+    const { text, done, active: on } = item as Record<string, unknown>
+    if (typeof text !== 'string' || typeof done !== 'boolean') return null
+    const trimmed = text.trim().slice(0, CODER_MAX_TODO_CHARS)
+    if (!trimmed) continue
+    const isActive: boolean = on === true && !done && !active
+    active ||= isActive
+    items.push({ text: trimmed, done, ...(isActive ? { active: true } : {}) })
+  }
+  return items
+}
+
+/** How much the model may do on GitHub: nothing, look only, or look and act (asking each time). */
+export type CoderGithubAccess = 'off' | 'read' | 'write'
+
+/** Where Terra Code's GitHub sign-in comes from, as the page sees it: never the token itself. */
+export interface CoderGithubStatus {
+  /** `cli`: the GitHub CLI's own sign-in, read when needed and never stored. `token`: one pasted in, kept encrypted. */
+  source: 'cli' | 'token' | null
+  login: string | null
+  /** The GitHub CLI is installed and signed in, so it can be used in one click. */
+  cliReady: boolean
+  /** The token's scopes, where GitHub says (classic tokens and the CLI's). */
+  scopes: string[] | null
+  /** The project's repository on GitHub, from its git remote. */
+  repo: string | null
+  error: string | null
+}
+
+/** A run of Terra Code on GitHub Actions, which carries on with this computer off. */
+export interface CoderCloudRun {
+  id: string
+  /** owner/name */
+  repo: string
+  /** The branch it started from, on GitHub. */
+  base: string
+  /** The branch that starts the run, holding the workflow, removed once it's done. */
+  trigger: string
+  /** Where its work is pushed. */
+  branch: string
+  task: string
+  /** Open a pull request when it's done. */
+  pr: boolean
+  state: 'starting' | 'queued' | 'working' | 'done' | 'failed' | 'cancelled'
+  runId: number | null
+  runUrl: string | null
+  prUrl: string | null
+  /** What it said it did, once done. */
+  summary: string | null
+  startedAt: number
+  endedAt: number | null
+  error: string | null
+  /** What the cloud copy doesn't have, such as commits not pushed yet. */
+  warning: string | null
+}
+
+/** Model settings for a cloud run: only where it can reach, never a key (that goes to GitHub as a secret). */
+export interface CoderCloudModel {
+  protocol: 'anthropic' | 'openai'
+  baseUrl: string
+  model: string
+  /** The provider needs a key, sent to the repository as the secret SCTERRA_AI_KEY. */
+  needsKey: boolean
+  firstParty: boolean
+}
+
+/** The workflow a cloud run starts, kept in the trigger branch only. */
+export const CLOUD_WORKFLOW_PATH = '.github/workflows/scterra-cloud.yml'
+export const CLOUD_FILES_DIR = '.scterra-cloud'
+export const CLOUD_SECRET = 'SCTERRA_AI_KEY'
+export const CLOUD_BRANCH_PREFIX = 'scterra/'
+export const CLOUD_TRIGGER_PREFIX = 'scterra-cloud/'
+/** Lines the runner prints for the app to read back from the job's log. */
+export const CLOUD_EVENT_MARK = '[scterra-event] '
 
 const OPERATORS = /[;&|<>`\n\r]|\$\(|\$\{/
 

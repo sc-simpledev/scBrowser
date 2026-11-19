@@ -17,7 +17,7 @@ import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderChange, CoderDecision, CoderEvent, CoderModelChoice, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderWorktree, McpServerConfig } from './coder'
+import type { CoderAnswer, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -698,6 +698,28 @@ export interface InternalCommands {
   /** Goes back to a saved chat and its folder. `data` is what was given to coder:save. */
   'coder:open': (sessionId: string) => { data: string; folder: string } | null
   'coder:answer': (approvalId: string, answer: CoderAnswer) => void
+  /** The person's answers to the model's questions, one list per question; null when they closed them. */
+  'coder:answer-question': (questionId: string, answers: CoderQuestionAnswer[] | null) => void
+  /** The person ticked, added, changed or removed checklist steps. The model hears at its next step. */
+  'coder:todo': (sessionId: string, items: CoderTodo[]) => void
+  /** Terra Code's GitHub sign-in: where it comes from and whose it is, never the token. */
+  'coder:github-status': () => CoderGithubStatus
+  /** Uses the GitHub CLI's own sign-in, read each time it's needed. */
+  'coder:github-use-cli': () => CoderGithubStatus
+  /** Keeps a token pasted in, encrypted, after checking it with GitHub. */
+  'coder:github-save-token': (token: string) => CoderGithubStatus
+  'coder:github-disconnect': () => CoderGithubStatus
+  /** Starts a task on GitHub Actions, from GitHub's copy of the current branch. */
+  'coder:cloud-start': (sessionId: string, task: string, options: { pr: boolean; model?: { providerId: string; model: string } | null; effort?: CoderEffort | null }) => CoderCloudRun
+  /** This session's cloud runs, checked with GitHub when `check` is set. */
+  'coder:cloud-runs': (sessionId: string, check: boolean) => CoderCloudRun[]
+  'coder:cloud-cancel': (sessionId: string, runId: string) => CoderCloudRun[]
+  /** Fetches a finished run's branch into the project, without switching to it. */
+  'coder:cloud-fetch': (sessionId: string, runId: string) => string
+  /** Opens a pull request for a finished run, or returns the one it opened. */
+  'coder:cloud-pr': (sessionId: string, runId: string) => string
+  /** What a finished run did, step by step, read back from its log on GitHub. */
+  'coder:cloud-events': (sessionId: string, runId: string) => CoderEvent[]
   'coder:stop': (sessionId: string) => void
   'coder:reset': (sessionId: string) => void
   /** Files the session changed, against how they were before it. */
@@ -967,6 +989,18 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:save',
   'coder:open',
   'coder:answer',
+  'coder:answer-question',
+  'coder:todo',
+  'coder:github-status',
+  'coder:github-use-cli',
+  'coder:github-save-token',
+  'coder:github-disconnect',
+  'coder:cloud-start',
+  'coder:cloud-runs',
+  'coder:cloud-cancel',
+  'coder:cloud-fetch',
+  'coder:cloud-pr',
+  'coder:cloud-events',
   'coder:stop',
   'coder:reset',
   'coder:changes',

@@ -26,6 +26,7 @@ import {
   compactionCut,
   extraToolsPrompt,
   flattenToolTurns,
+  githubToolSpec,
   globToRegExp,
   isDoneMarker,
   MAX_CALLS_PER_REPLY,
@@ -61,7 +62,12 @@ import {
   type CoderHookEvent,
   type CoderMention,
   type CoderMode,
+  type CoderQuestion,
+  type CoderQuestionAnswer,
   type CoderReview,
+  type CoderTodo,
+  questionAnswerText,
+  todoChangeText,
   type CoderRunMode,
   type CoderRunOptions,
   type ModelRef
@@ -161,6 +167,10 @@ interface Session {
   steps: Map<string, CoderStep>
   /** Formatters the person answered about this session: true to run, false not to. */
   formatters: Map<string, boolean>
+  /** The checklist as it stands, from the model or the person. */
+  todo: CoderTodo[]
+  /** The person changed the checklist since the model last heard, as what to tell it. */
+  todoNote: string | null
 }
 
 /** One step's files, as they were before it and after it (null: missing). */
@@ -264,6 +274,28 @@ export interface CoderDependencies {
   showReasoning?: () => boolean
   /** The model helpers use instead of the session's, such as the quick model. Null: the session's. */
   agentModel?: () => ModelRef | null
+  /** The person's GitHub, when they connected it and let Terra Code use it. */
+  github?: CoderGithubHost
+  /** Nobody is watching, as in a cloud run: questions get no answer, and approvals are settled by `approveAll`. */
+  unattended?: boolean
+}
+
+/** GitHub through the person's own sign-in. */
+export interface CoderGithubHost {
+  access(): 'off' | 'read' | 'write'
+  /** owner/name of the folder's GitHub remote, if it has one. */
+  repo(folder: string): Promise<string | null>
+  request(method: string, path: string, body: Record<string, unknown> | null, signal: AbortSignal): Promise<{ ok: boolean; status: number; output: string }>
+}
+
+/** Paths no GitHub call may reach, whatever is approved: secrets, keys, deleting a whole repository, and the token's own settings. */
+export function githubRefused(method: string, path: string): string | null {
+  const bare = path.split('?')[0]!.replace(/\/+$/, '')
+  if (/\/(actions|dependabot|codespaces)\/secrets\b|\/keys\b|\/gpg_keys\b|\/ssh_signing_keys\b|\/authorizations\b|\/installations?\b|\/hooks\b/.test(bare) && method !== 'GET') return "Terra Code doesn't change secrets, keys, webhooks or app installations."
+  if (method === 'DELETE' && /^\/repos\/[^/]+\/[^/]+$/.test(bare)) return "Terra Code doesn't delete repositories."
+  if (/^\/repos\/[^/]+\/[^/]+$/.test(bare) && method === 'PATCH') return "Terra Code doesn't change a repository's own settings."
+  if (/^\/(user|orgs\/[^/]+)\/(memberships|members|blocks|emails|followers|following|social_accounts)\b/.test(bare) && method !== 'GET') return "Terra Code doesn't change accounts or memberships."
+  return null
 }
 
 /** What a run knows about the project: read once at its start. */
@@ -275,6 +307,8 @@ interface Project {
   commands: MarkdownDef[]
   hooks: HookSet[]
   mcp: McpTool[]
+  /** GitHub, when the person let Terra Code use it: the project's repository, and whether it may change things. */
+  github: { repo: string | null; write: boolean } | null
 }
 
 /**
@@ -289,6 +323,7 @@ interface Project {
 export class Coder {
   private readonly sessions = new Map<string, Session>()
   private readonly approvals = new Map<string, { sessionId: string; settle: (answer: CoderAnswer) => void }>()
+  private readonly questions = new Map<string, { sessionId: string; settle: (answers: CoderQuestionAnswer[] | null) => void }>()
   private readonly trust: CoderTrust
   readonly jobs: CoderJobs
 
@@ -310,9 +345,29 @@ export class Coder {
     this.approvals.get(id)?.settle(answer)
   }
 
+  /** The person's answers to questions the model asked. Null: they closed them. */
+  answerQuestion(id: string, answers: CoderQuestionAnswer[] | null): void {
+    this.questions.get(id)?.settle(answers)
+  }
+
   /** Sessions waiting for the person to answer something, for the session list. */
   waitingSessions(): string[] {
-    return [...new Set([...this.approvals.values()].map((approval) => approval.sessionId))]
+    return [...new Set([...this.approvals.values(), ...this.questions.values()].map((waiting) => waiting.sessionId))]
+  }
+
+  /**
+   * The person changed the checklist. The model hears at its next step if it's working, or with the
+   * next message if not. The change is sent back out so every Terra Code page shows it.
+   */
+  async setTodo(sessionId: string, folder: string, items: CoderTodo[], emit: Emit): Promise<void> {
+    let session = await this.loaded(sessionId)
+    if (!session) {
+      session = this.fresh(await realpath(folder).catch(() => folder))
+      this.sessions.set(sessionId, session)
+    }
+    session.todo = items
+    session.todoNote = todoChangeText(items)
+    emit({ sessionId, type: 'todo', items, by: 'person' })
   }
 
   stop(sessionId: string): void {
@@ -396,7 +451,9 @@ export class Coder {
       toolStops: new Map(),
       hooksAllowed: null,
       steps: new Map(),
-      formatters: new Map()
+      formatters: new Map(),
+      todo: [],
+      todoNote: null
     }
   }
 
@@ -682,7 +739,9 @@ export class Coder {
       this.deps.mcp?.tools(folder).catch(() => []) ?? Promise.resolve([])
     ])
     const withGeneral = agents.some((agent) => agent.name.toLowerCase() === GENERAL_AGENT.name) ? agents : [...agents, GENERAL_AGENT]
-    return { deny: settings.deny, diagnostics: settings.diagnostics ?? (await detectDiagnostics(folder)), agents: withGeneral, skills, commands, hooks, mcp }
+    const access = this.deps.github?.access() ?? 'off'
+    const github = access === 'off' ? null : { repo: await this.deps.github!.repo(folder).catch(() => null), write: access === 'write' }
+    return { deny: settings.deny, diagnostics: settings.diagnostics ?? (await detectDiagnostics(folder)), agents: withGeneral, skills, commands, hooks, mcp, github }
   }
 
   async run(sessionId: string, folder: string, task: string, mode: CoderMode, emit: Emit, resume?: AssistantMessage[], options: CoderRunOptions = {}): Promise<void> {
@@ -721,7 +780,9 @@ export class Coder {
       session.introduced = true
       const modeNote = runMode === 'plan' ? '\n\n(Plan mode: look and plan only.)' : runMode === 'review' ? '\n\n(Review: look only, and report what you find.)' : ''
       const attached = await this.attachments(folder, options.mentions ?? [])
-      const content = first ? `${await projectContext(folder)}\n\nTask:\n${task}${attached}${modeNote}` : `${task}${attached}${modeNote}`
+      const todoNote = session.todoNote ? `\n\n(${session.todoNote})` : ''
+      session.todoNote = null
+      const content = first ? `${await projectContext(folder)}\n\nTask:\n${task}${attached}${modeNote}${todoNote}` : `${task}${attached}${modeNote}${todoNote}`
       session.messages.push(options.images?.length ? { role: 'user', content, images: options.images } : { role: 'user', content })
       session.messages = closeToolTurns(session.messages)
       let nudges = 0
@@ -740,6 +801,10 @@ export class Coder {
         }
         emit({ sessionId, type: 'thinking', step })
         for (const text of session.queue.splice(0)) session.messages.push({ role: 'user', content: `(The person added this while you were working:)\n${text}` })
+        if (session.todoNote) {
+          session.messages.push({ role: 'user', content: `(${session.todoNote})` })
+          session.todoNote = null
+        }
         if (this.deps.autoCompact?.() !== false) await this.compact(sessionId, session, signal, emit, false)
         trimContext(session.messages)
         let lastStream = 0
@@ -963,7 +1028,10 @@ export class Coder {
     if (project?.agents.length) extra.push(agentToolSpec(project.agents))
     if (project?.skills.length) extra.push(skillToolSpec(project.skills))
     for (const tool of project?.mcp ?? []) if (!looking || tool.readOnly) extra.push(tool.spec)
-    return [...browser, ...extra]
+    if (project?.github) extra.push(githubToolSpec(project.github.repo, project.github.write && !looking))
+    // Nobody can answer in a cloud run, so the model isn't offered a way to ask.
+    const asking = this.deps.unattended ? browser.filter((tool) => tool.name !== 'ask') : browser
+    return [...asking, ...extra]
   }
 
   private systemPrompt(native: boolean, mode: CoderRunMode, project: Project | null): string {
@@ -971,7 +1039,8 @@ export class Coder {
     const base = native ? CODER_NATIVE_PROMPT : CODER_PROMPT
     const modeText = mode === 'plan' ? CODER_PLAN_PROMPT : mode === 'review' ? CODER_REVIEW_PROMPT : ''
     if (native || !project) return base + modeText
-    return base + modeText + extraToolsPrompt({ agents: project.agents, skills: project.skills, mcp: project.mcp.filter((tool) => !looking || tool.readOnly).map((tool) => tool.spec) })
+    const github = project.github && { repo: project.github.repo, write: project.github.write && !looking }
+    return base + modeText + extraToolsPrompt({ agents: project.agents, skills: project.skills, mcp: project.mcp.filter((tool) => !looking || tool.readOnly).map((tool) => tool.spec), github })
   }
 
   /** Asks the model, trying again a few times if it's busy or a connection drops. */
@@ -1322,8 +1391,31 @@ export class Coder {
           return report(true, await searchFiles(root, call.path, call.pattern, call.glob, call.context ?? 0))
         case 'todo':
           announce(`Plan: ${call.items.filter((item) => item.done).length} of ${call.items.length} done`)
+          session.todo = call.items
           emit({ sessionId, type: 'todo', items: call.items })
-          return report(true, 'Checklist shown to the person.')
+          return report(true, 'Checklist shown to the person. They can tick, add or change steps; you\'ll be told if they do.')
+        case 'ask': {
+          const count = call.questions.length
+          announce(count === 1 ? `Ask you: ${call.questions[0]!.question}` : `Ask you ${count} questions`)
+          if (by) return report(false, 'Helpers can\'t ask the person. Put the question in your report instead.')
+          if (this.deps.unattended) return report(false, questionAnswerText(call.questions, null).replace('closed the questions without answering', "isn't watching this run (it's in the cloud)"))
+          const answers = await this.askQuestions(sessionId, call.questions, signal, emit)
+          return report(true, questionAnswerText(call.questions, answers))
+        }
+        case 'github': {
+          const github = project.github
+          announce(`GitHub: ${call.method} ${call.path.length > 80 ? `${call.path.slice(0, 80)}…` : call.path}`)
+          if (!github || !this.deps.github) return report(false, 'GitHub isn\'t connected. The person can connect it in Terra Code settings, under GitHub.')
+          if (call.method !== 'GET' && (!github.write || looking)) return report(false, looking ? `${mode === 'review' ? 'Reviewing' : 'Plan mode'}: only GET works on GitHub.` : 'The person let you look at GitHub, not change anything. Only GET works.')
+          const refused = githubRefused(call.method, call.path)
+          if (refused) return report(false, refused)
+          if (call.method !== 'GET') {
+            const detail = `${call.method} https://api.github.com${call.path}${call.body ? `\n\n${clip(JSON.stringify(call.body, null, 2), 8000)}` : ''}`
+            if (!(await approve('tool', `GitHub: ${call.method} ${call.path.split('?')[0]}`, detail))) return report(false, 'The person declined this GitHub request.', true)
+          }
+          const result = await this.deps.github.request(call.method, call.path, call.body, signal)
+          return report(result.ok, clip(result.output, 30_000))
+        }
         case 'web': {
           announce(`Search the web for ${call.query}`)
           if (!this.deps.webSearch) return report(false, 'Web search is not available here.')
@@ -1546,6 +1638,26 @@ export class Coder {
       const message = error instanceof ToolError ? error.message : error instanceof Error ? `Failed: ${error.message}` : 'Failed.'
       return report(false, message)
     }
+  }
+
+  private askQuestions(sessionId: string, questions: CoderQuestion[], signal: AbortSignal, emit: Emit): Promise<CoderQuestionAnswer[] | null> {
+    const id = randomUUID()
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        this.questions.delete(id)
+        reject(new Error('Stopped'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      this.questions.set(id, {
+        sessionId,
+        settle: (answers) => {
+          this.questions.delete(id)
+          signal.removeEventListener('abort', onAbort)
+          resolve(answers)
+        }
+      })
+      emit({ sessionId, type: 'question', id, questions })
+    })
   }
 
   private ask(sessionId: string, kind: CoderApprovalKind, summary: string, detail: string, signal: AbortSignal, emit: Emit, { rule, always }: { rule?: string; always?: string } = {}): Promise<CoderAnswer> {

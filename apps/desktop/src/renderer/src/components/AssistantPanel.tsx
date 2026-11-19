@@ -158,6 +158,7 @@ function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; 
           sources={turn.sources}
           onOpenSource={openSource}
           onRetry={newest && ready ? () => useAssistant.getState().retry() : undefined}
+          onAnswer={newest && ready && !streaming ? (text) => useAssistant.getState().answer(text) : undefined}
         />
       )}
       {streaming && !turn.content && <Thinking />}

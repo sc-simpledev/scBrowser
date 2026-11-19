@@ -198,6 +198,8 @@ export interface Settings {
   coderAgentModel: 'session' | 'quick'
   /** The session panel beside Terra Code's conversation: context, usage, checklist, helpers and changes. */
   coderPanel: boolean
+  /** What Terra Code may do on GitHub. Off until the person connects it. */
+  coderGithub: 'off' | 'read' | 'write'
   /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
   coderNotify: boolean
   blocker: BlockerConfig
@@ -300,6 +302,7 @@ export const DEFAULT_SETTINGS: Settings = {
   coderEffort: null,
   coderAgentModel: 'session',
   coderPanel: true,
+  coderGithub: 'off',
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   focusUntil: 0,
@@ -402,6 +405,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderEffort: (v) => v === null || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh' || v === 'max',
   coderAgentModel: (v) => v === 'session' || v === 'quick',
   coderPanel: (v) => typeof v === 'boolean',
+  coderGithub: (v) => v === 'off' || v === 'read' || v === 'write',
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,

@@ -17,6 +17,7 @@ import {
   FolderTree,
   GitBranch,
   GitCommitHorizontal,
+  GitPullRequest,
   Globe,
   KeyRound,
   ListChecks,
@@ -25,6 +26,7 @@ import {
   Move,
   PanelRight,
   Plug,
+  MessageCircleQuestion,
   MessageSquare,
   Plus,
   Search,
@@ -50,6 +52,7 @@ import {
   type CoderAgentRun,
   type CoderAnswer,
   type CoderChange,
+  type CoderCloudRun,
   type CoderDecision,
   type CoderEffort,
   type CoderEvent,
@@ -57,6 +60,7 @@ import {
   type CoderHunk,
   type CoderJob,
   type CoderMode,
+  type CoderQuestionAnswer,
   type CoderReview,
   type CoderRunMode,
   type CoderStatus,
@@ -71,7 +75,9 @@ import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
 import { applyEvent, emptyState, savedItems, sessionMarkdown, shortDuration, type CodeState, type Item } from './codeState'
 import { AgentCard, Checklist, CopyButton, ReasoningBlock, useElapsed } from './CodeParts'
 import { Composer, effortLabel, type ModelPick, type SendPayload } from './Composer'
-import { SessionPanel, type PanelTab } from './SessionPanel'
+import { SessionPanel, type CodeWhere, type PanelTab } from './SessionPanel'
+import { CloudCard } from './CloudCard'
+import { QuestionCard } from '../../shared/QuestionCard'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   list: FolderTree,
@@ -96,7 +102,9 @@ const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   preview: Monitor,
   tabs: Globe,
   mcp: Plug,
-  hook: Webhook
+  hook: Webhook,
+  ask: MessageCircleQuestion,
+  github: GitPullRequest
 }
 
 const STARTERS: { label: string; task: string; icon: LucideIcon }[] = [
@@ -225,7 +233,9 @@ const TOOL_WORDS: Partial<Record<CoderToolName, [string, string]>> = {
   preview: ['Used the preview', 'time'],
   tabs: ['Looked at tabs', 'time'],
   mcp: ['Used', 'tool'],
-  hook: ['Ran', 'hook']
+  hook: ['Ran', 'hook'],
+  ask: ['Asked you', 'time'],
+  github: ['Looked at GitHub', 'time']
 }
 
 /** "Read 3 files, ran 1 command": a run of steps in a few words. */
@@ -877,6 +887,8 @@ export interface CodeWorkspaceProps {
 interface SavedData {
   items: Item[]
   todo: CoderTodo[]
+  where?: CodeWhere
+  cloudPr?: boolean
   agents?: CoderAgentRun[]
   model?: ModelPick | null
   effort?: CoderEffort | null
@@ -890,6 +902,10 @@ const HELP = `Terra Code works on files in your project folder. It asks before c
 - **Shift+Tab** switches between Plan, Ask and Auto-edit. **Esc** stops it. **↑** brings back what you sent before.
 - The brain button sets how hard the model thinks (**/effort high**). Its reasoning shows folded above each step, if you turn that on in settings.
 - It can hand work to helpers: **explore** reads around, **general** takes on a piece of the change. Several run side by side, and the session panel lists them.
+- The checklist is yours too: tick steps off, rename or remove them, or add your own (**/todo** adds one). Terra Code hears about it at its next step.
+- It may ask you a question with choices when a decision is yours. Pick one, write your own, or let it decide.
+- **Runs on** in the session panel sends tasks to the **cloud** (GitHub Actions) instead, so they carry on with this computer off and push to a branch of their own (**/cloud <task>** for one task).
+- Connect **GitHub** in settings to let it read issues, pull requests and Actions runs, and with your yes, open them.
 - Hover a message you sent to rewind the files and conversation to before it.
 - Settings (the gear) has command permissions, MCP servers, agents, skills, hooks and the sandbox.`
 
@@ -917,6 +933,9 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const [model, setModel] = useState<ModelPick | null>(null)
   const [effort, setEffort] = useState<CoderEffort | null>(null)
+  /** Where this session's tasks run, and whether a cloud run opens a pull request. */
+  const [where, setWhere] = useState<CodeWhere>('local')
+  const [cloudPr, setCloudPr] = useState(true)
   const [commands, setCommands] = useState<CoderExtension[]>([])
   const [worktree, setWorktree] = useState<CoderWorktree | null>(null)
   const [seed, setSeed] = useState<{ text: string; at: number } | null>(null)
@@ -992,6 +1011,8 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         next = { ...next, items: data.items, todo: data.todo, agents: data.agents ?? [] }
         setModel(data.model ?? null)
         setEffort(data.effort ?? null)
+        setWhere(data.where ?? 'local')
+        setCloudPr(data.cloudPr ?? true)
       }
       const replay = await api().invoke('coder:replay', chat)
       if (cancelled) return
@@ -1023,13 +1044,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     const id = session.current
     const save = () => {
       unsaved.current = null
-      const data: SavedData = { items: savedItems(items), todo, agents: state.agents, model, effort }
+      const data: SavedData = { items: savedItems(items), todo, agents: state.agents, model, effort, where, cloudPr }
       void api().invoke('coder:save', id, first.shown ?? first.text, JSON.stringify(data)).then(() => onChatRef.current?.(id))
     }
     unsaved.current = save
     const timer = setTimeout(save, 400)
     return () => clearTimeout(timer)
-  }, [items, todo, state.agents, model, effort])
+  }, [items, todo, state.agents, model, effort, where, cloudPr])
   useEffect(() => {
     const leave = () => unsaved.current?.()
     window.addEventListener('pagehide', leave)
@@ -1094,7 +1115,73 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     setScreen('log')
     setCommitting(false)
     setWorktree(null)
+    setWhere('local')
   }, [])
+
+  /** The person's own change to the checklist: shown at once, and told to Terra Code. */
+  const changeTodo = (next: CoderTodo[]) => {
+    setState((current) => ({ ...current, todo: next }))
+    void api()
+      .invoke('coder:todo', session.current, next)
+      .catch((error: Error) => note(cleanError(error.message), true))
+  }
+
+  const answerQuestion = (id: string, answers: CoderQuestionAnswer[] | null) => {
+    setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'question' && item.id === id ? { ...item, answers } : item)) }))
+    void api().invoke('coder:answer-question', id, answers)
+  }
+
+  const setCloud = (run: CoderCloudRun, events?: CoderEvent[] | null) =>
+    setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === run.id ? { kind: 'cloud', run, ...(events !== undefined ? { events } : item.events !== undefined ? { events: item.events } : {}) } : item)) }))
+
+  /** A task for GitHub Actions: it shows as a card that follows the run, rather than steps here. */
+  const startCloud = (task: string, shown?: string) => {
+    const placeholder: CoderCloudRun = { id: `pending-${crypto.randomUUID()}`, repo: '', base: status?.branch ?? '', trigger: '', branch: 'Setting up…', task, pr: cloudPr, state: 'starting', runId: null, runUrl: null, prUrl: null, summary: null, startedAt: Date.now(), endedAt: null, error: null, warning: null }
+    setState((current) => ({ ...current, items: [...current.items, { kind: 'task', text: task, ...(shown ? { shown } : {}) }, { kind: 'cloud', run: placeholder }] }))
+    void api()
+      .invoke('coder:cloud-start', session.current, task, { pr: cloudPr, model: model && { providerId: model.providerId, model: model.model }, effort })
+      .then(
+        (run) => setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === placeholder.id ? { kind: 'cloud', run } : item)) })),
+        (error: Error) => setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === placeholder.id ? { kind: 'cloud', run: { ...placeholder, state: 'failed', endedAt: Date.now(), branch: 'Not started', error: cleanError(error.message) } } : item)) }))
+      )
+  }
+
+  const cloudAction = (run: CoderCloudRun, action: 'cancel' | 'pr' | 'fetch' | 'steps') => {
+    const id = session.current
+    if (action === 'cancel') void api().invoke('coder:cloud-cancel', id, run.id).then((runs) => runs.forEach((one) => setCloud(one)), (error: Error) => note(cleanError(error.message), true))
+    if (action === 'pr')
+      void api()
+        .invoke('coder:cloud-pr', id, run.id)
+        .then(
+          (url) => setCloud({ ...run, prUrl: url }),
+          (error: Error) => note(cleanError(error.message), true)
+        )
+    if (action === 'fetch') void api().invoke('coder:cloud-fetch', id, run.id).then((said) => note(said), (error: Error) => note(cleanError(error.message), true))
+    if (action === 'steps') void api().invoke('coder:cloud-events', id, run.id).then((events) => setCloud(run, events), () => setCloud(run, null))
+  }
+
+  // Unfinished cloud runs are looked at every 20 seconds while this is on screen, and on coming back to it.
+  const unfinished = items.some((item) => item.kind === 'cloud' && !item.run.id.startsWith('pending-') && ['starting', 'queued', 'working'].includes(item.run.state))
+  useEffect(() => {
+    if (!unfinished) return
+    const id = session.current
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      void api()
+        .invoke('coder:cloud-runs', id, true)
+        .then((runs) => {
+          if (session.current === id) runs.forEach((run) => setCloud(run))
+        })
+        .catch(() => undefined)
+    }
+    check()
+    const timer = setInterval(check, 20_000)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [unfinished, chat])
 
   const rewind = (turnId: string, what: 'both' | 'code' | 'conversation' = 'both') => {
     void api()
@@ -1232,6 +1319,19 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'mcp':
         openSettings(name === 'mcp' ? 'mcp' : name === 'permissions' ? 'mode' : null)
         return true
+      case 'todo':
+        if (!args) note('Write the step after /todo, such as /todo add tests for the parser.', true)
+        else changeTodo([...todo, { text: args.slice(0, 300), done: false }])
+        return true
+      case 'cloud':
+        if (!args) {
+          setWhere('cloud')
+          openSettings(null)
+          setPanelTab('session')
+          note('New tasks in this session run in the cloud. Switch back under Runs on, in the session panel.')
+        } else if (working) note('Wait for Terra Code to finish here first.', true)
+        else startCloud(args, text)
+        return true
       case 'help':
         setState((current) => ({ ...current, items: [...current.items, { kind: 'text', text: HELP }] }))
         return true
@@ -1244,6 +1344,10 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     if (!status?.folder || !status.ready) return
     if (text.startsWith('/') && !images.length && command(text)) return
     const task = text || 'What’s in this picture?'
+    if (where === 'cloud' && !working) {
+      if (images.length) return note('Pictures can’t go to the cloud yet. Send this one on this computer.', true)
+      return startCloud(task)
+    }
     if (!working) return start(task, { images, mentions })
     // It reads this at its next step. If it has only just finished, this starts it again instead.
     setState((current) => ({ ...current, items: [...current.items, { kind: 'task', text: task }] }))
@@ -1348,8 +1452,8 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     const out: (Exclude<Item, ToolItem> | { kind: 'tools'; tools: ToolItem[] })[] = []
     for (const item of items) {
       const last = out.at(-1)
-      // The checklist has its own place, so its updates needn't fill the conversation too.
-      if (item.kind === 'tool' && item.tool === 'todo') continue
+      // The checklist has its own place, so its updates needn't fill the conversation too. Questions have their card.
+      if (item.kind === 'tool' && (item.tool === 'todo' || item.tool === 'ask')) continue
       // A helper's own steps show inside its card.
       if (item.kind === 'tool' && item.agent) continue
       if (item.kind === 'reasoning' && !showReasoning) continue
@@ -1374,7 +1478,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
 
   if (statusError) return <p className="p-6 text-sm text-danger">{statusError}</p>
   if (!status) return null
-  const waiting = items.some((item) => item.kind === 'approval' && item.answer === null)
+  const waiting = items.some((item) => (item.kind === 'approval' && item.answer === null) || (item.kind === 'question' && item.answers === undefined))
   const stopTool = (id: string) => void api().invoke('coder:stop-tool', session.current, id)
 
   const closeHostedNote = () => {
@@ -1492,6 +1596,12 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       onCommit={() => setCommitting(true)}
       onCompact={compactNow}
       onStopJob={(id) => void api().invoke('coder:job-stop', session.current, id)}
+      onTodo={changeTodo}
+      where={where}
+      onWhere={setWhere}
+      cloudPr={cloudPr}
+      onCloudPr={setCloudPr}
+      onOpenSettings={openSettings}
     />
   )
 
@@ -1600,6 +1710,21 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                       return <ToolGroup key={item.tools[0]!.id} tools={item.tools} onStop={stopTool} helpers={helpers} />
                     case 'approval':
                       return <ApprovalCard key={item.id} item={item} onAnswer={(choice) => answer(item.id, choice)} />
+                    case 'question':
+                      return <QuestionCard key={item.id} questions={item.questions} answers={item.answers} asker="Terra Code is asking" skipLabel="Let it decide" onAnswer={(answers) => answerQuestion(item.id, answers)} />
+                    case 'cloud':
+                      return (
+                        <CloudCard
+                          key={item.run.id}
+                          run={item.run}
+                          events={item.events}
+                          onOpen={(url) => void api().invoke('browser:open', url)}
+                          onCancel={() => cloudAction(item.run, 'cancel')}
+                          onPr={() => cloudAction(item.run, 'pr')}
+                          onFetch={() => cloudAction(item.run, 'fetch')}
+                          onSteps={() => cloudAction(item.run, 'steps')}
+                        />
+                      )
                     case 'note':
                       return item.network ? (
                         <AiNetworkHelp
@@ -1662,7 +1787,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
               strip &&
               (todo.length > 0 || jobs.some((job) => job.running) || changes.length > 0) && (
                 <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
-                  {todo.length > 0 && <Checklist items={todo} working={working} bare />}
+                  {todo.length > 0 && <Checklist items={todo} working={working} bare onChange={changeTodo} />}
                   {jobs.some((job) => job.running) && (
                     <div className="px-1">
                       <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />

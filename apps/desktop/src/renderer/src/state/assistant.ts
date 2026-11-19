@@ -65,6 +65,8 @@ interface AssistantStore {
   send: (text: string) => void
   /** Sends a message that needs only the conversation, not the page or the agent: a change, a continuation. */
   sendPlain: (text: string) => void
+  /** Answers questions the last reply asked: as an ordinary message with the page, never as an agent goal. */
+  answer: (text: string) => void
   /** Sends the last message again, after a failure. */
   retry: () => void
   stop: () => void
@@ -99,6 +101,12 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     set({ includePage: false, agentMode: false })
     send(text)
     set({ includePage, agentMode })
+  },
+  answer: (text) => {
+    const { agentMode, send } = get()
+    set({ agentMode: false })
+    send(text)
+    set({ agentMode })
   },
   setIncludePage: (includePage) => set({ includePage }),
   setWebSearch: (webSearch) => set({ webSearch }),

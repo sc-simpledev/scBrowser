@@ -6,9 +6,9 @@ import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { READ_ALOUD, READ_ALOUD_WORLD } from './readAloud'
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, shell, type Rectangle } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, safeStorage, shell, type Rectangle } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
 import {
@@ -61,6 +61,8 @@ import { rewriteSelection, togglePageGoogleTranslation, togglePageTranslation } 
 import { AiService } from './ai/service'
 import { coderBrowser } from './ai/coderBrowser'
 import { CoderMcp } from './ai/coderMcp'
+import { CoderCloud } from './ai/coderCloud'
+import { CoderGithub } from './ai/coderGithub'
 import { KvCoderTrust } from './ai/coderTrust'
 import type { BrowserCore, BrowserWindowHandle, Send, WindowOptions } from './browserCore'
 import { uniquePath } from './downloads'
@@ -695,6 +697,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const coderHome = join(app.getPath('userData'), 'terra-code')
   const coderTrust = new KvCoderTrust(kv)
   const coderMcp = new CoderMcp(kv, coderTrust, (url) => void tabs.create(url, { afterId: tabs.active?.id }))
+  const coderGithub = new CoderGithub({
+    kv,
+    access: () => settings.get().coderGithub,
+    seal: async (text) => {
+      if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This system can't store the token securely yet.")
+      return (await safeStorage.encryptStringAsync(text)).toString('base64')
+    },
+    unseal: async (sealed) => (await safeStorage.decryptStringAsync(Buffer.from(sealed, 'base64'))).result
+  })
   const coderBrowserHost = coderBrowser({
     // Beside the person's tab, without taking its place.
     create: (url) => tabs.create(url, { activate: false, afterId: tabs.active?.id }),
@@ -717,10 +728,22 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       showReasoning: () => settings.get().coderShowReasoning,
       agentModel: () => settings.get().coderAgentModel,
       mcp: coderMcp,
-      browser: coderBrowserHost
+      browser: coderBrowserHost,
+      github: coderGithub
     },
     () => settings.get().aiMemory
   )
+  const coderCloud = new CoderCloud({
+    github: coderGithub,
+    kv,
+    model: (ref) => ai.cloudModel(ref),
+    runner: async () => {
+      const file = join(app.getAppPath(), 'out/cloud/runner.mjs')
+      return readFile(file, 'utf8').catch(() => {
+        throw new Error('The cloud runner isn’t built. Run node scripts/build-cloud-runner.mjs in apps/desktop.')
+      })
+    }
+  })
 
   const showPermission = (prompt: PermissionPrompt | null) =>
     overlay.setPermission(prompt && { prompt, x: tabs.page.x, y: tabs.page.y })
@@ -1563,6 +1586,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     coderMcp,
     coderBrowser: coderBrowserHost,
     coderHome,
+    coderGithub,
+    coderCloud,
     focusContents: (contents) => {
       window.show()
       window.focus()

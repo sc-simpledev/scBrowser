@@ -1,9 +1,10 @@
 import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Check, ChevronRight, Copy, FileCode2, FileText, RotateCcw, TriangleAlert } from 'lucide-react'
+import { Check, ChevronRight, Copy, FileCode2, FileText, MessageCircleQuestion, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, splitFiles, splitReply, type BlockChange, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
+import { QuestionCard } from './QuestionCard'
+import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, questionAnswerMessage, splitFiles, splitQuestion, splitReply, type CoderQuestion, type CoderQuestionAnswer, type BlockChange, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
 
 /** Follows a citation to its page, or a time to its moment in the video. */
 export type OpenSource = (source: CitationSource, target: CitationTarget) => void
@@ -490,10 +491,38 @@ interface ReplyContentProps {
   onOpenSource?: OpenSource
   /** Asks for this reply again, offered where a report couldn't be read. */
   onRetry?: () => void
+  /** Sends the person's answer to questions this reply asked. Only given for the newest reply, while it can be answered. */
+  onAnswer?: (text: string) => void
+}
+
+/** Questions a reply asked: buttons while they can be answered, then a quiet line of what was asked. */
+function ChatQuestion({ questions, onAnswer }: { questions: CoderQuestion[]; onAnswer?: (text: string) => void }) {
+  const [answers, setAnswers] = useState<CoderQuestionAnswer[] | null | undefined>(undefined)
+  if (onAnswer || answers !== undefined)
+    return (
+      <QuestionCard
+        questions={questions}
+        answers={answers}
+        asker="scAI is asking"
+        skipLabel="You decide"
+        onAnswer={(picked) => {
+          setAnswers(picked)
+          onAnswer?.(questionAnswerMessage(questions, picked))
+        }}
+      />
+    )
+  return (
+    <div className="flex min-w-0 items-start gap-2 text-xs text-text-muted">
+      <MessageCircleQuestion aria-hidden size={13} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-faint" />
+      <span className="min-w-0">{questions.map((question) => question.question).join(' · ')}</span>
+    </div>
+  )
 }
 
 /** A reply's text, reports and files, in the order they were written. */
-export const ReplyContent = memo(function ReplyContent({ text, fileChanges = [], onOpenFile, openFile, ...rest }: ReplyContentProps) {
+export const ReplyContent = memo(function ReplyContent({ text: whole, fileChanges = [], onOpenFile, openFile, onAnswer, ...rest }: ReplyContentProps) {
+  const asked = splitQuestion(whole)
+  const text = asked.text
   const segments = splitFiles(text, !rest.streaming)
   let fileIndex = 0
   return (
@@ -515,6 +544,8 @@ export const ReplyContent = memo(function ReplyContent({ text, fileChanges = [],
           />
         )
       })}
+      {asked.writing && <Thinking label="Writing a question" />}
+      {asked.questions && !rest.streaming && <ChatQuestion questions={asked.questions} onAnswer={onAnswer} />}
     </div>
   )
 })

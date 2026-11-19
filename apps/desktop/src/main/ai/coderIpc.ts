@@ -6,7 +6,10 @@ import {
   CODER_MAX_IMAGE_CHARS,
   CODER_MAX_IMAGES,
   CODER_MAX_MENTIONS,
+  CODER_MAX_OPTIONS,
+  CODER_MAX_QUESTIONS,
   CODER_MAX_TASK_CHARS,
+  cleanTodo,
   isCoderEffort,
   isMcpServerName,
   type CoderEvent,
@@ -24,6 +27,8 @@ import { rememberNote, transcriptOf } from './coder'
 import type { CoderBrowserHost } from './coder'
 import { changeSummary, commit, COMMIT_MESSAGE_PROMPT, createWorktree, mergeWorktree, removeWorktree } from './coderGit'
 import type { CoderMcp } from './coderMcp'
+import type { CoderCloud } from './coderCloud'
+import type { CoderGithub } from './coderGithub'
 import { loadDefs, loadHooks, loadSkills, projectSettings, detectDiagnostics } from './coderProject'
 import { globFiles } from './coderTools'
 import type { CoderTrust } from './coderTrust'
@@ -52,6 +57,8 @@ export interface CoderIpcServices {
   trust: CoderTrust
   mcp: CoderMcp | undefined
   browser: CoderBrowserHost
+  github: CoderGithub
+  cloud: CoderCloud
   /** Terra Code's own folder: checkpoints, worktrees, and the person's commands, agents and skills. */
   home: string
   /** The page that called, which must be sc://assistant. */
@@ -120,7 +127,7 @@ function notice(event: CoderEvent): string | null {
 
 /** Terra Code's channels, for sc://assistant only. */
 export function coderHandlers(services: CoderIpcServices): CoderHandlers {
-  const { window, tabs, settings, chats, kv, ai, trust, mcp, browser, home, coderOnly, focus } = services
+  const { window, tabs, settings, chats, kv, ai, trust, mcp, browser, github, cloud, home, coderOnly, focus } = services
   const logs = new Map<string, { turnId: string | null; task: string; events: CoderEvent[] }>()
   let lastSender: WebContents | null = null
   let fileCache: { folder: string; at: number; files: string[] } | null = null
@@ -212,6 +219,77 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       coderOnly()
       if (answer !== 'allow' && answer !== 'always' && answer !== 'deny') throw new Error('Invalid answer')
       ai.coder.answer(text(id, 64), answer)
+    },
+    'coder:answer-question': (id, answers) => {
+      coderOnly()
+      if (answers === null) return ai.coder.answerQuestion(text(id, 64), null)
+      if (!Array.isArray(answers) || answers.length > CODER_MAX_QUESTIONS) throw new Error('Invalid answers')
+      const checked = answers.map((picked) => {
+        if (!Array.isArray(picked) || picked.length > CODER_MAX_OPTIONS + 1) throw new Error('Invalid answers')
+        return picked.map((one) => text(one, 2000).trim()).filter(Boolean)
+      })
+      ai.coder.answerQuestion(text(id, 64), checked)
+    },
+    'coder:todo': async (sessionId, items) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      const checked = cleanTodo(items)
+      if (!checked) throw new Error('Invalid checklist')
+      await ai.coder.setTodo(id, folderFor(id) || projectFolder(), checked, broadcast)
+    },
+    'coder:github-status': () => {
+      coderOnly()
+      return github.status(settings.get().coderFolder || null)
+    },
+    'coder:github-use-cli': async () => {
+      coderOnly()
+      const status = await github.useCli(settings.get().coderFolder || null)
+      // Connecting is the person saying yes to looking; acting stays their separate choice.
+      if (settings.get().coderGithub === 'off') settings.set({ coderGithub: 'read' })
+      return status
+    },
+    'coder:github-save-token': async (token) => {
+      coderOnly()
+      const status = await github.saveToken(text(token, 400), settings.get().coderFolder || null)
+      if (settings.get().coderGithub === 'off') settings.set({ coderGithub: 'read' })
+      return status
+    },
+    'coder:github-disconnect': () => {
+      coderOnly()
+      github.disconnect()
+      settings.set({ coderGithub: 'off' })
+      return github.status(settings.get().coderFolder || null)
+    },
+    'coder:cloud-start': async (sessionId, task, options) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      if (!isRecord(options) || typeof options.pr !== 'boolean') throw new Error('Invalid options')
+      const checked = runOptions({ model: options.model, effort: options.effort })
+      return cloud.start(id, folderFor(id) || projectFolder(), text(task, CODER_MAX_TASK_CHARS), { pr: options.pr, effort: checked.effort ?? null, model: checked.model ?? null })
+    },
+    'coder:cloud-runs': (sessionId, check) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      return check === true ? cloud.check(id) : cloud.runs(id)
+    },
+    'coder:cloud-cancel': (sessionId, runId) => {
+      coderOnly()
+      return cloud.cancel(text(sessionId, 64), text(runId, 32))
+    },
+    'coder:cloud-fetch': (sessionId, runId) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      return cloud.fetchBranch(id, text(runId, 32), folderFor(id) || projectFolder())
+    },
+    'coder:cloud-pr': async (sessionId, runId) => {
+      coderOnly()
+      const url = await cloud.pr(text(sessionId, 64), text(runId, 32))
+      void tabs.create(url, { afterId: tabs.active?.id })
+      return url
+    },
+    'coder:cloud-events': (sessionId, runId) => {
+      coderOnly()
+      return cloud.events(text(sessionId, 64), text(runId, 32))
     },
     'coder:stop': (sessionId) => {
       coderOnly()

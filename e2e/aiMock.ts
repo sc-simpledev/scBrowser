@@ -20,6 +20,8 @@ export interface AiMock {
   status: number
   /** Reports to write as a tool call, one per request that offers tools: the call's arguments, in pieces. */
   toolQueue: string[][]
+  /** Which offered tool each of `toolQueue` calls, by name; the first offered when there's none. */
+  toolNames: string[]
   /** Turn down any request that offers tools, as a model without tool support does. */
   rejectTools: boolean
   /** Why each reply ends, one per request, for replies that hit their length limit. */
@@ -35,7 +37,7 @@ const anthropicEvent = (type: string, data: object) => `event: ${type}\ndata: ${
 
 /** Speaks both the OpenAI and Anthropic streaming formats. */
 export async function startAiMock(): Promise<AiMock> {
-  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], thinking: [], toolQueue: [], rejectTools: false, finish: [], status: 200, hang: false, server: null! }
+  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], thinking: [], toolQueue: [], toolNames: [], rejectTools: false, finish: [], status: 200, hang: false, server: null! }
 
   mock.server = createServer((req, res) => {
     const chunks: Buffer[] = []
@@ -67,7 +69,8 @@ export async function startAiMock(): Promise<AiMock> {
       if (path === '/v1/chat/completions') {
         const call = body.tools?.length ? mock.toolQueue.shift() : undefined
         if (call) {
-          res.write(sse({ choices: [{ delta: { content: 'Here is your report.' } }] }, { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: body.tools![0]!.function?.name, arguments: '' } }] } }] }))
+          const name = mock.toolNames.shift() ?? body.tools![0]!.function?.name
+          res.write(sse({ choices: [{ delta: { content: 'Here is your report.' } }] }, { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name, arguments: '' } }] } }] }))
           res.write(sse(...call.map((piece) => ({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: piece } }] } }] }))))
           res.end(`${sse({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }, { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}data: [DONE]\n\n`)
           return

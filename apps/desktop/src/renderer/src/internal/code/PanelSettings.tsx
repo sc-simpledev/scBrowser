@@ -4,6 +4,7 @@ import { Button, cx, IconButton, Input, Segmented, Switch } from '@scbrowser/ui'
 import { CODER_EFFORTS, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { MODES, type ModelPick } from './Composer'
+import { GithubSettings, githubLabel, type useGithubStatus } from './GithubSettings'
 
 const cleanError = (message: string) => message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -380,10 +381,11 @@ export interface SettingsTabProps {
   focus: string | null
   /** The project's commands may have changed. */
   onSetupChanged: () => void
+  github: ReturnType<typeof useGithubStatus>
 }
 
 /** Terra Code's settings as a sidebar: each a line with its value, opening in place to change it. */
-export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sandboxAvailable, focus, onSetupChanged }: SettingsTabProps) {
+export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sandboxAvailable, focus, onSetupChanged, github }: SettingsTabProps) {
   const [setup, setSetup] = useState<CoderSetup | null>(null)
   const [open, setOpen] = useState<string | null>(focus)
   const [editing, setEditing] = useState<McpServerView | 'new' | McpDirectoryEntry | null>(null)
@@ -486,6 +488,14 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
           <SwitchRow label="Check after edits" hint={setup?.diagnostics ? `Runs ${setup.diagnostics} when allowed` : 'With the project’s checker, when allowed'} checked={prefs.coderAutoCheck} onChange={(coderAutoCheck) => onPrefs({ coderAutoCheck })} />
           <SwitchRow label="Summarise long sessions" hint="Instead of forgetting earlier steps" checked={prefs.coderAutoCompact} onChange={(coderAutoCompact) => onPrefs({ coderAutoCompact })} />
           <SwitchRow label="Notify me" hint="When it finishes or needs you" checked={prefs.coderNotify} onChange={(coderNotify) => onPrefs({ coderNotify })} />
+        </Group>
+      )}
+
+      {prefs && (
+        <Group title="Connections">
+          <SettingRow label="GitHub" value={githubLabel(github.status, prefs.coderGithub)} open={open === 'github'} onToggle={() => toggle('github')}>
+            <GithubSettings prefs={prefs} onPrefs={onPrefs} github={github} />
+          </SettingRow>
         </Group>
       )}
 

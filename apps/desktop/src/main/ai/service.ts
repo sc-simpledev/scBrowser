@@ -1,10 +1,10 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, type ChatEffort, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { localDay, memoryPrompt, effectiveUrl, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
+import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
+import { localDay, memoryPrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
-import { Coder, git, type CoderBrowserHost, type CoderMcpHost } from './coder'
+import { Coder, git, type CoderBrowserHost, type CoderGithubHost, type CoderMcpHost } from './coder'
 import { parsePdf } from './pdfText'
 import { sandboxAvailable, type SandboxMode } from './coderTools'
 import type { CoderTrust } from './coderTrust'
@@ -99,7 +99,7 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
       agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -169,6 +169,22 @@ export class AiService {
       for (const model of names) choices.push({ providerId: provider.id, providerName: provider.name, model })
     }
     return choices
+  }
+
+  /**
+   * Where a cloud run reaches the session's model, and the secret it needs there (the key and any
+   * headers, as JSON), which goes to GitHub as a repository secret. Models on this computer can't
+   * be reached from the cloud.
+   */
+  async cloudModel(model?: ModelRef | null): Promise<{ model: CoderCloudModel; secret: string | null }> {
+    const ref = this.coderRef(model)
+    const config = this.store.provider(ref.providerId)
+    if (!config) throw new AiError('not-found', 'That provider no longer exists.')
+    // Tests use a stand-in model on this computer, which a real cloud run couldn't reach.
+    if (process.env.SCB_E2E !== '1' && /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0|192\.168\.|10\.)/i.test(config.baseUrl)) throw new AiError('bad-request', `${config.name} runs on this computer or its network, so the cloud can't reach it. Choose another model for this session.`)
+    const secret = config.hosted ? null : await this.store.secret(ref.providerId)
+    const needsKey = !!secret && (secret.apiKey !== '' || Object.keys(secret.headers).length > 0)
+    return { model: { protocol: config.protocol, baseUrl: config.baseUrl, model: ref.model, needsKey, firstParty: config.firstParty }, secret: needsKey ? JSON.stringify(secret) : null }
   }
 
   private chatRef(): ModelRef {
@@ -297,16 +313,18 @@ export class AiService {
         try {
           const stream = provider.chat({
             model: chat.model,
-            system: withTool ? `${system}\n\n${REPORT_TOOL_PROMPT}` : system,
+            system: withTool ? `${system}\n\n${REPORT_TOOL_PROMPT}\n\n${ASK_TOOL_PROMPT}` : `${system}\n\n${QUESTION_INSTRUCTIONS}`,
             messages,
             maxTokens: MAX_OUTPUT_TOKENS,
             signal: controller.signal,
-            ...(withTool ? { tools: [REPORT_TOOL] } : {})
+            ...(withTool ? { tools: [REPORT_TOOL, ASK_TOOL] } : {})
           })
           for await (const event of stream) {
             if (event.type === 'text') text(event.text)
             if (event.type === 'tool-delta' && event.name === REPORT_TOOL.name) text(call.delta(event.index, event.text))
             if (event.type === 'tool' && event.use.name === REPORT_TOOL.name) text(call.whole(event.use.input))
+            // Questions end the reply as a block the page shows as buttons; the answer is the next message.
+            if (event.type === 'tool' && event.use.name === ASK_TOOL.name && event.use.input) text(`${call.end()}\n\n\`\`\`${QUESTION_FENCE}\n${JSON.stringify(event.use.input)}\n\`\`\``)
             if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
             if (event.type === 'stop') stopReason = event.reason
           }
@@ -380,4 +398,5 @@ export interface CoderHome {
   agentModel?: () => 'session' | 'quick'
   mcp?: CoderMcpHost
   browser?: CoderBrowserHost
+  github?: CoderGithubHost
 }

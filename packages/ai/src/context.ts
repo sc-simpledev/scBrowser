@@ -35,6 +35,35 @@ export const REPORT_TOOL: ToolSpec = {
   }
 }
 
+/** Offered beside the report tool: the model asks the person something, and the reply ends there for their answer. */
+export const ASK_TOOL: ToolSpec = {
+  name: 'ask_user',
+  description: "Shows the person up to 4 questions, each with 2 to 6 choices to tap (they can also write their own), and ends your reply so they can answer. Use it when you can't answer well without a choice only they can make, such as which of a few things they mean or what they prefer. Don't use it for things you can reasonably assume.",
+  parameters: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: 'The whole question, ending with a question mark' },
+            header: { type: 'string', description: 'One or two words for its tab' },
+            options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label'] } },
+            multiSelect: { type: 'boolean' }
+          },
+          required: ['question', 'options']
+        }
+      }
+    },
+    required: ['questions']
+  }
+}
+
+export const ASK_TOOL_PROMPT = `You have an ${ASK_TOOL.name} tool. When you can't give a good answer without a choice only the person can make, write a short sentence, then call it once instead of guessing. Your reply ends there, and their answer comes as their next message. Ask only when it matters, and never twice in a row.`
+
 export const REPORT_TOOL_PROMPT = `You have a ${REPORT_TOOL.name} tool. When you would write a report, write your one introducing sentence as normal text, then call the tool once with the report's fields, rather than writing the fenced block yourself. Call it at most once per reply.`
 
 /** The full-page assistant can also write files, as it has room to show and preview them. */

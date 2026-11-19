@@ -1,7 +1,7 @@
-import { Bot, Brain, Check, ChevronRight, Circle, CircleAlert, Compass, Copy, ListChecks } from 'lucide-react'
+import { Bot, Brain, Check, ChevronRight, Circle, CircleAlert, Compass, Copy, ListChecks, Pencil, Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import type { CoderAgentRun, CoderTodo } from '@scbrowser/shared'
+import { CODER_MAX_TODO, CODER_MAX_TODO_CHARS, type CoderAgentRun, type CoderTodo } from '@scbrowser/shared'
 import { shortDuration } from './codeState'
 
 /** A spinner the size of a 12px icon, for something under way. */
@@ -136,24 +136,128 @@ export function StepMark({ item, working }: { item: CoderTodo; working: boolean 
   return <Circle aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-border-strong" />
 }
 
-export function ChecklistItems({ items, working, className }: { items: CoderTodo[]; working: boolean; className?: string }) {
+/** A checklist the person can change: tick steps, rename them, remove them, and add their own. */
+export function ChecklistItems({ items, working, className, onChange }: { items: CoderTodo[]; working: boolean; className?: string; onChange?: (items: CoderTodo[]) => void }) {
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState('')
+  const editable = !!onChange
+  const change = (next: CoderTodo[]) => onChange?.(next)
+  const toggle = (index: number) => change(items.map((item, i) => (i !== index ? item : item.done ? { text: item.text, done: false } : { text: item.text, done: true })))
+  const rename = (index: number) => {
+    const text = draft.trim().slice(0, CODER_MAX_TODO_CHARS)
+    setEditing(null)
+    if (!text || text === items[index]?.text) return
+    change(items.map((item, i) => (i === index ? { ...item, text } : item)))
+  }
+  const add = () => {
+    const text = added.trim().slice(0, CODER_MAX_TODO_CHARS)
+    if (text && items.length < CODER_MAX_TODO) change([...items, { text, done: false }])
+    setAdded('')
+  }
   return (
-    <ul className={cx('flex flex-col gap-1.5', className)}>
-      {items.map((item, i) => (
-        <li key={i} className={cx('flex items-start gap-2 text-xs leading-snug', item.done ? 'text-text-faint line-through decoration-text-faint/60' : item.active ? 'font-medium text-text' : 'text-text-muted')}>
-          <span className="mt-px flex">
-            <StepMark item={item} working={working} />
-          </span>
-          <span className="sr-only">{item.done ? 'Done: ' : item.active ? 'Under way: ' : 'To do: '}</span>
-          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{item.text}</span>
-        </li>
-      ))}
-    </ul>
+    <div className={cx('flex flex-col gap-1.5', className)}>
+      <ul className="flex flex-col gap-1.5">
+        {items.map((item, i) => (
+          <li key={i} className={cx('group flex min-w-0 items-start gap-2 text-xs leading-snug', item.done ? 'text-text-faint line-through decoration-text-faint/60' : item.active ? 'font-medium text-text' : 'text-text-muted')}>
+            {editable ? (
+              <button type="button" aria-label={item.done ? `Mark not done: ${item.text}` : `Mark done: ${item.text}`} onClick={() => toggle(i)} className="mt-px flex rounded-full transition-opacity hover:opacity-70">
+                <StepMark item={item} working={working} />
+              </button>
+            ) : (
+              <span className="mt-px flex">
+                <StepMark item={item} working={working} />
+              </span>
+            )}
+            <span className="sr-only">{item.done ? 'Done: ' : item.active ? 'Under way: ' : 'To do: '}</span>
+            {editing === i ? (
+              <input
+                autoFocus
+                value={draft}
+                aria-label="Step"
+                maxLength={CODER_MAX_TODO_CHARS}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => rename(i)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') rename(i)
+                  if (event.key === 'Escape') setEditing(null)
+                }}
+                className="-my-0.5 h-5 min-w-0 flex-1 rounded-sm border border-border-strong bg-surface px-1 text-xs text-text no-underline outline-none"
+              />
+            ) : (
+              <span
+                className="min-w-0 flex-1 [overflow-wrap:anywhere]"
+                onDoubleClick={
+                  editable
+                    ? () => {
+                        setDraft(item.text)
+                        setEditing(i)
+                      }
+                    : undefined
+                }
+              >
+                {item.text}
+              </span>
+            )}
+            {editable && editing !== i && (
+              <span className="-my-1 flex shrink-0 items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                <IconButton
+                  size="sm"
+                  label={`Edit step: ${item.text}`}
+                  onClick={() => {
+                    setDraft(item.text)
+                    setEditing(i)
+                  }}
+                >
+                  <Pencil size={11} strokeWidth={1.75} />
+                </IconButton>
+                <IconButton size="sm" label={`Remove step: ${item.text}`} onClick={() => change(items.filter((_, index) => index !== i))}>
+                  <X size={12} strokeWidth={1.75} />
+                </IconButton>
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {editable &&
+        items.length < CODER_MAX_TODO &&
+        (adding ? (
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <Plus aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-text-faint" />
+            <input
+              autoFocus
+              value={added}
+              aria-label="New step"
+              placeholder="A step for Terra Code"
+              maxLength={CODER_MAX_TODO_CHARS}
+              onChange={(event) => setAdded(event.target.value)}
+              onBlur={() => {
+                add()
+                setAdding(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') add()
+                if (event.key === 'Escape') {
+                  setAdded('')
+                  setAdding(false)
+                }
+              }}
+              className="h-5 min-w-0 flex-1 rounded-sm border border-border-strong bg-surface px-1 text-xs text-text outline-none placeholder:text-text-faint"
+            />
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)} className="-mx-1 flex h-6 w-fit items-center gap-2 rounded-md px-1 text-xs text-text-faint transition-colors hover:bg-surface-hover hover:text-text">
+            <Plus aria-hidden size={14} strokeWidth={1.5} />
+            Add a step
+          </button>
+        ))}
+    </div>
   )
 }
 
 /** The model's checklist above the message box: the step it's on, opening to every step. Open while it works. */
-export function Checklist({ items, working, bare = false }: { items: CoderTodo[]; working: boolean; bare?: boolean }) {
+export function Checklist({ items, working, bare = false, onChange }: { items: CoderTodo[]; working: boolean; bare?: boolean; onChange?: (items: CoderTodo[]) => void }) {
   const [chosen, setChosen] = useState<boolean | null>(null)
   const done = items.filter((item) => item.done).length
   const current = items.find((item) => item.active) ?? items.find((item) => !item.done)
@@ -172,7 +276,7 @@ export function Checklist({ items, working, bare = false }: { items: CoderTodo[]
         </span>
         <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && '-rotate-90')} />
       </button>
-      {open && <ChecklistItems items={items} working={working} className="sc-scroll-quiet max-h-[28vh] overflow-y-auto px-2.5 pt-0.5 pb-2.5" />}
+      {open && <ChecklistItems items={items} working={working} onChange={onChange} className="sc-scroll-quiet max-h-[28vh] overflow-y-auto px-2.5 pt-0.5 pb-2.5" />}
     </section>
   )
 }

@@ -2,7 +2,7 @@
   "name": "@scbrowser/desktop",
   "desktopName": "scterra.desktop",
   "productName": "scTerra",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "license": "UNLICENSED",
   "description": "A modern, AI-native browser for Linux, Windows and macOS.",
@@ -11,17 +11,18 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/build-cloud-runner.mjs",
     "preview": "electron-vite preview",
     "fetch-xray": "node scripts/fetch-xray.mjs",
-    "dist": "node scripts/fetch-xray.mjs && electron-vite build && electron-builder --publish never",
-    "release": "node scripts/fetch-xray.mjs && electron-vite build && electron-builder --publish always",
+    "dist": "node scripts/fetch-xray.mjs && electron-vite build && node scripts/build-cloud-runner.mjs && electron-builder --publish never",
+    "release": "node scripts/fetch-xray.mjs && electron-vite build && node scripts/build-cloud-runner.mjs && electron-builder --publish always",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json"
   },
   "devDependencies": {
     "@ghostery/adblocker": "^2.20.3",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@mozilla/readability": "^0.6.0",
+    "@noble/hashes": "1.8.0",
     "@scbrowser/ai": "workspace:*",
     "@scbrowser/shared": "workspace:*",
     "@scbrowser/ui": "workspace:*",
@@ -45,6 +46,7 @@
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.3.3",
     "tesseract.js": "^7.0.0",
+    "tweetnacl": "1.0.3",
     "vite": "^8.3.5",
     "zustand": "^5.0.16"
   }

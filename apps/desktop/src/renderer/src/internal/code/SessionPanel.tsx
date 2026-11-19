@@ -1,8 +1,9 @@
-import { Bot, Brain, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, PanelRightClose, Shield, Square, type LucideIcon } from 'lucide-react'
+import { Bot, Brain, Cloud, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, Monitor, PanelRightClose, Shield, Square, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderWorktree, type Settings } from '@scbrowser/shared'
-import { EffortChoices, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
+import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderTodo, type CoderWorktree, type Settings } from '@scbrowser/shared'
+import { Choices, EffortChoices, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
+import { useGithubStatus } from './GithubSettings'
 import type { ModelPick } from './Composer'
 import { ChecklistItems, Spinner, useElapsed } from './CodeParts'
 import { sessionStats, shortDuration, shortTokens, type CodeState } from './codeState'
@@ -72,6 +73,19 @@ function AgentRow({ run }: { run: CoderAgentRun }) {
 
 export type PanelTab = 'session' | 'settings'
 
+/** Where a session's tasks run: here, or on GitHub Actions. */
+export type CodeWhere = 'local' | 'cloud'
+
+/** Why the cloud can't be used yet, or null when it can. */
+export function cloudBlocker(status: CoderStatus, github: ReturnType<typeof useGithubStatus>['status'], access: Settings['coderGithub'] | undefined): string | null {
+  if (!status.git) return 'The project needs to be a git repository on GitHub.'
+  if (!github) return 'Checking GitHub…'
+  if (!github.source) return 'Connect GitHub first, in Settings, under Connections.'
+  if (!github.repo) return 'This project’s git remote isn’t on GitHub. Push it there first.'
+  if (access !== 'write') return 'Let Terra Code look and act on GitHub, in Settings, under Connections.'
+  return null
+}
+
 export interface SessionPanelProps {
   status: CoderStatus
   worktree: CoderWorktree | null
@@ -98,11 +112,22 @@ export interface SessionPanelProps {
   onCommit: () => void
   onCompact: () => void
   onStopJob: (id: number) => void
+  /** The person changed the checklist. */
+  onTodo: (items: CoderTodo[]) => void
+  where: CodeWhere
+  onWhere: (where: CodeWhere) => void
+  /** Open a pull request when a cloud run is done. */
+  cloudPr: boolean
+  onCloudPr: (pr: boolean) => void
+  /** The Settings tab, open at one setting. */
+  onOpenSettings: (focus: string) => void
 }
 
 /** Beside the conversation, as in Claude: where it's working, how full its memory is, and what it's doing. */
 export function SessionPanel(props: SessionPanelProps) {
-  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob } = props
+  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onTodo, where, onWhere, cloudPr, onCloudPr, onOpenSettings } = props
+  const github = useGithubStatus()
+  const blocker = cloudBlocker(status, github.status, prefs?.coderGithub)
   const { context, todo, agents, jobs, changes, items, working, runStartedAt, lastRunMs } = state
   const [showAllAgents, setShowAllAgents] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
@@ -150,12 +175,35 @@ export function SessionPanel(props: SessionPanelProps) {
       </div>
       <div className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
         {tab === 'settings' ? (
-          <SettingsTab prefs={prefs} onPrefs={onPrefs} mode={mode} onMode={onMode} effort={effort} onEffort={onEffort} sandboxAvailable={status.sandboxAvailable} focus={settingsFocus} onSetupChanged={onSetupChanged} />
+          <SettingsTab prefs={prefs} onPrefs={onPrefs} mode={mode} onMode={onMode} effort={effort} onEffort={onEffort} sandboxAvailable={status.sandboxAvailable} focus={settingsFocus} onSetupChanged={onSetupChanged} github={github} />
         ) : (
           <>
           <Section title="Environment">
             <div className="flex flex-col">
               <Row icon={Folder} label={folder ?? 'No folder chosen'} title={status.folder ?? undefined} onClick={status.folder ? onOpenFolder : undefined} />
+              <SettingRow icon={where === 'cloud' ? Cloud : Monitor} label="Runs on" value={where === 'cloud' ? 'Cloud' : 'This computer'} open={open === 'where'} onToggle={() => (toggle('where'), github.reload())}>
+                <Choices<CodeWhere>
+                  label="Runs on"
+                  value={where}
+                  onChange={onWhere}
+                  options={[
+                    { id: 'local', label: 'This computer', hint: 'Works in your folder, asking as it goes' },
+                    { id: 'cloud', label: 'Cloud', hint: 'On GitHub Actions, from GitHub’s copy of the branch. Carries on with this computer off, and pushes to a branch of its own', disabled: blocker !== null && where !== 'cloud' }
+                  ]}
+                />
+                {blocker && (
+                  <p className="text-2xs text-text-muted">
+                    {blocker}{' '}
+                    {!blocker.startsWith('Checking') && (
+                      <button type="button" onClick={() => onOpenSettings('github')} className="text-accent hover:text-accent-hover">
+                        Open settings
+                      </button>
+                    )}
+                  </p>
+                )}
+                {where === 'cloud' && <SwitchRow label="Open a pull request" hint="When it’s done, if anything changed" checked={cloudPr} onChange={onCloudPr} />}
+                {where === 'cloud' && <p className="text-2xs text-text-faint">Every step is allowed there, as GitHub’s machine is thrown away after. It uses this session’s model{status.hosted && !model ? ' (scTerra AI, with its shared limits)' : ''} and your Actions minutes.</p>}
+              </SettingRow>
               {(worktree || status.branch) && <Row icon={GitBranch} label={<span className="font-mono text-2xs">{worktree?.branch ?? status.branch}</span>} value={worktree ? 'Separate copy' : undefined} />}
               <SettingRow icon={Shield} label="Permissions" value={modeLabel} open={open === 'mode'} onToggle={() => toggle('mode')}>
                 <ModeChoices mode={mode} onMode={onMode} />
@@ -206,7 +254,7 @@ export function SessionPanel(props: SessionPanelProps) {
 
           {todo.length > 0 && (
             <Section title="Checklist" aside={`${todo.filter((item) => item.done).length} of ${todo.length}`}>
-              <ChecklistItems items={todo} working={working} />
+              <ChecklistItems items={todo} working={working} onChange={onTodo} />
             </Section>
           )}
 

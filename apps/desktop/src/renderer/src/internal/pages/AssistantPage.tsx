@@ -576,6 +576,7 @@ export function AssistantPage() {
                           sources={turn.sources}
                           onOpenSource={openSource}
                           onRetry={newest && status?.ready ? retry : undefined}
+                          onAnswer={newest && status?.ready && !streaming ? send : undefined}
                         />
                       )}
                       {!turn.content && !turn.error && (streaming ? <Thinking /> : <p className="text-text-faint">{turn.note ?? 'No reply came back.'}</p>)}

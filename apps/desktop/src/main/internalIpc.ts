@@ -1,6 +1,8 @@
 import { coderHandlers } from './ai/coderIpc'
 import type { CoderBrowserHost } from './ai/coder'
 import type { CoderMcp } from './ai/coderMcp'
+import type { CoderCloud } from './ai/coderCloud'
+import type { CoderGithub } from './ai/coderGithub'
 import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
@@ -82,6 +84,8 @@ interface InternalServices {
   coderMcp: CoderMcp | undefined
   coderBrowser: CoderBrowserHost
   coderHome: string
+  coderGithub: CoderGithub
+  coderCloud: CoderCloud
   /** Brings the window and the tab holding this page to the front. */
   focusContents: (contents: WebContents) => void
 }
@@ -655,7 +659,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'archive:remove': (id) => void core.archive.take(text(id, 64)),
     'archive:clear': () => core.archive.clear(),
-    ...coderHandlers({ window, tabs, settings, chats, kv: core.services.kv, ai, trust: services.coderTrust, mcp: services.coderMcp, browser: services.coderBrowser, home: services.coderHome, coderOnly, focus: services.focusContents }),
+    ...coderHandlers({ window, tabs, settings, chats, kv: core.services.kv, ai, trust: services.coderTrust, mcp: services.coderMcp, browser: services.coderBrowser, home: services.coderHome, github: services.coderGithub, cloud: services.coderCloud, coderOnly, focus: services.focusContents }),
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {
       const group = core.closedGroups.take(text(id, 64))

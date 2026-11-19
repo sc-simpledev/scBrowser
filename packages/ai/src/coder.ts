@@ -1,4 +1,4 @@
-import type { CoderToolName, CoderTodo } from '@scbrowser/shared'
+import { parseQuestions, type CoderQuestion, type CoderToolName, type CoderTodo } from '@scbrowser/shared'
 import type { ChatMessage, ToolSpec, ToolUse } from './types'
 
 const CODER_HOW_TO_WORK = `How to work:
@@ -47,6 +47,7 @@ Tools:
 {"tool":"explore","task":"Find where sessions are created and who calls it. List the files and lines."} sends a helper to read around the project on its own and report back. It can only look, and its reading doesn't fill up your memory. Use it for broad questions across many files, and read files yourself when you already know where to look. Several explore or agent blocks in one reply run side by side
 {"tool":"todo","items":[{"text":"Read the router","status":"completed"},{"text":"Add the route","status":"in_progress"},{"text":"Run the tests","status":"pending"}]} shows the person your plan as a checklist. Use it for any task with three or more steps. Keep exactly one step in_progress while you work, and send the whole list again each time a step starts or finishes
 {"tool":"web","query":"vite 7 config define env"} searches the web and returns the top results' text, for documentation and error messages you don't know
+{"tool":"ask","questions":[{"question":"Which database should the cache use?","header":"Database","options":[{"label":"SQLite","description":"Already used for settings"},{"label":"Redis","description":"Faster, needs a server"}],"multiSelect":false}]} asks the person up to 4 questions with 2 to 6 choices each, and waits for their answers (they can also write their own). Use it when a real decision is theirs to make and you can't settle it from the code; don't ask what you can find out yourself
 
 Only tool blocks run. Commands in a bash block, or steps you only describe, do nothing. If you say you'll do something, do it in that same reply with a tool block, and never ask the person to run something you can run yourself. Always mark the fence as tool, and escape newlines inside JSON strings as \\n.
 
@@ -116,6 +117,11 @@ export type CoderCall =
   | { tool: 'preview'; action: PreviewAction; url: string | null; target: string | null; text: string | null }
   | { tool: 'tabs'; action: 'list' | 'read'; tab: number | null }
   | { tool: 'mcp'; name: string; input: Record<string, unknown> }
+  | { tool: 'ask'; questions: CoderQuestion[] }
+  | { tool: 'github'; method: GithubMethod; path: string; body: Record<string, unknown> | null }
+
+export type GithubMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+const GITHUB_METHODS: GithubMethod[] = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE']
 
 export type PreviewAction = 'open' | 'read' | 'screenshot' | 'click' | 'type'
 const PREVIEW_ACTIONS: PreviewAction[] = ['open', 'read', 'screenshot', 'click', 'type']
@@ -171,6 +177,8 @@ const TOOL_ALIASES: Record<string, CoderToolName> = Object.fromEntries(
       ['run', 'run bash sh zsh shell powershell terminal exec execute command cmd runcommand runshell shellcommand executecommand executebash runterminalcmd'],
       ['todo', 'todo todos todowrite updatetodos checklist plan'],
       ['web', 'web websearch searchweb internetsearch'],
+      ['ask', 'ask askuser askuserquestion askquestion question questions askhuman clarify'],
+      ['github', 'github gh githubapi ghapi'],
       ['explore', 'explore subagent spawnagent']
     ] as const
   ).flatMap(([tool, names]) => names.split(' ').map((name) => [name, tool as CoderToolName]))
@@ -203,7 +211,9 @@ const FIELD_ALIASES: Partial<Record<CoderToolName, Record<string, string[]>>> = 
   tabs: { action: ['action'], tab: ['tab', 'id', 'tab_id', 'tabId'] },
   explore: { task: ['task', 'prompt', 'description', 'question', 'query'] },
   todo: { items: ['items', 'todos', 'tasks', 'list'] },
-  web: { query: ['query', 'q', 'search', 'search_query', 'searchQuery', 'term'] }
+  web: { query: ['query', 'q', 'search', 'search_query', 'searchQuery', 'term'] },
+  ask: { questions: ['questions', 'question', 'items'], options: ['options', 'choices'], header: ['header', 'title'], multiSelect: ['multiSelect', 'multi_select', 'multiple'] },
+  github: { method: ['method', 'verb'], path: ['path', 'endpoint', 'url', 'route'], body: ['body', 'data', 'fields'] }
 }
 
 const first = (d: Record<string, unknown>, keys: readonly string[]) => d[keys.find((key) => d[key] !== undefined) ?? '']
@@ -299,6 +309,9 @@ function mcpCall(data: Record<string, unknown>): CoderCall | null {
 }
 
 const editList = (value: unknown) => (isObject(value) || Array.isArray(value) ? editsOf(isObject(value) ? value : { edits: value }) : null)
+
+/** Questions as models write them, shared with the assistant's chat. */
+export const questionsOf = parseQuestions
 
 export function toCall(data: unknown): CoderCall | null {
   if (!isObject(data)) return null
@@ -420,6 +433,23 @@ export function toCall(data: unknown): CoderCall | null {
         seen = true
       }
       return items.length > 0 ? { tool, items } : null
+    }
+    case 'ask': {
+      // One question can come with its options beside it, rather than in a list.
+      const single = !Array.isArray(d.questions) && !isObject(d.questions) && Array.isArray(d.options)
+      const questions = questionsOf(single ? { question: d.questions, options: d.options, header: d.header, multiSelect: d.multiSelect } : d.questions)
+      return questions ? { tool, questions } : null
+    }
+    case 'github': {
+      const method = typeof d.method === 'string' ? d.method.toUpperCase() : 'GET'
+      let route = str(d.path, 2000)?.trim()
+      if (!route || !GITHUB_METHODS.includes(method as GithubMethod)) return null
+      // Models write the whole address, or leave off the leading slash.
+      route = route.replace(/^https:\/\/api\.github\.com/i, '')
+      if (!route.startsWith('/')) route = `/${route}`
+      if (!/^\/[\w.~%/?=&,:+@-]*$/.test(route) || route.includes('..')) return null
+      const body = isObject(d.body) ? d.body : typeof d.body === 'string' ? (() => { try { const parsed: unknown = JSON.parse(d.body as string); return isObject(parsed) ? parsed : null } catch { return null } })() : null
+      return { tool, method: method as GithubMethod, path: route, body }
     }
     case 'web': {
       const query = str(d.query, 300)?.trim()
@@ -639,7 +669,24 @@ export const CODER_TOOLS: ToolSpec[] = [
     description: 'Shows the person your plan as a checklist. Use it for any task with three or more steps. Keep exactly one step in_progress while you work, and send the whole list again each time a step starts or finishes.',
     parameters: object({ items: { type: 'array', items: object({ text: text('The step'), status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] } }) } })
   },
-  { name: 'web', description: "Searches the web and returns the top results' text, for documentation and error messages you don't know.", parameters: object({ query: text('What to search for') }) }
+  { name: 'web', description: "Searches the web and returns the top results' text, for documentation and error messages you don't know.", parameters: object({ query: text('What to search for') }) },
+  {
+    name: 'ask',
+    description: "Asks the person up to 4 questions, each with 2 to 6 choices, and waits for their answers. They can also write their own answer, or skip. Use it when a real decision is theirs to make (a design choice, which of two approaches, what they meant) and you can't settle it from the code. Don't ask what you can find out yourself, and don't ask for permission to use tools: that's asked for you.",
+    parameters: object({
+      questions: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 4,
+        items: object({
+          question: text('The whole question, ending with a question mark'),
+          header: text('One or two words for its tab, such as Database'),
+          options: { type: 'array', minItems: 2, maxItems: 6, items: object({ label: text('A choice, in a few words'), description: text('What picking it means') }) },
+          multiSelect: { type: 'boolean', description: 'More than one choice may be picked' }
+        })
+      }
+    })
+  }
 ]
 
 /** The tools the explore helper is given. */
@@ -661,9 +708,24 @@ export const skillToolSpec = (skills: { name: string; description: string }[]): 
   parameters: object({ name: { type: 'string', enum: skills.map((skill) => skill.name) } })
 })
 
+/** What the github tool can do, in words for its description. */
+function githubWords(repo: string | null, write: boolean): string {
+  const where = repo ? `This project is ${repo} on GitHub. ` : ''
+  const can = write ? 'GET looks freely; POST, PATCH, PUT and DELETE (such as opening an issue or a pull request, or commenting) ask the person each time.' : 'Only GET works: the person let you look, not change anything.'
+  return `${where}Calls the GitHub REST API as the person, such as GET /repos/{owner}/{repo}/issues?state=open, GET /repos/{owner}/{repo}/pulls/12/files, GET /search/issues?q=..., GET /repos/{owner}/{repo}/actions/runs?per_page=5, or GET /user/repos. ${can} Long answers are cut, so ask for few results (per_page) and the fields you need.`
+}
+
+/** The github tool, offered once the person has connected GitHub and allowed it. */
+export const githubToolSpec = (repo: string | null, write: boolean): ToolSpec => ({
+  name: 'github',
+  description: githubWords(repo, write),
+  parameters: object({ method: { type: 'string', enum: write ? GITHUB_METHODS : ['GET'] }, path: text('The API path, starting with /'), body: { type: 'object', description: 'JSON body, for POST, PATCH and PUT' } }, ['method', 'path'])
+})
+
 /** For the text protocol: the extra tools this project has, written the way the prompt lists the others. */
-export function extraToolsPrompt({ agents, skills, mcp }: { agents: { name: string; description: string }[]; skills: { name: string; description: string }[]; mcp: ToolSpec[] }): string {
+export function extraToolsPrompt({ agents, skills, mcp, github }: { agents: { name: string; description: string }[]; skills: { name: string; description: string }[]; mcp: ToolSpec[]; github?: { repo: string | null; write: boolean } | null }): string {
   const parts: string[] = []
+  if (github) parts.push(`GitHub, which the person connected:\n{"tool":"github","method":"GET","path":"/repos/owner/name/issues?state=open&per_page=10"} ${githubWords(github.repo, github.write)}${github.write ? ' Send a JSON "body" with POST, PATCH and PUT.' : ''}`)
   if (agents.length) parts.push(`Agents you can hand work to, each working on its own in a fresh conversation and reporting back. Several agent blocks in one reply run side by side:\n${agents.map((agent) => `{"tool":"agent","agent":"${agent.name}","task":"..."} ${agent.description}`).join('\n')}`)
   if (skills.length) parts.push(`Skills, whose full instructions you load when the task matches:\n${skills.map((skill) => `{"tool":"skill","name":"${skill.name}"} ${skill.description}`).join('\n')}`)
   if (mcp.length) {

@@ -1,4 +1,4 @@
-import { CODER_MAX_STEPS, type CoderAgentRun, type CoderAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName, type CoderRunMode } from '@scbrowser/shared'
+import { CODER_MAX_STEPS, type CoderAgentRun, type CoderAnswer, type CoderCloudRun, type CoderQuestion, type CoderQuestionAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName, type CoderRunMode } from '@scbrowser/shared'
 
 export type Item =
   /** What the person sent. `turnId` names the turn it started, for rewinding to before it. */
@@ -10,6 +10,10 @@ export type Item =
   | { kind: 'tool'; id: string; tool: CoderToolName; summary: string; ok: boolean | null; output: string; live?: string; agent?: string; undoable?: boolean; undone?: boolean }
   | { kind: 'approval'; id: string; type: CoderApprovalKind; summary: string; detail: string; answer: CoderAnswer | null; rule?: string; always?: string }
   | { kind: 'note'; text: string; error: boolean; network?: boolean }
+  /** Questions the model asked. `answers` is undefined while it waits, null if they were closed unanswered. */
+  | { kind: 'question'; id: string; questions: CoderQuestion[]; answers?: CoderQuestionAnswer[] | null }
+  /** A task sent to the cloud, and what it did once read back (not saved: it's fetched again when asked). */
+  | { kind: 'cloud'; run: CoderCloudRun; events?: CoderEvent[] | null }
 
 export interface ContextUse {
   used: number
@@ -90,6 +94,8 @@ export function applyEvent(state: CodeState, event: CoderEvent): CodeState {
       return { ...next, items: next.items.map((item) => (item.kind === 'tool' && item.id === event.id ? { ...item, live: ((item.live ?? '') + event.text).slice(-LIVE_CHARS) } : item)) }
     case 'tool-result':
       return { ...next, items: next.items.map((item) => (item.kind === 'tool' && item.id === event.id ? { ...item, ok: event.ok, output: event.output, live: undefined, ...(event.undoable ? { undoable: true } : {}) } : item)) }
+    case 'question':
+      return { ...next, items: [...next.items, { kind: 'question', id: event.id, questions: event.questions }] }
     case 'approval':
       return { ...next, items: [...next.items, { kind: 'approval', id: event.id, type: event.kind, summary: event.summary, detail: event.detail, answer: null, ...(event.rule ? { rule: event.rule } : {}), ...(event.always ? { always: event.always } : {}) }] }
     case 'note':
@@ -154,6 +160,9 @@ export function savedItems(items: Item[]): Item[] {
     }
     if (item.kind === 'approval') return { ...item, answer: item.answer ?? 'deny', detail: item.detail.slice(0, 4000) }
     if (item.kind === 'reasoning') return { ...item, text: item.text.slice(0, 8000) }
+    if (item.kind === 'question' && item.answers === undefined) return { ...item, answers: null }
+    // One still being set up when the page went away never got a run of its own.
+    if (item.kind === 'cloud') return { kind: 'cloud', run: item.run.id.startsWith('pending-') ? { ...item.run, state: 'failed', endedAt: item.run.endedAt ?? Date.now(), error: item.run.error ?? 'It didn’t finish starting. Send the task again.' } : item.run }
     return item
   })
 }
@@ -168,6 +177,8 @@ export function sessionMarkdown(title: string, items: Item[], todo: CoderTodo[])
     else if (item.kind === 'tool') lines.push(`- ${item.ok === false ? '✗' : '✓'} ${item.summary}`)
     else if (item.kind === 'approval' && item.answer === 'deny') lines.push(`- Declined: ${item.summary}`)
     else if (item.kind === 'note') lines.push(`> ${item.text}`, '')
+    else if (item.kind === 'cloud') lines.push(`> Cloud run on ${item.run.branch}: ${item.run.state}${item.run.prUrl ? ` (${item.run.prUrl})` : ''}`, '', ...(item.run.summary ? [item.run.summary, ''] : []))
+    else if (item.kind === 'question') lines.push(...item.questions.map((question, index) => `- **${question.question}** ${item.answers ? (item.answers[index] ?? []).join(', ') || '(skipped)' : '(not answered)'}`), '')
   }
   if (todo.length) lines.push('', '## Checklist', '', ...todo.map((step) => `- [${step.done ? 'x' : ' '}] ${step.text}`))
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`
