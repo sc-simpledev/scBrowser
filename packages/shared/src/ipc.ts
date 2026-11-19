@@ -640,7 +640,16 @@ export interface InternalCommands {
   /** Stops one running command, leaving the session working. */
   'coder:stop-tool': (sessionId: string, toolId: string) => void
   /** Puts the conversation and files back to just before a message. Returns that message. */
-  'coder:rewind': (sessionId: string, turnId: string) => { task: string; files: number }
+  'coder:rewind': (sessionId: string, turnId: string, what?: 'both' | 'code' | 'conversation') => { task: string; files: number }
+  /** Undoes one step that changed files, or redoes it. Returns whether it's now undone. */
+  'coder:undo-step': (sessionId: string, toolId: string, redo: boolean) => { undone: boolean; files: number }
+  /** Sessions working, and sessions waiting for an answer, for the session list. */
+  'coder:activity': () => { running: string[]; waiting: string[] }
+  /** Pins or archives a chat in the list. */
+  'chats:flag': (id: string, flags: { pinned?: boolean; archived?: boolean }) => void
+  /** Signs in to a remote MCP server that asks for it, in a tab. */
+  'coder:mcp-signin': (name: string) => void
+  'coder:mcp-signout': (name: string) => void
   /** Summarises the session so far, as /compact asks. False if there was too little to summarise. */
   'coder:compact': (sessionId: string) => boolean
   /** A copy of the session to carry on in, saved as a chat of its own. Returns its id. */
@@ -967,6 +976,11 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:decide',
   'coder:stop-tool',
   'coder:rewind',
+  'coder:undo-step',
+  'coder:activity',
+  'chats:flag',
+  'coder:mcp-signin',
+  'coder:mcp-signout',
   'coder:compact',
   'coder:fork',
   'coder:export',

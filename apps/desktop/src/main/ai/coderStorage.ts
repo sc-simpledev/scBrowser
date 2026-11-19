@@ -24,6 +24,8 @@ export interface CoderCheckpoint {
   seen: [string, number][]
   /** Where each turn started, and how the session's files were then, for rewinding to it. */
   marks?: [string, CoderMark][]
+  /** Steps that changed files, for undoing one alone: before and after for each file. */
+  steps?: [string, { summary: string; files: [string, string | null, string | null][]; undone: boolean }][]
 }
 
 export interface CoderMark {

@@ -25,9 +25,9 @@ import {
   Move,
   PanelRight,
   Plug,
+  MessageSquare,
   Plus,
   Search,
-  Settings2,
   Sparkles,
   Square,
   SquareTerminal,
@@ -38,7 +38,7 @@ import {
   X,
   type LucideIcon
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input } from '@scbrowser/ui'
 import {
   CODE_CHAT_PREFIX,
@@ -70,9 +70,8 @@ import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
 import { applyEvent, emptyState, savedItems, sessionMarkdown, shortDuration, type CodeState, type Item } from './codeState'
 import { AgentCard, Checklist, CopyButton, ReasoningBlock, useElapsed } from './CodeParts'
-import { CodeSettings } from './CodeSettings'
 import { Composer, effortLabel, type ModelPick, type SendPayload } from './Composer'
-import { SessionPanel } from './SessionPanel'
+import { SessionPanel, type PanelTab } from './SessionPanel'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   list: FolderTree,
@@ -155,6 +154,24 @@ function ToolState({ ok }: { ok: boolean | null }) {
   return <X aria-label="Failed" size={12} strokeWidth={2} className="shrink-0 text-danger" />
 }
 
+/** Undoing one step at a time, reached from each step's row. */
+const StepActions = createContext<{ undo: (id: string, redo: boolean) => void; busy: boolean } | null>(null)
+
+/** Undo, or Redo once undone, shown on a step that changed files while nothing is working. */
+function UndoStep({ item }: { item: ToolItem }) {
+  const actions = useContext(StepActions)
+  if (!actions || !item.undoable || item.ok !== true || actions.busy) return null
+  return item.undone ? (
+    <Button variant="ghost" className="h-6 px-1.5 text-2xs" onClick={() => actions.undo(item.id, true)}>
+      Redo
+    </Button>
+  ) : (
+    <IconButton size="sm" label="Undo this step" className="opacity-0 group-hover/tool:opacity-100 focus-visible:opacity-100" onClick={() => actions.undo(item.id, false)}>
+      <Undo2 size={12} strokeWidth={1.75} />
+    </IconButton>
+  )
+}
+
 function ToolRow({ item, onStop }: { item: ToolItem; onStop?: (id: string) => void }) {
   const [open, setOpen] = useState(false)
   const Icon = TOOL_ICONS[item.tool] ?? SquareTerminal
@@ -164,13 +181,15 @@ function ToolRow({ item, onStop }: { item: ToolItem; onStop?: (id: string) => vo
   return (
     <div className="group/tool flex flex-col gap-1">
       <div className="flex h-6.5 min-w-0 items-center gap-1">
-        <button type="button" aria-expanded={open} disabled={!item.output} onClick={() => setOpen(!open)} className="group flex h-6.5 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors enabled:hover:bg-surface-hover">
+        <button type="button" aria-expanded={open} disabled={!item.output} onClick={() => setOpen(!open)} className="group flex h-6.5 max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors enabled:hover:bg-surface-hover">
           <Icon aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
-          <span className="shrink-0 text-text">{verb}</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-2xs">{target}</span>
+          <span className={cx('shrink-0 text-text', item.undone && 'text-text-faint line-through')}>{verb}</span>
+          <span className={cx('min-w-0 truncate font-mono text-2xs', item.undone && 'line-through')}>{target}</span>
+          {item.undone && <span className="shrink-0 text-2xs text-text-faint">Undone</span>}
           <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint opacity-0 transition group-hover:opacity-100', open && 'rotate-90 opacity-100')} />
-          <ToolState ok={item.ok} />
+          {!item.undone && <ToolState ok={item.ok} />}
         </button>
+        <UndoStep item={item} />
         {running && (item.tool === 'run' || item.tool === 'diagnostics') && onStop && (
           <IconButton size="sm" label="Stop this command" className="opacity-0 group-hover/tool:opacity-100 focus-visible:opacity-100" onClick={() => onStop(item.id)}>
             <Square size={10} strokeWidth={2} />
@@ -264,9 +283,9 @@ function ToolGroup({ tools, onStop, helpers }: { tools: ToolItem[]; onStop: (id:
   if (tools.length === 1) return <StepRow item={tools[0]!} onStop={onStop} helpers={helpers} />
   return (
     <div className="flex flex-col gap-0.5">
-      <button type="button" aria-expanded={open} onClick={() => setChosen(!open)} className="flex h-6.5 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover">
+      <button type="button" aria-expanded={open} onClick={() => setChosen(!open)} className="flex h-6.5 max-w-full min-w-0 items-center gap-2 self-start rounded-md px-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover">
         <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
-        <span className="min-w-0 flex-1 truncate">{describeTools(tools)}</span>
+        <span className="min-w-0 truncate">{describeTools(tools)}</span>
         {failed > 0 && <span className="shrink-0 text-danger">{failed} failed</span>}
         {running && <ToolState ok={null} />}
       </button>
@@ -454,7 +473,108 @@ function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (n
   )
 }
 
-function HunkView({ hunk, busy, onDecide }: { hunk: CoderHunk; busy: boolean; onDecide: (decision: CoderDecision) => void }) {
+/** A note on one line of a change, sent to Terra Code with the others in one go. */
+export interface ReviewComment {
+  id: string
+  path: string
+  line: number
+  /** Said about a line the change took out, rather than one it has now. */
+  removed: boolean
+  code: string
+  text: string
+}
+
+/** The comments as one message for Terra Code. */
+export function commentsTask(comments: ReviewComment[]): string {
+  const lines = comments.map((comment) => `- ${comment.path}, ${comment.removed ? 'removed line near' : 'line'} ${comment.line}: ${comment.text.trim()}\n  > ${comment.code.trim().slice(0, 200)}`)
+  return `I reviewed your changes and left ${comments.length === 1 ? 'a comment' : `${comments.length} comments`}. Deal with ${comments.length === 1 ? 'it' : 'each'}, then tell me what you changed:\n\n${lines.join('\n')}`
+}
+
+/**
+ * A change's lines, numbered as in the file now, each with a way to comment on it: a + beside the
+ * line on hover, opening a box underneath. Comments made show under their line.
+ */
+function DiffRows({ rows, startLine, path, comments, onComment, onRemove }: { rows: string[]; startLine: number; path: string; comments: ReviewComment[]; onComment: (comment: ReviewComment) => void; onRemove: (id: string) => void }) {
+  const [writing, setWriting] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+  let line = startLine
+  const numbered = rows.map((row) => {
+    const removed = row.startsWith('- ')
+    const at = line
+    if (!removed && !row.startsWith('@@')) line++
+    return { row, line: at, removed }
+  })
+  return (
+    <div className="sc-scroll-quiet overflow-x-auto bg-bg py-1 font-mono text-2xs leading-normal select-text">
+      {numbered.map(({ row, line: at, removed }, i) => {
+        const here = comments.filter((comment) => comment.path === path && comment.line === at && comment.removed === removed && comment.code === row.slice(2))
+        return (
+          <div key={i}>
+            <div className={cx('group/line relative flex w-max min-w-full', row.startsWith('+ ') && 'bg-success/10 text-success', removed && 'bg-danger/10 text-danger', row.startsWith('  ') && 'text-text-muted')}>
+              <span aria-hidden className="w-10 shrink-0 pr-2 text-right text-text-faint select-none">{removed ? '' : at}</span>
+              <span className="pr-2.5 whitespace-pre">{row || ' '}</span>
+              <button
+                type="button"
+                aria-label={`Comment on line ${at}`}
+                onClick={() => {
+                  setWriting(i)
+                  setDraft('')
+                }}
+                className="absolute top-0 left-0.5 grid size-4 place-items-center rounded-sm bg-accent text-surface opacity-0 transition-opacity group-hover/line:opacity-100 focus-visible:opacity-100"
+              >
+                <Plus size={10} strokeWidth={2.5} />
+              </button>
+            </div>
+            {here.map((comment) => (
+              <div key={comment.id} className="mx-2 my-1 flex max-w-160 items-start gap-2 rounded-md border border-border bg-surface px-2 py-1.5 font-sans text-xs text-text">
+                <MessageSquare aria-hidden size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+                <span className="min-w-0 flex-1 whitespace-pre-wrap">{comment.text}</span>
+                <IconButton size="sm" label="Remove comment" className="size-5!" onClick={() => onRemove(comment.id)}>
+                  <X size={11} strokeWidth={1.75} />
+                </IconButton>
+              </div>
+            ))}
+            {writing === i && (
+              <form
+                className="mx-2 my-1 flex max-w-160 flex-col gap-1.5 rounded-md border border-border-strong bg-surface p-2 font-sans"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!draft.trim()) return
+                  onComment({ id: crypto.randomUUID(), path, line: at, removed, code: row.slice(2), text: draft.trim() })
+                  setWriting(null)
+                }}
+              >
+                <textarea
+                  aria-label={`Comment on line ${at}`}
+                  autoFocus
+                  value={draft}
+                  rows={2}
+                  placeholder="What should change here?"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setWriting(null)
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit()
+                  }}
+                  className="resize-none rounded-md border border-border bg-field px-2 py-1.5 text-xs outline-none placeholder:text-text-faint focus:border-border-strong"
+                />
+                <div className="flex justify-end gap-1">
+                  <Button variant="ghost" onClick={() => setWriting(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary" disabled={!draft.trim()}>
+                    Add comment
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function HunkView({ hunk, busy, onDecide, children }: { hunk: CoderHunk; busy: boolean; onDecide: (decision: CoderDecision) => void; children: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-md border border-border">
       <div className="flex h-8 items-center gap-1 border-b border-border bg-surface pr-1 pl-2.5 text-2xs text-text-faint">
@@ -466,20 +586,17 @@ function HunkView({ hunk, busy, onDecide }: { hunk: CoderHunk; busy: boolean; on
           Keep
         </Button>
       </div>
-      <div className="sc-scroll-quiet overflow-x-auto bg-bg py-1 font-mono text-2xs leading-normal whitespace-pre select-text">
-        {hunk.rows.map((row, i) => (
-          <div key={i} className={cx('w-max min-w-full px-2.5', row.startsWith('+ ') && 'bg-success/10 text-success', row.startsWith('- ') && 'bg-danger/10 text-danger', row.startsWith('  ') && 'text-text-muted')}>
-            {row || ' '}
-          </div>
-        ))}
-      </div>
+      {children}
     </div>
   )
 }
 
 /** Every file the session changed, one at a time, with each change to keep or put back. */
-function ReviewScreen({ session, files, busy, onChange, onClose }: { session: string; files: CoderChange[]; busy: boolean; onChange: (files: CoderChange[], note?: string) => void; onClose: () => void }) {
-  const [chosen, setChosen] = useState<string | null>(null)
+function ReviewScreen({ session, files, busy, focus, onChange, onClose, onSendComments }: { session: string; files: CoderChange[]; busy: boolean; focus: string | null; onChange: (files: CoderChange[], note?: string) => void; onClose: () => void; onSendComments: (text: string) => void }) {
+  const [chosen, setChosen] = useState<string | null>(focus)
+  const [comments, setComments] = useState<ReviewComment[]>([])
+  const addComment = (comment: ReviewComment) => setComments((current) => [...current, comment])
+  const removeComment = (id: string) => setComments((current) => current.filter((comment) => comment.id !== id))
   const [review, setReview] = useState<CoderReview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -526,6 +643,12 @@ function ReviewScreen({ session, files, busy, onChange, onClose }: { session: st
                   <span dir="rtl" title={file.path} className="min-w-0 flex-1 truncate text-left font-mono text-2xs">
                     {file.path}
                   </span>
+                  {comments.some((comment) => comment.path === file.path) && (
+                    <span className="flex shrink-0 items-center gap-0.5 text-2xs text-accent tabular-nums">
+                      <MessageSquare aria-hidden size={10} strokeWidth={2} />
+                      {comments.filter((comment) => comment.path === file.path).length}
+                    </span>
+                  )}
                 </button>
               </li>
             )
@@ -575,15 +698,80 @@ function ReviewScreen({ session, files, busy, onChange, onClose }: { session: st
           {busy && <p className="text-xs text-text-muted">Terra Code is still working. Stop it to keep or put back changes.</p>}
           {error && <p className="text-xs text-danger">{error}</p>}
           {review?.binary && <p className="text-sm text-text-muted">This file isn’t text, so there’s nothing to show. You can still keep it or put it back.</p>}
-          {review?.hunks.map((hunk) => (review.whole ? <Detail key={hunk.id} text={hunk.rows.join('\n')} diff /> : <HunkView key={hunk.id} hunk={hunk} busy={busy} onDecide={(decision) => decide(hunk.id, decision)} />))}
+          {review?.hunks.map((hunk) => {
+            const rows = <DiffRows rows={hunk.rows} startLine={hunk.line} path={review.path} comments={comments} onComment={addComment} onRemove={removeComment} />
+            return review.whole ? (
+              <div key={hunk.id} className="overflow-hidden rounded-md border border-border">
+                {rows}
+              </div>
+            ) : (
+              <HunkView key={hunk.id} hunk={hunk} busy={busy} onDecide={(decision) => decide(hunk.id, decision)}>
+                {rows}
+              </HunkView>
+            )
+          })}
+          {!busy && review && !review.binary && comments.length === 0 && <p className="text-2xs text-text-faint">Hover a line and press + to leave Terra Code a comment on it.</p>}
         </div>
+        {comments.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2">
+            <MessageSquare aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-accent" />
+            <span className="min-w-0 flex-1 text-xs">
+              {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+              {new Set(comments.map((comment) => comment.path)).size > 1 && <span className="text-text-muted"> in {new Set(comments.map((comment) => comment.path)).size} files</span>}
+            </span>
+            <Button variant="ghost" onClick={() => setComments([])}>
+              Clear
+            </Button>
+            <Button variant="primary" onClick={() => onSendComments(commentsTask(comments))}>
+              Send to Terra Code
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+/** A finished plan, to start as it is or after changing it, asking first or not. */
+function PlanCard({ plan, onStart }: { plan: string; onStart: (mode: 'ask' | 'edits', text: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(plan)
+  useEffect(() => setText(plan), [plan])
+  return (
+    <section aria-label="Plan ready" className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pl-1">
+        <ListChecks aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <span className="text-sm font-medium">Plan ready</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-text-muted">{editing ? 'Change it, then start' : 'Start it, or change it first'}</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          {!editing && (
+            <Button variant="ghost" onClick={() => setEditing(true)}>
+              Edit plan
+            </Button>
+          )}
+          <Button disabled={!text.trim()} onClick={() => onStart('ask', text)} title="Ask before each change and command">
+            Start, asking first
+          </Button>
+          <Button variant="primary" disabled={!text.trim()} onClick={() => onStart('edits', text)} title="Make changes without asking; commands still ask">
+            Start
+          </Button>
+        </div>
+      </div>
+      {editing && (
+        <textarea
+          aria-label="Plan"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={Math.min(16, Math.max(5, text.split('\n').length + 1))}
+          className="resize-y rounded-md border border-border bg-field px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-border-strong"
+        />
+      )}
+    </section>
+  )
+}
+
 /** What the person sent, with a way back to just before it. */
-function TaskBubble({ item, canRewind, onRewind }: { item: Extract<Item, { kind: 'task' }>; canRewind: boolean; onRewind: () => void }) {
+function TaskBubble({ item, canRewind, onRewind }: { item: Extract<Item, { kind: 'task' }>; canRewind: boolean; onRewind: (what: 'both' | 'code' | 'conversation') => void }) {
   const [confirming, setConfirming] = useState(false)
   return (
     <div className="group/task ml-auto flex max-w-[85%] flex-col items-end gap-1">
@@ -599,20 +787,34 @@ function TaskBubble({ item, canRewind, onRewind }: { item: Extract<Item, { kind:
         </div>
       </div>
       {confirming && (
-        <div role="group" aria-label="Rewind" className="flex items-center gap-1.5 text-xs text-text-muted">
-          <span>Put files and the conversation back to before this?</span>
-          <Button variant="ghost" onClick={() => setConfirming(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setConfirming(false)
-              onRewind()
-            }}
-          >
-            Rewind
-          </Button>
+        <div role="group" aria-label="Rewind" className="flex flex-col items-end gap-1.5 rounded-lg border border-border bg-surface p-2 text-xs">
+          <span className="text-text-muted">Go back to before this message:</span>
+          <div className="flex flex-wrap justify-end gap-1">
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            {(['conversation', 'code'] as const).map((what) => (
+              <Button
+                key={what}
+                title={what === 'code' ? 'Put the files back, and keep the conversation' : 'Go back in the conversation, and keep the files as they are'}
+                onClick={() => {
+                  setConfirming(false)
+                  onRewind(what)
+                }}
+              >
+                {what === 'code' ? 'Code only' : 'Conversation only'}
+              </Button>
+            ))}
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirming(false)
+                onRewind('both')
+              }}
+            >
+              Both
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -700,7 +902,17 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const [statusError, setStatusError] = useState<string | null>(null)
   const [mode, setMode] = useState<CoderMode>('ask')
   const [state, setState] = useState<CodeState>(emptyState)
-  const [screen, setScreen] = useState<'log' | 'review' | 'settings'>('log')
+  const modeRef = useRef<CoderMode>('ask')
+  const [screen, setScreen] = useState<'log' | 'review'>('log')
+  /** Which side of the panel shows, and a setting to open in it, such as MCP servers for /mcp. */
+  const [panelTab, setPanelTab] = useState<PanelTab>('session')
+  /** The file the review opens on, such as one picked in the panel. */
+  const [reviewFocus, setReviewFocus] = useState<string | null>(null)
+  const openReview = (path: string | null) => {
+    setReviewFocus(path)
+    setScreen('review')
+  }
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const [model, setModel] = useState<ModelPick | null>(null)
@@ -861,7 +1073,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         working: true,
         step: 1,
         runStartedAt: Date.now(),
-        items: show ? [...current.items, { kind: 'task', text: task, turnId, ...(shown ? { shown } : {}), ...(images.length ? { pictures: images.length } : {}) }] : current.items
+        items: show ? [...current.items, { kind: 'task', text: task, turnId, mode: runMode ?? modeRef.current, ...(shown ? { shown } : {}), ...(images.length ? { pictures: images.length } : {}) }] : current.items
       }))
       void api()
         .invoke('coder:run', session.current, task, { turnId, images, mentions, model: model && { providerId: model.providerId, model: model.model }, effort, ...(runMode ? { mode: runMode } : {}) })
@@ -884,22 +1096,37 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     setWorktree(null)
   }, [])
 
-  const rewind = (turnId: string) => {
+  const rewind = (turnId: string, what: 'both' | 'code' | 'conversation' = 'both') => {
     void api()
-      .invoke('coder:rewind', session.current, turnId)
+      .invoke('coder:rewind', session.current, turnId, what)
       .then(
         async ({ task, files }) => {
           const changed = await api().invoke('coder:changes', session.current)
+          const filesBack = `${files} ${files === 1 ? 'file is' : 'files are'} back as ${files === 1 ? 'it was' : 'they were'}`
           setState((current) => {
+            // Only the files went back: the conversation stays as it is, with a note.
+            if (what === 'code') return { ...current, changes: changed, items: [...current.items.map((item) => (item.kind === 'tool' && item.undoable ? { ...item, undoable: false } : item)), { kind: 'note', text: files ? `Put the code back to before “${task.slice(0, 60)}”: ${filesBack}.` : 'The code was already as it was then.', error: false }] }
             const at = current.items.findIndex((item) => item.kind === 'task' && item.turnId === turnId)
             const kept = at === -1 ? current.items : current.items.slice(0, at)
-            return { ...current, items: [...kept, { kind: 'note', text: files ? `Rewound: ${files} ${files === 1 ? 'file is' : 'files are'} back as they were.` : 'Rewound the conversation.', error: false }], changes: changed, todo: [] }
+            const said = what === 'conversation' ? 'Went back in the conversation. The files stay as they are.' : files ? `Rewound: ${filesBack}.` : 'Rewound the conversation.'
+            return { ...current, items: [...kept, { kind: 'note', text: said, error: false }], changes: changed, todo: [] }
           })
-          setSeed({ text: task, at: Date.now() })
+          if (what !== 'code') setSeed({ text: task, at: Date.now() })
         },
         (error: Error) => note(cleanError(error.message), true)
       )
   }
+
+  const undoStep = (toolId: string, redo: boolean) =>
+    void api()
+      .invoke('coder:undo-step', session.current, toolId, redo)
+      .then(
+        async ({ undone }) => {
+          const changed = await api().invoke('coder:changes', session.current)
+          setState((current) => ({ ...current, changes: changed, items: current.items.map((item) => (item.kind === 'tool' && item.id === toolId ? { ...item, undone } : item)) }))
+        },
+        (error: Error) => note(cleanError(error.message), true)
+      )
 
   const fork = () =>
     void api()
@@ -997,12 +1224,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       }
       case 'agents':
       case 'stats':
+        setPanelTab('session')
         togglePanel(true)
         return true
       case 'settings':
       case 'permissions':
       case 'mcp':
-        setScreen('settings')
+        openSettings(name === 'mcp' ? 'mcp' : name === 'permissions' ? 'mode' : null)
         return true
       case 'help':
         setState((current) => ({ ...current, items: [...current.items, { kind: 'text', text: HELP }] }))
@@ -1071,6 +1299,20 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         loadCommands()
       })
 
+  /** Settings live in the session panel, opened on their own tab. */
+  function openSettings(focus: string | null = null) {
+    setScreen('log')
+    setPanelTab('settings')
+    setSettingsFocus(focus)
+    togglePanel(true)
+  }
+
+  const updatePrefs = (patch: Partial<Settings>) => {
+    setPrefs((current) => current && { ...current, ...patch })
+    void api().invoke('settings:set', patch)
+  }
+
+  modeRef.current = mode
   const chooseMode = (coderMode: CoderMode) => {
     setMode(coderMode)
     void api().invoke('settings:set', { coderMode })
@@ -1093,6 +1335,15 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
 
   const history = useMemo(() => items.flatMap((item) => (item.kind === 'task' ? [item.shown ?? item.text] : [])).slice(-50), [items])
 
+  // A plan made in plan mode, once it's finished: the last reply after the last message, if that was a plan.
+  const plan = useMemo(() => {
+    if (working) return null
+    const at = items.findLastIndex((item) => item.kind === 'task')
+    const task = items[at]
+    if (!task || task.kind !== 'task' || task.mode !== 'plan') return null
+    const reply = items.slice(at + 1).findLast((item) => item.kind === 'text')
+    return reply && reply.kind === 'text' ? reply.text : null
+  }, [items, working])
   const blocks = useMemo(() => {
     const out: (Exclude<Item, ToolItem> | { kind: 'tools'; tools: ToolItem[] })[] = []
     for (const item of items) {
@@ -1149,12 +1400,12 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         (error: Error) => note(cleanError(error.message), true)
       )
 
+  const stepActions = { undo: undoStep, busy: working }
   const firstTask = items.find((item): item is Extract<Item, { kind: 'task' }> => item.kind === 'task')
   const title = firstTask ? (firstTask.shown ?? firstTask.text).split('\n')[0]! : null
   const compactNow = () => command('/compact')
   const panelBeside = panelOpen && !narrow && screen === 'log'
   const panelFloating = floatOpen && narrow && screen === 'log'
-  const sandboxLabel = !status.sandboxAvailable || !prefs || prefs.coderSandbox === 'off' ? 'Off' : prefs.coderSandbox === 'project' ? 'Project only' : 'No network'
   const modelName = model?.model ?? status.model ?? 'No model'
   // The panel shows the checklist itself, so above the box it only shows while the panel is closed.
   const strip = !panelBeside && !panelFloating
@@ -1205,9 +1456,6 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
             </>
           )}
         </Menu>
-        <IconButton size="sm" label="Terra Code settings" aria-pressed={screen === 'settings'} onClick={() => setScreen(screen === 'settings' ? 'log' : 'settings')}>
-          <Settings2 size={14} strokeWidth={1.75} />
-        </IconButton>
         <span aria-hidden className="mx-1 h-4 w-px bg-border @max-[400px]:hidden" />
         <IconButton size="sm" label={shown ? 'Hide the session panel' : 'Show the session panel'} aria-pressed={shown && screen === 'log'} disabled={screen !== 'log'} onClick={() => togglePanel()}>
           <PanelRight size={14} strokeWidth={1.75} />
@@ -1221,19 +1469,29 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       status={status}
       worktree={worktree}
       mode={mode}
+      onMode={chooseMode}
+      model={model}
+      onModel={setModel}
       modelName={modelName}
       providerName={model?.providerName ?? status.providerName}
       effort={effort}
-      showReasoning={showReasoning}
-      sandbox={sandboxLabel}
+      onEffort={chooseEffort}
+      prefs={prefs}
+      onPrefs={updatePrefs}
       state={state}
+      tab={panelTab}
+      onTab={(next) => {
+        setPanelTab(next)
+        setSettingsFocus(null)
+      }}
+      settingsFocus={settingsFocus}
+      onSetupChanged={loadCommands}
       onClose={() => togglePanel(false)}
       onOpenFolder={() => void api().invoke('coder:open-folder')}
-      onReview={() => setScreen('review')}
+      onReview={(path) => openReview(path ?? null)}
       onCommit={() => setCommitting(true)}
       onCompact={compactNow}
       onStopJob={(id) => void api().invoke('coder:job-stop', session.current, id)}
-      onSettings={() => setScreen('settings')}
     />
   )
 
@@ -1251,18 +1509,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
               session={session.current}
               files={changes}
               busy={working}
+              focus={reviewFocus}
               onClose={closeScreen}
-              onChange={(files, said) => setState((current) => ({ ...current, changes: files, items: said ? [...current.items, { kind: 'note', text: said, error: false }] : current.items }))}
-            />
-          )}
-          {screen === 'settings' && (
-            <CodeSettings
-              sandboxAvailable={status.sandboxAvailable}
-              onClose={() => {
-                closeScreen()
-                loadCommands()
-                void api().invoke('settings:get').then(setPrefs)
+              onSendComments={(text) => {
+                setScreen('log')
+                send({ text, images: [], mentions: [] })
               }}
+              onChange={(files, said) => setState((current) => ({ ...current, changes: files, items: said ? [...current.items, { kind: 'note', text: said, error: false }] : current.items }))}
             />
           )}
 
@@ -1317,25 +1570,6 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                         ))}
                       </div>
                     )}
-                    {status.folder && status.ready && (
-                      <p className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-text-faint">
-                        <span>
-                          <Kbd>Shift</Kbd> <Kbd>Tab</Kbd> switch mode
-                        </span>
-                        <span>
-                          <Kbd>/</Kbd> commands
-                        </span>
-                        <span>
-                          <Kbd>@</Kbd> files and tabs
-                        </span>
-                        <span>
-                          <Kbd>↑</Kbd> earlier messages
-                        </span>
-                        <span>
-                          <Kbd>Esc</Kbd> stop
-                        </span>
-                      </p>
-                    )}
                     {!status.ready && (
                       <p className="text-sm text-text-muted">
                         It needs a model first.{' '}
@@ -1346,10 +1580,11 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                     )}
                   </div>
                 )}
+                <StepActions.Provider value={stepActions}>
                 {blocks.map((item, i) => {
                   switch (item.kind) {
                     case 'task':
-                      return <TaskBubble key={i} item={item} canRewind={!!item.turnId && !working} onRewind={() => rewind(item.turnId!)} />
+                      return <TaskBubble key={i} item={item} canRewind={!!item.turnId && !working} onRewind={(what) => rewind(item.turnId!, what)} />
                     case 'text':
                       return (
                         <div key={i} className="group/text relative text-sm select-text">
@@ -1383,6 +1618,16 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                       )
                   }
                 })}
+                </StepActions.Provider>
+                {plan && (
+                  <PlanCard
+                    plan={plan}
+                    onStart={(target, text) => {
+                      chooseMode(target)
+                      start(`Carry out this plan. Work through it step by step, and tell me if part of it turns out to be wrong.\n\n${text}`, { shown: target === 'edits' ? 'Carry out the plan' : 'Carry out the plan, asking before changes', runMode: target })
+                    }}
+                  />
+                )}
                 {showReasoning && reasoning && <ReasoningBlock text={reasoning} live={!streaming} />}
                 {streaming && (
                   <div className="text-sm select-text">
@@ -1413,15 +1658,23 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                 />
               </div>
             ) : (
-              <>
-                {todo.length > 0 && (strip || working) && !panelBeside && <Checklist items={todo} working={working} />}
-                {(jobs.some((job) => job.running) || changes.length > 0) && (
-                  <div className="flex flex-col rounded-lg border border-border bg-surface px-1">
-                    <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />
-                    {changes.length > 0 && <ChangesBar files={changes} git={status.git || !!worktree} busy={working} onReview={() => setScreen('review')} onCommit={() => setCommitting(true)} />}
-                  </div>
-                )}
-              </>
+              // The panel shows these itself; with it closed, they share one quiet card above the box.
+              strip &&
+              (todo.length > 0 || jobs.some((job) => job.running) || changes.length > 0) && (
+                <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
+                  {todo.length > 0 && <Checklist items={todo} working={working} bare />}
+                  {jobs.some((job) => job.running) && (
+                    <div className="px-1">
+                      <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />
+                    </div>
+                  )}
+                  {changes.length > 0 && (
+                    <div className="px-1">
+                      <ChangesBar files={changes} git={status.git || !!worktree} busy={working} onReview={() => openReview(null)} onCommit={() => setCommitting(true)} />
+                    </div>
+                  )}
+                </div>
+              )
             )}
             <Composer
               enabled={!!status.folder}
@@ -1458,8 +1711,6 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   )
 }
 
-/** Keys as small caps, for the hints under the starters. */
-const Kbd = ({ children }: { children: ReactNode }) => <kbd className="rounded-sm border border-border bg-surface px-1 py-px font-sans text-2xs text-text-muted">{children}</kbd>
 
 /** What it's doing while there's nothing else to show: the step it's on and for how long. */
 function WorkingLine({ since, step, retrySeconds }: { since: number | null; step: number; retrySeconds: number | null }) {

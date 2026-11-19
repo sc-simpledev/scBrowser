@@ -19,7 +19,7 @@ export function TasksPage() {
   const total = tasks.rows.reduce((sum, row) => sum + row.memoryKb, 0)
   return (
     <div className="flex flex-col gap-2">
-      <p className="px-1 text-text-muted">
+      <p className="text-text-muted">
         {megabytes(total)} in use{tasks.sleeping > 0 && `, with ${tasks.sleeping} ${tasks.sleeping === 1 ? 'tab' : 'tabs'} asleep`}
       </p>
       <div className="overflow-hidden rounded-lg bg-surface shadow-1">

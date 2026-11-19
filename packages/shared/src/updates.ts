@@ -42,6 +42,21 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.7.2',
+    date: '2026-11-19',
+    items: [
+      'Terra Code’s settings open in place in the session panel: click a setting to change it there.',
+      'Plans can be approved: after a plan, start it as it is or edit it first, asking before each change or not.',
+      'Leave comments on lines in Review and send them to Terra Code to deal with.',
+      'Terra Code sessions are grouped by project, marked when working or waiting for you, and can be searched, pinned and archived.',
+      'Rewind the code only, the conversation only, or both, and undo or redo a single step.',
+      'Edited files are formatted with the project’s own formatter (Prettier, Biome, Ruff, Black, gofmt, rustfmt), once you allow it.',
+      'Add common MCP servers in a click, and sign in to remote ones that need it.',
+      'A tidier look across the AI pages: softer tables and a copy button on code in replies, quieter message boxes, a simpler AI Briefs header, Quick AI as one line on the new tab page.',
+      'Fixed: typing a “/” over the address bar’s completion could lose it.'
+    ]
+  },
+  {
     version: '0.7.1',
     date: '2026-11-19',
     items: [

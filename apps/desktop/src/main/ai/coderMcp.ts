@@ -3,6 +3,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { app, safeStorage } from 'electron'
 import { isMcpServerName, mcpToolName, type CoderSource, type McpServerConfig, type McpServerView } from '@scbrowser/shared'
 import type { KeyValueRepo } from '../storage/kv'
@@ -10,6 +11,7 @@ import type { CoderMcpHost, McpTool } from './coder'
 import { configHash, mcpConfig, projectMcp } from './coderProject'
 import { clip, commandEnv } from './coderTools'
 import type { CoderTrust } from './coderTrust'
+import { callbackPort, McpAuthStore, McpOAuth, waitForCode } from './coderMcpAuth'
 
 const SERVERS_KEY = 'coder:mcp'
 const START_MS = 20_000
@@ -30,6 +32,8 @@ interface Connection {
   names: Map<string, string>
   starting: Promise<void> | null
   stderr: string
+  /** A remote server waiting for the person to sign in, and the transport to finish it on. */
+  auth: { provider: McpOAuth; transport: StreamableHTTPClientTransport } | null
 }
 
 /**
@@ -42,10 +46,42 @@ export class CoderMcp implements CoderMcpHost {
   private saved: McpServerConfig[] | null = null
   private readonly connections = new Map<string, Connection>()
 
+  private readonly auth: McpAuthStore
+
   constructor(
     private readonly kv: KeyValueRepo,
-    private readonly trust: CoderTrust
-  ) {}
+    private readonly trust: CoderTrust,
+    /** Opens a sign-in page for the person, in a tab. */
+    private readonly openUrl: (url: string) => void = () => undefined
+  ) {
+    this.auth = new McpAuthStore(kv)
+  }
+
+  /**
+   * Opens the server's sign-in page and waits for the person to come back from it, then starts
+   * the server again with the tokens it handed over.
+   */
+  async signIn(folder: string | null, name: string): Promise<void> {
+    const found = (await this.servers(folder)).find((entry) => entry.server.name === name)
+    if (!found || found.server.type !== 'http') throw new Error('Only servers at an address sign in.')
+    let connection = this.connections.get(found.key)
+    if (!connection?.auth?.provider.authorizationUrl) {
+      await this.restart(folder, name)
+      connection = this.connections.get(found.key)
+    }
+    const pending = connection?.auth
+    if (!pending?.provider.authorizationUrl) throw new Error(connection?.state === 'ready' ? 'Already signed in.' : 'This server didn’t ask to sign in.')
+    const code = waitForCode(callbackPort(name))
+    this.openUrl(pending.provider.authorizationUrl.toString())
+    await pending.transport.finishAuth(await code)
+    await this.restart(folder, name)
+  }
+
+  async signOut(folder: string | null, name: string): Promise<void> {
+    await this.auth.update(name, null)
+    const found = (await this.servers(folder)).find((entry) => entry.server.name === name)
+    if (found) await this.close(found.key)
+  }
 
   /** The person's own servers, decrypted. */
   private async own(): Promise<McpServerConfig[]> {
@@ -91,6 +127,7 @@ export class CoderMcp implements CoderMcpHost {
   }
 
   async remove(name: string): Promise<void> {
+    await this.auth.update(name, null).catch(() => undefined)
     await this.store((await this.own()).filter((server) => server.name !== name))
     await this.close(`global:${name}`)
   }
@@ -171,7 +208,7 @@ export class CoderMcp implements CoderMcpHost {
     // A changed setup starts again; a failed one is tried again on the next run.
     if (existing && existing.hash === entry.hash && existing.state !== 'error') return existing.starting ?? Promise.resolve()
     if (existing) void this.close(entry.key)
-    const connection: Connection = { key: entry.key, server: entry.server, source: entry.source, hash: entry.hash, client: null, state: 'starting', error: null, tools: [], names: new Map(), starting: null, stderr: '' }
+    const connection: Connection = { key: entry.key, server: entry.server, source: entry.source, hash: entry.hash, client: null, state: 'starting', error: null, tools: [], names: new Map(), starting: null, stderr: '', auth: null }
     this.connections.set(entry.key, connection)
     connection.starting = this.start(connection, folder).finally(() => (connection.starting = null))
     return connection.starting
@@ -190,11 +227,20 @@ export class CoderMcp implements CoderMcpHost {
       } else {
         const url = new URL(server.url)
         const requestInit = { headers: server.headers }
+        // Servers that need an account say so with a 401, and the SDK runs OAuth through this.
+        const provider = new McpOAuth(this.auth, server.name)
+        const transport = new StreamableHTTPClientTransport(url, { requestInit, authProvider: provider })
         try {
-          await timeout(client.connect(new StreamableHTTPClientTransport(url, { requestInit }) as Transport))
-        } catch {
+          await timeout(client.connect(transport as Transport))
+        } catch (error) {
+          if (error instanceof UnauthorizedError || provider.authorizationUrl) {
+            connection.state = 'signin'
+            connection.error = null
+            connection.auth = { provider, transport }
+            return
+          }
           // Older servers only speak the earlier SSE transport.
-          await timeout(client.connect(new SSEClientTransport(url, { requestInit }) as Transport))
+          await timeout(client.connect(new SSEClientTransport(url, { requestInit, authProvider: provider }) as Transport))
         }
       }
       const listed = await timeout(client.listTools())

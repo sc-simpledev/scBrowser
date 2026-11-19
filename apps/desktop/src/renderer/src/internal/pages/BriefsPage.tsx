@@ -62,10 +62,6 @@ const hueOf = (name: string) => {
 }
 const hueStyle = (name: string) => ({ '--hue': hueOf(name) }) as CSSProperties
 const readMinutes = (text: string) => Math.max(1, Math.round(text.split(/\s+/).length / 220))
-const greeting = () => {
-  const hour = new Date().getHours()
-  return hour < 5 ? 'Hello' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-}
 
 /** A rounded square with the brief's first letter, in its own colour. */
 function Monogram({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
@@ -745,14 +741,10 @@ export function BriefsPage() {
 
   return (
     <>
-      <header className="sc-briefs-masthead flex flex-col gap-5 rounded-lg px-6 pt-6 pb-5 shadow-1">
-        <div className="flex items-start justify-between gap-4 max-[560px]:flex-col">
+      <header className="flex flex-col gap-3">
+        <div className="flex items-end justify-between gap-4 max-[560px]:flex-col max-[560px]:items-start">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
-              <Newspaper aria-hidden size={13} strokeWidth={2} />
-              AI Briefs
-            </span>
-            <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">{greeting()}</h1>
+            <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">AI Briefs</h1>
             <p className="text-sm text-text-muted">{line.join(' · ')}</p>
           </div>
           {!form && (
@@ -762,7 +754,7 @@ export function BriefsPage() {
             </Button>
           )}
         </div>
-        <p className="max-w-[60ch] text-xs text-text-muted">
+        <p className="max-w-[60ch] text-sm text-text-muted">
           Tell scAI what to keep you up to date on, and when. At that time it searches the web and writes you a brief, which waits here, on the new tab page and in the toolbar. If scTerra is closed then, it writes it as soon as scTerra opens.
         </p>
         {state.hosted === null && (

@@ -1,13 +1,13 @@
-import { CODER_MAX_STEPS, type CoderAgentRun, type CoderAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName } from '@scbrowser/shared'
+import { CODER_MAX_STEPS, type CoderAgentRun, type CoderAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName, type CoderRunMode } from '@scbrowser/shared'
 
 export type Item =
   /** What the person sent. `turnId` names the turn it started, for rewinding to before it. */
-  | { kind: 'task'; text: string; turnId?: string; pictures?: number; shown?: string }
+  | { kind: 'task'; text: string; turnId?: string; pictures?: number; shown?: string; mode?: CoderRunMode }
   | { kind: 'text'; text: string }
   /** The model's reasoning before a step, where it gives it. */
   | { kind: 'reasoning'; text: string }
   /** `agent` names the helper run that took this step, which shows it inside its card instead. */
-  | { kind: 'tool'; id: string; tool: CoderToolName; summary: string; ok: boolean | null; output: string; live?: string; agent?: string }
+  | { kind: 'tool'; id: string; tool: CoderToolName; summary: string; ok: boolean | null; output: string; live?: string; agent?: string; undoable?: boolean; undone?: boolean }
   | { kind: 'approval'; id: string; type: CoderApprovalKind; summary: string; detail: string; answer: CoderAnswer | null; rule?: string; always?: string }
   | { kind: 'note'; text: string; error: boolean; network?: boolean }
 
@@ -89,7 +89,7 @@ export function applyEvent(state: CodeState, event: CoderEvent): CodeState {
     case 'output':
       return { ...next, items: next.items.map((item) => (item.kind === 'tool' && item.id === event.id ? { ...item, live: ((item.live ?? '') + event.text).slice(-LIVE_CHARS) } : item)) }
     case 'tool-result':
-      return { ...next, items: next.items.map((item) => (item.kind === 'tool' && item.id === event.id ? { ...item, ok: event.ok, output: event.output, live: undefined } : item)) }
+      return { ...next, items: next.items.map((item) => (item.kind === 'tool' && item.id === event.id ? { ...item, ok: event.ok, output: event.output, live: undefined, ...(event.undoable ? { undoable: true } : {}) } : item)) }
     case 'approval':
       return { ...next, items: [...next.items, { kind: 'approval', id: event.id, type: event.kind, summary: event.summary, detail: event.detail, answer: null, ...(event.rule ? { rule: event.rule } : {}), ...(event.always ? { always: event.always } : {}) }] }
     case 'note':

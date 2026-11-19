@@ -113,7 +113,8 @@ export type CoderEvent =
   | { sessionId: string; type: 'agent'; run: CoderAgentRun }
   /** More of what a running command prints, to add to what's shown. */
   | { sessionId: string; type: 'output'; id: string; text: string }
-  | { sessionId: string; type: 'tool-result'; id: string; ok: boolean; output: string }
+  /** `undoable`: the step changed files and can be undone (and redone) on its own. */
+  | { sessionId: string; type: 'tool-result'; id: string; ok: boolean; output: string; undoable?: boolean }
   /**
    * A step waiting for the person. `detail` is a diff, the command itself, or the tool's input.
    * `rule` is what "Always allow" would save for this project, such as `npm test*`; `always` is the
@@ -226,7 +227,8 @@ export interface McpServerView {
   enabled: boolean
   /** A project's server runs only once the person allows it, and again if it changes. */
   trusted: boolean
-  state: 'off' | 'starting' | 'ready' | 'error'
+  /** `signin`: a remote server waiting for the person to sign in to it. */
+  state: 'off' | 'starting' | 'ready' | 'error' | 'signin'
   error: string | null
   tools: string[]
 }
@@ -356,3 +358,34 @@ export function suggestRule(command: string): string {
 export const mcpToolName = (server: string, tool: string) => `mcp__${server.replace(/[^A-Za-z0-9_-]/g, '_')}__${tool.replace(/[^A-Za-z0-9_-]/g, '_')}`.slice(0, 64)
 
 export const isMcpServerName = (name: string) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)
+
+/** A well-known MCP server, to add in one click. `keys` are values the person fills in (tokens and the like). */
+export interface McpDirectoryEntry {
+  id: string
+  name: string
+  description: string
+  config: { type: 'stdio'; command: string; args: string[] } | { type: 'http'; url: string }
+  /** Environment variables (for a command) or headers (for an address) it needs, with what goes in them. */
+  keys: { name: string; hint: string }[]
+  /** Signs in with an account through the browser rather than a key. */
+  signIn?: boolean
+}
+
+/**
+ * Servers people commonly add, as their makers publish them. Commands fetch the server with npx
+ * or uvx the first time it starts; addresses belong to the service named.
+ */
+export const MCP_DIRECTORY: McpDirectoryEntry[] = [
+  { id: 'playwright', name: 'playwright', description: 'Drives a real browser: open pages, click, fill forms, take screenshots', config: { type: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'] }, keys: [] },
+  { id: 'filesystem', name: 'filesystem', description: 'Reads and writes files in folders you name', config: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] }, keys: [] },
+  { id: 'memory', name: 'memory', description: 'A knowledge graph Terra Code can remember things in across sessions', config: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] }, keys: [] },
+  { id: 'sequential-thinking', name: 'sequential-thinking', description: 'Step-by-step thinking for hard problems', config: { type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] }, keys: [] },
+  { id: 'fetch', name: 'fetch', description: 'Fetches web pages as Markdown (needs uv)', config: { type: 'stdio', command: 'uvx', args: ['mcp-server-fetch'] }, keys: [] },
+  { id: 'git', name: 'git', description: 'Reads and searches git history (needs uv)', config: { type: 'stdio', command: 'uvx', args: ['mcp-server-git'] }, keys: [] },
+  { id: 'github', name: 'github', description: 'Issues, pull requests, code search and Actions on GitHub', config: { type: 'http', url: 'https://api.githubcopilot.com/mcp/' }, keys: [{ name: 'Authorization', hint: 'Bearer, then a GitHub personal access token' }] },
+  { id: 'context7', name: 'context7', description: 'Up-to-date documentation for libraries and frameworks', config: { type: 'http', url: 'https://mcp.context7.com/mcp' }, keys: [] },
+  { id: 'linear', name: 'linear', description: 'Issues and projects in Linear', config: { type: 'http', url: 'https://mcp.linear.app/mcp' }, keys: [], signIn: true },
+  { id: 'notion', name: 'notion', description: 'Pages and databases in Notion', config: { type: 'http', url: 'https://mcp.notion.com/mcp' }, keys: [], signIn: true },
+  { id: 'sentry', name: 'sentry', description: 'Errors and performance issues from Sentry', config: { type: 'http', url: 'https://mcp.sentry.dev/mcp' }, keys: [], signIn: true },
+  { id: 'huggingface', name: 'huggingface', description: 'Models, datasets and Spaces on Hugging Face', config: { type: 'http', url: 'https://huggingface.co/mcp' }, keys: [] }
+]

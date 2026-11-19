@@ -86,6 +86,14 @@ interface InternalServices {
   focusContents: (contents: WebContents) => void
 }
 
+/** Pinned and archived chats, by id. */
+const CHAT_FLAGS_KEY = 'chats:flags'
+type ChatFlags = Record<string, { pinned?: boolean; archived?: boolean }>
+const chatFlags = (kv: KeyValueRepo): ChatFlags => {
+  const saved = kv.get(CHAT_FLAGS_KEY)
+  return saved && typeof saved === 'object' ? (saved as ChatFlags) : {}
+}
+
 /** Designs picked per report, as `chat id → title → design`. Small, so it lives in one kv entry. */
 const DESIGNS_KEY = 'chats:designs'
 const MAX_DESIGN_CHATS = 300
@@ -337,7 +345,22 @@ export function registerInternalIpc(services: InternalServices): () => void {
       chats.clear()
       void ai.coder.forgetAll()
     },
-    'chats:list': () => chats.list(),
+    'chats:list': () => {
+      const flags = chatFlags(core.services.kv)
+      return chats.list().map((chat) => ({ ...chat, ...flags[chat.id] }))
+    },
+    'chats:flag': (id, patch) => {
+      const chat = text(id, 64)
+      if (!patch || typeof patch !== 'object') throw new Error('Invalid flags')
+      const { pinned, archived } = patch as { pinned?: unknown; archived?: unknown }
+      const all = chatFlags(core.services.kv)
+      const next = { ...all[chat], ...(typeof pinned === 'boolean' ? { pinned } : {}), ...(typeof archived === 'boolean' ? { archived } : {}) }
+      if (!next.pinned) delete next.pinned
+      if (!next.archived) delete next.archived
+      if (Object.keys(next).length) all[chat] = next
+      else delete all[chat]
+      core.services.kv.set(CHAT_FLAGS_KEY, all)
+    },
     'chats:get': (id) => chats.get(text(id, 64)),
     'chats:save': (id, turns) => {
       if (!isTurns(turns)) throw new Error('Invalid chat')
@@ -391,6 +414,11 @@ export function registerInternalIpc(services: InternalServices): () => void {
       return speakerNotes(report, (system, user) => ai.complete(system, user))
     },
     'chats:delete': (id) => {
+      const flags = chatFlags(core.services.kv)
+      if (flags[text(id, 64)]) {
+        delete flags[text(id, 64)]
+        core.services.kv.set(CHAT_FLAGS_KEY, flags)
+      }
       clearDesigns(core.services.kv, text(id, 64))
       chats.delete(text(id, 64))
       void ai.coder.forget(text(id, 64))

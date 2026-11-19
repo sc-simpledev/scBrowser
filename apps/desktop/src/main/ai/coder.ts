@@ -67,7 +67,7 @@ import {
   type ModelRef
 } from '@scbrowser/shared'
 import { CoderJobs } from './coderJobs'
-import { detectDiagnostics, loadDefs, loadHooks, loadSkills, projectSettings, type HookSet, type MarkdownDef } from './coderProject'
+import { detectDiagnostics, formatterFor, loadDefs, type Formatter, loadHooks, loadSkills, projectSettings, type HookSet, type MarkdownDef } from './coderProject'
 import { asText, MAX_COMMAND_FILES, type CoderCheckpoints, type CoderMark, type CoderSnapshots } from './coderStorage'
 import { applyEdits, clip, commandEnv, deleteFile, globFiles, inside, lineDiff, listFiles, moveFile, readLines, readText, runCommand, searchFiles, shown, ToolError, writeText, type SandboxMode } from './coderTools'
 import { MemoryCoderTrust, type CoderTrust } from './coderTrust'
@@ -157,7 +157,22 @@ interface Session {
   toolStops: Map<string, AbortController>
   /** Whether a project's hooks were allowed for this session (null: not asked yet). */
   hooksAllowed: boolean | null
+  /** Each step that changed files, by tool id, so it alone can be undone and redone. */
+  steps: Map<string, CoderStep>
+  /** Formatters the person answered about this session: true to run, false not to. */
+  formatters: Map<string, boolean>
 }
+
+/** One step's files, as they were before it and after it (null: missing). */
+export interface CoderStep {
+  summary: string
+  files: [string, string | null, string | null][]
+  undone: boolean
+}
+
+/** Steps kept for undoing one at a time. */
+const MAX_STEPS = 80
+const FORMAT_TIMEOUT_MS = 30_000
 
 interface Reply {
   text: string
@@ -241,6 +256,8 @@ export interface CoderDependencies {
   autoCompact?: () => boolean
   /** Run the project's checker after edits, when it's allowed to run without asking. */
   autoCheck?: () => boolean
+  /** Run the project's own formatter on files after editing them. On unless this says otherwise. */
+  autoFormat?: () => boolean
   mcp?: CoderMcpHost
   browser?: CoderBrowserHost
   /** Whether the person wants to see the model's reasoning. */
@@ -271,7 +288,7 @@ interface Project {
  */
 export class Coder {
   private readonly sessions = new Map<string, Session>()
-  private readonly approvals = new Map<string, (answer: CoderAnswer) => void>()
+  private readonly approvals = new Map<string, { sessionId: string; settle: (answer: CoderAnswer) => void }>()
   private readonly trust: CoderTrust
   readonly jobs: CoderJobs
 
@@ -290,7 +307,12 @@ export class Coder {
   }
 
   answer(id: string, answer: CoderAnswer): void {
-    this.approvals.get(id)?.(answer)
+    this.approvals.get(id)?.settle(answer)
+  }
+
+  /** Sessions waiting for the person to answer something, for the session list. */
+  waitingSessions(): string[] {
+    return [...new Set([...this.approvals.values()].map((approval) => approval.sessionId))]
   }
 
   stop(sessionId: string): void {
@@ -346,7 +368,8 @@ export class Coder {
         originals: [...session.originals],
         opaque: [...session.opaque],
         seen: [...session.seen],
-        marks: [...session.marks]
+        marks: [...session.marks],
+        steps: [...session.steps]
       })
       .catch(() => undefined)
   }
@@ -371,7 +394,9 @@ export class Coder {
       usage: { input: 0, output: 0 },
       emit: null,
       toolStops: new Map(),
-      hooksAllowed: null
+      hooksAllowed: null,
+      steps: new Map(),
+      formatters: new Map()
     }
   }
 
@@ -392,6 +417,7 @@ export class Coder {
     session.seen = new Map((saved.seen ?? []).filter(within))
     session.opaque = new Map((saved.opaque ?? []).filter(within))
     session.marks = new Map((saved.marks ?? []).map(([id, mark]) => [id, { ...mark, files: mark.files.filter(within) }]))
+    session.steps = new Map((saved.steps ?? []).filter(([, step]) => step.files.every(([full]) => full.startsWith(saved.folder + sep))))
     if (saved.native && !session.native) session.messages = flattenToolTurns(session.messages)
     this.sessions.set(sessionId, session)
     return session
@@ -466,19 +492,33 @@ export class Coder {
    * Puts the conversation and the session's files back to just before a turn, as if it had never
    * been sent. Returns that turn's task, for the page to offer again.
    */
-  async rewind(sessionId: string, turnId: string): Promise<{ task: string; files: number }> {
+  async rewind(sessionId: string, turnId: string, what: 'both' | 'code' | 'conversation' = 'both'): Promise<{ task: string; files: number }> {
     const session = await this.loaded(sessionId)
     const mark = session?.marks.get(turnId)
     if (!session || !mark) throw new Error('That message can’t be rewound to any more.')
     if (session.controller) throw new Error('Stop Terra Code before rewinding.')
     const then = new Map(mark.files)
     let files = 0
-    for (const [full, before] of [...session.originals]) {
-      if (session.opaque.has(full)) continue
-      // A file first touched after this turn started was still as it was before the session.
-      const target = then.has(full) ? then.get(full)! : before
-      if (await putBack(full, target)) files++
-      if (!then.has(full)) session.originals.delete(full)
+    if (what !== 'conversation') {
+      for (const [full, before] of [...session.originals]) {
+        if (session.opaque.has(full)) continue
+        // A file first touched after this turn started was still as it was before the session.
+        const target = then.has(full) ? then.get(full)! : before
+        if (await putBack(full, target)) files++
+        if (!then.has(full)) session.originals.delete(full)
+      }
+      // Steps from after this point no longer match the files.
+      session.steps.clear()
+    }
+    if (what === 'code') {
+      // The conversation stays, so the model is told its files went back.
+      session.messages.push({ role: 'user', content: `(The person put the files back to how they were before this message of theirs: "${mark.task.slice(0, 300)}". Everything you changed after it is gone. Read files again before changing them.)` })
+      session.messages.push({ role: 'assistant', content: 'Understood: the files are back as they were then.' })
+      const order = [...session.marks.keys()]
+      for (const id of order.slice(order.indexOf(turnId) + 1)) session.marks.delete(id)
+      session.seen.clear()
+      await this.persist(sessionId, session)
+      return { task: mark.task, files }
     }
     if (mark.at >= 0) session.messages = session.messages.slice(0, mark.at)
     else {
@@ -487,12 +527,51 @@ export class Coder {
       session.messages = session.messages.slice(0, summaryEnd)
     }
     if (session.messages.length === 0) session.introduced = false
+    if (what === 'conversation' && session.messages.length > 0) {
+      // The files keep what was done since, which the shortened conversation no longer mentions.
+      session.messages.push({ role: 'user', content: '(The person went back to an earlier point in this conversation but kept the files as they are now, so they may hold changes you no longer remember. Read files before relying on them.)' })
+      session.messages.push({ role: 'assistant', content: 'Understood: I’ll read files again rather than rely on memory.' })
+    }
     const order = [...session.marks.keys()]
     for (const id of order.slice(order.indexOf(turnId))) session.marks.delete(id)
     session.seen.clear()
     session.queue = []
     await this.persist(sessionId, session)
     return { task: mark.task, files }
+  }
+
+  /**
+   * Undoes one step that changed files, or does it again. Only while the files are still exactly
+   * as that step left them (or, to redo, as it found them), so nothing done since is overwritten.
+   */
+  async undoStep(sessionId: string, toolId: string, redo = false): Promise<{ undone: boolean; files: number }> {
+    const session = await this.loaded(sessionId)
+    const step = session?.steps.get(toolId)
+    if (!session || !step) throw new Error('That step can’t be undone any more.')
+    if (session.controller) throw new Error('Stop Terra Code before undoing a step.')
+    if (step.undone !== redo) return { undone: step.undone, files: 0 }
+    for (const [full, before, after] of step.files) {
+      const now = await readFile(full, 'utf8').catch(() => null)
+      if (now !== (redo ? before : after)) throw new Error(`${shown(session.folder, full)} has changed since, so this step can’t be ${redo ? 'redone' : 'undone'} on its own. Rewind instead.`)
+    }
+    let files = 0
+    for (const [full, before, after] of step.files) {
+      if (await putBack(full, redo ? after : before)) files++
+      session.seen.delete(full)
+    }
+    step.undone = !redo
+    session.messages.push({ role: 'user', content: redo ? `(The person redid your step "${step.summary}", which they had undone. Read the files again before changing them.)` : `(The person undid your step "${step.summary}". Those files are back as they were before it. Read them again before changing them.)` })
+    session.messages.push({ role: 'assistant', content: redo ? 'Understood: that step is back.' : 'Understood: that step was undone.' })
+    await this.persist(sessionId, session)
+    return { undone: step.undone, files }
+  }
+
+  /** Remembers what a step did to its files, for undoing it alone. */
+  private async recordStep(session: Session, id: string, summary: string, files: [string, string | null][]): Promise<void> {
+    const record: CoderStep = { summary, files: [], undone: false }
+    for (const [full, before] of files) record.files.push([full, before, await readFile(full, 'utf8').catch(() => null)])
+    session.steps.set(id, record)
+    for (const old of [...session.steps.keys()].slice(0, Math.max(0, session.steps.size - MAX_STEPS))) session.steps.delete(old)
   }
 
   /** A copy of a session to carry on in separately. Undo for files changed by commands stays with the original. */
@@ -1109,11 +1188,27 @@ export class Coder {
     return { blocked, notes }
   }
 
-  /** After a file changes: hooks such as formatters, and the model told if they changed it again. */
+  /** After a file changes: the project's formatter and hooks, and the model told if they changed it again. */
   private async afterEdit(session: Session, project: Project, full: string, signal: AbortSignal, emit: Emit, sessionId: string): Promise<string> {
-    if (!project.hooks.some((set) => set.hooks.some((hook) => hook.event === 'afterEdit'))) return ''
+    const notes: string[] = []
+    const formatter = this.deps.autoFormat?.() === false ? null : await formatterFor(session.folder, full)
+    if (formatter && (await this.mayFormat(session, formatter, signal, emit, sessionId))) {
+      const written = await readFile(full, 'utf8').catch(() => null)
+      const id = randomUUID()
+      emit({ sessionId, type: 'tool', id, tool: 'hook', summary: `Format ${shown(session.folder, full)} · ${formatter.name}` })
+      const result = await runCommand(session.folder, formatter.command, signal, FORMAT_TIMEOUT_MS, { sandbox: this.deps.sandbox?.() ?? 'off' })
+      emit({ sessionId, type: 'tool-result', id, ok: result.ok, output: result.output })
+      const now = await readFile(full, 'utf8').catch(() => null)
+      if (!result.ok) notes.push(`${formatter.name} couldn't format it:\n${clip(result.output, 2000)}`)
+      else if (now !== written) {
+        session.seen.set(full, (await stat(full).catch(() => null))?.mtimeMs ?? 0)
+        notes.push(`(Formatted with ${formatter.name}, so read the file again before editing it.)`)
+      }
+    }
+    if (!project.hooks.some((set) => set.hooks.some((hook) => hook.event === 'afterEdit'))) return notes.length ? `\n\n${notes.join('\n\n')}` : ''
     const written = await readFile(full, 'utf8').catch(() => null)
-    const { notes } = await this.runHooks('afterEdit', session, project, { file: shown(session.folder, full) }, signal, emit, sessionId)
+    const hooked = await this.runHooks('afterEdit', session, project, { file: shown(session.folder, full) }, signal, emit, sessionId)
+    notes.push(...hooked.notes)
     const now = await readFile(full, 'utf8').catch(() => null)
     if (now !== written) {
       session.seen.set(full, (await stat(full).catch(() => null))?.mtimeMs ?? 0)
@@ -1122,11 +1217,22 @@ export class Coder {
     return notes.length ? `\n\n${notes.join('\n\n')}` : ''
   }
 
+  /** A formatter runs project code, so the person says yes once per project (or per session). */
+  private async mayFormat(session: Session, formatter: Formatter, signal: AbortSignal, emit: Emit, sessionId: string): Promise<boolean> {
+    if (this.trust.trusted(session.folder, `formatter:${formatter.key}`) === formatter.key) return true
+    const known = session.formatters.get(formatter.key)
+    if (known !== undefined) return known
+    const answer = await this.ask(sessionId, 'command', `Format edited files with ${formatter.name}?`, formatter.example, signal, emit, { always: `Always format with ${formatter.name} here` })
+    session.formatters.set(formatter.key, answer !== 'deny')
+    if (answer === 'always') this.trust.trust(session.folder, `formatter:${formatter.key}`, formatter.key)
+    return answer !== 'deny'
+  }
+
   /** Runs one tool, asking first when it changes something. Returns what the model is told. */
   private async use(sessionId: string, root: string, call: CoderCall, mode: CoderRunMode, session: Session, project: Project, signal: AbortSignal, emit: Emit, by?: { name: string; run: string }): Promise<Outcome> {
     const id = randomUUID()
-    const report = (ok: boolean, output: string, declined = false, changed = false, images?: string[]): Outcome => {
-      emit({ sessionId, type: 'tool-result', id, ok, output })
+    const report = (ok: boolean, output: string, declined = false, changed = false, images?: string[], undoable = false): Outcome => {
+      emit({ sessionId, type: 'tool-result', id, ok, output, ...(undoable ? { undoable } : {}) })
       return { output, declined, changed, ...(images?.length ? { images } : {}) }
     }
     const looking = mode === 'plan' || mode === 'review'
@@ -1283,7 +1389,8 @@ export class Coder {
           await this.publishChanges(sessionId, emit)
           const { added, removed } = countLines(before, after)
           const hooked = await this.afterEdit(session, project, full, signal, emit, sessionId)
-          return report(true, `${exists ? 'Updated' : 'Created'} ${name} (+${added} −${removed}).${hooked}`, false, true)
+          await this.recordStep(session, id, summary, [[full, exists ? before : null]])
+          return report(true, `${exists ? 'Updated' : 'Created'} ${name} (+${added} −${removed}).${hooked}`, false, true, undefined, true)
         }
         case 'patch': {
           announce(`Edit ${call.files.length} ${call.files.length === 1 ? 'file' : 'files'}: ${call.files.map((file) => file.path).join(', ')}`)
@@ -1317,7 +1424,8 @@ export class Coder {
             lines.push(`${file.name} (+${added} −${removed})${await this.afterEdit(session, project, file.full, signal, emit, sessionId)}`)
           }
           await this.publishChanges(sessionId, emit)
-          return report(true, `Updated ${lines.join(', ')}.`, false, true)
+          await this.recordStep(session, id, `Edit ${planned.map((file) => file.name).join(', ')}`, planned.map((file) => [file.full, file.before]))
+          return report(true, `Updated ${lines.join(', ')}.`, false, true, undefined, true)
         }
         case 'delete': {
           announce(`Delete ${call.path}`)
@@ -1329,7 +1437,8 @@ export class Coder {
           await deleteFile(full)
           session.seen.delete(full)
           await this.publishChanges(sessionId, emit)
-          return report(true, `Deleted ${name}.`, false, true)
+          await this.recordStep(session, id, `Delete ${name}`, [[full, before]])
+          return report(true, `Deleted ${name}.`, false, true, undefined, true)
         }
         case 'move': {
           announce(`Move ${call.from} to ${call.to}`)
@@ -1339,10 +1448,13 @@ export class Coder {
           if (!(await approve('change', summary, `${shown(root, from)}\n→ ${shown(root, to)}`))) return report(false, 'The person declined this move.', true)
           await this.remember(session, from)
           await this.remember(session, to)
+          const moved = await readFile(from, 'utf8').catch(() => null)
           await moveFile(from, to)
           session.seen.delete(from)
           await this.publishChanges(sessionId, emit)
-          return report(true, `${summary}.`, false, true)
+          // Text files only: a picture moved isn't something a step can put back from memory.
+          if (moved !== null) await this.recordStep(session, id, summary, [[from, moved], [to, null]])
+          return report(true, `${summary}.`, false, true, undefined, moved !== null)
         }
         case 'run': {
           announce(`${call.background ? 'Start' : 'Run'} ${call.command}`)
@@ -1444,10 +1556,13 @@ export class Coder {
         reject(new Error('Stopped'))
       }
       signal.addEventListener('abort', onAbort, { once: true })
-      this.approvals.set(id, (answer) => {
-        this.approvals.delete(id)
-        signal.removeEventListener('abort', onAbort)
-        resolve(answer)
+      this.approvals.set(id, {
+        sessionId,
+        settle: (answer) => {
+          this.approvals.delete(id)
+          signal.removeEventListener('abort', onAbort)
+          resolve(answer)
+        }
       })
       emit({ sessionId, type: 'approval', id, kind, summary, detail, ...(rule ? { rule } : {}), ...(always ? { always } : {}) })
     })

@@ -1,4 +1,4 @@
-import { ArrowUp, AtSign, Check, Columns2, FileText, Globe, Hand, History, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { AlignLeft, ArrowUp, AtSign, Check, Columns2, FileText, Globe, Hand, History, Lightbulb, ListChecks, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { CONTINUE_PROMPT, isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
@@ -49,6 +49,8 @@ const PAGE_STARTERS = [
   { label: 'Pull out the key points', prompt: 'List the key points of this page as short bullets.' },
   { label: 'Explain it simply', prompt: 'Explain this page simply, as if I know nothing about the topic.' }
 ]
+
+const STARTER_ICONS = [AlignLeft, ListChecks, Lightbulb]
 
 const MENTION = /(^|\s)@([^\s]*)$/
 
@@ -329,18 +331,24 @@ export function AssistantPanel() {
                 <div className="flex flex-1 flex-col justify-end gap-3 pb-2">
                   <h2 className="text-md font-medium">{canRead && !siteOff ? 'What do you want to know about this page?' : 'What can I help with?'}</h2>
                   {canRead && !siteOff && (
-                    <div className="flex flex-col items-start gap-1.5">
-                      {(tab && summarisePromptFor(tab.url) === VIDEO_SUMMARY_PROMPT ? [{ label: 'Summarise with key moments', prompt: VIDEO_SUMMARY_PROMPT }, ...PAGE_STARTERS.slice(1)] : PAGE_STARTERS).map(({ label, prompt }) => (
-                        <Button
-                          key={label}
-                          onClick={() => {
-                            setIncludePage(true)
-                            send(prompt)
-                          }}
-                        >
-                          {label}
-                        </Button>
-                      ))}
+                    <div className="-mx-1.5 flex flex-col">
+                      {(tab && summarisePromptFor(tab.url) === VIDEO_SUMMARY_PROMPT ? [{ label: 'Summarise with key moments', prompt: VIDEO_SUMMARY_PROMPT }, ...PAGE_STARTERS.slice(1)] : PAGE_STARTERS).map(({ label, prompt }, index) => {
+                        const Icon = STARTER_ICONS[index] ?? AlignLeft
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setIncludePage(true)
+                              send(prompt)
+                            }}
+                            className="flex h-8 items-center gap-2.5 rounded-md px-1.5 text-left text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                          >
+                            <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+                            {label}
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -386,7 +394,7 @@ export function AssistantPanel() {
                   </IconButton>
                 </div>
               )}
-              <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
+              <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong">
                 <textarea
                   ref={inputRef}
                   rows={2}

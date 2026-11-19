@@ -148,7 +148,7 @@ export function Omnibox() {
     ],
     [sources, bookmarks, history, tabs]
   )
-  const { autofill, value: typed, noteInput, accept, dismiss } = useAutofill(draft, autofillUrls, inputRef, autofillOn && !scope)
+  const { autofill, value: typed, noteInput, accept, dismiss } = useAutofill(draft, autofillUrls, inputRef, autofillOn && !scope, setDraft)
   const value = typed ?? url
   const suggestions = useMemo(
     () =>

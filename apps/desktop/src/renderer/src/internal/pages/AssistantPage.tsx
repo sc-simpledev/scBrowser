@@ -11,6 +11,7 @@ import { PickedTabs, TabPicker, type PickableTab } from '../../shared/TabPicker'
 import { newestFile } from '../../state/files'
 import { api } from '../api'
 import { CodeWorkspace } from '../code/CodeWorkspace'
+import { CodeSessions } from '../code/CodeSessions'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
 import { pasteCleanly } from '../../shared/pasteCleanly'
 
@@ -425,7 +426,7 @@ export function AssistantPage() {
       {notice && <p role="status" className="px-1 pb-1 text-xs text-text-muted">{notice}</p>}
       {preset && <PresetChip preset={preset} onRemove={() => setPreset(null)} />}
       <PickedTabs tabs={researchTabs} onRemove={(id) => setResearch(research.filter((other) => other !== id))} />
-      <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong focus-within:shadow-[0_0_0_2px_var(--sc-focus-ring)]">
+      <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong">
         <textarea
           autoFocus
           rows={2}
@@ -491,7 +492,7 @@ export function AssistantPage() {
 
   return (
     <div className="flex h-full">
-      {listOpen && <ChatList chats={chats} current={view === 'code' ? codeId : chatId.current} onDelete={deleteChat} newHref={view === 'code' ? 'sc://assistant/?mode=code' : 'sc://assistant/'} />}
+      {listOpen && (view === 'code' ? <CodeSessions chats={chats} current={codeId} onDelete={deleteChat} onChanged={refreshChats} /> : <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />)}
       {codeOpened && (
         <div className={cx('min-w-72 flex-1 flex-col', view === 'code' ? 'flex' : 'hidden')}>
           <CodeWorkspace

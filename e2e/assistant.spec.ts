@@ -248,6 +248,7 @@ test('@ brings another tab into the message', async () => {
 
 test('/ runs a saved skill, and skills can be added', async () => {
   const page = await addProvider('openai')
+  await page.getByRole('button', { name: 'New skill' }).click()
   await page.getByRole('textbox', { name: 'Skill name' }).fill('Haiku it')
   await page.getByRole('textbox', { name: 'Skill prompt' }).fill('Turn this page into a haiku.')
   await page.getByRole('button', { name: 'Add skill' }).click()

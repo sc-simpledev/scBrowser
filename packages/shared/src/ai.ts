@@ -177,6 +177,10 @@ export interface ChatSummary {
   id: string
   title: string
   updatedAt: number
+  /** A Terra Code session's project folder. */
+  folder?: string
+  pinned?: boolean
+  archived?: boolean
 }
 
 export interface SavedChat extends ChatSummary {

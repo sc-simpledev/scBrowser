@@ -99,7 +99,7 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning } : {}),
       agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -374,6 +374,7 @@ export interface CoderHome {
   sandbox?: () => SandboxMode
   autoCompact?: () => boolean
   autoCheck?: () => boolean
+  autoFormat?: () => boolean
   showReasoning?: () => boolean
   /** Which model helpers use: the session's, or the quick model. */
   agentModel?: () => 'session' | 'quick'

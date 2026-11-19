@@ -1,4 +1,4 @@
-import { ArrowUp, Brain, Check, ChevronDown, FileText, Globe, ImagePlus, Slash, Square, X, type LucideIcon } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, FileText, Globe, ImagePlus, Square, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { CODER_BUILTIN_COMMANDS, CODER_EFFORTS, CODER_MAX_IMAGES, type CoderEffort, type CoderExtension, type CoderMention, type CoderMode, type CoderModelChoice } from '@scbrowser/shared'
@@ -25,7 +25,8 @@ export interface SendPayload {
 
 interface MenuRow {
   key: string
-  icon: LucideIcon
+  /** Files and tabs show what they are; commands need no icon, as they start with a slash. */
+  icon?: LucideIcon
   label: string
   detail: string
   pick: () => void
@@ -239,7 +240,6 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
         .slice(0, 12)
         .map((command) => ({
           key: `/${command.name}`,
-          icon: Slash,
           label: `/${command.name}${command.args ? ` ${command.args}` : ''}`,
           detail: command.description,
           pick: () => {
@@ -338,8 +338,8 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
               onMouseEnter={() => setSelected(index)}
               className={cx('flex h-8 cursor-default items-center gap-2.5 rounded-md px-2 text-xs', index === highlighted ? 'bg-accent-soft' : 'hover:bg-surface-hover')}
             >
-              <row.icon aria-hidden size={13} strokeWidth={1.75} className={cx('shrink-0', index === highlighted ? 'text-accent' : 'text-text-faint')} />
-              <span className="shrink-0 font-mono text-2xs">{row.label}</span>
+              {row.icon && <row.icon aria-hidden size={13} strokeWidth={1.75} className={cx('shrink-0', index === highlighted ? 'text-accent' : 'text-text-faint')} />}
+              <span title={row.label} className={cx('shrink-0 truncate font-mono text-2xs', !row.icon && 'w-32', index === highlighted && 'text-accent')}>{row.label}</span>
               <span className="min-w-0 flex-1 truncate text-text-faint">{row.detail}</span>
             </li>
           ))}

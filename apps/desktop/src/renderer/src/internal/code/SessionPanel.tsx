@@ -1,7 +1,9 @@
-import { Activity, Bot, Brain, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, PanelRightClose, Shield, Square, type LucideIcon } from 'lucide-react'
+import { Bot, Brain, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, PanelRightClose, Shield, Square, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderWorktree } from '@scbrowser/shared'
+import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderWorktree, type Settings } from '@scbrowser/shared'
+import { EffortChoices, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
+import type { ModelPick } from './Composer'
 import { ChecklistItems, Spinner, useElapsed } from './CodeParts'
 import { sessionStats, shortDuration, shortTokens, type CodeState } from './codeState'
 import { MODES } from './Composer'
@@ -68,29 +70,46 @@ function AgentRow({ run }: { run: CoderAgentRun }) {
   )
 }
 
+export type PanelTab = 'session' | 'settings'
+
 export interface SessionPanelProps {
   status: CoderStatus
   worktree: CoderWorktree | null
   mode: CoderMode
+  onMode: (mode: CoderMode) => void
+  model: ModelPick | null
+  onModel: (model: ModelPick | null) => void
   modelName: string
   providerName: string | null
   effort: CoderEffort | null
-  showReasoning: boolean
-  sandbox: string
+  onEffort: (effort: CoderEffort | null) => void
+  prefs: Settings | null
+  onPrefs: (patch: Partial<Settings>) => void
   state: CodeState
+  tab: PanelTab
+  onTab: (tab: PanelTab) => void
+  /** A setting to open when the Settings tab is asked for by name, such as /mcp. */
+  settingsFocus: string | null
+  onSetupChanged: () => void
   onClose: () => void
   onOpenFolder: () => void
-  onReview: () => void
+  /** Opens the review, on one file if it's given. */
+  onReview: (path?: string) => void
   onCommit: () => void
   onCompact: () => void
   onStopJob: (id: number) => void
-  onSettings: () => void
 }
 
 /** Beside the conversation, as in Claude: where it's working, how full its memory is, and what it's doing. */
-export function SessionPanel({ status, worktree, mode, modelName, providerName, effort, showReasoning, sandbox, state, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onSettings }: SessionPanelProps) {
+export function SessionPanel(props: SessionPanelProps) {
+  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob } = props
   const { context, todo, agents, jobs, changes, items, working, runStartedAt, lastRunMs } = state
   const [showAllAgents, setShowAllAgents] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
+  const toggle = (name: string) => setOpen((current) => (current === name ? null : name))
+  const showReasoning = prefs?.coderShowReasoning ?? true
+  const sandboxValue = prefs?.coderSandbox ?? 'off'
+  const sandbox = !status.sandboxAvailable || sandboxValue === 'off' ? 'Off' : sandboxValue === 'project' ? 'Project only' : 'No network'
   const runMs = useElapsed(runStartedAt)
   const stats = sessionStats(items)
   const share = context ? Math.min(1, context.used / Math.max(1, context.limit)) : 0
@@ -104,10 +123,23 @@ export function SessionPanel({ status, worktree, mode, modelName, providerName, 
   const shownAgents = showAllAgents ? agents : agents.slice(-5)
   return (
     <aside aria-label="Session" className="flex h-full w-full flex-col bg-bg">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-4">
-        <h2 className="text-xs font-medium">Session</h2>
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
+        <div role="tablist" aria-label="Session panel" className="flex items-center gap-0.5">
+          {(['session', 'settings'] as const).map((name) => (
+            <button
+              key={name}
+              type="button"
+              role="tab"
+              aria-selected={tab === name}
+              onClick={() => onTab(name)}
+              className={cx('h-6.5 rounded-md px-2 text-xs transition-colors', tab === name ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:text-text')}
+            >
+              {name === 'session' ? 'Session' : 'Settings'}
+            </button>
+          ))}
+        </div>
         {working && (
-          <span className="ml-1.5 flex items-center gap-1.5 text-2xs text-text-faint tabular-nums">
+          <span title="Working" className="ml-1 flex items-center gap-1.5 text-2xs text-text-faint tabular-nums">
             <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-accent" />
             {shortDuration(runMs)}
           </span>
@@ -117,109 +149,120 @@ export function SessionPanel({ status, worktree, mode, modelName, providerName, 
         </IconButton>
       </div>
       <div className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
-        <Section title="Environment">
-          <div className="flex flex-col">
-            <Row icon={Folder} label={folder ?? 'No folder chosen'} title={status.folder ?? undefined} onClick={status.folder ? onOpenFolder : undefined} />
-            {(worktree || status.branch) && <Row icon={GitBranch} label={<span className="font-mono text-2xs">{worktree?.branch ?? status.branch}</span>} value={worktree ? 'Separate copy' : undefined} />}
-            <Row icon={Shield} label="Permissions" value={modeLabel} onClick={onSettings} />
-            <Row icon={Layers} label="Sandbox" value={sandbox} onClick={onSettings} />
-          </div>
-        </Section>
-
-        <Section title="Model">
-          <div className="flex flex-col">
-            <Row icon={Cpu} label={<span className="font-mono text-2xs">{modelName}</span>} value={providerName ?? undefined} />
-            <Row icon={Brain} label="Thinking" value={showReasoning ? effortLabel : `${effortLabel}, hidden`} onClick={onSettings} />
-          </div>
-        </Section>
-
-        <Section title="Context" aside={context ? `${shortTokens(context.used)} / ${shortTokens(context.limit)}` : undefined}>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-baseline justify-between text-xs">
-              <span className="font-medium tabular-nums">{context ? `${percent}% used` : 'Nothing yet'}</span>
-              {context && share >= 0.25 && (
-                <button type="button" disabled={working} onClick={onCompact} className="text-2xs text-accent hover:text-accent-hover disabled:text-text-faint">
-                  Compact now
-                </button>
-              )}
+        {tab === 'settings' ? (
+          <SettingsTab prefs={prefs} onPrefs={onPrefs} mode={mode} onMode={onMode} effort={effort} onEffort={onEffort} sandboxAvailable={status.sandboxAvailable} focus={settingsFocus} onSetupChanged={onSetupChanged} />
+        ) : (
+          <>
+          <Section title="Environment">
+            <div className="flex flex-col">
+              <Row icon={Folder} label={folder ?? 'No folder chosen'} title={status.folder ?? undefined} onClick={status.folder ? onOpenFolder : undefined} />
+              {(worktree || status.branch) && <Row icon={GitBranch} label={<span className="font-mono text-2xs">{worktree?.branch ?? status.branch}</span>} value={worktree ? 'Separate copy' : undefined} />}
+              <SettingRow icon={Shield} label="Permissions" value={modeLabel} open={open === 'mode'} onToggle={() => toggle('mode')}>
+                <ModeChoices mode={mode} onMode={onMode} />
+              </SettingRow>
+              <SettingRow icon={Layers} label="Sandbox" value={sandbox} open={open === 'sandbox'} onToggle={() => toggle('sandbox')}>
+                <SandboxChoices value={sandboxValue} available={status.sandboxAvailable} onChange={(coderSandbox) => onPrefs({ coderSandbox })} />
+              </SettingRow>
             </div>
-            <div role="meter" aria-label="Memory used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-surface-hover">
-              <div className={cx('h-full rounded-full transition-[width]', share > 0.8 ? 'bg-danger' : 'bg-accent')} style={{ width: `${Math.max(share > 0 ? 2 : 0, percent)}%` }} />
+          </Section>
+
+          <Section title="Model">
+            <div className="flex flex-col">
+              <SettingRow icon={Cpu} label={modelName} value={model ? model.providerName : (providerName ?? undefined)} open={open === 'model'} onToggle={() => toggle('model')}>
+                <ModelChoices model={model} onModel={onModel} />
+              </SettingRow>
+              <SettingRow icon={Brain} label="Thinking" value={effortLabel} open={open === 'effort'} onToggle={() => toggle('effort')}>
+                <EffortChoices effort={effort} onEffort={onEffort} />
+                {prefs && <SwitchRow label="Show reasoning" hint="Folded above each step" checked={showReasoning} onChange={(coderShowReasoning) => onPrefs({ coderShowReasoning })} />}
+              </SettingRow>
             </div>
-            <p className="text-2xs text-text-faint">{share > 0.8 ? 'Nearly full. Older steps get summarised soon.' : 'Older steps are summarised when it fills up.'}</p>
-          </div>
+          </Section>
+
+          {/* What follows fills in as it works; before that, one line says so instead of empty sections. */}
+          {!context && changes.length === 0 && stats.tools === 0 && <p className="px-4 py-3.5 text-2xs text-text-faint">Memory, changes and activity show here as Terra Code works.</p>}
+
           {context && (
-            <div className="grid grid-cols-2 gap-1.5">
-              <Stat label="Tokens in" value={shortTokens(context.inputTokens)} />
-              <Stat label="Tokens out" value={shortTokens(context.outputTokens)} />
-            </div>
+            <Section title="Context" aside={`${shortTokens(context.used)} / ${shortTokens(context.limit)}`}>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className="font-medium tabular-nums">{percent}% used</span>
+                  {share >= 0.25 && (
+                    <button type="button" disabled={working} onClick={onCompact} className="text-2xs text-accent hover:text-accent-hover disabled:text-text-faint">
+                      Compact now
+                    </button>
+                  )}
+                </div>
+                <div role="meter" aria-label="Memory used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-surface-hover">
+                  <div className={cx('h-full rounded-full transition-[width]', share > 0.8 ? 'bg-danger' : 'bg-accent')} style={{ width: `${Math.max(share > 0 ? 2 : 0, percent)}%` }} />
+                </div>
+                <p className="text-2xs text-text-faint">{share > 0.8 ? 'Nearly full. Older steps get summarised soon.' : 'Older steps are summarised when it fills up.'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Stat label="Tokens in" value={shortTokens(context.inputTokens)} />
+                <Stat label="Tokens out" value={shortTokens(context.outputTokens)} />
+              </div>
+            </Section>
           )}
-        </Section>
 
-        {todo.length > 0 && (
-          <Section title="Checklist" aside={`${todo.filter((item) => item.done).length} of ${todo.length}`}>
-            <ChecklistItems items={todo} working={working} />
-          </Section>
-        )}
+          {todo.length > 0 && (
+            <Section title="Checklist" aside={`${todo.filter((item) => item.done).length} of ${todo.length}`}>
+              <ChecklistItems items={todo} working={working} />
+            </Section>
+          )}
 
-        {agents.length > 0 && (
-          <Section
-            title="Agents"
-            aside={
-              agents.length > 5 ? (
-                <button type="button" onClick={() => setShowAllAgents(!showAllAgents)} className="hover:text-text">
-                  {showAllAgents ? 'Latest' : `All ${agents.length}`}
-                </button>
-              ) : (
-                `${agents.filter((run) => run.state === 'running').length} working`
-              )
-            }
-          >
-            <ul className="flex flex-col gap-2">
-              {shownAgents.map((run) => (
-                <AgentRow key={run.id} run={run} />
-              ))}
-            </ul>
-          </Section>
-        )}
+          {agents.length > 0 && (
+            <Section
+              title="Agents"
+              aside={
+                agents.length > 5 ? (
+                  <button type="button" onClick={() => setShowAllAgents(!showAllAgents)} className="hover:text-text">
+                    {showAllAgents ? 'Latest' : `All ${agents.length}`}
+                  </button>
+                ) : (
+                  `${agents.filter((run) => run.state === 'running').length} working`
+                )
+              }
+            >
+              <ul className="flex flex-col gap-2">
+                {shownAgents.map((run) => (
+                  <AgentRow key={run.id} run={run} />
+                ))}
+              </ul>
+            </Section>
+          )}
 
-        {running.length > 0 && (
-          <Section title="Background" aside={`${running.length} running`}>
-            <ul className="flex flex-col gap-1">
-              {running.map((job) => (
-                <li key={job.id} className="group flex h-6.5 min-w-0 items-center gap-2 text-xs">
-                  <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-success" />
-                  <code className="min-w-0 flex-1 truncate font-mono text-2xs">{job.command}</code>
-                  <IconButton size="sm" label={`Stop ${job.command}`} onClick={() => onStopJob(job.id)}>
-                    <Square size={10} strokeWidth={2} />
-                  </IconButton>
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
+          {running.length > 0 && (
+            <Section title="Background" aside={`${running.length} running`}>
+              <ul className="flex flex-col gap-1">
+                {running.map((job) => (
+                  <li key={job.id} className="group flex h-6.5 min-w-0 items-center gap-2 text-xs">
+                    <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-success" />
+                    <code className="min-w-0 flex-1 truncate font-mono text-2xs">{job.command}</code>
+                    <IconButton size="sm" label={`Stop ${job.command}`} onClick={() => onStopJob(job.id)}>
+                      <Square size={10} strokeWidth={2} />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
 
-        <Section
-          title="Changes"
-          aside={
-            changes.length > 0 && (
-              <>
-                <span className="text-success">+{added}</span>
-                <span className="text-danger">−{removed}</span>
-              </>
-            )
-          }
-        >
-          {changes.length === 0 ? (
-            <p className="text-xs text-text-faint">No files changed yet.</p>
-          ) : (
-            <>
+          {changes.length > 0 && (
+            <Section
+              title="Changes"
+              aside={
+                <>
+                  <span className="text-success">+{added}</span>
+                  <span className="text-danger">−{removed}</span>
+                </>
+              }
+            >
               <ul className="-mx-1 flex flex-col">
                 {changes.slice(0, 12).map((file) => {
                   const Icon = STATUS_ICONS[file.status]
                   return (
                     <li key={file.path}>
-                      <button type="button" onClick={onReview} title={file.path} className="flex h-6.5 w-full min-w-0 items-center gap-2 rounded-md px-1 text-left text-xs transition-colors hover:bg-surface-hover">
+                      <button type="button" onClick={() => onReview(file.path)} title={file.path} className="flex h-6.5 w-full min-w-0 items-center gap-2 rounded-md px-1 text-left text-xs transition-colors hover:bg-surface-hover">
                         <Icon aria-label={file.status} size={13} strokeWidth={1.75} className={cx('shrink-0', file.status === 'created' ? 'text-success' : file.status === 'deleted' ? 'text-danger' : 'text-text-faint')} />
                         <span dir="rtl" className="min-w-0 flex-1 truncate text-left font-mono text-2xs">
                           {file.path}
@@ -234,7 +277,7 @@ export function SessionPanel({ status, worktree, mode, modelName, providerName, 
               </ul>
               {changes.length > 12 && <p className="text-2xs text-text-faint">And {changes.length - 12} more</p>}
               <div className="flex gap-1.5">
-                <Button className="flex-1" onClick={onReview}>
+                <Button className="flex-1" onClick={() => onReview()}>
                   Review
                 </Button>
                 {(status.git || worktree) && (
@@ -243,26 +286,23 @@ export function SessionPanel({ status, worktree, mode, modelName, providerName, 
                   </Button>
                 )}
               </div>
-            </>
+            </Section>
           )}
-        </Section>
 
-        <Section title="Activity" aside={lastRunMs !== null && !working ? `Last run ${shortDuration(lastRunMs)}` : undefined}>
-          <div className="grid grid-cols-3 gap-1.5">
-            <Stat label="Messages" value={stats.messages} />
-            <Stat label="Steps" value={stats.tools} />
-            <Stat label="Commands" value={stats.commands} />
-            <Stat label="Looked at" value={stats.reads} />
-            <Stat label="Edits" value={stats.edits} />
-            <Stat label="Failed" value={stats.failed} />
-          </div>
-          {stats.tools === 0 && (
-            <p className="flex items-center gap-1.5 text-2xs text-text-faint">
-              <Activity aria-hidden size={11} strokeWidth={1.75} />
-              Counts fill in as Terra Code works.
-            </p>
+          {stats.tools > 0 && (
+            <Section title="Activity" aside={lastRunMs !== null && !working ? `Last run ${lastRunMs < 1000 ? 'under 1 s' : shortDuration(lastRunMs)}` : undefined}>
+              <div className="grid grid-cols-3 gap-1.5">
+                <Stat label="Messages" value={stats.messages} />
+                <Stat label="Steps" value={stats.tools} />
+                <Stat label="Commands" value={stats.commands} />
+                <Stat label="Looked at" value={stats.reads} />
+                <Stat label="Edits" value={stats.edits} />
+                <Stat label="Failed" value={stats.failed} />
+              </div>
+            </Section>
           )}
-        </Section>
+          </>
+        )}
       </div>
     </aside>
   )

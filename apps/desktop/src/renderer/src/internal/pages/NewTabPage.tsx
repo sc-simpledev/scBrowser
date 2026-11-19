@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Sparkles, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -105,7 +105,7 @@ function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
     () => suggestions.flatMap((row) => ((row.kind === 'bookmark' || row.kind === 'history') && row.action.type === 'navigate' ? [row.action.url] : [])),
     [suggestions]
   )
-  const { autofill, value, noteInput, accept, dismiss } = useAutofill(query, urls, inputRef, autofillOn)
+  const { autofill, value, noteInput, accept, dismiss } = useAutofill(query, urls, inputRef, autofillOn, setQuery)
 
   useEffect(() => {
     const input = query.trim()
@@ -264,28 +264,30 @@ function QuickAiWidget({ keepChats }: { keepChats: boolean }) {
 
   if (status && !status.ready) {
     return (
-      <Card title="Quick AI">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-text-muted">Choose an AI provider to ask questions here.</p>
-          <Button onClick={() => openHere('sc://ai')}>Set up</Button>
-        </div>
-      </Card>
+      <section aria-label="Quick AI" className="sc-glass flex h-11 items-center gap-2.5 rounded-lg pr-1.5 pl-3.5 text-text shadow-1">
+        <Sparkles aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        <p className="min-w-0 flex-1 truncate text-text-muted">Choose an AI provider to ask quick questions here</p>
+        <Button variant="ghost" className="shrink-0" onClick={() => openHere('sc://ai')}>
+          Set up
+        </Button>
+      </section>
     )
   }
 
   return (
-    <Card title="Quick AI">
+    <section aria-label="Quick AI" className="sc-glass flex flex-col rounded-lg text-text shadow-1">
       <form
-        className="flex gap-2"
+        className="flex h-11 items-center gap-2.5 pr-1.5 pl-3.5"
         onSubmit={(e) => {
           e.preventDefault()
           ask()
         }}
       >
-        <Input
+        <Sparkles aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <input
           aria-label="Ask a quick question"
-          placeholder="Ask anything"
-          className="min-w-0 flex-1"
+          placeholder="Ask AI a quick question"
+          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-faint"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
@@ -298,33 +300,38 @@ function QuickAiWidget({ keepChats }: { keepChats: boolean }) {
               setStreamId(null)
             }}
           >
-            <Square size={14} strokeWidth={1.75} />
+            <Square size={13} strokeWidth={1.75} />
           </IconButton>
         ) : (
-          <Button type="submit" disabled={!question.trim()}>
-            Ask
-          </Button>
+          <button type="submit" aria-label="Ask" disabled={!question.trim()} className="grid size-7 shrink-0 place-items-center rounded-md bg-text text-bg transition-opacity disabled:opacity-0">
+            <ArrowUp size={14} strokeWidth={2} />
+          </button>
         )}
       </form>
-      {streamId && !answer && <p className="text-text-faint">Thinking…</p>}
-      {answer && (
-        <div className="max-h-80 overflow-y-auto">
-          <ReplyContent text={answer} onOpenLink={openNewTab} streaming={streamId !== null} />
+      {(streamId || answer || error) && (
+        <div className="flex flex-col gap-2 border-t border-border px-3.5 py-3">
+          {asked && <p className="text-xs font-medium text-text-muted">{asked}</p>}
+          {streamId && !answer && <p className="text-text-faint">Thinking…</p>}
+          {answer && (
+            <div className="max-h-80 overflow-y-auto">
+              <ReplyContent text={answer} onOpenLink={openNewTab} streaming={streamId !== null} />
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="text-danger">
+              {error}
+            </p>
+          )}
+          {answer && !streamId && keepChats && (
+            <div className="-ml-2">
+              <Button variant="ghost" onClick={continueInAssistant}>
+                Continue in Assistant
+              </Button>
+            </div>
+          )}
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
-      )}
-      {answer && !streamId && keepChats && (
-        <div>
-          <Button variant="ghost" onClick={continueInAssistant}>
-            Continue in Assistant
-          </Button>
-        </div>
-      )}
-    </Card>
+    </section>
   )
 }
 

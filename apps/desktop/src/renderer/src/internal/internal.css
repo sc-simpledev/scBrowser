@@ -96,18 +96,7 @@
     var(--sc-surface);
 }
 
-/*
- * AI Briefs: a calm reading room. A masthead with a soft wash of the accent, and briefs set
- * larger and looser than chat replies, for reading rather than skimming.
- */
-.sc-briefs-masthead {
-  background:
-    radial-gradient(60% 90% at 0% 0%, color-mix(in oklab, var(--sc-accent) 22%, transparent), transparent 70%),
-    radial-gradient(50% 80% at 100% 0%, color-mix(in oklab, oklch(0.7 0.12 calc(var(--sc-hue) + 60)) 18%, transparent), transparent 70%),
-    radial-gradient(70% 60% at 60% 120%, color-mix(in oklab, oklch(0.7 0.1 calc(var(--sc-hue) - 50)) 14%, transparent), transparent 70%),
-    var(--sc-surface);
-}
-
+/* AI Briefs: briefs set larger and looser than chat replies, for reading rather than skimming. */
 .sc-brief-prose .sc-prose {
   gap: calc(var(--sc-space) * 3);
   font-size: var(--sc-text-md);

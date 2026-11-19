@@ -19,7 +19,8 @@ export class ChatsRepo {
 
   constructor(db: DatabaseSync) {
     this.upsert = db.prepare(`INSERT OR REPLACE INTO chats (id, title, turns, updated_at) VALUES (?, ?, ?, ?)`)
-    this.listQuery = db.prepare(`SELECT id, title, updated_at FROM chats ORDER BY updated_at DESC LIMIT 200`)
+    // A Terra Code session's folder lives inside its saved screen, which SQLite can read out.
+    this.listQuery = db.prepare(`SELECT id, title, updated_at, CASE WHEN id LIKE '${CODE_CHAT_PREFIX}%' AND json_valid(turns) THEN json_extract(turns, '$.folder') END AS folder FROM chats ORDER BY updated_at DESC LIMIT 200`)
     this.getQuery = db.prepare(`SELECT id, title, turns, updated_at FROM chats WHERE id = ?`)
     this.deleteOne = db.prepare(`DELETE FROM chats WHERE id = ?`)
     this.deleteAll = db.prepare(`DELETE FROM chats`)
@@ -45,7 +46,7 @@ export class ChatsRepo {
   }
 
   list(): ChatSummary[] {
-    return (this.listQuery.all() as unknown as Row[]).map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at }))
+    return (this.listQuery.all() as unknown as (Row & { folder: string | null })[]).map((row) => ({ id: row.id, title: row.title, updatedAt: row.updated_at, ...(row.folder ? { folder: row.folder } : {}) }))
   }
 
   get(id: string): SavedChat | null {

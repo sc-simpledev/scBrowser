@@ -241,7 +241,7 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
         <span className="text-xs text-text-muted">Model for chat</span>
         <Select
           aria-label={`Chat model for ${provider.name}`}
-          className="max-w-80"
+          className="w-52"
           value={selected}
           onChange={(e) =>
             void api().invoke('ai:set-role', 'chat', { providerId: provider.id, model: e.target.value }).then(onChange)
@@ -259,7 +259,7 @@ function ProviderRow({ provider, state, onChange }: { provider: AiState['provide
         <span className="text-xs text-text-muted">Model for quick tasks</span>
         <Select
           aria-label={`Quick model for ${provider.name}`}
-          className="max-w-80"
+          className="w-52"
           value={state.roles.fast?.providerId === provider.id ? state.roles.fast.model : ''}
           onChange={(e) =>
             void api().invoke('ai:set-role', 'fast', { providerId: provider.id, model: e.target.value }).then(onChange)
@@ -301,46 +301,67 @@ function HostedCard({ onChange }: { onChange: () => void }) {
 }
 
 function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => void }) {
+  const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const save = (next: Skill[]) => void api().invoke('ai:save-skills', next).then(onChange)
+  const close = () => {
+    setAdding(false)
+    setName('')
+    setPrompt('')
+  }
 
   return (
     <section aria-label="Skills" className="flex flex-col gap-2 rounded-lg p-3 shadow-1">
-      <h2 className="font-medium">Skills</h2>
-      <p className="text-xs text-text-faint">Saved prompts. Type / in the assistant to run one.</p>
-      <ul>
-        {skills.map((skill) => (
-          <li key={skill.id} className="flex items-center gap-2 rounded-md px-1 py-1 hover:bg-surface-hover">
-            <div className="min-w-0 flex-1">
-              <div className="truncate">{skill.name}</div>
-              <div className="truncate text-xs text-text-faint">{skill.prompt}</div>
-            </div>
-            <IconButton label={`Delete ${skill.name}`} onClick={() => save(skills.filter((s) => s.id !== skill.id))}>
-              <X size={14} strokeWidth={1.75} />
-            </IconButton>
-          </li>
-        ))}
-      </ul>
-      <form
-        className="contents"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!name.trim() || !prompt.trim()) return
-          save([...skills, { id: crypto.randomUUID(), name: name.trim(), prompt: prompt.trim() }])
-          setName('')
-          setPrompt('')
-        }}
-      >
-      <Input aria-label="Skill name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-      <Input aria-label="Skill prompt" placeholder="Prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-      <div>
-        <Button type="submit" disabled={!name.trim() || !prompt.trim()}>
-          <Plus aria-hidden size={14} strokeWidth={1.75} />
-          Add skill
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="font-medium">Skills</h2>
+          <p className="text-xs text-text-faint">Saved prompts. Type / in the assistant to run one.</p>
+        </div>
+        {!adding && (
+          <Button variant="ghost" className="shrink-0" onClick={() => setAdding(true)}>
+            <Plus aria-hidden size={14} strokeWidth={1.75} />
+            New skill
+          </Button>
+        )}
       </div>
-      </form>
+      {skills.length > 0 && (
+        <ul className="-mx-1">
+          {skills.map((skill) => (
+            <li key={skill.id} className="group flex items-center gap-2 rounded-md px-1 py-1 hover:bg-surface-hover">
+              <div className="min-w-0 flex-1">
+                <div className="truncate">{skill.name}</div>
+                <div className="truncate text-xs text-text-faint">{skill.prompt}</div>
+              </div>
+              <IconButton label={`Delete ${skill.name}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => save(skills.filter((s) => s.id !== skill.id))}>
+                <X size={14} strokeWidth={1.75} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding && (
+        <form
+          className="flex flex-col gap-2 rounded-md border border-border p-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!name.trim() || !prompt.trim()) return
+            save([...skills, { id: crypto.randomUUID(), name: name.trim(), prompt: prompt.trim() }])
+            close()
+          }}
+        >
+          <Input aria-label="Skill name" placeholder="Name, such as Key points" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          <Input aria-label="Skill prompt" placeholder="What it asks, such as List the key points of this page" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <div className="flex justify-end gap-1.5">
+            <Button variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={!name.trim() || !prompt.trim()}>
+              Add skill
+            </Button>
+          </div>
+        </form>
+      )}
     </section>
   )
 }

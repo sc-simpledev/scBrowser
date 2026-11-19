@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useMemo, useState } from 'react'
+import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, ChevronRight, Copy, FileCode2, FileText, RotateCcw, TriangleAlert } from 'lucide-react'
@@ -32,6 +32,31 @@ function CitationChip({ href, label, sources, onOpenSource }: { href: string; la
   )
 }
 
+type HastNode = { type: string; value?: string; children?: HastNode[] }
+const codeText = (node: HastNode | undefined): string => (!node ? '' : node.type === 'text' ? (node.value ?? '') : (node.children ?? []).map(codeText).join(''))
+
+/** A fenced block of code, with a copy button on hover. */
+function CodeBlock({ text, children }: { text: string; children: ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="sc-pre">
+      <pre>{children}</pre>
+      <IconButton
+        size="sm"
+        label={copied ? 'Copied' : 'Copy code'}
+        className="sc-pre-copy bg-surface"
+        onClick={() => {
+          void navigator.clipboard.writeText(text.replace(/\n$/, ''))
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        }}
+      >
+        {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.75} />}
+      </IconButton>
+    </div>
+  )
+}
+
 export function ReplyMarkdown({ text, onOpenLink, sources = [], onOpenSource }: { text: string; onOpenLink: (href: string) => void } & Citations) {
   const linked = onOpenSource ? linkCitations(text, { sources: sources.length, timestamps: sources.some((source) => source.kind === 'transcript') }) : text
   return (
@@ -45,6 +70,12 @@ export function ReplyMarkdown({ text, onOpenLink, sources = [], onOpenSource }: 
         disallowedElements={['img']}
         unwrapDisallowed
         components={{
+          table: ({ children }) => (
+            <div className="sc-table">
+              <table>{children}</table>
+            </div>
+          ),
+          pre: ({ children, node }) => <CodeBlock text={codeText(node)}>{children}</CodeBlock>,
           a: ({ href, children }) =>
             href?.startsWith('#sc-') && onOpenSource ? (
               <CitationChip href={href} label={String(children)} sources={sources} onOpenSource={onOpenSource} />

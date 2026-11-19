@@ -188,6 +188,8 @@ export interface Settings {
   coderAutoCompact: boolean
   /** Run the project's checker after Terra Code edits, where it runs without asking. */
   coderAutoCheck: boolean
+  /** Run the project's own formatter (Prettier, Biome, Ruff, Black, gofmt, rustfmt) on files Terra Code edits. */
+  coderFormat: boolean
   /** Shows the model's reasoning in Terra Code, where the model gives it. */
   coderShowReasoning: boolean
   /** How hard Terra Code's model thinks, unless a session picks otherwise. Null: the model's own default. */
@@ -292,6 +294,7 @@ export const DEFAULT_SETTINGS: Settings = {
   coderSandbox: 'off',
   coderAutoCompact: true,
   coderAutoCheck: true,
+  coderFormat: true,
   coderNotify: true,
   coderShowReasoning: true,
   coderEffort: null,
@@ -393,6 +396,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderSandbox: (v) => v === 'off' || v === 'project' || v === 'offline',
   coderAutoCompact: (v) => typeof v === 'boolean',
   coderAutoCheck: (v) => typeof v === 'boolean',
+  coderFormat: (v) => typeof v === 'boolean',
   coderNotify: (v) => typeof v === 'boolean',
   coderShowReasoning: (v) => typeof v === 'boolean',
   coderEffort: (v) => v === null || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh' || v === 'max',

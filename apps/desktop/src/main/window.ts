@@ -694,7 +694,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const stopSidebarPrune = settings.subscribe((next) => sidebarSites.prune(next.sidebarSites.map((site) => site.url)))
   const coderHome = join(app.getPath('userData'), 'terra-code')
   const coderTrust = new KvCoderTrust(kv)
-  const coderMcp = new CoderMcp(kv, coderTrust)
+  const coderMcp = new CoderMcp(kv, coderTrust, (url) => void tabs.create(url, { afterId: tabs.active?.id }))
   const coderBrowserHost = coderBrowser({
     // Beside the person's tab, without taking its place.
     create: (url) => tabs.create(url, { activate: false, afterId: tabs.active?.id }),
@@ -713,6 +713,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       sandbox: () => settings.get().coderSandbox,
       autoCompact: () => settings.get().coderAutoCompact,
       autoCheck: () => settings.get().coderAutoCheck,
+      autoFormat: () => settings.get().coderFormat,
       showReasoning: () => settings.get().coderShowReasoning,
       agentModel: () => settings.get().coderAgentModel,
       mcp: coderMcp,

@@ -246,9 +246,19 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       coderOnly()
       ai.coder.stopTool(text(sessionId, 64), text(toolId, 64))
     },
-    'coder:rewind': (sessionId, turnId) => {
+    'coder:rewind': (sessionId, turnId, what) => {
       coderOnly()
-      return ai.coder.rewind(text(sessionId, 64), text(turnId, 64))
+      if (what !== undefined && what !== 'both' && what !== 'code' && what !== 'conversation') throw new Error('Invalid choice')
+      return ai.coder.rewind(text(sessionId, 64), text(turnId, 64), what ?? 'both')
+    },
+    'coder:undo-step': (sessionId, toolId, redo) => {
+      coderOnly()
+      if (typeof redo !== 'boolean') throw new Error('Invalid choice')
+      return ai.coder.undoStep(text(sessionId, 64), text(toolId, 64), redo)
+    },
+    'coder:activity': () => {
+      coderOnly()
+      return { running: ai.coder.runningSessions(), waiting: ai.coder.waitingSessions() }
     },
     'coder:compact': (sessionId) => {
       coderOnly()
@@ -375,6 +385,15 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
     'coder:mcp-restart': async (name) => {
       coderOnly()
       await mcp?.restart(settings.get().coderFolder || null, text(name, 40))
+    },
+    'coder:mcp-signin': async (name) => {
+      coderOnly()
+      if (!mcp) throw new Error('MCP servers aren’t available in this window.')
+      await mcp.signIn(settings.get().coderFolder || null, text(name, 40))
+    },
+    'coder:mcp-signout': async (name) => {
+      coderOnly()
+      await mcp?.signOut(settings.get().coderFolder || null, text(name, 40))
     },
     'coder:hooks-trust': async (trusted) => {
       coderOnly()

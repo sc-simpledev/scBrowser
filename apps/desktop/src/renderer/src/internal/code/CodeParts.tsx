@@ -153,13 +153,13 @@ export function ChecklistItems({ items, working, className }: { items: CoderTodo
 }
 
 /** The model's checklist above the message box: the step it's on, opening to every step. Open while it works. */
-export function Checklist({ items, working }: { items: CoderTodo[]; working: boolean }) {
+export function Checklist({ items, working, bare = false }: { items: CoderTodo[]; working: boolean; bare?: boolean }) {
   const [chosen, setChosen] = useState<boolean | null>(null)
   const done = items.filter((item) => item.done).length
   const current = items.find((item) => item.active) ?? items.find((item) => !item.done)
   const open = chosen ?? (working && done < items.length)
   return (
-    <section aria-label="Checklist" className="flex flex-col rounded-lg border border-border bg-surface">
+    <section aria-label="Checklist" className={cx('flex flex-col', !bare && 'rounded-lg border border-border bg-surface')}>
       <button type="button" aria-expanded={open} onClick={() => setChosen(!open)} className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-xs transition-colors hover:bg-surface-hover">
         <ListChecks aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="shrink-0 font-medium">Checklist</span>

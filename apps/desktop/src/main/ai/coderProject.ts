@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, extname, join, relative, sep } from 'node:path'
 import { isMcpServerName, type CoderHookEvent, type CoderSource, type McpServerConfig } from '@scbrowser/shared'
 
 /**
@@ -190,5 +191,86 @@ export async function detectDiagnostics(folder: string): Promise<string | null> 
   if (await has('Cargo.toml')) return 'cargo check --message-format short'
   if (await has('go.mod')) return 'go vet ./...'
   if ((await has('pyproject.toml')) || (await has('ruff.toml'))) return 'ruff check .'
+  return null
+}
+
+const JS_LIKE = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.json', '.jsonc', '.css', '.scss', '.less', '.md', '.mdx', '.html', '.vue', '.svelte', '.yaml', '.yml', '.graphql'])
+const PRETTIER_CONFIGS = ['.prettierrc', '.prettierrc.json', '.prettierrc.yaml', '.prettierrc.yml', '.prettierrc.js', '.prettierrc.cjs', '.prettierrc.mjs', '.prettierrc.toml', 'prettier.config.js', 'prettier.config.cjs', 'prettier.config.mjs']
+
+/** A path as one word for the person's shell. */
+export function shellQuote(text: string): string {
+  if (process.platform === 'win32') return `"${text.replace(/"/g, '""')}"`
+  return `'${text.replace(/'/g, `'\\''`)}'`
+}
+
+/** A program on the PATH, found without running anything. */
+function onPath(name: string): string | null {
+  const windows = process.platform === 'win32'
+  for (const dir of (process.env.PATH ?? '').split(windows ? ';' : ':')) {
+    if (!dir) continue
+    for (const candidate of windows ? [`${name}.exe`, `${name}.cmd`] : [name]) {
+      const full = join(dir, candidate)
+      if (existsSync(full)) return full
+    }
+  }
+  return null
+}
+
+/** A formatter the project has installed in node_modules: never fetched, as npx would. */
+function localBin(folder: string, name: string): string | null {
+  const full = join(folder, 'node_modules', '.bin', process.platform === 'win32' ? `${name}.cmd` : name)
+  return existsSync(full) ? full : null
+}
+
+export interface Formatter {
+  name: string
+  /** What trusting it is remembered by. */
+  key: string
+  command: string
+  /** The command with a short path, for asking about it. */
+  example: string
+}
+
+/**
+ * The formatter this project uses for a file, if it clearly uses one: Biome or Prettier installed
+ * in the project with their settings present, Ruff or Black set up in pyproject.toml, gofmt for Go
+ * modules and rustfmt for Cargo projects. Anything else, or nothing set up, gives null.
+ */
+export async function formatterFor(folder: string, file: string): Promise<Formatter | null> {
+  const ext = extname(file).toLowerCase()
+  const has = (name: string) => existsSync(join(folder, name))
+  const shortPath = relative(folder, file).split(sep).join('/')
+  const make = (name: string, key: string, program: string, args: string[]) => ({
+    name,
+    key,
+    command: [shellQuote(program), ...args.map((arg) => (arg === '$FILE' ? shellQuote(file) : arg))].join(' '),
+    example: [basename(program).replace(/\.(cmd|exe)$/, ''), ...args.map((arg) => (arg === '$FILE' ? shortPath : arg))].join(' ')
+  })
+  if (JS_LIKE.has(ext)) {
+    const biome = localBin(folder, 'biome')
+    if (biome && (has('biome.json') || has('biome.jsonc'))) return make('Biome', 'biome', biome, ['format', '--write', '$FILE'])
+    const prettier = localBin(folder, 'prettier')
+    if (prettier) {
+      const pkg = await readJson(join(folder, 'package.json'))
+      if (PRETTIER_CONFIGS.some(has) || (isRecord(pkg) && pkg.prettier !== undefined)) return make('Prettier', 'prettier', prettier, ['--write', '--log-level', 'warn', '$FILE'])
+    }
+    return null
+  }
+  if (ext === '.py') {
+    const pyproject = (await readSmall(join(folder, 'pyproject.toml'))) ?? ''
+    const ruff = onPath('ruff')
+    if (ruff && (has('ruff.toml') || has('.ruff.toml') || /^\[tool\.ruff/m.test(pyproject))) return make('Ruff', 'ruff', ruff, ['format', '$FILE'])
+    const black = onPath('black')
+    if (black && /^\[tool\.black\]/m.test(pyproject)) return make('Black', 'black', black, ['-q', '$FILE'])
+    return null
+  }
+  if (ext === '.go' && has('go.mod')) {
+    const gofmt = onPath('gofmt')
+    return gofmt ? make('gofmt', 'gofmt', gofmt, ['-w', '$FILE']) : null
+  }
+  if (ext === '.rs' && has('Cargo.toml')) {
+    const rustfmt = onPath('rustfmt')
+    return rustfmt ? make('rustfmt', 'rustfmt', rustfmt, ['--edition', '2021', '$FILE']) : null
+  }
   return null
 }

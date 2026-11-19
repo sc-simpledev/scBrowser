@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from 'react'
 import { inlineAutofill, type Autofill } from '@scbrowser/shared'
 
 /**
@@ -6,7 +6,7 @@ import { inlineAutofill, type Autofill } from '@scbrowser/shared'
  * selected after the caret, so typing on replaces it, and Backspace or Delete takes it away
  * until the next typed letter. Pasting, typing mid-text or IME composition never completes.
  */
-export function useAutofill(draft: string | null, urls: readonly string[], inputRef: RefObject<HTMLInputElement | null>, enabled = true) {
+export function useAutofill(draft: string | null, urls: readonly string[], inputRef: RefObject<HTMLInputElement | null>, enabled: boolean, onDraft: (text: string) => void) {
   const [blocked, setBlocked] = useState(false)
   const autofill: Autofill | null = useMemo(
     () => (enabled && !blocked && draft ? inlineAutofill(draft, urls) : null),
@@ -20,6 +20,22 @@ export function useAutofill(draft: string | null, urls: readonly string[], input
     if (!autofill || draft === null || !input || document.activeElement !== input) return
     input.setSelectionRange(draft.length, autofill.text.length, 'backward')
   }, [autofill, draft, inputRef])
+
+  // Typing the letter the completion already shows next (the "/" after a host, say) leaves the
+  // box's value as it was, so React sends no change. The draft has to catch up all the same, or a
+  // later render selects the completion from the old draft again and the next letter replaces it.
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input || !autofill || draft === null) return
+    const typedOver = (e: Event) => {
+      const native = e as InputEvent
+      const caret = input.selectionStart ?? 0
+      if (native.inputType !== 'insertText' || native.isComposing || input.selectionEnd !== caret) return
+      if (input.value === autofill.text && caret > draft.length) onDraft(input.value.slice(0, caret))
+    }
+    input.addEventListener('input', typedOver)
+    return () => input.removeEventListener('input', typedOver)
+  }, [inputRef, autofill, draft, onDraft])
 
   /** Call from `onChange`, before storing the new text. */
   const noteInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
