@@ -274,13 +274,15 @@ test('ask about a report, save it as a template, a remembered quiz, and the extr
 
 test('settings offer the version before this one, and a study session shows its round', async () => {
   await h.close()
-  pages['/releases'] = JSON.stringify([{ tag_name: 'v0.7.2' }, { tag_name: 'v0.7.1' }, { tag_name: 'v0.7.0' }])
+  // This version, then two older ones, so the test holds whatever this version is.
+  const current = (JSON.parse(readFileSync(join(__dirname, '../apps/desktop/package.json'), 'utf8')) as { version: string }).version
+  pages['/releases'] = JSON.stringify([{ tag_name: `v${current}` }, { tag_name: 'v0.1.1' }, { tag_name: 'v0.1.0' }])
   h = await launch(undefined, [], { SCB_UPDATE_URL: site.url('/feed'), SCB_RELEASES_API_URL: site.url('/releases'), SCB_UPDATE_DELAY: '600000' })
   await go(h, 'sc://settings/#about')
   const settings = await h.page('sc://settings')
-  await expect(settings.getByText('Go back to version 0.7.1')).toBeVisible()
+  await expect(settings.getByText('Go back to version 0.1.1')).toBeVisible()
   await settings.getByRole('button', { name: 'Go back' }).click()
-  await expect(settings.getByRole('button', { name: 'Download 0.7.1' })).toBeVisible()
+  await expect(settings.getByRole('button', { name: 'Download 0.1.1' })).toBeVisible()
   await shot(settings, 'go-back')
 
   await setSetting(h, { focusMode: true, focusUntil: Date.now() + 25 * 60_000, studyRound: 2, studyRounds: 4 })
