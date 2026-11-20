@@ -91,6 +91,9 @@ async function open({ git = false }: { git?: boolean } = {}): Promise<Page> {
     const run = (...args: string[]) => execFileSync('git', args, { cwd: folder, stdio: 'ignore' })
     run('init', '-q', '-b', 'main')
     run('remote', 'add', 'origin', 'https://github.com/me/project.git')
+    // Commits need a name and address, which CI's machine doesn't have.
+    run('config', 'user.name', 'Test')
+    run('config', 'user.email', 'test@example.com')
     run('add', '.')
     run('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
   }
