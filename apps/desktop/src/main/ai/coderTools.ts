@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdtempSync, realpathSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { globToRegExp } from '@scbrowser/ai'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -328,9 +328,17 @@ export function ensureContainer(root: string): Promise<void> {
 const profilePath = (path: string) => `"${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 
 /** macOS's own sandbox: everything readable, writes only where a build needs them, and optionally no network. */
-function macProfile(root: string, caches: string[], offline: boolean): string {
-  const writable = [root, '/private/tmp', '/private/var/folders', ...caches].map((path) => `(subpath ${profilePath(path)})`).join(' ')
-  return ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* ${writable} (literal "/dev/null") (subpath "/dev"))`, ...(offline ? ['(deny network-outbound (remote ip))', '(allow network-outbound (remote ip "localhost:*"))'] : [])].join('\n')
+function macProfile(root: string, temp: string, caches: string[], offline: boolean): string {
+  // Only the project, a temporary folder of its own and build caches: macOS's shared temporary folders are other apps' too.
+  const writable = [root, temp, ...caches].map((path) => `(subpath ${profilePath(path)})`).join(' ')
+  return ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* ${writable} (literal "/dev/null") (literal "/dev/tty") (literal "/dev/dtracehelper"))`, ...(offline ? ['(deny network-outbound (remote ip))'] : [])].join('\n')
+}
+
+let macTemp: string | null = null
+/** A temporary folder for sandboxed commands, made once, as its real path (the profile matches real paths). */
+function sandboxTemp(): string {
+  if (!macTemp) macTemp = realpathSync(mkdtempSync(join(tmpdir(), 'scterra-sandbox-')))
+  return macTemp
 }
 
 /** Caches package managers and build tools write to, which a sandboxed build still needs. */
@@ -353,7 +361,11 @@ export function shellCommand(root: string, command: string, sandbox: SandboxMode
   if (sandbox === 'off' || !sandboxAvailable()) return { file: shell, args }
   const home = homedir()
   const caches = WRITABLE_CACHES.map((name) => join(home, name)).filter((path) => existsSync(path))
-  if (process.platform === 'darwin') return { file: SANDBOX_EXEC, args: ['-p', macProfile(root, caches, sandbox === 'offline'), shell, ...args] }
+  if (process.platform === 'darwin') {
+    const temp = sandboxTemp()
+    const real = (path: string) => (existsSync(path) ? realpathSync(path) : path)
+    return { file: SANDBOX_EXEC, args: ['-p', macProfile(real(root), temp, caches.map(real), sandbox === 'offline'), '/usr/bin/env', `TMPDIR=${temp}/`, shell, ...args] }
+  }
   return {
     file: bwrapPath!,
     args: [
