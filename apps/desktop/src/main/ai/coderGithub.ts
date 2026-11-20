@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { CoderGithubStatus } from '@scbrowser/shared'
+import { GITHUB_CLIENT_ID, type CoderGithubStatus } from '@scbrowser/shared'
 import type { CoderGithubHost } from './coder'
 
 /** Tests point this at a stand-in GitHub, under SCB_E2E only. */
@@ -81,6 +81,9 @@ export function trimGithub(value: unknown): unknown {
   return out
 }
 
+/** The OAuth app for "Sign in with GitHub", if scTerra has one. */
+export const githubClientId = () => process.env.SCTERRA_GITHUB_CLIENT_ID || GITHUB_CLIENT_ID
+
 export class GithubError extends Error {
   constructor(
     readonly status: number,
@@ -153,7 +156,7 @@ export class CoderGithub implements CoderGithubHost {
   async status(folder: string | null): Promise<CoderGithubStatus> {
     const saved = this.saved()
     const [cli, repo] = await Promise.all([this.cliToken(), folder ? this.repo(folder) : Promise.resolve(null)])
-    const base = { source: saved?.source ?? null, login: saved?.login ?? null, cliReady: cli !== null, scopes: null, repo, error: null }
+    const base = { source: saved?.source ?? null, login: saved?.login ?? null, cliReady: cli !== null, scopes: null, repo, error: null, deviceFlow: githubClientId() !== '' }
     if (!saved) return base
     const token = saved.source === 'cli' ? cli : await this.token()
     if (!token) return { ...base, error: saved.source === 'cli' ? 'The GitHub CLI isn’t signed in any more. Run gh auth login, or paste a token.' : 'The saved token can’t be read on this computer. Paste it again.' }

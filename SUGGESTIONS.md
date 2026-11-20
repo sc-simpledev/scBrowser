@@ -48,7 +48,9 @@ Items 1 to 13 are in 0.6.5: site icons and bold matches in address bar rows, Shi
 
 ## Code Changes
 
-Ideas for Terra Code, to match Claude Code and OpenCode while staying easy to set up. They follow the 0.7.3 round (interactive checklist, GitHub access, cloud runs on GitHub Actions, questions with choices). 36, 40 and 41 would smooth the rough edges of what's just been built, so they're first.
+Ideas for Terra Code, to match Claude Code and OpenCode while staying easy to set up. They follow the 0.7.3 round (interactive checklist, GitHub access, cloud runs on GitHub Actions, questions with choices).
+
+**All of 36 to 53 were built after 0.7.3 (see CONTEXT.md).** 36 needs the owner to register a GitHub OAuth app and put its client ID in `GITHUB_CLIENT_ID` (shared/coder.ts) before its button shows; 42 and 43 need a release made after them, as installed workflows download the runner from the latest release.
 
 Easiest setup:
 

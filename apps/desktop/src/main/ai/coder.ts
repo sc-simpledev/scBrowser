@@ -27,6 +27,7 @@ import {
   extraToolsPrompt,
   flattenToolTurns,
   githubToolSpec,
+  lspToolSpec,
   globToRegExp,
   isDoneMarker,
   MAX_CALLS_PER_REPLY,
@@ -124,7 +125,7 @@ const MAX_MARK_CHARS = 20_000_000
 const MENTION_CHARS = 20_000
 /** Files whose presence means the project has something worth running after a change. */
 const CHECK_FILES = ['Cargo.toml', 'go.mod', 'pyproject.toml', 'pytest.ini', 'tox.ini', 'Makefile', 'tsconfig.json', 'pom.xml', 'build.gradle', 'build.gradle.kts']
-const READ_ONLY = new Set<CoderCall['tool']>(['list', 'glob', 'read', 'search'])
+const READ_ONLY = new Set<CoderCall['tool']>(['list', 'glob', 'read', 'search', 'lsp'])
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
@@ -171,6 +172,8 @@ interface Session {
   todo: CoderTodo[]
   /** The person changed the checklist since the model last heard, as what to tell it. */
   todoNote: string | null
+  /** Other things to tell the model with its next message, such as what a cloud run did. */
+  notes: string[]
 }
 
 /** One step's files, as they were before it and after it (null: missing). */
@@ -226,6 +229,8 @@ export interface McpTool {
 /** The MCP servers the person connected, for one project folder. */
 export interface CoderMcpHost {
   tools(folder: string): Promise<McpTool[]>
+  /** Each server for the folder and how it is, so the model can be told about the ones that didn't start. */
+  views?(folder: string): Promise<{ name: string; state: string; error: string | null; enabled: boolean; trusted: boolean; tools: string[] }[]>
   call(folder: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: boolean; output: string; images: string[] }>
 }
 
@@ -276,6 +281,10 @@ export interface CoderDependencies {
   agentModel?: () => ModelRef | null
   /** The person's GitHub, when they connected it and let Terra Code use it. */
   github?: CoderGithubHost
+  /** Language servers installed for the project, for the lsp tool. */
+  lsp?: { available(root: string): string[]; run(root: string, action: 'definition' | 'references' | 'hover' | 'symbols', path: string, line: number, column: number): Promise<string>; dispose?(): void }
+  /** Tokens a session may use before it stops; 0 or absent for no limit. */
+  budget?: () => number
   /** Nobody is watching, as in a cloud run: questions get no answer, and approvals are settled by `approveAll`. */
   unattended?: boolean
 }
@@ -309,6 +318,10 @@ interface Project {
   mcp: McpTool[]
   /** GitHub, when the person let Terra Code use it: the project's repository, and whether it may change things. */
   github: { repo: string | null; write: boolean } | null
+  /** The person's MCP servers in a few lines, including ones that aren't working, or '' with none. */
+  mcpNote: string
+  /** File endings a language server is installed for. */
+  lsp: string[]
 }
 
 /**
@@ -359,6 +372,16 @@ export class Coder {
    * The person changed the checklist. The model hears at its next step if it's working, or with the
    * next message if not. The change is sent back out so every Terra Code page shows it.
    */
+  /** Something for the model to hear with the next message. */
+  async addNote(sessionId: string, folder: string, text: string): Promise<void> {
+    let session = await this.loaded(sessionId)
+    if (!session) {
+      session = this.fresh(await realpath(folder).catch(() => folder))
+      this.sessions.set(sessionId, session)
+    }
+    session.notes.push(text)
+  }
+
   async setTodo(sessionId: string, folder: string, items: CoderTodo[], emit: Emit): Promise<void> {
     let session = await this.loaded(sessionId)
     if (!session) {
@@ -409,6 +432,7 @@ export class Coder {
   dispose(): void {
     for (const session of this.sessions.values()) session.controller?.abort()
     this.jobs.stopAll()
+    this.deps.lsp?.dispose?.()
   }
 
   private async persist(sessionId: string, session: Session): Promise<void> {
@@ -453,7 +477,8 @@ export class Coder {
       steps: new Map(),
       formatters: new Map(),
       todo: [],
-      todoNote: null
+      todoNote: null,
+      notes: []
     }
   }
 
@@ -738,10 +763,11 @@ export class Coder {
       home ? loadHooks(folder, home) : loadHooks(folder, join(folder, '.no-home')),
       this.deps.mcp?.tools(folder).catch(() => []) ?? Promise.resolve([])
     ])
+    const servers = (await this.deps.mcp?.views?.(folder).catch(() => [])) ?? []
     const withGeneral = agents.some((agent) => agent.name.toLowerCase() === GENERAL_AGENT.name) ? agents : [...agents, GENERAL_AGENT]
     const access = this.deps.github?.access() ?? 'off'
     const github = access === 'off' ? null : { repo: await this.deps.github!.repo(folder).catch(() => null), write: access === 'write' }
-    return { deny: settings.deny, diagnostics: settings.diagnostics ?? (await detectDiagnostics(folder)), agents: withGeneral, skills, commands, hooks, mcp, github }
+    return { deny: settings.deny, diagnostics: settings.diagnostics ?? (await detectDiagnostics(folder)), agents: withGeneral, skills, commands, hooks, mcp, github, mcpNote: mcpNote(servers), lsp: this.deps.lsp?.available(folder) ?? [] }
   }
 
   async run(sessionId: string, folder: string, task: string, mode: CoderMode, emit: Emit, resume?: AssistantMessage[], options: CoderRunOptions = {}): Promise<void> {
@@ -780,7 +806,7 @@ export class Coder {
       session.introduced = true
       const modeNote = runMode === 'plan' ? '\n\n(Plan mode: look and plan only.)' : runMode === 'review' ? '\n\n(Review: look only, and report what you find.)' : ''
       const attached = await this.attachments(folder, options.mentions ?? [])
-      const todoNote = session.todoNote ? `\n\n(${session.todoNote})` : ''
+      const todoNote = [session.todoNote, ...session.notes.splice(0)].filter(Boolean).map((note) => `\n\n(${note})`).join('')
       session.todoNote = null
       const content = first ? `${await projectContext(folder)}\n\nTask:\n${task}${attached}${modeNote}${todoNote}` : `${task}${attached}${modeNote}${todoNote}`
       session.messages.push(options.images?.length ? { role: 'user', content, images: options.images } : { role: 'user', content })
@@ -798,6 +824,11 @@ export class Coder {
           session.messages.push({ role: 'assistant', content: '(Stopped: step limit reached.)' })
           await this.persist(sessionId, session)
           return emit({ sessionId, type: 'done', reason: 'step-limit' })
+        }
+        const budget = this.deps.budget?.() ?? 0
+        if (budget > 0 && session.usage.input + session.usage.output >= budget) {
+          await this.persist(sessionId, session)
+          return emit({ sessionId, type: 'error', message: `Stopped: this session has used its budget of ${Math.round(budget / 1000).toLocaleString()}k tokens. Raise it in Terra Code settings, or start a new session.` })
         }
         emit({ sessionId, type: 'thinking', step })
         for (const text of session.queue.splice(0)) session.messages.push({ role: 'user', content: `(The person added this while you were working:)\n${text}` })
@@ -1029,6 +1060,7 @@ export class Coder {
     if (project?.skills.length) extra.push(skillToolSpec(project.skills))
     for (const tool of project?.mcp ?? []) if (!looking || tool.readOnly) extra.push(tool.spec)
     if (project?.github) extra.push(githubToolSpec(project.github.repo, project.github.write && !looking))
+    if (project?.lsp.length) extra.push(lspToolSpec(project.lsp))
     // Nobody can answer in a cloud run, so the model isn't offered a way to ask.
     const asking = this.deps.unattended ? browser.filter((tool) => tool.name !== 'ask') : browser
     return [...asking, ...extra]
@@ -1036,11 +1068,11 @@ export class Coder {
 
   private systemPrompt(native: boolean, mode: CoderRunMode, project: Project | null): string {
     const looking = mode === 'plan' || mode === 'review'
-    const base = native ? CODER_NATIVE_PROMPT : CODER_PROMPT
+    const base = (native ? CODER_NATIVE_PROMPT : CODER_PROMPT) + (project?.mcpNote ?? '')
     const modeText = mode === 'plan' ? CODER_PLAN_PROMPT : mode === 'review' ? CODER_REVIEW_PROMPT : ''
     if (native || !project) return base + modeText
     const github = project.github && { repo: project.github.repo, write: project.github.write && !looking }
-    return base + modeText + extraToolsPrompt({ agents: project.agents, skills: project.skills, mcp: project.mcp.filter((tool) => !looking || tool.readOnly).map((tool) => tool.spec), github })
+    return base + modeText + extraToolsPrompt({ agents: project.agents, skills: project.skills, mcp: project.mcp.filter((tool) => !looking || tool.readOnly).map((tool) => tool.spec), github, lsp: project.lsp })
   }
 
   /** Asks the model, trying again a few times if it's busy or a connection drops. */
@@ -1245,8 +1277,16 @@ export class Coder {
         if (vars.file && hook.match && !globToRegExp(hook.match).test(vars.file)) continue
         const id = randomUUID()
         emit({ sessionId, type: 'tool', id, tool: 'hook', summary: `Hook ${hook.command}` })
-        const env = { TERRA_EVENT: event, TERRA_PROJECT: session.folder, TERRA_FILE: vars.file ?? '', TERRA_COMMAND: vars.command ?? '', FILE: vars.file ?? '' }
-        const result = await runCommand(session.folder, hook.command, signal, HOOK_TIMEOUT_MS, { sandbox: this.deps.sandbox?.() ?? 'off', env })
+        const env: Record<string, string> = { TERRA_EVENT: event, TERRA_PROJECT: session.folder, TERRA_FILE: vars.file ?? '', TERRA_COMMAND: vars.command ?? '', FILE: vars.file ?? '' }
+        let command = hook.command
+        if (hook.claude) {
+          // Claude Code hooks read what happened as JSON on their input.
+          const tool = event === 'beforeCommand' ? { tool_name: 'Bash', tool_input: { command: vars.command ?? '' } } : event === 'afterEdit' ? { tool_name: 'Edit', tool_input: { file_path: vars.file ? join(session.folder, vars.file) : '' } } : {}
+          env.CLAUDE_PROJECT_DIR = session.folder
+          env.TERRA_HOOK_INPUT = JSON.stringify({ hook_event_name: event === 'beforeCommand' ? 'PreToolUse' : event === 'afterEdit' ? 'PostToolUse' : 'Stop', cwd: session.folder, ...tool })
+          command = `printf '%s' "$TERRA_HOOK_INPUT" | (${hook.command})`
+        }
+        const result = await runCommand(session.folder, command, signal, HOOK_TIMEOUT_MS, { sandbox: this.deps.sandbox?.() ?? 'off', env })
         emit({ sessionId, type: 'tool-result', id, ok: result.ok, output: result.output })
         if (event === 'beforeCommand' && !result.ok) {
           blocked = true
@@ -1401,6 +1441,11 @@ export class Coder {
           if (this.deps.unattended) return report(false, questionAnswerText(call.questions, null).replace('closed the questions without answering', "isn't watching this run (it's in the cloud)"))
           const answers = await this.askQuestions(sessionId, call.questions, signal, emit)
           return report(true, questionAnswerText(call.questions, answers))
+        }
+        case 'lsp': {
+          announce(`${call.action === 'symbols' ? 'List the symbols in' : call.action === 'hover' ? 'Look up a name in' : call.action === 'references' ? 'Find uses of a name in' : 'Go to a definition from'} ${call.path}${call.action === 'symbols' ? '' : `:${call.line}`}`)
+          if (!this.deps.lsp || project.lsp.length === 0) return report(false, 'No language server is installed for this project.')
+          return report(true, clip(await this.deps.lsp.run(root, call.action, call.path, call.line, call.column), 30_000))
         }
         case 'github': {
           const github = project.github
@@ -1679,6 +1724,23 @@ export class Coder {
       emit({ sessionId, type: 'approval', id, kind, summary, detail, ...(rule ? { rule } : {}), ...(always ? { always } : {}) })
     })
   }
+}
+
+/**
+ * The person's MCP servers for the model: which are connected with how many tools, and which
+ * aren't working and why, so it can say so rather than act as if they don't exist.
+ */
+export function mcpNote(servers: { name: string; state: string; error: string | null; enabled: boolean; trusted: boolean; tools: string[] }[]): string {
+  const on = servers.filter((server) => server.enabled)
+  if (on.length === 0) return ''
+  const lines = on.map((server) => {
+    if (!server.trusted) return `- ${server.name}: from the project's .mcp.json, waiting for the person to allow it in Terra Code settings`
+    if (server.state === 'ready') return `- ${server.name}: connected, ${server.tools.length} tools (named mcp__${server.name}__…)`
+    if (server.state === 'signin') return `- ${server.name}: needs the person to sign in, in Terra Code settings`
+    if (server.state === 'error') return `- ${server.name}: not working (${server.error ?? 'it stopped'})`
+    return `- ${server.name}: starting`
+  })
+  return `\n\nMCP servers the person added:\n${lines.join('\n')}\nIf the person asks about one that isn't working, tell them why and how to fix it.`
 }
 
 /** Writes a file back as it was (null: it didn't exist). True if anything changed. */

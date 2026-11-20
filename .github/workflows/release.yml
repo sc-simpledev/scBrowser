@@ -44,6 +44,14 @@ jobs:
       - run: pnpm release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      # Terra Code's workflows installed on GitHub (comment and scheduled runs) download this.
+      - name: Attach Terra Code's cloud runner
+        if: runner.os == 'Linux'
+        run: |
+          cp apps/desktop/out/cloud/runner.mjs terra-code-runner.mjs
+          gh release upload "$GITHUB_REF_NAME" terra-code-runner.mjs --repo sc-simpledev/scTerra --clobber
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       # Each Mac overwrites the other's latest-mac.yml, so each keeps a copy under its own name.
       - name: Keep this Mac's update file
         if: runner.os == 'macOS'

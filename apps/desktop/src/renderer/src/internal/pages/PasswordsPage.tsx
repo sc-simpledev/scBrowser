@@ -49,8 +49,12 @@ function CreateVault({ reload }: { reload: () => void }) {
       </div>
       {useMaster && (
         <>
-          <Input type="password" autoFocus aria-label="Master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={master} onChange={(e) => setMaster(e.target.value)} />
-          <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+          <FieldLabel text="Master password">
+            <Input type="password" autoFocus aria-label="Master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={master} onChange={(e) => setMaster(e.target.value)} />
+          </FieldLabel>
+          <FieldLabel text="The same again">
+            <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+          </FieldLabel>
           {master && <StrengthMeter password={master} />}
         </>
       )}
@@ -570,8 +574,12 @@ function AddMaster({ onDone }: { onDone: () => void }) {
           .catch((error: Error) => setProblem(cleanError(error)))
       }}
     >
-      <Input type="password" autoFocus aria-label="New master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={next} onChange={(e) => setNext(e.target.value)} />
-      <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+      <FieldLabel text="Master password">
+        <Input type="password" autoFocus aria-label="New master password" placeholder={`At least ${MIN_MASTER_LENGTH} characters`} value={next} onChange={(e) => setNext(e.target.value)} />
+      </FieldLabel>
+      <FieldLabel text="The same again">
+        <Input type="password" aria-label="Repeat master password" placeholder="Repeat it" value={again} onChange={(e) => setAgain(e.target.value)} />
+      </FieldLabel>
       {next && <StrengthMeter password={next} />}
       {problem && <p role="alert" className="text-xs text-danger">{problem}</p>}
       <div>
@@ -851,5 +859,15 @@ export function PasswordsPage() {
       <Options reload={reload} master={state.master} />
       <p className="text-xs text-text-faint">Logins and details stay on this computer, sealed with {state.master ? 'your master password' : "this computer's keychain"}, and aren't synced. To fill them in, use the key button in the toolbar or Ctrl Shift L.</p>
     </>
+  )
+}
+
+/** A small label above a field, so it still says what it is once something is typed. */
+function FieldLabel({ text, children }: { text: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-text-muted">{text}</span>
+      {children}
+    </label>
   )
 }

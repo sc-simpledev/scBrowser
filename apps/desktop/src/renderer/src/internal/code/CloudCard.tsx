@@ -24,10 +24,12 @@ export interface CloudCardProps {
   onPr: () => void
   onFetch: () => void
   onSteps: () => void
+  /** Carries on here, with the model told what the run did. */
+  onContinue: () => void
 }
 
 /** A task running on GitHub Actions: how it's going, then what it did and where its work is. */
-export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onSteps }: CloudCardProps) {
+export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onSteps, onContinue }: CloudCardProps) {
   const [open, setOpen] = useState(false)
   const finished = run.state === 'done' || run.state === 'failed' || run.state === 'cancelled'
   const elapsed = useElapsed(run.startedAt, run.endedAt)
@@ -72,6 +74,16 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
           {run.warning && <p className="text-text-muted">{run.warning}</p>}
           {run.error && <p className="text-danger">{run.error}</p>}
         </div>
+      )}
+      {!finished && run.live && run.live.length > 0 && (
+        <ul aria-label="Latest steps" className="flex flex-col gap-0.5 border-t border-border px-2.5 py-2">
+          {run.live.map((step, index) => (
+            <li key={index} className={cx('flex min-w-0 items-center gap-2 text-2xs', index === run.live!.length - 1 ? 'text-text' : 'text-text-faint')}>
+              {index === run.live!.length - 1 ? <Spinner className="size-2.5 border-[1.5px]" /> : <Check aria-hidden size={11} strokeWidth={2} className="shrink-0" />}
+              <span className="min-w-0 truncate">{step}</span>
+            </li>
+          ))}
+        </ul>
       )}
       {!finished && <p className="border-t border-border px-2.5 py-2 text-2xs text-text-faint">You can close scTerra or turn this computer off. It carries on, and this shows what it did when you’re back.</p>}
       {run.summary && (
@@ -129,6 +141,9 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
             <Button variant="ghost" onClick={onFetch} title={`git fetch origin ${run.branch}`}>
               <Download aria-hidden size={12} strokeWidth={1.75} />
               Fetch the branch
+            </Button>
+            <Button variant="ghost" onClick={onContinue} title="Fetch its branch, and tell Terra Code here what it did">
+              Continue here
             </Button>
             <Button variant="primary" onClick={onPr}>
               <GitPullRequest aria-hidden size={12} strokeWidth={1.75} />

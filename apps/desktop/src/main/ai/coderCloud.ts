@@ -35,6 +35,8 @@ export interface CloudTask {
   effort: CoderEffort | null
   /** The task's first line, for the commit and pull request. */
   title: string
+  /** Started from a comment on this issue or pull request: the answer goes back there. */
+  issue?: number
 }
 
 /**
@@ -70,6 +72,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  checks: write
 concurrency:
   group: scterra-cloud-${task.id}
 jobs:
@@ -263,7 +266,8 @@ export class CoderCloud {
     }
     const base = { ...run, runId: latest.id, runUrl: latest.html_url, error: null }
     if (latest.status !== 'completed') {
-      this.save(sessionId, { ...base, state: latest.status === 'in_progress' ? 'working' : 'queued' })
+      const live = latest.status === 'in_progress' ? await this.live(run).catch(() => null) : null
+      this.save(sessionId, { ...base, state: latest.status === 'in_progress' ? 'working' : 'queued', ...(live ? { live } : {}) })
       return
     }
     const ok = latest.conclusion === 'success'
@@ -283,6 +287,16 @@ export class CoderCloud {
     // The runner may not be allowed to open pull requests (a repository setting), so the person's own sign-in does.
     if (ok && run.pr && !prUrl && summary !== null) next = { ...next, prUrl: await this.openPr(next).catch(() => null) }
     this.save(sessionId, next)
+  }
+
+  /** The steps the runner has posted to its check run so far, newest last, in a few words each. */
+  private async live(run: CoderCloudRun): Promise<string[] | null> {
+    const found = await this.deps.github.call<{ check_runs: { output?: { text?: string | null } }[] }>('GET', `/repos/${run.repo}/commits/${encodeURIComponent(run.trigger)}/check-runs?check_name=${encodeURIComponent('Terra Code')}`)
+    const text = found.check_runs[0]?.output?.text
+    if (!text) return null
+    return eventsFromLog(text, '')
+      .flatMap((event) => (event.type === 'tool' ? [event.summary] : event.type === 'text' ? [event.text.split('\n')[0]!.slice(0, 140)] : []))
+      .slice(-6)
   }
 
   private async openPr(run: CoderCloudRun): Promise<string> {

@@ -1,10 +1,13 @@
 import { Check, ChevronRight, LogIn, LogOut, Pencil, Plus, RotateCw, Trash2, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Segmented, Switch } from '@scbrowser/ui'
-import { CODER_EFFORTS, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
+import { CODER_BUDGETS, CODER_EFFORTS, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { MODES, type ModelPick } from './Composer'
 import { GithubSettings, githubLabel, type useGithubStatus } from './GithubSettings'
+import { AutomationsSettings, type AutomationsState } from './AutomationsSettings'
+
+export const budgetLabel = (budget: number) => (budget === 0 ? 'No limit' : budget >= 1_000_000 ? `${budget / 1_000_000}M tokens` : `${budget / 1000}k tokens`)
 
 const cleanError = (message: string) => message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -75,20 +78,26 @@ export const EffortChoices = ({ effort, onEffort }: { effort: CoderEffort | null
   <Choices<CoderEffort | null> label="Thinking" value={effort} options={[{ id: null, label: 'Auto', hint: 'Medium for coding, Low for quick look-ups' }, ...CODER_EFFORTS.map((option) => ({ id: option.id, label: option.label, hint: option.hint }))]} onChange={onEffort} />
 )
 
-export function SandboxChoices({ value, available, onChange }: { value: Settings['coderSandbox']; available: boolean; onChange: (value: Settings['coderSandbox']) => void }) {
+/** The sandbox setting in words. */
+export const sandboxLabel = (value: Settings['coderSandbox'], available: boolean, container: boolean) =>
+  value === 'container' ? (container ? 'Dev container' : 'Off') : !available || value === 'off' ? 'Off' : value === 'project' ? 'Project only' : 'No network'
+
+export function SandboxChoices({ value, available, container = false, onChange }: { value: Settings['coderSandbox']; available: boolean; container?: boolean; onChange: (value: Settings['coderSandbox']) => void }) {
   return (
     <>
       <Choices
         label="Sandbox"
-        value={available ? value : 'off'}
+        value={value === 'container' ? value : available ? value : 'off'}
         onChange={onChange}
         options={[
           { id: 'off', label: 'Off', hint: 'Commands run as you, anywhere you can' },
           { id: 'project', label: 'Project only', hint: 'They can only write in the project and build caches', disabled: !available },
-          { id: 'offline', label: 'No network', hint: 'Project only, and cut off from the internet', disabled: !available }
+          { id: 'offline', label: 'No network', hint: 'Project only, and cut off from the internet', disabled: !available },
+          { id: 'container', label: 'Dev container', hint: 'Inside the project’s own dev container', disabled: !container && value !== 'container' }
         ]}
       />
-      {!available && <p className="text-2xs text-text-faint">Needs Linux with bubblewrap installed.</p>}
+      {!available && <p className="text-2xs text-text-faint">Project only and No network need bubblewrap on Linux, or a Mac.</p>}
+      {!container && <p className="text-2xs text-text-faint">Dev container needs a .devcontainer in the project and the devcontainer CLI.</p>}
     </>
   )
 }
@@ -377,6 +386,7 @@ export interface SettingsTabProps {
   effort: CoderEffort | null
   onEffort: (effort: CoderEffort | null) => void
   sandboxAvailable: boolean
+  devContainer: boolean
   /** Opens one row by its name when the panel is asked for, such as /mcp. */
   focus: string | null
   /** The project's commands may have changed. */
@@ -385,8 +395,9 @@ export interface SettingsTabProps {
 }
 
 /** Terra Code's settings as a sidebar: each a line with its value, opening in place to change it. */
-export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sandboxAvailable, focus, onSetupChanged, github }: SettingsTabProps) {
+export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sandboxAvailable, devContainer, focus, onSetupChanged, github }: SettingsTabProps) {
   const [setup, setSetup] = useState<CoderSetup | null>(null)
+  const [automations, setAutomations] = useState<AutomationsState | null>(null)
   const [open, setOpen] = useState<string | null>(focus)
   const [editing, setEditing] = useState<McpServerView | 'new' | McpDirectoryEntry | null>(null)
   const [browsing, setBrowsing] = useState(false)
@@ -427,7 +438,7 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
   const modeLabel = MODES.find((option) => option.id === mode)?.label ?? mode
   const effortLabel = effort ? (CODER_EFFORTS.find((option) => option.id === effort)?.label ?? effort) : 'Auto'
   const sandbox = prefs?.coderSandbox ?? 'off'
-  const sandboxLabel = !sandboxAvailable || sandbox === 'off' ? 'Off' : sandbox === 'project' ? 'Project only' : 'No network'
+  const sandboxWords = sandboxLabel(sandbox, sandboxAvailable, devContainer)
   const mcpReady = setup?.mcp.filter((server) => server.state === 'ready').length ?? 0
   const projectName = setup?.folder?.split(/[\\/]/).filter(Boolean).at(-1)
 
@@ -455,14 +466,22 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
               />
             </SettingRow>
             <SwitchRow label="Show reasoning" hint="Its thinking, folded above each step" checked={prefs.coderShowReasoning} onChange={(coderShowReasoning) => onPrefs({ coderShowReasoning })} />
+            <SettingRow label="Budget per session" value={budgetLabel(prefs.coderBudget)} open={open === 'budget'} onToggle={() => toggle('budget')}>
+              <Choices
+                label="Budget per session"
+                value={String(prefs.coderBudget)}
+                onChange={(value) => onPrefs({ coderBudget: Number(value) as Settings['coderBudget'] })}
+                options={CODER_BUDGETS.map((budget) => ({ id: String(budget), label: budgetLabel(budget), hint: budget === 0 ? 'It works until the task is done' : 'Tokens in and out; it stops and says so when they’re used up' }))}
+              />
+            </SettingRow>
           </>
         )}
       </Group>
 
       <Group title="Safety">
         {prefs && (
-          <SettingRow label="Sandbox" value={sandboxLabel} open={open === 'sandbox'} onToggle={() => toggle('sandbox')}>
-            <SandboxChoices value={prefs.coderSandbox} available={sandboxAvailable} onChange={(coderSandbox) => onPrefs({ coderSandbox })} />
+          <SettingRow label="Sandbox" value={sandboxWords} open={open === 'sandbox'} onToggle={() => toggle('sandbox')}>
+            <SandboxChoices value={prefs.coderSandbox} available={sandboxAvailable} container={devContainer} onChange={(coderSandbox) => onPrefs({ coderSandbox })} />
           </SettingRow>
         )}
         <SettingRow label="Allowed commands" value={count(setup?.rules.allow.length)} open={open === 'allow'} onToggle={() => toggle('allow')}>
@@ -496,6 +515,11 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
           <SettingRow label="GitHub" value={githubLabel(github.status, prefs.coderGithub)} open={open === 'github'} onToggle={() => toggle('github')}>
             <GithubSettings prefs={prefs} onPrefs={onPrefs} github={github} />
           </SettingRow>
+          {github.status?.source && (
+            <SettingRow label="On GitHub" value={automations?.saved ? 'Installed' : 'Not installed'} open={open === 'automations'} onToggle={() => toggle('automations')}>
+              <AutomationsSettings canAct={prefs.coderGithub === 'write'} onState={setAutomations} />
+            </SettingRow>
+          )}
         </Group>
       )}
 

@@ -1,6 +1,6 @@
 import { Search, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, Select, Switch } from '@scbrowser/ui'
+import { Button, cx, Input, Select, Switch } from '@scbrowser/ui'
 import {
   ACCENTS,
   ARCHIVE_CHOICES,
@@ -27,7 +27,7 @@ import {
   type UpdateState,
   type WebApp
 } from '@scbrowser/shared'
-import { WHATS_NEW } from '@scbrowser/shared'
+import { SIDEBAR_COLORS, sidebarBackground, WHATS_NEW } from '@scbrowser/shared'
 import { api, applyPerformance, applyTint } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
 import { announceSearching, openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, type SettingsGroupId } from '../settingsGroups'
@@ -324,6 +324,16 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
             <option value="vertical">Down the side</option>
           </RowSelect>
         </Row>
+        {settings.tabLayout === 'vertical' && (
+          <Row setting="sidebarAutoHide" label="Hide the sidebar until the pointer reaches it" hint="The tabs slide out when the pointer touches the window's left edge, and tuck away again when it leaves, like Dia." keywords="auto hide sidebar reveal hover edge dia">
+            <Switch label="Hide the sidebar until the pointer reaches it" checked={settings.sidebarAutoHide} onChange={(sidebarAutoHide) => update({ sidebarAutoHide })} />
+          </Row>
+        )}
+        {settings.tabLayout === 'vertical' && (
+          <Row setting="sidebarColor" label="Sidebar colour" hint="A wash of colour behind the tabs, which suits light and dark." keywords="sidebar color colour tint background">
+            <SidebarColors value={settings.sidebarColor} onChange={(sidebarColor) => update({ sidebarColor })} />
+          </Row>
+        )}
         <Row setting="tabTree" label="Tab tree" hint="With tabs down the side, a tab opened from a link sits indented under the tab it came from." keywords="nested tree indent children">
           <Switch label="Tab tree" checked={settings.tabTree} onChange={(tabTree) => update({ tabTree })} />
         </Row>
@@ -1059,4 +1069,32 @@ const GROUP_PAGES: Record<SettingsGroupId, (props: { settings: Settings; update:
   data: DataPage,
   ai: AiPage,
   about: AboutPage
+}
+
+/** The sidebar's colour: a row of swatches, then one of the person's own. */
+function SidebarColors({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const custom = value !== 'default' && !SIDEBAR_COLORS.some((color) => color.id === value)
+  return (
+    <div role="radiogroup" aria-label="Sidebar colour" className="flex flex-wrap items-center gap-1.5">
+      {SIDEBAR_COLORS.map((color) => (
+        <button
+          key={color.id}
+          type="button"
+          role="radio"
+          aria-checked={value === color.id}
+          aria-label={color.name}
+          title={color.name}
+          onClick={() => onChange(color.id)}
+          className={cx('grid size-6 place-items-center rounded-full border transition-shadow', value === color.id ? 'border-text ring-2 ring-focus-ring/40' : 'border-border-strong hover:border-text-muted')}
+          style={{ background: color.id === 'default' ? 'var(--color-bg)' : sidebarBackground(color.id) }}
+        >
+          {color.id === 'default' && <span aria-hidden className="h-px w-3 rotate-45 bg-text-faint" />}
+        </button>
+      ))}
+      <label title="Your own" className={cx('relative grid size-6 cursor-pointer place-items-center overflow-hidden rounded-full border', custom ? 'border-text ring-2 ring-focus-ring/40' : 'border-border-strong hover:border-text-muted')} style={{ background: 'conic-gradient(from 90deg, #e0828f, #e3a052, #6fae7f, #4f9fbf, #7d86d9, #e0828f)' }}>
+        <span className="sr-only">Your own colour</span>
+        <input type="color" aria-label="Your own colour" value={custom ? value : '#4f9fbf'} onChange={(event) => onChange(event.target.value.toLowerCase())} className="absolute inset-0 cursor-pointer opacity-0" />
+      </label>
+    </div>
+  )
 }

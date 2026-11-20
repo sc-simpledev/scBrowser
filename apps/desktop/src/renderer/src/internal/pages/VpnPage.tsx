@@ -152,7 +152,7 @@ function RouteChoice({ state, setState, reload }: { state: VpnState; setState: (
     void api().invoke('vpn:set-route', scope, method).then(reload)
   }
   return (
-    <section aria-label="What the VPN covers" className="flex flex-col gap-1 rounded-lg bg-surface p-3 shadow-1">
+    <section aria-label="What the VPN covers" className="flex flex-col gap-1 rounded-lg bg-surface px-1 py-3 shadow-1">
       <h2 className="px-2 pb-1 text-sm font-medium text-text">What it covers</h2>
       <RouteOption name="vpn-scope" label="Just scTerra" note="Your other apps keep their normal connection." checked={state.scope === 'browser'} onSelect={() => set('browser', state.method)} />
       <RouteOption name="vpn-scope" label="This whole computer" note="Other apps go through the connection too." checked={state.scope === 'computer'} onSelect={() => set('computer', state.method)} />

@@ -1,16 +1,19 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
-import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
+import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, type ToolOutput, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
 import { localDay, memoryPrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
 import { Coder, git, type CoderBrowserHost, type CoderGithubHost, type CoderMcpHost } from './coder'
 import { parsePdf } from './pdfText'
-import { sandboxAvailable, type SandboxMode } from './coderTools'
+import { devContainerAvailable, sandboxAvailable, type SandboxMode } from './coderTools'
 import type { CoderTrust } from './coderTrust'
 import { reportCallText } from './reportCall'
+import { CHAT_TOOLS_PROMPT, ChatTools, MAX_CHAT_TOOL_ROUNDS } from './chatTools'
+import { CoderLsp } from './coderLsp'
 import { CoderCheckpoints, CoderSnapshots } from './coderStorage'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import type { AiStore } from './store'
 
 /**
@@ -61,6 +64,17 @@ export class AiService {
     const snapshots = coderHome && new CoderSnapshots(join(coderHome.dir, 'snapshots'))
     void checkpoints?.prune()
     void snapshots?.prune()
+    const searchWeb = async (query: string) => {
+      const pages = await webContext(query, (url) => this.siteOff(url))
+      if (pages.length === 0) return 'No results.'
+      return pages.map((page, index) => `[${index + 1}] ${page.title}\n${page.url}\n${page.text.slice(0, 5000)}`).join('\n\n')
+    }
+    const readUrl = async (url: string) => {
+      if (this.siteOff(url)) return 'AI is turned off for that site, so it was not read.'
+      const page = await readResult({ url, title: url })
+      return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
+    }
+    this.chatTools = coderHome ? new ChatTools({ mcp: coderHome.mcp, folder: () => coderHome.folder?.() || homedir(), webSearch: searchWeb, readUrl, screenshot: (tabId) => this.screenshot(tabId) }) : null
     this.coder = new Coder({
       chat: (messages, system, signal, options) => this.collect(this.coderRef(options?.model), system, messages, signal, MAX_OUTPUT_TOKENS, options?.onText, undefined, options),
       native: {
@@ -99,7 +113,7 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, budget: coderHome.budget, lsp: new CoderLsp(), ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
       agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -195,6 +209,8 @@ export class AiService {
 
   /** Agentic coding (beta), on the chat model. Long replies, as it writes whole files. */
   readonly coder: Coder
+  /** The web, a look at the shared tab, and MCP servers, for the chat. Absent for background work. */
+  private readonly chatTools: ChatTools | null
 
   async coderStatus(folder: string): Promise<CoderStatus> {
     const chat = this.store.roles().chat
@@ -202,7 +218,7 @@ export class AiService {
     const status = this.store.status()
     const isGit = folder ? (await git(folder, ['rev-parse', '--is-inside-work-tree'])) === 'true' : false
     const branch = isGit ? await git(folder, ['rev-parse', '--abbrev-ref', 'HEAD']) : null
-    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running, git: isGit, branch: branch && branch !== 'HEAD' ? branch : null, sandboxAvailable: sandboxAvailable() }
+    return { folder: folder || null, ready: status.ready, model: status.model, providerName: status.providerName, hosted: !!provider?.hosted, running: this.coder.running, git: isGit, branch: branch && branch !== 'HEAD' ? branch : null, sandboxAvailable: sandboxAvailable(), devContainer: devContainerAvailable(folder || null) }
   }
 
   private async collect(ref: ModelRef, system: string, messages: ChatMessage[], signal?: AbortSignal, maxTokens = TASK_OUTPUT_TOKENS, onText?: (text: string) => void, onStop?: (reason: string | null) => void, extra: { onUsage?: (input: number, output: number) => void; effort?: ChatEffort | null; reasoning?: boolean; onReasoning?: (text: string) => void } = {}): Promise<string> {
@@ -257,8 +273,23 @@ export class AiService {
     return parseHistoryQuery(await this.complete(historyQueryPrompt(localDay(Date.now())), query))
   }
 
+  private siteOff(url: string): boolean {
+    return URL.canParse(url) && this.store.disabledHosts().includes(new URL(effectiveUrl(url)).host)
+  }
+
+  /** The tab as the person sees it, as a JPEG no wider than 1280, for models that can look. */
+  private async screenshot(tabId: number): Promise<string | null> {
+    const contents = this.contentsFor(tabId)
+    if (!contents || contents.isDestroyed() || this.siteOff(contents.getURL())) return null
+    const image = await contents.capturePage().catch(() => null)
+    if (!image || image.isEmpty()) return null
+    const { width } = image.getSize()
+    const shown = width > 1280 ? image.resize({ width: 1280, quality: 'good' }) : image
+    return `data:image/jpeg;base64,${shown.toJPEG(80).toString('base64')}`
+  }
+
   answerApproval(approvalId: string, allow: boolean): void {
-    this.agent.answer(approvalId, allow)
+    if (!this.chatTools?.answer(approvalId, allow)) this.agent.answer(approvalId, allow)
   }
 
   async runAgent(streamId: string, goal: string, tabId: number, emit: (event: AssistantEvent) => void): Promise<void> {
@@ -297,47 +328,85 @@ export class AiService {
 
       let stopReason: string | null = null
       const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : '')
-      const messages = withContext(request.messages, pages, request.selection)
+      const convo: ChatMessage[] = [...withContext(request.messages, pages, request.selection)]
       const key = `${chat.providerId}\n${chat.model}`
       // The hosted server takes tools only once its Worker with tool support is deployed.
       const hosted = !!this.store.provider(chat.providerId)?.hosted
-      for (;;) {
-        const withTool = (!hosted || HOSTED_NATIVE_TOOLS) && !this.noReportTool.has(key)
-        const call = reportCallText()
-        let sent = false
-        const text = (piece: string) => {
-          if (!piece) return
-          sent = true
-          emit({ streamId, type: 'text', text: piece })
-        }
-        try {
-          const stream = provider.chat({
-            model: chat.model,
-            system: withTool ? `${system}\n\n${REPORT_TOOL_PROMPT}\n\n${ASK_TOOL_PROMPT}` : `${system}\n\n${QUESTION_INSTRUCTIONS}`,
-            messages,
-            maxTokens: MAX_OUTPUT_TOKENS,
-            signal: controller.signal,
-            ...(withTool ? { tools: [REPORT_TOOL, ASK_TOOL] } : {})
-          })
-          for await (const event of stream) {
-            if (event.type === 'text') text(event.text)
-            if (event.type === 'tool-delta' && event.name === REPORT_TOOL.name) text(call.delta(event.index, event.text))
-            if (event.type === 'tool' && event.use.name === REPORT_TOOL.name) text(call.whole(event.use.input))
-            // Questions end the reply as a block the page shows as buttons; the answer is the next message.
-            if (event.type === 'tool' && event.use.name === ASK_TOOL.name && event.use.input) text(`${call.end()}\n\n\`\`\`${QUESTION_FENCE}\n${JSON.stringify(event.use.input)}\n\`\`\``)
-            if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
-            if (event.type === 'stop') stopReason = event.reason
+      const sharedTab = request.includePage && request.tabId !== null && this.contentsFor(request.tabId) && !this.siteOff(this.contentsFor(request.tabId)!.getURL()) ? request.tabId : null
+      const extra = this.chatTools && (!hosted || HOSTED_NATIVE_TOOLS) ? await this.chatTools.specs(sharedTab) : { specs: [], mcp: [] }
+      const allowed = new Set<string>()
+      let wrote = false
+      for (let round = 0; ; round++) {
+        // The last round answers with what it has.
+        const offerExtra = round < MAX_CHAT_TOOL_ROUNDS
+        const uses: ToolUse[] = []
+        let blocks: unknown[] | undefined
+        let said = ''
+        let asked = false
+        for (;;) {
+          const withTool = (!hosted || HOSTED_NATIVE_TOOLS) && !this.noReportTool.has(key)
+          const tools = withTool ? [REPORT_TOOL, ASK_TOOL, ...(offerExtra ? extra.specs : [])] : []
+          const call = reportCallText()
+          let sent = false
+          const text = (piece: string) => {
+            if (!piece) return
+            // A new round's words start a new paragraph after the last one's.
+            if (!sent && wrote && round > 0) emit({ streamId, type: 'text', text: '\n\n' })
+            sent = true
+            wrote = true
+            said += piece
+            emit({ streamId, type: 'text', text: piece })
           }
-          text(call.end())
-          break
-        } catch (error) {
-          // A provider or model that doesn't take tools says so at once. The report is then written as text.
-          if (withTool && !sent && !controller.signal.aborted && error instanceof AiError && error.kind === 'bad-request') {
-            this.noReportTool.add(key)
-            continue
+          try {
+            const stream = provider.chat({
+              model: chat.model,
+              system: withTool ? `${system}\n\n${REPORT_TOOL_PROMPT}\n\n${ASK_TOOL_PROMPT}${tools.length > 2 ? `\n\n${CHAT_TOOLS_PROMPT}` : ''}` : `${system}\n\n${QUESTION_INSTRUCTIONS}`,
+              messages: convo,
+              maxTokens: MAX_OUTPUT_TOKENS,
+              signal: controller.signal,
+              ...(withTool ? { tools } : {})
+            })
+            for await (const event of stream) {
+              if (event.type === 'text') text(event.text)
+              if (event.type === 'tool-delta' && event.name === REPORT_TOOL.name) text(call.delta(event.index, event.text))
+              if (event.type === 'tool' && event.use.name === REPORT_TOOL.name) text(call.whole(event.use.input))
+              // Questions end the reply as a block the page shows as buttons; the answer is the next message.
+              if (event.type === 'tool' && event.use.name === ASK_TOOL.name && event.use.input) {
+                asked = true
+                text(`${call.end()}\n\n\`\`\`${QUESTION_FENCE}\n${JSON.stringify(event.use.input)}\n\`\`\``)
+              }
+              if (event.type === 'tool') uses.push(event.use)
+              if (event.type === 'blocks') blocks = event.blocks
+              if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
+              if (event.type === 'stop') stopReason = event.reason
+            }
+            text(call.end())
+            break
+          } catch (error) {
+            const refused = withTool && !sent && !controller.signal.aborted && error instanceof AiError && error.kind === 'bad-request'
+            // A picture the model can't take: the round goes again with words in its place.
+            const pictures = convo.at(-1)?.toolResults?.some((result) => result.images?.length)
+            if (refused && pictures) {
+              for (const result of convo.at(-1)!.toolResults!) if (result.images?.length) Object.assign(result, { images: undefined, output: `${result.output}\n(The picture couldn't be sent: this model may not take pictures.)` })
+              continue
+            }
+            // A provider or model that doesn't take tools says so at once. The report is then written as text.
+            if (refused && round === 0) {
+              this.noReportTool.add(key)
+              continue
+            }
+            throw error
           }
-          throw error
         }
+        const work = uses.filter((use) => use.name !== REPORT_TOOL.name && use.name !== ASK_TOOL.name)
+        if (work.length === 0 || asked || !this.chatTools || controller.signal.aborted) break
+        convo.push({ role: 'assistant', content: said, toolUses: uses, ...(blocks ? { blocks } : {}) })
+        const results: ToolOutput[] = []
+        for (const use of uses) {
+          if (use.name === REPORT_TOOL.name || use.name === ASK_TOOL.name) results.push({ id: use.id, tool: use.name, output: 'Shown to the person.' })
+          else results.push(await this.chatTools.run(use, extra.mcp, { streamId, tabId: sharedTab, emit, signal: controller.signal }, allowed))
+        }
+        convo.push({ role: 'user', content: '', toolResults: results })
       }
       // Ending on the tool call is an ordinary ending here, as the report is the reply.
       emit({ streamId, type: 'done', stopReason: stopReason === 'tool_use' || stopReason === 'tool_calls' ? null : stopReason })
@@ -399,4 +468,7 @@ export interface CoderHome {
   mcp?: CoderMcpHost
   browser?: CoderBrowserHost
   github?: CoderGithubHost
+  budget?: () => number
+  /** Terra Code's chosen folder, for project MCP servers the chat may use too. */
+  folder?: () => string
 }

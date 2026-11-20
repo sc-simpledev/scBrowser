@@ -1,4 +1,4 @@
-import { Bot, Brain, Check, ChevronRight, Circle, CircleAlert, Compass, Copy, ListChecks, Pencil, Plus, X } from 'lucide-react'
+import { Bot, Brain, Check, ChevronRight, Circle, CircleAlert, Compass, Copy, ListChecks, Pencil, Plus, Split, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { CODER_MAX_TODO, CODER_MAX_TODO_CHARS, type CoderAgentRun, type CoderTodo } from '@scbrowser/shared'
@@ -137,7 +137,7 @@ export function StepMark({ item, working }: { item: CoderTodo; working: boolean 
 }
 
 /** A checklist the person can change: tick steps, rename them, remove them, and add their own. */
-export function ChecklistItems({ items, working, className, onChange }: { items: CoderTodo[]; working: boolean; className?: string; onChange?: (items: CoderTodo[]) => void }) {
+export function ChecklistItems({ items, working, className, onChange, onParallel }: { items: CoderTodo[]; working: boolean; className?: string; onChange?: (items: CoderTodo[]) => void; onParallel?: () => void }) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
@@ -247,17 +247,25 @@ export function ChecklistItems({ items, working, className, onChange }: { items:
             />
           </div>
         ) : (
-          <button type="button" onClick={() => setAdding(true)} className="-mx-1 flex h-6 w-fit items-center gap-2 rounded-md px-1 text-xs text-text-faint transition-colors hover:bg-surface-hover hover:text-text">
-            <Plus aria-hidden size={14} strokeWidth={1.5} />
-            Add a step
-          </button>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setAdding(true)} className="-mx-1 flex h-6 w-fit items-center gap-2 rounded-md px-1 text-xs text-text-faint transition-colors hover:bg-surface-hover hover:text-text">
+              <Plus aria-hidden size={14} strokeWidth={1.5} />
+              Add a step
+            </button>
+            {onParallel && !working && items.filter((item) => !item.done).length >= 2 && (
+              <button type="button" onClick={onParallel} title="Hands the steps that don’t depend on each other to helpers working at the same time" className="ml-auto flex h-6 items-center gap-1.5 rounded-md px-1 text-xs text-text-faint transition-colors hover:bg-surface-hover hover:text-text">
+                <Split aria-hidden size={13} strokeWidth={1.5} />
+                Work on these side by side
+              </button>
+            )}
+          </div>
         ))}
     </div>
   )
 }
 
 /** The model's checklist above the message box: the step it's on, opening to every step. Open while it works. */
-export function Checklist({ items, working, bare = false, onChange }: { items: CoderTodo[]; working: boolean; bare?: boolean; onChange?: (items: CoderTodo[]) => void }) {
+export function Checklist({ items, working, bare = false, onChange, onParallel }: { items: CoderTodo[]; working: boolean; bare?: boolean; onChange?: (items: CoderTodo[]) => void; onParallel?: () => void }) {
   const [chosen, setChosen] = useState<boolean | null>(null)
   const done = items.filter((item) => item.done).length
   const current = items.find((item) => item.active) ?? items.find((item) => !item.done)
@@ -276,7 +284,7 @@ export function Checklist({ items, working, bare = false, onChange }: { items: C
         </span>
         <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && '-rotate-90')} />
       </button>
-      {open && <ChecklistItems items={items} working={working} onChange={onChange} className="sc-scroll-quiet max-h-[28vh] overflow-y-auto px-2.5 pt-0.5 pb-2.5" />}
+      {open && <ChecklistItems items={items} working={working} onChange={onChange} onParallel={onParallel} className="sc-scroll-quiet max-h-[28vh] overflow-y-auto px-2.5 pt-0.5 pb-2.5" />}
     </section>
   )
 }

@@ -37,6 +37,7 @@ export type CoderToolName =
   | 'hook'
   | 'ask'
   | 'github'
+  | 'lsp'
 
 export interface CoderTodo {
   text: string
@@ -210,8 +211,10 @@ export interface CoderStatus {
   git: boolean
   /** The branch checked out, when it's a git repository. */
   branch?: string | null
-  /** Linux with bubblewrap installed, so commands can be fenced in. */
+  /** Linux with bubblewrap installed, or a Mac, so commands can be fenced in. */
   sandboxAvailable: boolean
+  /** The project has a dev container and the devcontainer CLI is installed. */
+  devContainer?: boolean
 }
 
 export type CoderAnswer = 'allow' | 'always' | 'deny'
@@ -311,10 +314,25 @@ Read the changed code and enough around it to judge it. Report what's wrong, mos
 - **file:line** what's wrong, why it matters, and how to fix it
 Look for bugs, missed cases, broken error handling, security problems, races, and tests that don't test what they claim. Leave out style nitpicks. If it all looks right, say so briefly.`
 
+/** What /review #12 asks for: a GitHub pull request, read and reviewed, with comments posted only on the person's yes. */
+export const reviewPrTask = (number: number) => `Review pull request #${number} on GitHub as a careful senior reviewer. Read it with the github tool: GET /repos/{owner}/{repo}/pulls/${number} for what it's for, and GET /repos/{owner}/{repo}/pulls/${number}/files for the changes (the patch of each file). Read the changed files here too where you need more around them.
+
+Report what's wrong, most serious first, each as **file:line** what's wrong, why it matters, and how to fix it. Look for bugs, missed cases, broken error handling, security problems and tests that don't test what they claim; leave out style nitpicks.
+
+Then post your findings as one review: POST /repos/{owner}/{repo}/pulls/${number}/reviews with "event": "COMMENT", a short "body", and "comments" (each with "path", "line" on the new side, "side": "RIGHT" and "body"). It asks the person first, and if they decline, just leave the report here. Don't change any files.`
+
+/** What /fix-ci asks for: the failing checks of a branch on GitHub, found, fixed and checked here. */
+export const fixCiTask = (branch: string | null) => `The checks on GitHub are failing${branch ? ` for the branch ${branch}` : ''}. Find out why and fix it:
+1. With the github tool, list the latest workflow runs${branch ? ` for this branch (GET /repos/{owner}/{repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=5)` : ' (GET /repos/{owner}/{repo}/actions/runs?per_page=5)'}, then the jobs of the newest failed one (GET /repos/{owner}/{repo}/actions/runs/RUN_ID/jobs).
+2. Read the failed jobs' logs (GET /repos/{owner}/{repo}/actions/jobs/JOB_ID/logs) and find the first real error.
+3. Fix the cause here, then run the same check locally to confirm it passes.
+Tell me what failed and why, and what you changed. If GitHub isn't connected, say so, and try the checks locally instead.`
+
 /** Built-in slash commands, handled by the page or turned into a task. */
 export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?: string }[] = [
   { name: 'init', description: 'Look around and write TERRA.md, the project’s notes for Terra Code' },
-  { name: 'review', description: 'Review uncommitted changes, or a branch, without changing anything', args: '[branch]' },
+  { name: 'review', description: 'Review uncommitted changes, a branch, or a pull request (#12)', args: '[branch or #PR]' },
+  { name: 'fix-ci', description: 'Read why the checks fail on GitHub, and fix it here' },
   { name: 'compact', description: 'Summarise the conversation so far, to make room' },
   { name: 'undo', description: 'Put files and the conversation back to before the last message' },
   { name: 'remember', description: 'Add a line to TERRA.md', args: '<note>' },
@@ -374,6 +392,34 @@ export interface CoderGithubStatus {
   /** The project's repository on GitHub, from its git remote. */
   repo: string | null
   error: string | null
+  /** "Sign in with GitHub" is available: scTerra has an OAuth app to sign in with. */
+  deviceFlow: boolean
+}
+
+/**
+ * The OAuth app scTerra signs in to GitHub with, by GitHub's device flow (no secret needed). Empty
+ * until the owner registers one at github.com/settings/applications/new with "Enable Device Flow"
+ * ticked; "Sign in with GitHub" only shows once it's set. SCTERRA_GITHUB_CLIENT_ID overrides it.
+ */
+export const GITHUB_CLIENT_ID = ''
+
+/** A repository the person can reach, for cloning. */
+export interface GithubRepo {
+  fullName: string
+  description: string
+  private: boolean
+  pushedAt: string
+}
+
+/** What a newly chosen folder looks like, for the first-run card. */
+export interface CoderProjectSetup {
+  stack: string[]
+  /** It already has notes for coding agents (TERRA.md, AGENTS.md or CLAUDE.md). */
+  instructions: boolean
+  /** Commands worth letting through without asking, not already allowed. */
+  rules: string[]
+  /** MCP_DIRECTORY ids that fit the project. */
+  mcp: string[]
 }
 
 /** A run of Terra Code on GitHub Actions, which carries on with this computer off. */
@@ -401,7 +447,48 @@ export interface CoderCloudRun {
   error: string | null
   /** What the cloud copy doesn't have, such as commits not pushed yet. */
   warning: string | null
+  /** Its latest steps while it works, read from its check run on GitHub. */
+  live?: string[]
 }
+
+/** A task Terra Code runs on GitHub on a timetable. `cron` is in UTC, as GitHub reads it. */
+export interface CoderSchedule {
+  cron: string
+  task: string
+  /** Open a pull request if anything changed. */
+  pr: boolean
+  /** How it was picked, in words, such as "Every Monday at 9:00". */
+  label: string
+}
+
+/** Terra Code installed on a GitHub repository: runs started by @terra comments, and scheduled tasks. */
+export interface CoderAutomations {
+  comments: boolean
+  schedules: CoderSchedule[]
+}
+
+/** A timetable in the person's own time as a UTC cron line, and in words. */
+export function scheduleCron(every: 'day' | 'weekday' | 'week' | 'month', hour: number, offsetMinutes: number): { cron: string; label: string } {
+  // getTimezoneOffset is minutes behind UTC: Sydney is -600.
+  const utc = (((hour * 60 + offsetMinutes) % 1440) + 1440) % 1440
+  const shift = Math.floor((hour * 60 + offsetMinutes) / 1440)
+  const minute = utc % 60
+  const at = `${minute} ${Math.floor(utc / 60)}`
+  const time = `${hour}:00`
+  if (every === 'day') return { cron: `${at} * * *`, label: `Every day at ${time}` }
+  if (every === 'weekday') {
+    // Monday to Friday where the person is, which can be Sunday to Thursday or Tuesday to Saturday in UTC.
+    const days = shift < 0 ? '0-4' : shift > 0 ? '2-6' : '1-5'
+    return { cron: `${at} * * ${days}`, label: `Every weekday at ${time}` }
+  }
+  if (every === 'week') return { cron: `${at} * * ${(((1 + shift) % 7) + 7) % 7}`, label: `Every Monday at ${time}` }
+  // A month's first day can't move with the time zone in cron, so it stays the 1st in UTC.
+  return { cron: `${at} 1 * *`, label: shift === 0 ? `On the 1st of each month at ${time}` : `On the 1st of each month (UTC) near ${time}` }
+}
+
+export const AUTOMATIONS_WORKFLOW_PATH = '.github/workflows/terra-code.yml'
+/** Where installed workflows download the runner: each scTerra release carries it. */
+export const RUNNER_DOWNLOAD_URL = 'https://github.com/sc-simpledev/scTerra/releases/latest/download/terra-code-runner.mjs'
 
 /** Model settings for a cloud run: only where it can reach, never a key (that goes to GitHub as a secret). */
 export interface CoderCloudModel {

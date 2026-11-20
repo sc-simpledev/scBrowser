@@ -121,14 +121,54 @@ export async function projectSettings(folder: string): Promise<ProjectSettings> 
   const settings = isRecord(data) ? data : {}
   const permissions = isRecord(settings.permissions) ? settings.permissions : {}
   const diagnostics = typeof settings.diagnostics === 'string' && settings.diagnostics.trim() && settings.diagnostics.length < 500 ? settings.diagnostics.trim() : null
-  return { deny: [...strings(settings.deny), ...strings(permissions.deny)], diagnostics }
+  const claude = await claudeSettings(folder)
+  return { deny: [...strings(settings.deny), ...strings(permissions.deny), ...claude.deny], diagnostics }
+}
+
+/** A Claude Code permission such as `Bash(npm run test:*)` as one of ours (`npm run test*`), or null if it isn't about commands. */
+export function claudeRule(rule: string): string | null {
+  const match = /^Bash\((.*)\)$/.exec(rule.trim())
+  if (!match) return null
+  const inner = match[1]!.trim()
+  if (!inner) return null
+  return inner.endsWith(':*') ? `${inner.slice(0, -2)}*` : inner
+}
+
+/**
+ * A project's Claude Code settings (`.claude/settings.json`), so a project set up for it works here:
+ * its command deny rules apply, its allow rules are only offered to the person, and its hooks
+ * become this project's hooks (asked about like any other).
+ */
+export async function claudeSettings(folder: string): Promise<{ allow: string[]; deny: string[]; hooks: HookSet['hooks'] }> {
+  const data = await readJson(join(folder, '.claude', 'settings.json'))
+  const settings = isRecord(data) ? data : {}
+  const permissions = isRecord(settings.permissions) ? settings.permissions : {}
+  const rules = (value: unknown) => strings(value).map(claudeRule).filter((rule): rule is string => rule !== null)
+  const hooks: HookSet['hooks'] = []
+  const groups = isRecord(settings.hooks) ? settings.hooks : {}
+  const events: [string, CoderHookEvent, (matcher: string) => boolean][] = [
+    ['PostToolUse', 'afterEdit', (matcher) => !matcher || matcher === '*' || /Edit|Write/.test(matcher)],
+    ['PreToolUse', 'beforeCommand', (matcher) => !matcher || matcher === '*' || /\bBash\b/.test(matcher)],
+    ['Stop', 'afterTurn', () => true]
+  ]
+  for (const [name, event, fits] of events) {
+    const list = Array.isArray(groups[name]) ? groups[name] : []
+    for (const group of list.slice(0, 10)) {
+      if (!isRecord(group) || !fits(typeof group.matcher === 'string' ? group.matcher : '')) continue
+      for (const hook of (Array.isArray(group.hooks) ? group.hooks : []).slice(0, 10)) {
+        if (isRecord(hook) && hook.type === 'command' && typeof hook.command === 'string' && hook.command.length <= 2000) hooks.push({ event, command: hook.command, match: null, claude: true })
+      }
+    }
+  }
+  return { allow: rules(permissions.allow), deny: rules(permissions.deny), hooks }
 }
 
 export interface HookSet {
   source: CoderSource
   /** Changes whenever the hooks do, so a project's changed hooks are asked about again. */
   hash: string
-  hooks: { event: CoderHookEvent; command: string; match: string | null }[]
+  /** `claude`: from Claude Code's settings, so it's given Claude's JSON on its input. */
+  hooks: { event: CoderHookEvent; command: string; match: string | null; claude?: boolean }[]
 }
 
 const HOOK_EVENTS: CoderHookEvent[] = ['afterEdit', 'beforeCommand', 'afterTurn']
@@ -148,7 +188,14 @@ function hookSet(data: unknown, source: CoderSource): HookSet | null {
 }
 
 export async function loadHooks(folder: string | null, home: string): Promise<HookSet[]> {
-  const sets = [folder ? hookSet(await readJson(join(folder, '.terra', 'hooks.json')), 'project') : null, hookSet(await readJson(join(home, 'hooks.json')), 'global')]
+  let project = folder ? hookSet(await readJson(join(folder, '.terra', 'hooks.json')), 'project') : null
+  // Claude Code's hooks join the project's own, under one hash, so changing either asks again.
+  const claude = folder ? (await claudeSettings(folder)).hooks : []
+  if (claude.length) {
+    const hooks = [...(project?.hooks ?? []), ...claude]
+    project = { source: 'project', hooks, hash: createHash('sha256').update(JSON.stringify(hooks)).digest('hex').slice(0, 32) }
+  }
+  const sets = [project, hookSet(await readJson(join(home, 'hooks.json')), 'global')]
   return sets.filter((set): set is HookSet => set !== null)
 }
 

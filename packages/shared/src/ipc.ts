@@ -17,7 +17,7 @@ import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
+import type { CoderAnswer, CoderAutomations, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderProjectSetup, GithubRepo, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -491,6 +491,8 @@ export interface InternalCommands {
   'report:notes': (report: string) => string[]
   'ai:status': () => AiStatus
   'ai:send': (streamId: string, request: AssistantRequest) => void
+  /** Answers a tool the reply wants to use, such as one from an MCP server. */
+  'ai:agent-answer': (approvalId: string, allow: boolean) => void
   'ai:cancel': (streamId: string) => void
   /** Collects a question sent over from the address bar. */
   'ai:take-prompt': () => string | null
@@ -688,7 +690,7 @@ export interface InternalCommands {
   /** A commit message for the session's changes, written by the quick model. */
   'coder:commit-message': (sessionId: string) => string
   /** Commits the session's changes (or everything, with `all`), on a new branch if one is named. */
-  'coder:commit': (sessionId: string, message: string, branch: string | null, all: boolean) => string
+  'coder:commit': (sessionId: string, message: string, branch: string | null, all: boolean, force?: boolean) => string
   /** A task handed over from the command line (`scterra code …`), taken once. */
   'coder:pending': () => { task: string } | null
   /** A message for a run already under way, read at its next step. False if nothing is running. */
@@ -709,6 +711,16 @@ export interface InternalCommands {
   /** Keeps a token pasted in, encrypted, after checking it with GitHub. */
   'coder:github-save-token': (token: string) => CoderGithubStatus
   'coder:github-disconnect': () => CoderGithubStatus
+  /** GitHub's device sign-in: the code to type on github.com, which opens in a tab. */
+  'coder:github-device-start': () => { code: string; url: string }
+  /** Waits for the person to approve the code, then keeps the token. */
+  'coder:github-device-wait': () => CoderGithubStatus
+  /** Repositories the signed-in account can reach, newest first, matching the words given. */
+  'coder:github-repos': (query: string) => GithubRepo[]
+  /** Clones a repository into a folder the person picks, and makes it Terra Code's folder. Null if they cancelled. */
+  'coder:clone': (fullName: string) => string | null
+  /** The open folder's first-run suggestions, or null without a folder. */
+  'coder:project-setup': () => CoderProjectSetup | null
   /** Starts a task on GitHub Actions, from GitHub's copy of the current branch. */
   'coder:cloud-start': (sessionId: string, task: string, options: { pr: boolean; model?: { providerId: string; model: string } | null; effort?: CoderEffort | null }) => CoderCloudRun
   /** This session's cloud runs, checked with GitHub when `check` is set. */
@@ -720,6 +732,12 @@ export interface InternalCommands {
   'coder:cloud-pr': (sessionId: string, runId: string) => string
   /** What a finished run did, step by step, read back from its log on GitHub. */
   'coder:cloud-events': (sessionId: string, runId: string) => CoderEvent[]
+  /** Terra Code on GitHub for the open project: what was last installed there, and its pull request. */
+  'coder:automations': () => { repo: string | null; saved: CoderAutomations | null; prUrl: string | null }
+  /** Installs or changes the workflow for comments and scheduled tasks, through a pull request. Returns its address. */
+  'coder:automations-install': (automations: CoderAutomations) => string
+  /** Tells a session's model something at its next message, such as what a cloud run did. */
+  'coder:note': (sessionId: string, text: string) => void
   'coder:stop': (sessionId: string) => void
   'coder:reset': (sessionId: string) => void
   /** Files the session changed, against how they were before it. */
@@ -866,6 +884,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'report:notes',
   'ai:status',
   'ai:send',
+  'ai:agent-answer',
   'ai:cancel',
   'ai:take-prompt',
   'ai:open-source',
@@ -995,12 +1014,20 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:github-use-cli',
   'coder:github-save-token',
   'coder:github-disconnect',
+  'coder:github-device-start',
+  'coder:github-device-wait',
+  'coder:github-repos',
+  'coder:clone',
+  'coder:project-setup',
   'coder:cloud-start',
   'coder:cloud-runs',
   'coder:cloud-cancel',
   'coder:cloud-fetch',
   'coder:cloud-pr',
   'coder:cloud-events',
+  'coder:note',
+  'coder:automations',
+  'coder:automations-install',
   'coder:stop',
   'coder:reset',
   'coder:changes',

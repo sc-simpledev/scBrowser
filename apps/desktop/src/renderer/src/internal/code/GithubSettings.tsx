@@ -4,6 +4,7 @@ import { Button, Input } from '@scbrowser/ui'
 import type { CoderGithubStatus, Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { Choices } from './PanelSettings'
+import { CopyButton, Spinner } from './CodeParts'
 
 const cleanError = (message: string) => message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -34,6 +35,21 @@ export function GithubSettings({ prefs, onPrefs, github }: { prefs: Settings; on
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** The code to type on github.com while a device sign-in waits. */
+  const [deviceCode, setDeviceCode] = useState<string | null>(null)
+  const signIn = () => {
+    setError(null)
+    setBusy(true)
+    void api()
+      .invoke('coder:github-device-start')
+      .then(({ code }) => {
+        setDeviceCode(code)
+        act(api().invoke('coder:github-device-wait'))
+      }, (failure: Error) => {
+        setError(cleanError(failure.message))
+        setBusy(false)
+      })
+  }
   const act = (promise: Promise<CoderGithubStatus>) => {
     setBusy(true)
     setError(null)
@@ -43,10 +59,14 @@ export function GithubSettings({ prefs, onPrefs, github }: { prefs: Settings; on
           set(next)
           setToken('')
           setPasting(false)
+          setDeviceCode(null)
           // Connecting turns looking on in the main process; the page's copy catches up.
           if (next.source && prefs.coderGithub === 'off') onPrefs({ coderGithub: 'read' })
         },
-        (failure: Error) => setError(cleanError(failure.message))
+        (failure: Error) => {
+          setError(cleanError(failure.message))
+          setDeviceCode(null)
+        }
       )
       .finally(() => setBusy(false))
   }
@@ -57,12 +77,29 @@ export function GithubSettings({ prefs, onPrefs, github }: { prefs: Settings; on
     return (
       <div className="flex flex-col gap-2">
         <p className="text-2xs text-text-faint">Let Terra Code read issues, pull requests and Actions runs, and with your yes, open issues and pull requests. Cloud runs need it too.</p>
-        {status.cliReady ? (
-          <Button variant="primary" disabled={busy} onClick={() => act(api().invoke('coder:github-use-cli'))} className="self-start">
+        {deviceCode && (
+          <div role="status" className="flex flex-col gap-1.5 rounded-md border border-border bg-surface p-2.5">
+            <span className="text-2xs text-text-muted">Type this code on the GitHub page that opened:</span>
+            <span className="flex items-center gap-2">
+              <code className="font-mono text-base font-semibold tracking-[0.15em]">{deviceCode}</code>
+              <CopyButton text={deviceCode} label="Copy the code" />
+            </span>
+            <span className="flex items-center gap-1.5 text-2xs text-text-faint">
+              <Spinner /> Waiting for you to approve it
+            </span>
+          </div>
+        )}
+        {status.deviceFlow && !deviceCode && (
+          <Button variant="primary" disabled={busy} onClick={signIn} className="self-start">
+            Sign in with GitHub
+          </Button>
+        )}
+        {status.cliReady && !deviceCode ? (
+          <Button variant={status.deviceFlow ? 'secondary' : 'primary'} disabled={busy} onClick={() => act(api().invoke('coder:github-use-cli'))} className="self-start">
             <Terminal aria-hidden size={13} strokeWidth={1.75} />
             Use the GitHub CLI’s sign-in
           </Button>
-        ) : (
+        ) : status.deviceFlow || deviceCode ? null : (
           <p className="text-2xs text-text-muted">
             Quickest: install the GitHub CLI and run <code className="font-mono whitespace-nowrap">gh auth login</code>, then come back here.
           </p>

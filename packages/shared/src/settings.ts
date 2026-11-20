@@ -82,6 +82,10 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark'
   tabLayout: 'horizontal' | 'vertical'
   verticalTabsCollapsed: boolean
+  /** With tabs down the side, the sidebar hides and slides out when the pointer reaches the window's left edge, like Dia. */
+  sidebarAutoHide: boolean
+  /** The tab sidebar's colour: 'default', or a colour as #rrggbb, mixed into the theme so it suits light and dark. */
+  sidebarColor: string
   /** Where the bookmarks bar appears. */
   bookmarksBar: 'always' | 'new-tab' | 'bookmarks-page'
   startup: 'restore' | 'new-tab'
@@ -183,7 +187,7 @@ export interface Settings {
   coderFolder: string
   coderMode: 'plan' | 'ask' | 'edits'
   /** Fences Terra Code's commands in (Linux, with bubblewrap): project-only writes, and optionally no network. */
-  coderSandbox: 'off' | 'project' | 'offline'
+  coderSandbox: 'off' | 'project' | 'offline' | 'container'
   /** Summarise the start of a long Terra Code session by itself, rather than dropping old output. */
   coderAutoCompact: boolean
   /** Run the project's checker after Terra Code edits, where it runs without asking. */
@@ -198,6 +202,8 @@ export interface Settings {
   coderAgentModel: 'session' | 'quick'
   /** The session panel beside Terra Code's conversation: context, usage, checklist, helpers and changes. */
   coderPanel: boolean
+  /** Tokens (in and out) a Terra Code session may use before it stops and says so; 0 for no limit. */
+  coderBudget: (typeof CODER_BUDGETS)[number]
   /** What Terra Code may do on GitHub. Off until the person connects it. */
   coderGithub: 'off' | 'read' | 'write'
   /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
@@ -225,6 +231,24 @@ export interface Settings {
   updateOnQuit: boolean
 }
 
+/** Budgets a Terra Code session can be given, in tokens. */
+export const CODER_BUDGETS = [0, 200_000, 500_000, 1_000_000, 2_000_000, 5_000_000] as const
+
+/** Colours offered for the tab sidebar, as people pick them in Settings. Any other #rrggbb works too. */
+export const SIDEBAR_COLORS: { id: string; name: string }[] = [
+  { id: 'default', name: 'Default' },
+  { id: '#c9a27a', name: 'Sand' },
+  { id: '#e0828f', name: 'Rose' },
+  { id: '#e3a052', name: 'Amber' },
+  { id: '#6fae7f', name: 'Sage' },
+  { id: '#4f9fbf', name: 'Ocean' },
+  { id: '#7d86d9', name: 'Iris' },
+  { id: '#7d8794', name: 'Slate' }
+]
+
+/** The sidebar's background for a colour: a wash over the theme's own, so text stays readable in both themes. */
+export const sidebarBackground = (color: string): string | undefined => (color === 'default' ? undefined : `color-mix(in oklab, ${color} 18%, var(--color-bg))`)
+
 export const DEFAULT_SETTINGS: Settings = {
   searchEngine: 'google',
   searchSuggestions: true,
@@ -234,6 +258,8 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   tabLayout: 'vertical',
   verticalTabsCollapsed: false,
+  sidebarAutoHide: false,
+  sidebarColor: 'default',
   bookmarksBar: 'always',
   startup: 'restore',
   sleepAfterMinutes: 30,
@@ -303,6 +329,7 @@ export const DEFAULT_SETTINGS: Settings = {
   coderAgentModel: 'session',
   coderPanel: true,
   coderGithub: 'off',
+  coderBudget: 0,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
   focusUntil: 0,
@@ -334,6 +361,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   theme: (v) => oneOf(v, ['system', 'light', 'dark']),
   tabLayout: (v) => oneOf(v, ['horizontal', 'vertical']),
   verticalTabsCollapsed: (v) => typeof v === 'boolean',
+  sidebarAutoHide: (v) => typeof v === 'boolean',
+  sidebarColor: (v) => v === 'default' || (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)),
   bookmarksBar: (v) => oneOf(v, ['always', 'new-tab', 'bookmarks-page']),
   addressAutofill: (v) => typeof v === 'boolean',
   addressCalculator: (v) => typeof v === 'boolean',
@@ -396,7 +425,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   memorySaver: (v) => typeof v === 'boolean',
   coderFolder: (v) => typeof v === 'string' && v.length <= 4096,
   coderMode: (v) => v === 'plan' || v === 'ask' || v === 'edits',
-  coderSandbox: (v) => v === 'off' || v === 'project' || v === 'offline',
+  coderSandbox: (v) => v === 'off' || v === 'project' || v === 'offline' || v === 'container',
   coderAutoCompact: (v) => typeof v === 'boolean',
   coderAutoCheck: (v) => typeof v === 'boolean',
   coderFormat: (v) => typeof v === 'boolean',
@@ -406,6 +435,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderAgentModel: (v) => v === 'session' || v === 'quick',
   coderPanel: (v) => typeof v === 'boolean',
   coderGithub: (v) => v === 'off' || v === 'read' || v === 'write',
+  coderBudget: (v) => CODER_BUDGETS.includes(v as (typeof CODER_BUDGETS)[number]),
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',
   focusUntil: (v) => Number.isSafeInteger(v) && (v as number) >= 0,

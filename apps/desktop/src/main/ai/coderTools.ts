@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
@@ -237,6 +237,31 @@ export async function writeText(full: string, content: string): Promise<void> {
 /** Inherited from an AppImage or Electron, which would break programs run from here. */
 const DROPPED_ENV = /^(ELECTRON_|APPDIR$|APPIMAGE$|ARGV0$|CHROME_DESKTOP$|GDK_PIXBUF_MODULE_FILE$|GIO_EXTRA_MODULES$|GSETTINGS_SCHEMA_DIR$|QT_PLUGIN_PATH$|PERLLIB$|PYTHONHOME$)/
 
+/** Folders the person's login shell adds to PATH (nvm, volta, ~/.local/bin), which an app started from a menu doesn't get. */
+let loginFolders: string[] = []
+
+/**
+ * Asks the person's login shell for its PATH, once, so `npx`, `uvx` and project tools installed
+ * through nvm and the like are found when scTerra was started from the desktop rather than a
+ * terminal. Never on Windows. A shell that prints things on start is fine: the PATH is marked.
+ */
+export function primeLoginPath(run: (shell: string, args: string[]) => Promise<string> = shellOutput): Promise<void> {
+  if (process.platform === 'win32' || process.env.SCB_E2E === '1') return Promise.resolve()
+  const shell = process.env.SHELL && /^\/[\w/.-]+$/.test(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
+  return run(shell, ['-ilc', 'printf "\\n__SCTERRA_PATH__%s\\n" "$PATH"'])
+    .then((out) => {
+      const line = out.split('\n').find((one) => one.startsWith('__SCTERRA_PATH__'))
+      loginFolders = line ? line.slice('__SCTERRA_PATH__'.length).split(':').filter((folder) => folder.startsWith('/')) : []
+    })
+    .catch(() => undefined)
+}
+
+function shellOutput(shell: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(shell, args, { timeout: 4000, env: { ...process.env, TERM: 'dumb' }, windowsHide: true }, (error, stdout) => (error && !stdout ? reject(error) : resolve(String(stdout))))
+  })
+}
+
 export function commandEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const clean: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(env)) if (!DROPPED_ENV.test(key)) clean[key] = value
@@ -247,18 +272,65 @@ export function commandEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
     else delete clean.LD_LIBRARY_PATH
   }
   if (env.APPDIR && clean.PATH) clean.PATH = clean.PATH.split(':').filter((part) => !part.startsWith(env.APPDIR!)).join(':')
+  if (loginFolders.length && process.platform !== 'win32') {
+    const have = (clean.PATH ?? '').split(':').filter(Boolean)
+    clean.PATH = [...have, ...loginFolders.filter((folder) => !have.includes(folder) && !(env.APPDIR && folder.startsWith(env.APPDIR)))].join(':')
+  }
   return clean
 }
 
 /** How commands are fenced in: not at all, only able to write in the project, or that with no network too. */
-export type SandboxMode = 'off' | 'project' | 'offline'
+export type SandboxMode = 'off' | 'project' | 'offline' | 'container'
 
 let bwrapPath: string | null | undefined
-/** Linux only, and only where bubblewrap is installed. */
+const SANDBOX_EXEC = '/usr/bin/sandbox-exec'
+/** Linux with bubblewrap installed, or a Mac, which has sandbox-exec built in. */
 export function sandboxAvailable(): boolean {
+  if (process.platform === 'darwin') return existsSync(SANDBOX_EXEC)
   if (process.platform !== 'linux') return false
   if (bwrapPath === undefined) bwrapPath = ['/usr/bin/bwrap', '/bin/bwrap', '/usr/local/bin/bwrap'].find((path) => existsSync(path)) ?? null
   return bwrapPath !== null
+}
+
+/** A program on PATH (the login shell's too), or null. */
+export function findProgram(name: string, root?: string): string | null {
+  const windows = process.platform === 'win32'
+  const dirs = [...(root ? [join(root, 'node_modules', '.bin')] : []), ...(commandEnv().PATH ?? '').split(windows ? ';' : ':')].filter(Boolean)
+  for (const dir of dirs) for (const ext of windows ? ['.cmd', '.exe', ''] : ['']) if (existsSync(join(dir, name + ext))) return join(dir, name + ext)
+  return null
+}
+
+/** The project has a dev container and the devcontainer CLI is installed, so commands can run inside it. */
+export function devContainerAvailable(root: string | null): boolean {
+  if (!root) return false
+  return (existsSync(join(root, '.devcontainer', 'devcontainer.json')) || existsSync(join(root, '.devcontainer.json'))) && findProgram('devcontainer', root) !== null
+}
+
+/** Dev containers started this run, by project, so `devcontainer up` happens once. */
+const containers = new Map<string, Promise<void>>()
+
+/** Starts the project's dev container if it isn't running. The first time can take minutes, for the image. */
+export function ensureContainer(root: string): Promise<void> {
+  let up = containers.get(root)
+  if (!up) {
+    const cli = findProgram('devcontainer', root)
+    up = new Promise<void>((resolve, reject) => {
+      if (!cli) return reject(new ToolError('The devcontainer CLI isn’t installed (npm install -g @devcontainers/cli).'))
+      execFile(cli, ['up', '--workspace-folder', root], { cwd: root, env: commandEnv(), timeout: 15 * 60_000, maxBuffer: 20_000_000, windowsHide: true }, (error, _stdout, stderr) => (error ? reject(new ToolError(`The dev container didn’t start: ${String(stderr).trim().split('\n').slice(-3).join(' ').slice(0, 400)}`)) : resolve()))
+    })
+    containers.set(root, up)
+    up.catch(() => containers.delete(root))
+  }
+  return up
+}
+
+/** A path in a sandbox-exec profile's quotes. */
+const profilePath = (path: string) => `"${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
+/** macOS's own sandbox: everything readable, writes only where a build needs them, and optionally no network. */
+function macProfile(root: string, caches: string[], offline: boolean): string {
+  const writable = [root, '/private/tmp', '/private/var/folders', ...caches].map((path) => `(subpath ${profilePath(path)})`).join(' ')
+  return ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* ${writable} (literal "/dev/null") (subpath "/dev"))`, ...(offline ? ['(deny network-outbound (remote ip))', '(allow network-outbound (remote ip "localhost:*"))'] : [])].join('\n')
 }
 
 /** Caches package managers and build tools write to, which a sandboxed build still needs. */
@@ -273,9 +345,15 @@ export function shellCommand(root: string, command: string, sandbox: SandboxMode
   const windows = process.platform === 'win32'
   const shell = windows ? (process.env.ComSpec ?? 'cmd.exe') : (process.env.SHELL || '/bin/bash')
   const args = windows ? ['/d', '/s', '/c', command] : ['-lc', command]
+  if (sandbox === 'container') {
+    const cli = findProgram('devcontainer', root)
+    if (cli) return { file: cli, args: ['exec', '--workspace-folder', root, 'sh', '-lc', command] }
+    return { file: shell, args }
+  }
   if (sandbox === 'off' || !sandboxAvailable()) return { file: shell, args }
   const home = homedir()
   const caches = WRITABLE_CACHES.map((name) => join(home, name)).filter((path) => existsSync(path))
+  if (process.platform === 'darwin') return { file: SANDBOX_EXEC, args: ['-p', macProfile(root, caches, sandbox === 'offline'), shell, ...args] }
   return {
     file: bwrapPath!,
     args: [
@@ -304,6 +382,16 @@ export interface ShellOptions {
 
 /** Runs through the person's own shell in the project folder, and is stopped after two minutes or on request. */
 export function runCommand(root: string, command: string, signal: AbortSignal, timeoutMs = COMMAND_TIMEOUT_MS, options: Omit<ShellOptions, 'signal' | 'timeoutMs'> = {}): Promise<{ ok: boolean; output: string; code: number | null }> {
+  // In a dev container, the container comes up first, once.
+  if (options.sandbox === 'container')
+    return ensureContainer(root).then(
+      () => runShell(root, command, signal, timeoutMs, options),
+      (error: unknown) => ({ ok: false, output: error instanceof Error ? error.message : 'The dev container didn’t start.', code: null })
+    )
+  return runShell(root, command, signal, timeoutMs, options)
+}
+
+function runShell(root: string, command: string, signal: AbortSignal, timeoutMs: number, options: Omit<ShellOptions, 'signal' | 'timeoutMs'>): Promise<{ ok: boolean; output: string; code: number | null }> {
   return new Promise((done) => {
     const windows = process.platform === 'win32'
     const { file, args } = shellCommand(root, command, options.sandbox)

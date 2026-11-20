@@ -145,3 +145,14 @@
     radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--hued) 12%, transparent), transparent 70%),
     var(--sc-surface);
 }
+
+/* The sidebar that hides itself slides out from the window's edge when it's revealed. */
+@keyframes sc-sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+.sc-sidebar-reveal {
+  animation: sc-sidebar-in var(--sc-duration-base) ease-out;
+}

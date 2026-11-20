@@ -2,7 +2,7 @@ import { Bot, Brain, Cloud, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, 
 import { useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderTodo, type CoderWorktree, type Settings } from '@scbrowser/shared'
-import { Choices, EffortChoices, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
+import { Choices, EffortChoices, sandboxLabel, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
 import { useGithubStatus } from './GithubSettings'
 import type { ModelPick } from './Composer'
 import { ChecklistItems, Spinner, useElapsed } from './CodeParts'
@@ -114,6 +114,8 @@ export interface SessionPanelProps {
   onStopJob: (id: number) => void
   /** The person changed the checklist. */
   onTodo: (items: CoderTodo[]) => void
+  /** Hands the open steps to helpers working side by side. */
+  onParallel: () => void
   where: CodeWhere
   onWhere: (where: CodeWhere) => void
   /** Open a pull request when a cloud run is done. */
@@ -125,7 +127,7 @@ export interface SessionPanelProps {
 
 /** Beside the conversation, as in Claude: where it's working, how full its memory is, and what it's doing. */
 export function SessionPanel(props: SessionPanelProps) {
-  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onTodo, where, onWhere, cloudPr, onCloudPr, onOpenSettings } = props
+  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onTodo, onParallel, where, onWhere, cloudPr, onCloudPr, onOpenSettings } = props
   const github = useGithubStatus()
   const blocker = cloudBlocker(status, github.status, prefs?.coderGithub)
   const { context, todo, agents, jobs, changes, items, working, runStartedAt, lastRunMs } = state
@@ -134,7 +136,7 @@ export function SessionPanel(props: SessionPanelProps) {
   const toggle = (name: string) => setOpen((current) => (current === name ? null : name))
   const showReasoning = prefs?.coderShowReasoning ?? true
   const sandboxValue = prefs?.coderSandbox ?? 'off'
-  const sandbox = !status.sandboxAvailable || sandboxValue === 'off' ? 'Off' : sandboxValue === 'project' ? 'Project only' : 'No network'
+  const sandbox = sandboxLabel(sandboxValue, status.sandboxAvailable, !!status.devContainer)
   const runMs = useElapsed(runStartedAt)
   const stats = sessionStats(items)
   const share = context ? Math.min(1, context.used / Math.max(1, context.limit)) : 0
@@ -175,7 +177,7 @@ export function SessionPanel(props: SessionPanelProps) {
       </div>
       <div className="sc-scroll-quiet min-h-0 flex-1 overflow-y-auto">
         {tab === 'settings' ? (
-          <SettingsTab prefs={prefs} onPrefs={onPrefs} mode={mode} onMode={onMode} effort={effort} onEffort={onEffort} sandboxAvailable={status.sandboxAvailable} focus={settingsFocus} onSetupChanged={onSetupChanged} github={github} />
+          <SettingsTab prefs={prefs} onPrefs={onPrefs} mode={mode} onMode={onMode} effort={effort} onEffort={onEffort} sandboxAvailable={status.sandboxAvailable} devContainer={!!status.devContainer} focus={settingsFocus} onSetupChanged={onSetupChanged} github={github} />
         ) : (
           <>
           <Section title="Environment">
@@ -209,7 +211,7 @@ export function SessionPanel(props: SessionPanelProps) {
                 <ModeChoices mode={mode} onMode={onMode} />
               </SettingRow>
               <SettingRow icon={Layers} label="Sandbox" value={sandbox} open={open === 'sandbox'} onToggle={() => toggle('sandbox')}>
-                <SandboxChoices value={sandboxValue} available={status.sandboxAvailable} onChange={(coderSandbox) => onPrefs({ coderSandbox })} />
+                <SandboxChoices value={sandboxValue} available={status.sandboxAvailable} container={!!status.devContainer} onChange={(coderSandbox) => onPrefs({ coderSandbox })} />
               </SettingRow>
             </div>
           </Section>
@@ -249,12 +251,25 @@ export function SessionPanel(props: SessionPanelProps) {
                 <Stat label="Tokens in" value={shortTokens(context.inputTokens)} />
                 <Stat label="Tokens out" value={shortTokens(context.outputTokens)} />
               </div>
+              {(prefs?.coderBudget ?? 0) > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between text-2xs text-text-faint">
+                    <span>Budget</span>
+                    <span className="tabular-nums">
+                      {shortTokens(context.inputTokens + context.outputTokens)} of {shortTokens(prefs!.coderBudget)}
+                    </span>
+                  </div>
+                  <div role="meter" aria-label="Budget used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, (context.inputTokens + context.outputTokens) / prefs!.coderBudget) * 100)} className="h-1 overflow-hidden rounded-full bg-surface-hover">
+                    <div className="h-full rounded-full bg-text-muted transition-[width]" style={{ width: `${Math.min(100, ((context.inputTokens + context.outputTokens) / prefs!.coderBudget) * 100)}%` }} />
+                  </div>
+                </div>
+              )}
             </Section>
           )}
 
           {todo.length > 0 && (
             <Section title="Checklist" aside={`${todo.filter((item) => item.done).length} of ${todo.length}`}>
-              <ChecklistItems items={todo} working={working} onChange={onTodo} />
+              <ChecklistItems items={todo} working={working} onChange={onTodo} onParallel={onParallel} />
             </Section>
           )}
 

@@ -1,4 +1,4 @@
-import { ArrowUp, Code2, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, Code2, Pencil, Plug, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
@@ -16,6 +16,8 @@ import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
 import { pasteCleanly } from '../../shared/pasteCleanly'
 
 interface Turn extends SavedTurn {
+  /** Tools it used for this reply, in words: searches, pages read, MCP tools. */
+  steps?: string[]
   error?: string
   network?: boolean
   /** Why the reply ended early, in words. */
@@ -132,6 +134,13 @@ export function AssistantPage() {
   }, [])
   const [draft, setDraft] = useState('')
   const [streamId, setStreamId] = useState<string | null>(null)
+  /** A tool the reply wants to use, waiting for the person's yes. */
+  const [approval, setApproval] = useState<{ id: string; text: string; reason: string } | null>(null)
+  const answerApproval = (allow: boolean) => {
+    if (!approval) return
+    void api().invoke('ai:agent-answer', approval.id, allow)
+    setApproval(null)
+  }
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [report, setReport] = useState<Report | null>(null)
   // A report being written shows beside the conversation as it arrives, unless it's been closed.
@@ -240,6 +249,14 @@ export function AssistantPage() {
     if (!streamId || !earlier || !last || earlier.role !== 'assistant' || asked?.content !== CONTINUE_PROMPT) return turns
     return [...turns.slice(0, -3), { ...earlier, note: undefined, content: stitchReply(earlier.content, last.content) }]
   }, [turns, streamId])
+  /** Puts a sent message back in the box and the conversation back to before it, to change and send again. */
+  const editFrom = (index: number) => {
+    const turn = turnsRef.current[index]
+    if (!turn || turn.role !== 'user' || streamId) return
+    setDraft(shownMessage(turn.content))
+    setTurns(turnsRef.current.slice(0, index))
+    setApproval(null)
+  }
   const reportDraft = useMemo(() => (streamId && thread.at(-1)?.role === 'assistant' ? (splitReply(thread.at(-1)!.content, false).draft ?? null) : null), [thread, streamId])
   const drafting = reportDraft !== null && !draftHidden
   useEffect(() => {
@@ -278,13 +295,17 @@ export function AssistantPage() {
         if (last) setTurns([...turnsRef.current.slice(0, -1), patch(last)])
       }
       if (event.type === 'text') update((last) => ({ ...last, content: last.content + event.text }))
+      if (event.type === 'step') update((last) => ({ ...last, steps: [...(last.steps ?? []), event.text] }))
+      if (event.type === 'approval') setApproval({ id: event.approvalId, text: event.text, reason: event.reason })
       if (event.type === 'context') update((last) => ({ ...last, pageTitle: event.title, truncated: event.truncated, source: event.source, ...(event.sources ? { sources: event.sources } : {}) }))
       if (event.type === 'error') {
         update((last) => ({ ...last, error: event.message, network: !!event.network }))
         setStreamId(null)
+        setApproval(null)
       }
       if (event.type === 'done') {
         setStreamId(null)
+        setApproval(null)
         // A continued reply joins the one it carried on, and a report asked for again replaces the unreadable one.
         const settled = settleReply(turnsRef.current)
         const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
@@ -395,8 +416,14 @@ export function AssistantPage() {
     return (
       <div className="flex h-full">
         <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />
-        <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="text-text-muted">Set up AI to use the assistant.</p>
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8 pb-16 text-center">
+          <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-accent">
+            <MessageSquare aria-hidden size={18} strokeWidth={1.75} />
+          </span>
+          <div className="flex max-w-90 flex-col gap-1.5">
+            <h1 className="text-lg font-semibold tracking-[-0.02em]">Set up AI to start chatting</h1>
+            <p className="text-sm text-text-muted">Use your own key, a model running on this computer, or scTerra AI where it’s offered. It takes a minute.</p>
+          </div>
           <Button variant="primary" onClick={() => void api().invoke('browser:open', 'sc://ai/')}>
             Set up AI
           </Button>
@@ -439,6 +466,14 @@ export function AssistantPage() {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               submit()
+            }
+            // ↑ in an empty box brings back the last message, to change and send again.
+            if (e.key === 'ArrowUp' && !draft && !streamId) {
+              const last = thread.findLastIndex((turn) => turn.role === 'user')
+              if (last !== -1) {
+                e.preventDefault()
+                editFrom(last)
+              }
             }
           }}
           className="max-h-60 min-h-14 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
@@ -558,11 +593,19 @@ export function AssistantPage() {
                   const newest = index === thread.length - 1
                   const streaming = streamId !== null && newest
                   return turn.role === 'user' ? (
-                    <div key={index} className="ml-16 self-end rounded-lg bg-surface-hover px-3.5 py-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                      {shownMessage(turn.content)}
+                    <div key={index} className="group/ask ml-16 flex flex-col items-end gap-0.5 self-end">
+                      <div className="rounded-lg bg-surface-hover px-3.5 py-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]">{shownMessage(turn.content)}</div>
+                      {!streamId && (
+                        <div className="flex h-6 opacity-0 transition-opacity group-focus-within/ask:opacity-100 group-hover/ask:opacity-100">
+                          <IconButton size="sm" label="Edit this message" onClick={() => editFrom(index)}>
+                            <Pencil size={12} strokeWidth={1.75} />
+                          </IconButton>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div key={index} className="group/reply flex flex-col gap-1.5">
+                      {turn.steps && turn.steps.length > 0 && <ToolSteps steps={turn.steps} working={streaming && !turn.content} />}
                       {turn.content && (
                         <ReplyContent
                           text={turn.content}
@@ -579,6 +622,7 @@ export function AssistantPage() {
                           onAnswer={newest && status?.ready && !streaming ? send : undefined}
                         />
                       )}
+                      {newest && approval && <ApprovalCard text={approval.text} reason={approval.reason} onAnswer={answerApproval} />}
                       {!turn.content && !turn.error && (streaming ? <Thinking /> : <p className="text-text-faint">{turn.note ?? 'No reply came back.'}</p>)}
                       {turn.error &&
                         (turn.network ? (
@@ -676,3 +720,46 @@ export function AssistantPage() {
 }
 
 const loadHasVpn = () => api().invoke('vpn:state').then((state) => state.connections.length > 0)
+
+/** What the reply did to answer: searches, pages read, tools used. Folded to one line once there are a few. */
+function ToolSteps({ steps, working }: { steps: string[]; working: boolean }) {
+  const [open, setOpen] = useState(false)
+  const shown = open || steps.length <= 2 ? steps : steps.slice(-1)
+  return (
+    <div className="flex flex-col gap-0.5 text-xs text-text-muted">
+      {steps.length > 2 && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-fit items-center gap-1 rounded-sm text-text-faint transition-colors hover:text-text">
+          <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('transition-transform', open && 'rotate-90')} />
+          {steps.length} steps
+        </button>
+      )}
+      {shown.map((step, index) => (
+        <div key={index} className="flex min-w-0 items-center gap-1.5">
+          <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-accent" />
+          <span className="min-w-0 truncate">{step}</span>
+        </div>
+      ))}
+      {working && <Thinking label="Working" />}
+    </div>
+  )
+}
+
+function ApprovalCard({ text, reason, onAnswer }: { text: string; reason: string; onAnswer: (allow: boolean) => void }) {
+  return (
+    <div role="group" aria-label={text} className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Plug aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
+      </div>
+      {reason && <code className="sc-scroll-quiet max-h-24 overflow-auto rounded-md bg-surface-hover px-2 py-1.5 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere] text-text-muted">{reason}</code>}
+      <div className="flex justify-end gap-1.5">
+        <Button variant="ghost" onClick={() => onAnswer(false)}>
+          Decline
+        </Button>
+        <Button variant="primary" onClick={() => onAnswer(true)}>
+          Allow
+        </Button>
+      </div>
+    </div>
+  )
+}

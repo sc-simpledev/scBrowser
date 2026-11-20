@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { dialog, Notification, shell, type BaseWindow, type WebContents } from 'electron'
 import {
   CODE_CHAT_PREFIX,
@@ -12,6 +13,7 @@ import {
   cleanTodo,
   isCoderEffort,
   isMcpServerName,
+  type CoderAutomations,
   type CoderEvent,
   type CoderHooksView,
   type CoderRunOptions,
@@ -28,7 +30,9 @@ import type { CoderBrowserHost } from './coder'
 import { changeSummary, commit, COMMIT_MESSAGE_PROMPT, createWorktree, mergeWorktree, removeWorktree } from './coderGit'
 import type { CoderMcp } from './coderMcp'
 import type { CoderCloud } from './coderCloud'
-import type { CoderGithub } from './coderGithub'
+import { githubClientId, type CoderGithub } from './coderGithub'
+import { installAutomations } from './coderAutomations'
+import { cloneRepo, deviceStart, deviceWait, projectSetup, type DeviceCode } from './coderSetup'
 import { loadDefs, loadHooks, loadSkills, projectSettings, detectDiagnostics } from './coderProject'
 import { globFiles } from './coderTools'
 import type { CoderTrust } from './coderTrust'
@@ -38,6 +42,8 @@ type CoderChannel = Extract<keyof InternalCommands, `coder:${string}`>
 export type CoderHandlers = { [C in CoderChannel]: (...args: unknown[]) => ReturnType<InternalCommands[C]> | Promise<Awaited<ReturnType<InternalCommands[C]>>> }
 
 const WORKTREES_KEY = 'coder:worktrees'
+/** What was installed on each repository, by owner/name. */
+const AUTOMATIONS_KEY = 'coder:automations'
 const MAX_CODE_CHAT_CHARS = 6_000_000
 /** Events kept per session for showing a run that went on while another chat was on screen. */
 const MAX_LOG = 4000
@@ -131,6 +137,8 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
   const logs = new Map<string, { turnId: string | null; task: string; events: CoderEvent[] }>()
   let lastSender: WebContents | null = null
   let fileCache: { folder: string; at: number; files: string[] } | null = null
+  /** A device sign-in under way: its code, and how to stop waiting for it. */
+  let device: { code: DeviceCode; stop: AbortController } | null = null
 
   const worktrees = () => (kv.get(WORKTREES_KEY) as Record<string, CoderWorktree & { project: string }> | undefined) ?? {}
   const worktreeOf = (id: string) => worktrees()[id] ?? null
@@ -260,6 +268,53 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       settings.set({ coderGithub: 'off' })
       return github.status(settings.get().coderFolder || null)
     },
+    'coder:github-device-start': async () => {
+      coderOnly()
+      const clientId = githubClientId()
+      if (!clientId) throw new Error('Signing in with GitHub isn’t set up in this build.')
+      device?.stop.abort()
+      const code = await deviceStart(clientId)
+      device = { code, stop: new AbortController() }
+      void tabs.create(code.verification_uri, { afterId: tabs.active?.id })
+      return { code: code.user_code, url: code.verification_uri }
+    },
+    'coder:github-device-wait': async () => {
+      coderOnly()
+      const pending = device
+      if (!pending) throw new Error('Start signing in first.')
+      const token = await deviceWait(githubClientId(), pending.code, pending.stop.signal)
+      if (device === pending) device = null
+      const status = await github.saveToken(token, settings.get().coderFolder || null)
+      if (settings.get().coderGithub === 'off') settings.set({ coderGithub: 'read' })
+      return status
+    },
+    'coder:github-repos': async (query) => {
+      coderOnly()
+      const words = text(query, 200).trim().toLowerCase()
+      const repos = await github.call<{ full_name: string; description: string | null; private: boolean; pushed_at: string }[]>('GET', '/user/repos?sort=pushed&per_page=100&affiliation=owner,collaborator,organization_member')
+      return repos
+        .filter((repo) => !words || repo.full_name.toLowerCase().includes(words) || (repo.description ?? '').toLowerCase().includes(words))
+        .slice(0, 50)
+        .map((repo) => ({ fullName: repo.full_name, description: repo.description ?? '', private: repo.private, pushedAt: repo.pushed_at }))
+    },
+    'coder:clone': async (fullName) => {
+      coderOnly()
+      const name = text(fullName, 200)
+      if (!/^[\w.-]+\/[\w.-]+$/.test(name)) throw new Error('That isn’t a repository name.')
+      const picked = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: `Where should ${name.split('/')[1]} go?`, buttonLabel: 'Clone here', properties: ['openDirectory', 'createDirectory'] })
+      const parent = picked.canceled ? undefined : picked.filePaths[0]
+      if (!parent) return null
+      const into = join(parent, name.split('/')[1]!)
+      await cloneRepo(name, into, await github.token())
+      settings.set({ coderFolder: into })
+      return into
+    },
+    'coder:project-setup': async () => {
+      coderOnly()
+      const folder = settings.get().coderFolder
+      if (!folder) return null
+      return projectSetup(folder, trust.rules(folder).allow)
+    },
     'coder:cloud-start': async (sessionId, task, options) => {
       coderOnly()
       const id = text(sessionId, 64)
@@ -286,6 +341,36 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       const url = await cloud.pr(text(sessionId, 64), text(runId, 32))
       void tabs.create(url, { afterId: tabs.active?.id })
       return url
+    },
+    'coder:automations': async () => {
+      coderOnly()
+      const folder = settings.get().coderFolder
+      const repo = folder ? await github.repo(folder) : null
+      const saved = repo ? ((kv.get(AUTOMATIONS_KEY) as Record<string, { automations: CoderAutomations; prUrl: string }> | undefined)?.[repo] ?? null) : null
+      return { repo, saved: saved?.automations ?? null, prUrl: saved?.prUrl ?? null }
+    },
+    'coder:automations-install': async (value) => {
+      coderOnly()
+      if (!isRecord(value) || typeof value.comments !== 'boolean' || !Array.isArray(value.schedules) || value.schedules.length > 10) throw new Error('Invalid choice')
+      const schedules = value.schedules.map((one) => {
+        if (!isRecord(one) || typeof one.cron !== 'string' || !/^[\d*,\- /]{9,40}$/.test(one.cron)) throw new Error('Invalid timetable')
+        return { cron: one.cron, task: text(one.task, 4000).trim(), pr: one.pr !== false, label: text(one.label, 100) }
+      })
+      if (schedules.some((one) => !one.task)) throw new Error('Every scheduled task needs words.')
+      if (github.access() !== 'write') throw new Error('Terra Code needs to look and act on GitHub to install this. Choose Look and act above.')
+      const folder = projectFolder()
+      const repo = await github.repo(folder)
+      if (!repo) throw new Error('This project isn’t on GitHub: its git remote “origin” doesn’t point there.')
+      const automations: CoderAutomations = { comments: value.comments, schedules }
+      const prUrl = await installAutomations(github, repo, automations, await ai.cloudModel())
+      kv.set(AUTOMATIONS_KEY, { ...((kv.get(AUTOMATIONS_KEY) as object | undefined) ?? {}), [repo]: { automations, prUrl } })
+      void tabs.create(prUrl, { afterId: tabs.active?.id })
+      return prUrl
+    },
+    'coder:note': async (sessionId, note) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      await ai.coder.addNote(id, folderFor(id) || projectFolder(), text(note, 40_000))
     },
     'coder:cloud-events': (sessionId, runId) => {
       coderOnly()
@@ -519,13 +604,13 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       const written = await ai.complete(COMMIT_MESSAGE_PROMPT, summary)
       return written.replace(/^```\w*\n?|```$/g, '').replace(/^["']|["']$/g, '').trim()
     },
-    'coder:commit': async (sessionId, message, branch, all) => {
+    'coder:commit': async (sessionId, message, branch, all, force) => {
       coderOnly()
       const id = text(sessionId, 64)
       if (ai.coder.runningSessions().includes(id)) throw new Error('Stop Terra Code before committing.')
       const paths = all === true ? null : await changedPaths(id)
       if (paths && paths.length === 0) throw new Error('This session hasn’t changed anything to commit.')
-      const done = await commit(folderFor(id), text(message, 10_000), paths, branch === null ? null : text(branch, 100).trim() || null)
+      const done = await commit(folderFor(id), text(message, 10_000), paths, branch === null ? null : text(branch, 100).trim() || null, force === true)
       await ai.coder.keepAll(id)
       return done
     },

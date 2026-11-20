@@ -3,7 +3,9 @@ import { cpSync, existsSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { stat } from 'node:fs/promises'
-import { codeFromArgv } from './codeArgs'
+import { codeFromArgv, headlessFromArgv } from './codeArgs'
+import { runHeadless } from './headless'
+import { primeLoginPath } from './ai/coderTools'
 import { app, Menu, net } from 'electron'
 import { HOSTED_AI_URL } from '@scbrowser/shared'
 import { AiStore } from './ai/store'
@@ -114,7 +116,18 @@ function reportSender(): Send | null {
 /** Normal ways for a process to end, which aren't crashes. */
 const isCrash = (reason: string) => reason !== 'clean-exit' && reason !== 'killed'
 
-if (!app.requestSingleInstanceLock()) {
+const headless = headlessFromArgv(process.argv, process.cwd(), app.isPackaged ? 1 : 2)
+if (headless) {
+  // No window, so no display is needed either, as on a server.
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) app.commandLine.appendSwitch('ozone-platform', 'headless')
+  void runHeadless(headless).then(
+    (code) => app.exit(code),
+    (error: unknown) => {
+      process.stderr.write(`${error instanceof Error ? error.message : 'Terra Code stopped.'}\n`)
+      app.exit(1)
+    }
+  )
+} else if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv, workingDirectory) => {
@@ -141,6 +154,8 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     applyMenu()
     handleInternalPages()
+    // Started from a menu, scTerra lacks the PATH a terminal has; Terra Code and MCP servers need it.
+    void primeLoginPath()
     const db = openDatabase(join(app.getPath('userData'), 'browser.db'))
     // The last step of quitting: tabs winding down can still touch the database until then.
     app.on('quit', () => {

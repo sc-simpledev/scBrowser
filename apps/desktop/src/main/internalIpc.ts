@@ -444,6 +444,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
       )
     },
     'ai:cancel': (streamId) => ai.cancel(text(streamId, 64)),
+    'ai:agent-answer': (approvalId, allow) => {
+      if (typeof allow !== 'boolean') throw new Error('Invalid answer')
+      ai.answerApproval(text(approvalId, 64), allow)
+    },
     'ai:take-prompt': () => ai.takePendingPrompt(),
     'extensions:list': () => extensions.list(),
     'extensions:add': async () => {

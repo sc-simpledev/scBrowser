@@ -14,7 +14,8 @@ import type { CoderTrust } from './coderTrust'
 import { callbackPort, McpAuthStore, McpOAuth, waitForCode } from './coderMcpAuth'
 
 const SERVERS_KEY = 'coder:mcp'
-const START_MS = 20_000
+/** A command's first start may download it (npx, uvx), so it gets longer than an address. */
+const START_MS = { stdio: 90_000, http: 20_000 }
 const CALL_MS = 120_000
 const MAX_TOOLS = 80
 const MAX_SERVERS = 20
@@ -217,7 +218,8 @@ export class CoderMcp implements CoderMcpHost {
   private async start(connection: Connection, folder: string | null): Promise<void> {
     const { server } = connection
     const client = new Client({ name: 'scTerra', version: app.getVersion() })
-    const timeout = <T>(promise: Promise<T>) => Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('It took too long to start.')), START_MS))])
+    const limit = START_MS[server.type]
+    const timeout = <T>(promise: Promise<T>) => Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`It took longer than ${limit / 1000} seconds to start.`)), limit))])
     try {
       if (server.type === 'stdio') {
         const env = Object.fromEntries(Object.entries({ ...commandEnv(), ...server.env }).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
@@ -264,7 +266,9 @@ export class CoderMcp implements CoderMcpHost {
     } catch (error) {
       connection.state = 'error'
       const said = connection.stderr.trim().split('\n').slice(-3).join(' ')
-      connection.error = `${error instanceof Error ? error.message : "It couldn't start."}${said ? ` ${said}` : ''}`.slice(0, 500)
+      const missing = error instanceof Error && /ENOENT/.test(error.message) && server.type === 'stdio'
+      const why = missing ? `${server.command} wasn't found. Install it, or give its full path.` : error instanceof Error ? error.message : "It couldn't start."
+      connection.error = `${why}${said ? ` ${said}` : ''}`.slice(0, 500)
       await client.close().catch(() => undefined)
     }
   }

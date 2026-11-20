@@ -189,7 +189,8 @@ export function BookmarksPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <form
+      {/* Folders only mean something once there are bookmarks to put in them. */}
+      {(bookmarks.length > 0 || groups.length > 0) && <form
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault()
@@ -205,7 +206,7 @@ export function BookmarksPage() {
         <Button type="submit" disabled={!newFolder.trim()}>
           Add folder
         </Button>
-      </form>
+      </form>}
       {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">Press Ctrl D on any page to add one.</EmptyState>}
       {groups
         .filter((group) => group.parentId === null)

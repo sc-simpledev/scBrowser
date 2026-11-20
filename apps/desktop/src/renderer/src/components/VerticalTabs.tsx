@@ -1,7 +1,7 @@
 import { BrushCleaning, Layers, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { treeFolds } from '@scbrowser/shared'
+import { sidebarBackground, treeFolds } from '@scbrowser/shared'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
@@ -13,6 +13,47 @@ import { SidebarTimer } from './SidebarTimer'
 
 const MIN_SIDEBAR = 180
 const MAX_SIDEBAR = 480
+/** How long the pointer may be away before a revealed sidebar hides again, so a quick slip past its edge doesn't close it. */
+const HIDE_DELAY_MS = 350
+
+/**
+ * The sidebar that hides itself: a strip at the window's left edge (the page's own view would
+ * swallow the pointer, so the strip is the browser's) reveals it, and leaving it, or clicking into
+ * the page, hides it again.
+ */
+function useAutoHide(enabled: boolean): { shown: boolean; reveal: () => void; leave: () => void; stay: () => void } {
+  const [shown, setShown] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clear = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  useEffect(() => {
+    if (!enabled) setShown(false)
+    // A click in the page takes focus from the browser's own view.
+    const hide = () => {
+      clear()
+      setShown(false)
+    }
+    window.addEventListener('blur', hide)
+    return () => {
+      window.removeEventListener('blur', hide)
+      clear()
+    }
+  }, [enabled])
+  return {
+    shown: enabled ? shown : true,
+    reveal: () => {
+      clear()
+      setShown(true)
+    },
+    leave: () => {
+      clear()
+      timer.current = setTimeout(() => setShown(false), HIDE_DELAY_MS)
+    },
+    stay: clear
+  }
+}
 
 export function VerticalTabs() {
   const tabs = useTabs((s) => s.tabs)
@@ -35,15 +76,27 @@ export function VerticalTabs() {
   // The rail has no tree to fold, so everything shows there.
   const tabTree = useApp((s) => s.settings.tabTree)
   const folds = useMemo(() => (tabTree && !collapsed ? treeFolds(tabs) : null), [tabTree, collapsed, tabs])
+  const autoHide = useApp((s) => s.settings.sidebarAutoHide)
+  const color = useApp((s) => s.settings.sidebarColor)
+  const peek = useAutoHide(autoHide)
+  const background = sidebarBackground(color)
+
+  // Hidden, only a thin strip is left, which brings the sidebar out when the pointer reaches it.
+  if (!peek.shown)
+    return <div aria-hidden data-testid="sidebar-edge" onMouseEnter={peek.reveal} className="w-1.5 shrink-0 border-r border-border" style={background ? { background } : undefined} />
 
   return (
     <aside
+      aria-label="Sidebar"
+      onMouseEnter={autoHide ? peek.stay : undefined}
+      onMouseLeave={autoHide ? peek.leave : undefined}
       className={cx(
         'relative flex shrink-0 flex-col gap-1 border-r border-border px-1.5 py-1.5 ease-out',
         collapsed && 'w-12',
+        autoHide && 'sc-sidebar-reveal',
         dragWidth === null && 'transition-[width] duration-(--sc-duration-base)'
       )}
-      style={collapsed ? undefined : { width: dragWidth ?? savedWidth }}
+      style={{ ...(collapsed ? {} : { width: dragWidth ?? savedWidth }), ...(background ? { background } : {}) }}
     >
       {!collapsed && (
         <ResizeHandle

@@ -2,6 +2,10 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  BookOpen,
+  Braces,
+  FlaskConical,
+  PackageOpen,
   Bot,
   Check,
   ChevronRight,
@@ -49,6 +53,8 @@ import {
   CODER_INIT_TASK,
   isCoderEffort,
   reviewTask,
+  reviewPrTask,
+  fixCiTask,
   type CoderAgentRun,
   type CoderAnswer,
   type CoderChange,
@@ -77,6 +83,7 @@ import { AgentCard, Checklist, CopyButton, ReasoningBlock, useElapsed } from './
 import { Composer, effortLabel, type ModelPick, type SendPayload } from './Composer'
 import { SessionPanel, type CodeWhere, type PanelTab } from './SessionPanel'
 import { CloudCard } from './CloudCard'
+import { CloneCard, CloneIcon, SetupCard } from './ProjectStart'
 import { QuestionCard } from '../../shared/QuestionCard'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
@@ -104,14 +111,18 @@ const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   mcp: Plug,
   hook: Webhook,
   ask: MessageCircleQuestion,
-  github: GitPullRequest
+  github: GitPullRequest,
+  lsp: Braces
 }
 
+/** Starting points, each a task with a brief good enough to do well without more said. */
 const STARTERS: { label: string; task: string; icon: LucideIcon }[] = [
   { label: 'Explain this project', icon: Compass, task: 'Explain how this project is put together: what it does, the main parts and where they live, and how to run and test it.' },
   { label: 'Find and fix a bug', icon: Stethoscope, task: 'Run the project’s tests or checks, find what fails, and fix it.' },
+  { label: 'Add tests', icon: FlaskConical, task: 'Find the most important code that has no tests, and add focused tests for it in the style the project already uses. Run them, and fix anything they show up, telling me if a fix changes behaviour.' },
   { label: 'Review my changes', icon: GitCommitHorizontal, task: '/review' },
-  { label: 'Write TERRA.md for this project', icon: FilePen, task: '/init' }
+  { label: 'Upgrade dependencies', icon: PackageOpen, task: 'Look at the project’s dependencies and upgrade the outdated ones that are safe to move (patch and minor versions first). Read the changelogs of any major ones and tell me before taking them. Run the build and tests after, and fix what breaks.' },
+  { label: 'Write the docs', icon: BookOpen, task: 'Bring the README up to date with how the project really works now: what it is, how to install, run, test and build it, and how it’s laid out. Keep it short and accurate, and check every command you write.' }
 ]
 
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
@@ -235,7 +246,8 @@ const TOOL_WORDS: Partial<Record<CoderToolName, [string, string]>> = {
   mcp: ['Used', 'tool'],
   hook: ['Ran', 'hook'],
   ask: ['Asked you', 'time'],
-  github: ['Looked at GitHub', 'time']
+  github: ['Looked at GitHub', 'time'],
+  lsp: ['Asked the language server', 'time']
 }
 
 /** "Read 3 files, ran 1 command": a run of steps in a few words. */
@@ -432,11 +444,11 @@ function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (n
       )
       .finally(() => setWriting(false))
   }, [session])
-  const submit = () => {
+  const submit = (force = false) => {
     setBusy(true)
     setError(null)
     void api()
-      .invoke('coder:commit', session, message, onBranch ? branch : null, all)
+      .invoke('coder:commit', session, message, onBranch ? branch : null, all, force)
       .then(
         (head) => onDone(`Committed ${head}.`),
         (failure: Error) => {
@@ -475,7 +487,12 @@ function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (n
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={submit}>
+        {error?.startsWith('Possible secret') && (
+          <Button disabled={busy} onClick={() => submit(true)}>
+            Commit anyway
+          </Button>
+        )}
+        <Button variant="primary" disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={() => submit()}>
           Commit
         </Button>
       </div>
@@ -930,6 +947,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   }
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
+  const [cloning, setCloning] = useState(false)
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const [model, setModel] = useState<ModelPick | null>(null)
   const [effort, setEffort] = useState<CoderEffort | null>(null)
@@ -1126,6 +1144,16 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       .catch((error: Error) => note(cleanError(error.message), true))
   }
 
+  /** The unfinished steps, handed to helpers that work at the same time where they can. */
+  const parallel = () => {
+    const open = todo.filter((item) => !item.done).map((item) => `- ${item.text}`)
+    if (open.length < 2 || working) return
+    start(
+      `Work on these unfinished checklist steps side by side. Hand each step that doesn't depend on another to the general agent, all in one reply so they run at the same time. Give each a complete brief: what to change, which files are its own (no two helpers may edit the same file), and how to check it. Steps that depend on others wait until those are done. When they report back, check their changes fit together, run the project's checks, and update the checklist.\n\n${open.join('\n')}`,
+      { shown: 'Work on the open steps side by side' }
+    )
+  }
+
   const answerQuestion = (id: string, answers: CoderQuestionAnswer[] | null) => {
     setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'question' && item.id === id ? { ...item, answers } : item)) }))
     void api().invoke('coder:answer-question', id, answers)
@@ -1146,8 +1174,28 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       )
   }
 
-  const cloudAction = (run: CoderCloudRun, action: 'cancel' | 'pr' | 'fetch' | 'steps') => {
+  const cloudAction = (run: CoderCloudRun, action: 'cancel' | 'pr' | 'fetch' | 'steps' | 'continue') => {
     const id = session.current
+    if (action === 'continue') {
+      void (async () => {
+        try {
+          const events = await api().invoke('coder:cloud-events', id, run.id).catch(() => [] as CoderEvent[])
+          const fetched = await api().invoke('coder:cloud-fetch', id, run.id).then(() => true, () => false)
+          const steps = events.flatMap((event) => (event.type === 'tool' ? [event.summary] : [])).slice(-60)
+          await api().invoke(
+            'coder:note',
+            id,
+            `Earlier, this task went to Terra Code in the cloud: “${run.task.slice(0, 500)}”. It worked from GitHub's copy of ${run.base} and pushed to the branch ${run.branch}${fetched ? `, which is now fetched here as origin/${run.branch} (switch with git switch ${run.branch} if the person wants to carry on there)` : ''}. What it said when it finished:\n${run.summary ?? '(nothing)'}${steps.length ? `\nIts steps: ${steps.join('; ')}.` : ''}`
+          )
+          setCloud(run, events)
+          setWhere('local')
+          note(`Carrying on here. Terra Code will know what the cloud run did${fetched ? `, and its branch is fetched as origin/${run.branch}` : ''}.`)
+        } catch (error) {
+          note(cleanError(error instanceof Error ? error.message : 'That didn’t work.'), true)
+        }
+      })()
+      return
+    }
     if (action === 'cancel') void api().invoke('coder:cloud-cancel', id, run.id).then((runs) => runs.forEach((one) => setCloud(one)), (error: Error) => note(cleanError(error.message), true))
     if (action === 'pr')
       void api()
@@ -1244,7 +1292,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
 
   /** Slash commands the page handles itself, or turns into a task. False when it's a task as typed. */
   const command = (text: string): boolean => {
-    const match = /^\/(\w+)(?:\s+([\s\S]*))?$/.exec(text)
+    const match = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(text)
     if (!match) return false
     const [, name, rest = ''] = match
     const args = rest.trim()
@@ -1252,8 +1300,15 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'init':
         start(CODER_INIT_TASK, { shown: text })
         return true
-      case 'review':
-        start(reviewTask(args || null), { shown: text, runMode: 'review' })
+      case 'review': {
+        // A pull request by number is read on GitHub, and its findings can be posted back there.
+        const pull = /^#?(\d+)$/.exec(args)
+        if (pull) start(reviewPrTask(Number(pull[1])), { shown: text })
+        else start(reviewTask(args || null), { shown: text, runMode: 'review' })
+        return true
+      }
+      case 'fix-ci':
+        start(fixCiTask(status?.branch ?? null), { shown: text })
         return true
       case 'compact':
         if (working) {
@@ -1597,6 +1652,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       onCompact={compactNow}
       onStopJob={(id) => void api().invoke('coder:job-stop', session.current, id)}
       onTodo={changeTodo}
+      onParallel={parallel}
       where={where}
       onWhere={setWhere}
       cloudPr={cloudPr}
@@ -1662,13 +1718,30 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                       </p>
                     </div>
                     {!status.folder && (
-                      <div>
+                      <div className="flex flex-wrap gap-1.5">
                         <Button variant="primary" onClick={pickFolder}>
                           <FolderOpen aria-hidden size={13} strokeWidth={1.75} />
                           Choose a project folder
                         </Button>
+                        <Button aria-expanded={cloning} onClick={() => setCloning(!cloning)}>
+                          <CloneIcon aria-hidden size={13} strokeWidth={1.75} />
+                          Clone from GitHub
+                        </Button>
                       </div>
                     )}
+                    {!status.folder && cloning && (
+                      <CloneCard
+                        onClose={() => setCloning(false)}
+                        onConnect={() => openSettings('github')}
+                        onCloned={() => {
+                          setCloning(false)
+                          newSession()
+                          refresh()
+                          loadCommands()
+                        }}
+                      />
+                    )}
+                    {status.folder && status.ready && <SetupCard folder={status.folder} onStart={(task, shown) => start(task, { shown })} />}
                     {status.folder && status.ready && (
                       <div className="grid grid-cols-2 gap-2 max-[640px]:grid-cols-1">
                         {STARTERS.map((starter) => (
@@ -1723,6 +1796,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                           onPr={() => cloudAction(item.run, 'pr')}
                           onFetch={() => cloudAction(item.run, 'fetch')}
                           onSteps={() => cloudAction(item.run, 'steps')}
+                          onContinue={() => cloudAction(item.run, 'continue')}
                         />
                       )
                     case 'note':
@@ -1787,7 +1861,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
               strip &&
               (todo.length > 0 || jobs.some((job) => job.running) || changes.length > 0) && (
                 <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
-                  {todo.length > 0 && <Checklist items={todo} working={working} bare onChange={changeTodo} />}
+                  {todo.length > 0 && <Checklist items={todo} working={working} bare onChange={changeTodo} onParallel={parallel} />}
                   {jobs.some((job) => job.running) && (
                     <div className="px-1">
                       <JobsBar jobs={jobs} onStop={(id) => void api().invoke('coder:job-stop', session.current, id)} />

@@ -119,6 +119,10 @@ export type CoderCall =
   | { tool: 'mcp'; name: string; input: Record<string, unknown> }
   | { tool: 'ask'; questions: CoderQuestion[] }
   | { tool: 'github'; method: GithubMethod; path: string; body: Record<string, unknown> | null }
+  | { tool: 'lsp'; action: LspAction; path: string; line: number; column: number }
+
+export type LspAction = 'definition' | 'references' | 'hover' | 'symbols'
+const LSP_ACTIONS: LspAction[] = ['definition', 'references', 'hover', 'symbols']
 
 export type GithubMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 const GITHUB_METHODS: GithubMethod[] = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE']
@@ -179,6 +183,7 @@ const TOOL_ALIASES: Record<string, CoderToolName> = Object.fromEntries(
       ['web', 'web websearch searchweb internetsearch'],
       ['ask', 'ask askuser askuserquestion askquestion question questions askhuman clarify'],
       ['github', 'github gh githubapi ghapi'],
+      ['lsp', 'lsp languageserver gotodefinition definition findreferences references hover symbols documentsymbols'],
       ['explore', 'explore subagent spawnagent']
     ] as const
   ).flatMap(([tool, names]) => names.split(' ').map((name) => [name, tool as CoderToolName]))
@@ -213,6 +218,7 @@ const FIELD_ALIASES: Partial<Record<CoderToolName, Record<string, string[]>>> = 
   todo: { items: ['items', 'todos', 'tasks', 'list'] },
   web: { query: ['query', 'q', 'search', 'search_query', 'searchQuery', 'term'] },
   ask: { questions: ['questions', 'question', 'items'], options: ['options', 'choices'], header: ['header', 'title'], multiSelect: ['multiSelect', 'multi_select', 'multiple'] },
+  lsp: { action: ['action', 'operation', 'kind'], path: PATH_KEYS, line: ['line', 'row', 'lineNumber'], column: ['column', 'character', 'col', 'char'] },
   github: { method: ['method', 'verb'], path: ['path', 'endpoint', 'url', 'route'], body: ['body', 'data', 'fields'] }
 }
 
@@ -439,6 +445,14 @@ export function toCall(data: unknown): CoderCall | null {
       const single = !Array.isArray(d.questions) && !isObject(d.questions) && Array.isArray(d.options)
       const questions = questionsOf(single ? { question: d.questions, options: d.options, header: d.header, multiSelect: d.multiSelect } : d.questions)
       return questions ? { tool, questions } : null
+    }
+    case 'lsp': {
+      const action = typeof d.action === 'string' ? (d.action.toLowerCase().replace(/^(go_?to_?|find_?|document_?)/, '') as LspAction) : 'definition'
+      const line = Number(d.line)
+      const column = Number(d.column)
+      if (!LSP_ACTIONS.includes(action) || path === '.') return null
+      if (action !== 'symbols' && !(Number.isInteger(line) && line > 0)) return null
+      return { tool, action, path, line: Number.isInteger(line) && line > 0 ? line : 1, column: Number.isInteger(column) && column > 0 ? column : 1 }
     }
     case 'github': {
       const method = typeof d.method === 'string' ? d.method.toUpperCase() : 'GET'
@@ -715,6 +729,13 @@ function githubWords(repo: string | null, write: boolean): string {
   return `${where}Calls the GitHub REST API as the person, such as GET /repos/{owner}/{repo}/issues?state=open, GET /repos/{owner}/{repo}/pulls/12/files, GET /search/issues?q=..., GET /repos/{owner}/{repo}/actions/runs?per_page=5, or GET /user/repos. ${can} Long answers are cut, so ask for few results (per_page) and the fields you need.`
 }
 
+/** The language server tool, offered when the project has one for some of its files. */
+export const lspToolSpec = (extensions: string[]): ToolSpec => ({
+  name: 'lsp',
+  description: `Asks the project's language server, as an editor would, for files ending ${[...new Set(extensions)].join(' ')}: "definition" (where a name at a line and column is defined), "references" (everywhere it's used), "hover" (its type and docs), or "symbols" (everything a file defines). More exact than searching text. Lines and columns start at 1.`,
+  parameters: object({ action: { type: 'string', enum: LSP_ACTIONS }, path: PATH, line: count('Line, from 1'), column: count('Column of the name, from 1') }, ['action', 'path'])
+})
+
 /** The github tool, offered once the person has connected GitHub and allowed it. */
 export const githubToolSpec = (repo: string | null, write: boolean): ToolSpec => ({
   name: 'github',
@@ -723,8 +744,9 @@ export const githubToolSpec = (repo: string | null, write: boolean): ToolSpec =>
 })
 
 /** For the text protocol: the extra tools this project has, written the way the prompt lists the others. */
-export function extraToolsPrompt({ agents, skills, mcp, github }: { agents: { name: string; description: string }[]; skills: { name: string; description: string }[]; mcp: ToolSpec[]; github?: { repo: string | null; write: boolean } | null }): string {
+export function extraToolsPrompt({ agents, skills, mcp, github, lsp }: { agents: { name: string; description: string }[]; skills: { name: string; description: string }[]; mcp: ToolSpec[]; github?: { repo: string | null; write: boolean } | null; lsp?: string[] }): string {
   const parts: string[] = []
+  if (lsp?.length) parts.push(`The project's language server:\n{"tool":"lsp","action":"definition","path":"src/app.ts","line":12,"column":8} ${lspToolSpec(lsp).description}`)
   if (github) parts.push(`GitHub, which the person connected:\n{"tool":"github","method":"GET","path":"/repos/owner/name/issues?state=open&per_page=10"} ${githubWords(github.repo, github.write)}${github.write ? ' Send a JSON "body" with POST, PATCH and PUT.' : ''}`)
   if (agents.length) parts.push(`Agents you can hand work to, each working on its own in a fresh conversation and reporting back. Several agent blocks in one reply run side by side:\n${agents.map((agent) => `{"tool":"agent","agent":"${agent.name}","task":"..."} ${agent.description}`).join('\n')}`)
   if (skills.length) parts.push(`Skills, whose full instructions you load when the task matches:\n${skills.map((skill) => `{"tool":"skill","name":"${skill.name}"} ${skill.description}`).join('\n')}`)

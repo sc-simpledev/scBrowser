@@ -729,7 +729,9 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       agentModel: () => settings.get().coderAgentModel,
       mcp: coderMcp,
       browser: coderBrowserHost,
-      github: coderGithub
+      github: coderGithub,
+      folder: () => settings.get().coderFolder,
+      budget: () => settings.get().coderBudget
     },
     () => settings.get().aiMemory
   )
