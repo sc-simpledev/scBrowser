@@ -400,7 +400,7 @@ export class Overlay {
     return { x: Math.max(0, Math.round((width - PALETTE_POPUP.width) / 2)), y: PALETTE_POPUP.top }
   }
 
-  togglePalette(extra: Pick<PaletteState, 'recent' | 'skills'> = { recent: [], skills: [] }): void {
+  togglePalette(extra: Pick<PaletteState, 'recent' | 'skills' | 'hidden'> = { recent: [], skills: [] }): void {
     if (this.palette) {
       this.closePalette()
       return

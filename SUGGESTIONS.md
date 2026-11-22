@@ -6,6 +6,10 @@ Ideas for polishing what's already there, not new features. Each one names where
 
 Items 1 to 13 are in 0.6.5: site icons and bold matches in address bar rows, Shift+Delete for history rows, Ctrl+Enter, `@bookmarks`/`@history`/`@tabs`/`@ai`, unit conversions (no currencies), Paste and go, the whole address on hover, Recently closed, hover cards on side tabs, folding tab tree branches, double-click to even out split view, and dropping a tab on the page to split.
 
+## Built in 0.8.0
+
+15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 30, 31, 32 and 33 are in 0.8.0 (see CONTEXT.md). Still open: 14, 16, 21, 28, 29, 34 and 35. 25's shortcut on each palette row was already there; 0.8.0 added the "Ask scAI" row.
+
 ## New tab and briefs
 
 14. **New tab search box parity.** It now autofills and answers sums, but has no open-tab rows or Ask rows. Bring its rows in line with the address bar's (same icons, Switch to tab).

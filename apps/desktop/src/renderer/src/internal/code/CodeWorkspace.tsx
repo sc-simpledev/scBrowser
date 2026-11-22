@@ -84,6 +84,7 @@ import { Composer, effortLabel, type ModelPick, type SendPayload } from './Compo
 import { SessionPanel, type CodeWhere, type PanelTab } from './SessionPanel'
 import { CloudCard } from './CloudCard'
 import { CloneCard, CloneIcon, SetupCard } from './ProjectStart'
+import { GithubStartLine } from './GithubSettings'
 import { QuestionCard } from '../../shared/QuestionCard'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
@@ -1729,6 +1730,19 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                         </Button>
                       </div>
                     )}
+                    {!status.folder && !cloning && (
+                      <ul aria-label="Where’s your project?" className="flex max-w-130 flex-col gap-1.5 text-xs text-text-muted">
+                        <li>
+                          <span className="font-medium text-text">Already on this computer?</span> Choose its folder. If it came from GitHub, Terra Code finds the repository by itself, so there’s nothing to clone.
+                        </li>
+                        <li>
+                          <span className="font-medium text-text">Only on GitHub?</span> Clone it: pick the repository and where the copy should go.
+                        </li>
+                        <li>
+                          <span className="font-medium text-text">Not on GitHub yet?</span> Choose its folder, then Settings → GitHub can make a repository for it.
+                        </li>
+                      </ul>
+                    )}
                     {!status.folder && cloning && (
                       <CloneCard
                         onClose={() => setCloning(false)}
@@ -1741,6 +1755,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                         }}
                       />
                     )}
+                    {status.folder && <GithubStartLine folder={status.folder} onSetUp={() => openSettings('github')} />}
                     {status.folder && status.ready && <SetupCard folder={status.folder} onStart={(task, shown) => start(task, { shown })} />}
                     {status.folder && status.ready && (
                       <div className="grid grid-cols-2 gap-2 max-[640px]:grid-cols-1">
@@ -1919,4 +1934,4 @@ function WorkingLine({ since, step, retrySeconds }: { since: number | null; step
   return <Thinking label={parts.join(' · ')} />
 }
 
-const loadHasVpn = () => api().invoke('vpn:state').then((state) => state.connections.length > 0)
+const loadHasVpn = () => api().invoke('vpn:state').then((state) => (state.installed ? state.connections.length > 0 : ('removed' as const)))

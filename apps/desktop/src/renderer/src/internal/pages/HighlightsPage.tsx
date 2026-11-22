@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input } from '@scbrowser/ui'
 import { MAX_NOTE_CHARS, type Highlight } from '@scbrowser/shared'
 import { api } from '../api'
-import { EmptyState } from '../EmptyState'
+import { EmptyState, NoMatches } from '../EmptyState'
 
 const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') || url : url)
 
@@ -96,7 +96,7 @@ export function HighlightsPage() {
       </div>
       <p className="text-xs text-text-faint">Only your highlighted words and notes go to the AI for a report, not the rest of the pages.</p>
       {highlights.length === 0 && <EmptyState icon={Highlighter} title="Nothing highlighted yet">Select some words on a page, right-click and pick Highlight. They’ll be marked whenever you come back.</EmptyState>}
-      {highlights.length > 0 && shown.length === 0 && <p className="text-text-muted">Nothing matches that search.</p>}
+      {highlights.length > 0 && shown.length === 0 && <NoMatches />}
       {[...pages].map(([url, marks]) => (
         <section key={url} aria-label={marks[0]?.title || url} className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
           <header className="flex items-center gap-2">

@@ -1,7 +1,7 @@
 import type { MemoryNote } from './memory'
 import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ExtensionPanelState, ExtensionSummary, ImportResult, ImportSource } from './containers'
-import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, PermissionDecision, TaskList, WebApp } from './library'
+import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, LinkCheck, PermissionDecision, TaskList, WebApp } from './library'
 import type { HistoryEntry, Suggestion } from './omnibox'
 import type { CrashEntry } from './reports'
 import type { SyncStatus } from './sync'
@@ -12,7 +12,7 @@ import type { CitationTarget } from './citations'
 import type { PageWatch, WatchInterval, WatchTarget } from './watch'
 import type { BriefInput, BriefIssue, BriefPrefs, BriefState, BriefSummary } from './briefs'
 import type { SnoozedTab } from './snooze'
-import type { StudyPrefs, StudyState, StudySubject, StudySummary } from './study'
+import type { StudyPrefs, StudySound, StudyState, StudySubject, StudySummary } from './study'
 import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
@@ -209,6 +209,8 @@ export interface ChromeEvents {
   'updates:changed': UpdateState
   'briefs:changed': BriefSummary
   'study:changed': StudySummary
+  /** The focus timer's end-of-round sound, played by the window in front. */
+  'study:sound': { sound: StudySound; volume: number }
   /** A button on the address bar's answer card. */
   'omnibox:answer-action': 'close' | 'continue' | 'stop'
   'overlay:clear-tooltip': void
@@ -398,6 +400,7 @@ export const EVENT_CHANNELS = [
   'updates:changed',
   'briefs:changed',
   'study:changed',
+  'study:sound',
   'omnibox:answer-action',
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
@@ -430,6 +433,8 @@ export interface InternalCommands {
   'bookmarks:list': () => Bookmark[]
   'bookmarks:rename': (id: number, title: string) => void
   'bookmarks:remove': (id: number) => void
+  /** Asks each address whether it still answers, for the tidy-up. */
+  'bookmarks:check-links': (urls: string[]) => LinkCheck[]
   'bookmarks:edit': (id: number, title: string, url: string) => void
   'bookmarks:set-group': (id: number, groupId: number | null) => void
   'bookmarks:groups': () => BookmarkGroup[]
@@ -593,6 +598,10 @@ export interface InternalCommands {
   'vpn:ping': (ids: string[]) => void
   'vpn:ping-stop': () => void
   'vpn:ping-progress': () => VpnPingProgress
+  /** "Remove VPN": turns it off, stops Xray, hides its controls, and forgets the connections if asked. */
+  'vpn:uninstall': (forget: boolean) => void
+  /** "Install VPN": brings the VPN's controls back. */
+  'vpn:install': () => void
   /** Asks where to save, and returns false if the person cancelled. */
   /** `content` is HTML for PDF and HTML, and Markdown for Markdown. */
   'report:save': (name: string, format: ReportFormat, content: string) => Promise<boolean>
@@ -719,6 +728,10 @@ export interface InternalCommands {
   'coder:github-repos': (query: string) => GithubRepo[]
   /** Clones a repository into a folder the person picks, and makes it Terra Code's folder. Null if they cancelled. */
   'coder:clone': (fullName: string) => string | null
+  /** Links the open folder to one of the person's repositories as origin (starting git if needed). Pushes nothing. */
+  'coder:github-link': (fullName: string) => CoderGithubStatus
+  /** Makes a new repository on the person's account, links the folder to it and pushes the current branch if it has commits. */
+  'coder:github-create': (name: string, makePrivate: boolean) => { status: CoderGithubStatus; pushed: string | null; pushError: string | null }
   /** The open folder's first-run suggestions, or null without a folder. */
   'coder:project-setup': () => CoderProjectSetup | null
   /** Starts a task on GitHub Actions, from GitHub's copy of the current branch. */
@@ -811,6 +824,8 @@ export interface InternalCommands {
   'study:state': () => StudyState
   'study:start': (subjectId: string) => StudyState
   'study:stop': () => StudyState
+  /** Takes a break now; the timer starts again by itself when it's over. */
+  'study:break': () => StudyState
   /** Null adds a new one. */
   'study:subject-save': (id: string | null, subject: Omit<StudySubject, 'id'>) => StudyState
   'study:subject-remove': (id: string) => StudyState
@@ -838,6 +853,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'bookmarks:list',
   'bookmarks:rename',
   'bookmarks:remove',
+  'bookmarks:check-links',
   'bookmarks:edit',
   'bookmarks:set-group',
   'bookmarks:groups',
@@ -968,6 +984,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'vpn:ping',
   'vpn:ping-stop',
   'vpn:ping-progress',
+  'vpn:uninstall',
+  'vpn:install',
   'report:save',
   'files:preview',
   'files:save',
@@ -1018,6 +1036,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:github-device-wait',
   'coder:github-repos',
   'coder:clone',
+  'coder:github-link',
+  'coder:github-create',
   'coder:project-setup',
   'coder:cloud-start',
   'coder:cloud-runs',
@@ -1108,6 +1128,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'study:state',
   'study:start',
   'study:stop',
+  'study:break',
   'study:subject-save',
   'study:subject-remove',
   'study:session-remove',

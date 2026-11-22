@@ -50,6 +50,7 @@ import { extractContext } from './ai/pageText'
 import { trimPage, withContext } from '@scbrowser/ai'
 import type { PasswordVault } from './passwords'
 import { useVpnForAi, type VpnService } from './vpn'
+import { checkLinks, MAX_LINKS_CHECKED } from './linkCheck'
 
 import { endTask, taskList } from './tasks'
 
@@ -255,6 +256,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'bookmarks:remove': (id) => {
       bookmarks.remove(int(id))
       onBookmarksChanged()
+    },
+    'bookmarks:check-links': (urls) => {
+      if (!Array.isArray(urls)) throw new Error('Invalid links')
+      return checkLinks(urls.slice(0, MAX_LINKS_CHECKED).map((url) => text(url)))
     },
     'bookmarks:edit': (id, title, url) => {
       const address = text(url)
@@ -623,6 +628,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'vpn:ping-stop': () => vpn.stopPing(),
     'vpn:ping-progress': () => vpn.pingProgress(),
+    'vpn:uninstall': async (forget) => {
+      // Turning the setting off stops the VPN (see BrowserCore); this waits for it and forgets if asked.
+      settings.set({ vpnInstalled: false })
+      await vpn.uninstall(forget === true)
+    },
+    'vpn:install': () => {
+      settings.set({ vpnInstalled: true })
+    },
     'files:preview': (...args) => {
       if (!isPreviewRequest(args)) throw new Error('Invalid file')
       return storePreview(...args)
@@ -820,6 +833,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'study:stop': () => {
       study().stop()
+      return study().state()
+    },
+    'study:break': () => {
+      study().takeBreak()
       return study().state()
     },
     'study:subject-save': (id, subject) => {

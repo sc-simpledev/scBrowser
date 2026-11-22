@@ -197,7 +197,7 @@ function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; 
   )
 }
 
-const loadHasVpn = () => window.scb.invoke('vpn:summary').then((summary) => summary.available)
+const loadHasVpn = () => window.scb.invoke('vpn:summary').then((summary) => (summary.installed ? summary.available : ('removed' as const)))
 
 export function AssistantPanel() {
   const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()

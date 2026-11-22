@@ -4,6 +4,7 @@ import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
   CONTAINERS, STARTING_VPN_NOTE, type TunCheck, byPing, parseBypassList, type Settings, type VpnAddResult, type VpnConnection, type VpnGroup, type VpnMethod, type VpnPingProgress, type VpnPings, type VpnScope, type VpnState } from '@scbrowser/shared'
 import { api } from '../api'
+import { RemoveVpn, VpnRemoved } from '../VpnInstall'
 
 /** Subscriptions can hold thousands, and the fastest are what matter. */
 const VISIBLE_ROWS = 100
@@ -348,6 +349,7 @@ export function VpnPage() {
   }, [progress.running, reload])
 
   if (!state) return null
+  if (!state.installed) return <VpnRemoved onInstalled={reload} />
 
   const startPing = (ids: string[]) => {
     setProgress({ running: true, done: 0, total: ids.length })
@@ -529,6 +531,8 @@ export function VpnPage() {
           ms
         </label>
       </section>
+
+      <RemoveVpn onRemoved={reload} />
     </>
   )
 }

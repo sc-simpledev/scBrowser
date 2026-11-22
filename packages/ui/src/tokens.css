@@ -24,7 +24,8 @@
   --sc-border-strong: #cfcfcf;
   --sc-text: #111111;
   --sc-text-muted: #555555;
-  --sc-text-faint: #8a8a8a;
+  /* #737373 keeps small hints at WCAG AA (4.5:1) on white and on the page background. */
+  --sc-text-faint: #737373;
   --sc-accent: oklch(0.65 var(--sc-chroma) var(--sc-hue));
   --sc-accent-hover: oklch(0.58 var(--sc-chroma) var(--sc-hue));
   --sc-accent-soft: oklch(0.65 var(--sc-chroma) var(--sc-hue) / 0.12);
@@ -155,7 +156,8 @@
     --sc-border-strong: #404040;
     --sc-text: #f2f2f2;
     --sc-text-muted: #b5b5b5;
-    --sc-text-faint: #888888;
+    /* Stays at AA on surfaces, hover and selected rows included. */
+    --sc-text-faint: #959595;
     --sc-accent: oklch(0.72 var(--sc-chroma) var(--sc-hue));
     --sc-accent-hover: oklch(0.78 var(--sc-chroma) var(--sc-hue));
     --sc-accent-soft: oklch(0.72 var(--sc-chroma) var(--sc-hue) / 0.16);

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { ARCHIVE_CHOICES, type ArchivedTab, type ClosedGroup, type Settings, type SnoozedTab } from '@scbrowser/shared'
 import { api } from '../api'
-import { EmptyState } from '../EmptyState'
+import { EmptyState, NoMatches } from '../EmptyState'
 import { ConfirmButton } from '../ConfirmButton'
 
 const dayLabel = (time: number) => new Date(time).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -163,7 +163,7 @@ export function ArchivePage() {
         </ConfirmButton>
       </div>
       {tabs.length === 0 && <EmptyState icon={Archive} title="Nothing archived yet">Right-click a tab and pick Archive tab, or choose above when unused tabs archive themselves.</EmptyState>}
-      {tabs.length > 0 && shown.length === 0 && <p className="text-text-muted">Nothing matches that search.</p>}
+      {tabs.length > 0 && shown.length === 0 && <NoMatches />}
       {[...days].map(([day, entries]) => (
         <section key={day} aria-label={day} className="flex flex-col gap-1">
           <h2 className="text-xs font-medium text-text-muted">{day}</h2>

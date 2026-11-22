@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Coffee, Flame, Newspaper, Pause, Pencil, Play, Plus, Settings2, ShieldBan, Square, Target, Timer, Trash2, TrendingUp, X } from 'lucide-react'
+import { Check, ChevronDown, Coffee, Flame, Newspaper, Pause, Pencil, Play, Plus, Settings2, ShieldBan, Square, Target, Timer, Trash2, TrendingUp, Volume2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Segmented, Select, Switch } from '@scbrowser/ui'
 import {
@@ -12,6 +12,7 @@ import {
   STUDY_ROUND_CHOICES,
   STUDY_HUES,
   STUDY_IDLE_CHOICES,
+  STUDY_SOUNDS,
   shortDuration,
   stopwatch,
   studyDayKey,
@@ -19,10 +20,12 @@ import {
   type BriefSchedule,
   type StudyDay,
   type StudySession,
+  type StudySound,
   type StudyState,
   type StudySubject
 } from '@scbrowser/shared'
 import { api } from '../api'
+import { playChime } from '../../shared/chime'
 
 type Update = (call: Promise<StudyState>) => Promise<void>
 
@@ -170,7 +173,9 @@ function TimerPanel({ state, now, todayTotal, onToggle, update }: { state: Study
   const big = onBreak ? stopwatch(onBreak.until - now) : countdown !== null ? stopwatch(countdown + 999) : stopwatch(todayTotal)
   const label = onBreak ? 'Break left' : countdown !== null ? 'Left in this round' : 'Focused today'
   const below = onBreak
-    ? `Round ${onBreak.round} of ${onBreak.rounds} starts by itself`
+    ? onBreak.mode === 'stopwatch'
+      ? 'The timer starts again by itself'
+      : `Round ${onBreak.round} of ${onBreak.rounds} starts by itself`
     : countdown !== null
       ? `Round ${running!.round ?? 1} of ${running!.rounds ?? 1} · ${stopwatch(todayTotal)} today`
       : goal > 0
@@ -414,12 +419,14 @@ function Week({ days, subjects, goalMinutes }: { days: StudyDay[]; subjects: Stu
 /** Today on a line from the first session to now, then each session under it. */
 function Today({ sessions, subjects, running, now, update }: { sessions: StudySession[]; subjects: StudySubject[]; running: StudyState['running']; now: number; update: Update }) {
   const subjectOf = (id: string) => subjects.find((subject) => subject.id === id) ?? REMOVED
-  const live = running ? [{ id: 'live', subjectId: running.subjectId, start: running.startedAt, end: now }] : []
+  const live = running ? [{ id: 'live', subjectId: running.subjectId, start: running.startedAt, end: now, distractionTimes: running.distractionTimes }] : []
   const all = [...live, ...sessions]
   const midnight = new Date(now).setHours(0, 0, 0, 0)
   const from = Math.min(midnight + 6 * 3_600_000, ...all.map((session) => Math.max(session.start, midnight)))
   const to = Math.max(from + 3_600_000, now)
   const at = (time: number) => `${((Math.max(time, from) - from) / (to - from)) * 100}%`
+  // Each try at a blocked site, as a tick under the timeline, so the times that pull hardest show.
+  const tries = all.flatMap((session) => session.distractionTimes ?? []).filter((time) => time >= from)
   return (
     <Panel title="Today" detail={all.length === 0 ? 'Nothing timed yet' : `${all.length} ${all.length === 1 ? 'session' : 'sessions'} since ${clock(from)}`} label="Today's sessions" className="flex-1">
       <div className="flex flex-col gap-3 px-5 pb-4">
@@ -428,6 +435,13 @@ function Today({ sessions, subjects, running, now, update }: { sessions: StudySe
             <span key={session.id} style={{ ...hueStyle(subjectOf(session.subjectId).hue), left: at(session.start), width: `max(3px, calc(${at(session.end)} - ${at(session.start)}))` }} className="sc-hued absolute inset-y-0 bg-[var(--hued)]" />
           ))}
         </div>
+        {tries.length > 0 && (
+          <div role="img" aria-label={`${tries.length} blocked ${tries.length === 1 ? 'site' : 'sites'} tried, marked by time`} className="relative -mt-2 h-2">
+            {tries.map((time, index) => (
+              <span key={index} title={`Tried a blocked site at ${clock(time)}`} style={{ left: at(time) }} className="absolute top-0 h-2 w-px -translate-x-1/2 bg-danger/70" />
+            ))}
+          </div>
+        )}
         <div aria-hidden className="-mt-2 flex justify-between text-2xs text-text-faint tabular-nums">
           <span>{clock(from)}</span>
           <span>now</span>
@@ -689,6 +703,45 @@ function Settings({ state, update }: { state: StudyState; update: Update }) {
             </span>
             <Switch label="Focus Mode while timing" checked={state.prefs.focusMode} onChange={(focusMode) => void update(api().invoke('study:prefs', { focusMode }))} />
           </label>
+          <div className={row}>
+            <span className="flex flex-col">
+              <span>Sound at the end of a round</span>
+              <span className="text-xs text-text-faint">Also when a break or the countdown ends.</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <Select aria-label="Sound at the end of a round" className="w-28" value={state.prefs.sound} onChange={(e) => {
+                const sound = e.target.value as StudySound
+                playChime(sound, state.prefs.volume)
+                void update(api().invoke('study:prefs', { sound }))
+              }}>
+                {STUDY_SOUNDS.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+              </Select>
+              <IconButton size="sm" label="Play the sound" disabled={state.prefs.sound === 'none' || state.prefs.volume === 0} onClick={() => playChime(state.prefs.sound, state.prefs.volume)}>
+                <Volume2 size={14} strokeWidth={1.75} />
+              </IconButton>
+            </span>
+          </div>
+          {state.prefs.sound !== 'none' && (
+            <label className={row}>
+              <span>Volume</span>
+              <input
+                type="range"
+                aria-label="Sound volume"
+                min={0}
+                max={100}
+                step={5}
+                value={state.prefs.volume}
+                className="w-40 accent-(--sc-accent)"
+                onChange={(e) => void update(api().invoke('study:prefs', { volume: Number(e.target.value) }))}
+                onPointerUp={(e) => playChime(state.prefs.sound, Number(e.currentTarget.value))}
+                onKeyUp={(e) => playChime(state.prefs.sound, Number(e.currentTarget.value))}
+              />
+            </label>
+          )}
           <label className={row}>
             <span className="flex flex-col">
               <span>Show the timer in the sidebar</span>
@@ -773,6 +826,32 @@ export function FocusPage() {
     return { weekTotal, average: weekTotal / 7, best: Math.max(best, todayTotal) }
   }, [state, liveMs, todayTotal])
 
+  const toggle = useCallback(() => {
+    if (!state) return
+    if (state.running || state.onBreak) return void update(api().invoke('study:stop'))
+    const last = state.today[0]?.subjectId
+    const subject = state.subjects.find((other) => other.id === last) ?? state.subjects[0]
+    if (subject) void update(api().invoke('study:start', subject.id))
+  }, [state, update])
+
+  // Like other timer apps: Space starts and stops, B takes a break. Not while typing in a box.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="dialog"]')) return
+      if (event.key === ' ') {
+        event.preventDefault()
+        toggle()
+      } else if ((event.key === 'b' || event.key === 'B') && state?.running) {
+        event.preventDefault()
+        void update(api().invoke('study:break'))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggle, state?.running, update])
+
   if (!state || !stats) return null
   const goal = state.prefs.goalMinutes
 
@@ -786,6 +865,14 @@ export function FocusPage() {
           </span>
           <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">Focus timer</h1>
           <p className="text-sm text-text-muted">Time what you focus on: work, study, writing or practice. It adds up the day and pauses itself when you step away.</p>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-text-faint">
+            <span>
+              <kbd className="sc-kbd">Space</kbd> start or stop
+            </span>
+            <span>
+              <kbd className="sc-kbd">B</kbd> take a break
+            </span>
+          </p>
         </div>
       </header>
 
@@ -801,18 +888,7 @@ export function FocusPage() {
       )}
 
       <div className="flex overflow-hidden rounded-lg bg-surface shadow-1 max-[860px]:flex-col">
-        <TimerPanel
-          state={state}
-          now={now}
-          todayTotal={todayTotal}
-          update={update}
-          onToggle={() => {
-            if (running || onBreak) return void update(api().invoke('study:stop'))
-            const last = state.today[0]?.subjectId
-            const subject = state.subjects.find((other) => other.id === last) ?? state.subjects[0]
-            if (subject) void update(api().invoke('study:start', subject.id))
-          }}
-        />
+        <TimerPanel state={state} now={now} todayTotal={todayTotal} update={update} onToggle={toggle} />
         <Activities state={state} bySubjectToday={bySubjectToday} update={update} />
       </div>
 

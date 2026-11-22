@@ -42,6 +42,48 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.8.0',
+    date: '2026-11-23',
+    items: [
+      'Remove VPN: one switch in Settings, or the card at the end of the VPN page, turns the VPN off and takes away its button, menu rows and Xray core. Install VPN brings it back, with your connections if you kept them.',
+      'Sign in to GitHub with a button in Terra Code, with no CLI or token to sort out.',
+      'Connecting a project to GitHub goes in three steps: your account, this project, and what Terra Code may do. A folder that isn’t on GitHub yet can get a new repository (pushed for you) or be linked to one you have. The start screen explains when to choose a folder and when to clone.',
+      'Focus timer: Space starts and stops, B takes a break. Pick a sound for the end of a round (Chime, Bell, Soft or none) and its volume. Tries at blocked sites show as ticks on the Today timeline.',
+      'AI Briefs you’ve read fold to one line, so the new ones stand out.',
+      'Right-click a shortcut on the new tab page to pin it in place or remove it. Shortcuts get their own letter and colour.',
+      'History folds many visits to one site in a day under a single row, and keeps the day’s date in view as you scroll.',
+      'Bookmarks can be tidied: find pages saved twice and pages that are gone, and remove them when you say.',
+      'Settings: click a search result’s name to jump to it on its page, where it lights up for a moment. Each page can be put back to its defaults. Ctrl , opens Settings.',
+      'Menus show their keyboard shortcuts, and the command palette offers to ask scAI when no command matches.',
+      'Easier to see and to use: every control shows the keyboard focus ring, faint text is a little darker in both themes, and the system’s “reduce motion” setting turns animations off without Performance Mode. Empty pages and searches with no results all look the same.'
+    ]
+  },
+  {
+    version: '0.7.4',
+    date: '2026-11-20',
+    items: [
+      'Terra Code’s first-run card sets a project up in one go: commands it may run, MCP servers that fit, and its notes file.',
+      'Clone a GitHub repository from Terra Code’s start screen, without a terminal.',
+      'On GitHub: start Terra Code from an @terra comment, or on a schedule, through a workflow installed with one pull request.',
+      '/fix-ci and /review #12, language servers for definitions and references, Claude Code’s settings and hooks, a token budget per session, and a check for keys and passwords before each commit.',
+      'scterra code -p "task" runs Terra Code without a window, for scripts. Sandboxes on Mac and in dev containers.',
+      'Chat can search the web, read pages, look at the page you share, and use your MCP servers. Edit a sent message to try again from there.',
+      'The assistant reads the whole page in order: headings, tables, forms and what’s on screen.',
+      'Tabs down the side can hide until the pointer reaches the edge, and the sidebar can take a colour.',
+      'Fixed: MCP servers started with npx or uvx could time out on their first run, or not be found when scTerra was opened from a menu.'
+    ]
+  },
+  {
+    version: '0.7.3',
+    date: '2026-11-20',
+    items: [
+      'Terra Code’s checklist is yours to change: tick, edit, add and remove steps, and it hears about it.',
+      'Terra Code can ask you questions with choices, and so can scAI in chat.',
+      'Connect GitHub to let Terra Code read issues, pull requests and Actions runs, and with your yes, open them.',
+      'Cloud runs: hand a task to GitHub Actions, which carries on with your computer off and pushes a branch or pull request.'
+    ]
+  },
+  {
     version: '0.7.2',
     date: '2026-11-19',
     items: [

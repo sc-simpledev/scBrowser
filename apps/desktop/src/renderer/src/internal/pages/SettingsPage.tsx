@@ -30,8 +30,9 @@ import {
 import { SIDEBAR_COLORS, sidebarBackground, WHATS_NEW } from '@scbrowser/shared'
 import { api, applyPerformance, applyTint } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
+import { VPN_INSTALLED_EVENT } from '../VpnInstall'
 import { announceSearching, openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, type SettingsGroupId } from '../settingsGroups'
-import { ChipToggles, Group, Row, RowSelect, Searchable, SearchProvider, searchWords, Section } from '../settingsParts'
+import { ChipToggles, Group, JUMP_TO_SETTING, Row, RowSelect, Searchable, SearchProvider, searchWords, Section, type SettingJump } from '../settingsParts'
 import { ForgetOnClose, MiniAppsSection, PageTweaks } from './SiteSettings'
 
 export { SETTINGS_GROUPS } from '../settingsGroups'
@@ -187,6 +188,30 @@ export function SettingsPage() {
     setChangedOnly(false)
   }, [group])
   useEffect(() => announceSearching(filtering), [filtering])
+  // A search result's name was clicked: leave the search, open its page, and show where it is.
+  useEffect(() => {
+    const jump = (event: Event) => {
+      const { group: target, label } = (event as CustomEvent<SettingJump>).detail
+      setQuery('')
+      setChangedOnly(false)
+      if (target !== group) openSettingsGroup(target as SettingsGroupId)
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const row = [...document.querySelectorAll<HTMLElement>('[data-setting-label]')].find((element) => element.dataset.settingLabel === label)
+          if (!row) return
+          row.scrollIntoView({ block: 'center' })
+          row.classList.remove('sc-flash')
+          void row.offsetWidth
+          row.classList.add('sc-flash')
+          // The setting's own control, not the Reset button beside a changed one.
+          const control = row.querySelector<HTMLElement>('[role="switch"], select, input, textarea') ?? row.querySelector<HTMLElement>('button:not([aria-label^="Reset"])')
+          control?.focus({ preventScroll: true })
+        })
+      )
+    }
+    addEventListener(JUMP_TO_SETTING, jump)
+    return () => removeEventListener(JUMP_TO_SETTING, jump)
+  }, [group])
   useLayoutEffect(() => setNothingFound(filtering && !results.current?.querySelector('[data-setting]')))
 
   if (!settings) return null
@@ -638,7 +663,19 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
       <Section title="More privacy tools">
         <LinkRow label="Passwords" hint="Saved logins, two-step codes, autofill and leak checks." address="sc://passwords" keywords="vault login autofill master password addresses" />
         <LinkRow label="Site blocker" hint="Block sites by time, Focus Mode or category." address="sc://blocker" keywords="focus study distractions" />
-        <LinkRow label="VPN" hint="Send scTerra's traffic through your own connection." address="sc://vpn" keywords="proxy xray" />
+        <Row setting="vpnInstalled" label="VPN" hint={settings.vpnInstalled ? "Send scTerra's traffic through your own connection. Turn this off to remove the VPN: its button, menu rows and Xray core." : 'Removed. Turn this on to install it again, with any connections you kept.'} keywords="proxy xray remove install uninstall">
+          <div className="flex items-center gap-2">
+            {settings.vpnInstalled && <Button onClick={() => open('sc://vpn')}>Open</Button>}
+            <Switch
+              label={settings.vpnInstalled ? 'Remove VPN' : 'Install VPN'}
+              checked={settings.vpnInstalled}
+              onChange={(vpnInstalled) => {
+                update({ vpnInstalled })
+                window.dispatchEvent(new CustomEvent(VPN_INSTALLED_EVENT, { detail: vpnInstalled }))
+              }}
+            />
+          </div>
+        </Row>
       </Section>
       <Section title="Crash reports and usage" keywords="telemetry diagnostics">
         <Row setting="crashReports" label="Send crash reports" hint="The type of crash, the version and your operating system. Never pages, addresses or messages.">

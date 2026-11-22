@@ -32,6 +32,8 @@ export type VpnScope = 'browser' | 'computer'
 export type VpnMethod = 'proxy' | 'tun'
 
 export interface VpnState {
+  /** False after "Remove VPN": Xray never starts and the VPN's controls are hidden until "Install VPN". */
+  installed: boolean
   pings: VpnPings
   scope: VpnScope
   method: VpnMethod
@@ -61,6 +63,9 @@ export function readTunToggle(text: string): boolean | null {
 
 /** The short form the toolbar needs. */
 export interface VpnSummary {
+  /** False after "Remove VPN". */
+  installed: boolean
+  /** Installed, with connections to turn on. */
   available: boolean
   enabled: boolean
   connecting: boolean

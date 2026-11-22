@@ -110,3 +110,33 @@ export interface TaskList {
   rows: TaskRow[]
   sleeping: number
 }
+
+/** Whether a bookmarked page still answers, from the tidy-up on sc://bookmarks. */
+export interface LinkCheck {
+  url: string
+  /** `dead`: 404, 410 or a name that no longer resolves. `unknown`: it couldn't be told. */
+  state: 'ok' | 'dead' | 'unknown'
+  status: number | null
+}
+
+/** The same page however it was saved: the host's case, "www.", a trailing slash and a #fragment don't count. */
+export function bookmarkKey(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ''
+    const path = parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, '') : ''
+    return `${parsed.protocol}//${parsed.host.toLowerCase().replace(/^www\./, '')}${path}${parsed.search}`
+  } catch {
+    return url
+  }
+}
+
+/** Bookmarks saved more than once, oldest first in each set, so the first can be kept. */
+export function duplicateBookmarks<T extends { id: number; url: string }>(bookmarks: T[]): T[][] {
+  const sets = new Map<string, T[]>()
+  for (const bookmark of bookmarks) {
+    const key = bookmarkKey(bookmark.url)
+    sets.set(key, [...(sets.get(key) ?? []), bookmark])
+  }
+  return [...sets.values()].filter((set) => set.length > 1).map((set) => [...set].sort((a, b) => a.id - b.id))
+}

@@ -312,14 +312,23 @@ export class BrowserCore {
         if (!response.ok) throw new Error(`The subscription answered with error ${response.status}.`)
         return response.text()
       },
+      installed: () => settings.get().vpnInstalled,
       onChange: () => this.broadcast('vpn:changed', this.vpn.summary())
     })
     // Asked to always connect, nothing goes out until it has.
-    if (settings.get().vpnAutoConnect && !isPrivate) void this.vpn.holdPages().then(() => this.vpn.connectAtStart())
+    if (settings.get().vpnAutoConnect && settings.get().vpnInstalled && !isPrivate) void this.vpn.holdPages().then(() => this.vpn.connectAtStart())
 
     let extensionDisplay = settings.get().extensionDisplay
     let bypassInUse = JSON.stringify([settings.get().vpnBypass, settings.get().vpnDirectContainers])
+    let vpnInstalled = settings.get().vpnInstalled
     this.unsubscribe.push(
+      // "Remove VPN" from anywhere (Settings, sc://vpn, the palette) stops Xray and the tunnel at once.
+      settings.subscribe((next) => {
+        if (next.vpnInstalled === vpnInstalled) return
+        vpnInstalled = next.vpnInstalled
+        if (vpnInstalled) this.vpn.install()
+        else void this.vpn.uninstall(false)
+      }),
       settings.subscribe((next) => {
         const wanted = JSON.stringify([next.vpnBypass, next.vpnDirectContainers])
         if (wanted === bypassInUse) return
@@ -451,7 +460,8 @@ export class BrowserCore {
           focusMode: () => settings.get().focusMode,
           setFocusMode: (focusMode) => settings.set({ focusMode, focusUntil: 0, focusBreakUntil: 0, studyRound: 0 }),
           onChange: (summary) => this.broadcast('study:changed', summary),
-          notify: (text) => this.focused()?.actions.notify(text)
+          notify: (text) => this.focused()?.actions.notify(text),
+          sound: (sound, volume) => this.focused()?.send('study:sound', { sound, volume })
         })
     app.on('will-quit', () => this.study?.destroy())
     const stopSaver = startMemorySaver({

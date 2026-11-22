@@ -12,6 +12,7 @@ import {
   CODER_MAX_TASK_CHARS,
   cleanTodo,
   isCoderEffort,
+  isGithubRepoName,
   isMcpServerName,
   type CoderAutomations,
   type CoderEvent,
@@ -32,7 +33,7 @@ import type { CoderMcp } from './coderMcp'
 import type { CoderCloud } from './coderCloud'
 import { githubClientId, type CoderGithub } from './coderGithub'
 import { installAutomations } from './coderAutomations'
-import { cloneRepo, deviceStart, deviceWait, projectSetup, type DeviceCode } from './coderSetup'
+import { cloneRepo, deviceStart, deviceWait, hasCommits, linkRepo, projectSetup, pushBranch, type DeviceCode } from './coderSetup'
 import { loadDefs, loadHooks, loadSkills, projectSettings, detectDiagnostics } from './coderProject'
 import { globFiles } from './coderTools'
 import type { CoderTrust } from './coderTrust'
@@ -308,6 +309,33 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       await cloneRepo(name, into, await github.token())
       settings.set({ coderFolder: into })
       return into
+    },
+    'coder:github-link': async (fullName) => {
+      coderOnly()
+      const folder = settings.get().coderFolder
+      if (!folder) throw new Error('Choose a project folder first.')
+      await linkRepo(folder, text(fullName, 200))
+      return github.status(folder)
+    },
+    'coder:github-create': async (name, makePrivate) => {
+      coderOnly()
+      const folder = settings.get().coderFolder
+      if (!folder) throw new Error('Choose a project folder first.')
+      const wanted = text(name, 100).trim()
+      if (!isGithubRepoName(wanted)) throw new Error('Use letters, numbers, dots, dashes and underscores for the name.')
+      // The person pressed Create themselves, so this doesn't wait for Terra Code's own "look and act" choice.
+      const made = await github.call<{ full_name: string }>('POST', '/user/repos', { name: wanted, private: makePrivate !== false, auto_init: false })
+      await linkRepo(folder, made.full_name)
+      let pushed: string | null = null
+      let pushError: string | null = null
+      if (await hasCommits(folder)) {
+        try {
+          pushed = await pushBranch(folder, await github.token())
+        } catch (error) {
+          pushError = error instanceof Error ? error.message : 'Pushing failed.'
+        }
+      }
+      return { status: await github.status(folder), pushed, pushError }
     },
     'coder:project-setup': async () => {
       coderOnly()

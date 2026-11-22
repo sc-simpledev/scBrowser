@@ -154,11 +154,13 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
   if (groups.length === 0) {
     const { navigationHistory: history } = contents
     groups.push([
-      { label: 'Back', enabled: history.canGoBack(), click: () => history.goBack() },
-      { label: 'Forward', enabled: history.canGoForward(), click: () => history.goForward() },
+      { label: 'Back', accelerator: 'Alt+Left', registerAccelerator: false, enabled: history.canGoBack(), click: () => history.goBack() },
+      { label: 'Forward', accelerator: 'Alt+Right', registerAccelerator: false, enabled: history.canGoForward(), click: () => history.goForward() },
       // Through the tab where there is one, as a failed page reloads the address that failed.
       {
         label: 'Reload',
+        accelerator: 'CmdOrCtrl+R',
+        registerAccelerator: false, 
         click: () => {
           const id = tabs.tabIdFor(contents)
           if (id === null) contents.reload()
@@ -170,14 +172,16 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', click: () => contents.downloadURL(params.pageURL) }] : []),
       {
         label: 'Print…',
+        accelerator: 'CmdOrCtrl+P',
+        registerAccelerator: false, 
         click: () => {
           const id = tabs.tabIdFor(contents)
           if (id === null) contents.print()
           else tabs.print(id)
         }
       },
-      { label: 'Screenshot', click: actions.screenshot },
-      { label: 'Bookmark this page', click: actions.toggleBookmark },
+      { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: actions.screenshot },
+      { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', registerAccelerator: false, click: actions.toggleBookmark },
       { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) }
     ])
     if (isWeb(params.pageURL)) {
@@ -198,7 +202,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     }
     if (sourcePage) {
       groups.push([
-        { label: 'Reader view', click: actions.toggleReader },
+        { label: 'Reader view', accelerator: 'F9', registerAccelerator: false, click: actions.toggleReader },
         { label: 'Read aloud', click: actions.readAloud },
         {
           label: 'Summarise page',
@@ -222,7 +226,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
   }
   groups.push([
     ...(sourcePage ? [{ label: 'View page source', accelerator: 'CmdOrCtrl+U', click: () => tabs.create(`view-source:${params.pageURL}`, { afterId: tabs.tabIdFor(contents) ?? undefined, container: tabs.active?.container }) }] : []),
-    { label: 'Inspect', click: () => tabs.inspect(contents, params.x, params.y) }
+    { label: 'Inspect', accelerator: 'CmdOrCtrl+Shift+I', registerAccelerator: false, click: () => tabs.inspect(contents, params.x, params.y) }
   ])
 
   return groups.flatMap((group, i) => (i === 0 ? group : [{ type: 'separator' as const }, ...group]))
@@ -233,8 +237,8 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
   const { splitIds, activeId, tabs: open } = tabs.snapshot()
   const tab = open.find((other) => other.id === id)
   Menu.buildFromTemplate([
-    { label: 'New tab', click: () => tabs.create() },
-    { label: 'Reload', click: () => tabs.reload(id) },
+    { label: 'New tab', accelerator: 'CmdOrCtrl+T', registerAccelerator: false, click: () => tabs.create() },
+    { label: 'Reload', accelerator: 'CmdOrCtrl+R', registerAccelerator: false, click: () => tabs.reload(id) },
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
     { label: tab?.pinned ? 'Unpin tab' : 'Pin tab', click: () => tabs.setPinned(id, !tab?.pinned) },
     { label: tab?.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !tab?.muted) },
@@ -279,7 +283,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
       ]
     },
     { type: 'separator' },
-    { label: 'Close', click: () => tabs.close(id) },
+    { label: 'Close', accelerator: 'CmdOrCtrl+W', registerAccelerator: false, click: () => tabs.close(id) },
     { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
     { type: 'separator' },
     ...closedTabRows(tabs),
@@ -517,7 +521,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
         { label: 'Site blocker', click: () => actions.openPage('blocker') }
       ]
     },
-    { label: 'VPN', click: () => actions.openPage('vpn') },
+    ...(actions.vpnInstalled() ? [{ label: 'VPN', click: () => actions.openPage('vpn') }] : []),
     { type: 'separator' },
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,
@@ -547,7 +551,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
       ]
     },
     { type: 'separator' },
-    { label: 'Settings', click: () => actions.openPage('settings') },
+    { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => actions.openPage('settings') },
     { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: actions.quit }
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }

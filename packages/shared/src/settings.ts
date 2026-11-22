@@ -143,6 +143,8 @@ export interface Settings {
   /** A language code, or empty to follow the system. */
   spellLanguage: string
   newTab: NewTabConfig
+  /** False after "Remove VPN": the VPN's controls are hidden and Xray never starts, until "Install VPN". */
+  vpnInstalled: boolean
   /** How long a VPN ping waits before moving to the next connection. */
   vpnPingTimeout: number
   vpnScope: VpnScope
@@ -293,6 +295,7 @@ export const DEFAULT_SETTINGS: Settings = {
   spellCheck: true,
   spellLanguage: '',
   newTab: DEFAULT_NEW_TAB,
+  vpnInstalled: true,
   vpnPingTimeout: 3000,
   vpnScope: 'browser',
   vpnMethod: 'proxy',
@@ -399,6 +402,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   hiddenToolbarItems: (v) => Array.isArray(v) && v.every((id) => TOOLBAR_ITEMS.some((item) => item.id === id)),
   toolbarOrder: isToolbarOrder,
   newTab: isNewTabConfig,
+  vpnInstalled: (v) => typeof v === 'boolean',
   vpnPingTimeout: (v) => Number.isInteger(v) && (v as number) >= 200 && (v as number) <= 30_000,
   vpnScope: (v) => v === 'browser' || v === 'computer',
   vpnMethod: (v) => v === 'proxy' || v === 'tun',

@@ -7,6 +7,7 @@ import {
   MAX_STUDY_SUBJECTS,
   MIN_STUDY_SESSION_MS,
   sanitizeStudyPrefs,
+  MAX_DISTRACTION_TIMES,
   STUDY_HISTORY_DAYS,
   studyDayKey,
   studyDays,
@@ -16,6 +17,7 @@ import {
   type StudyPrefs,
   type StudyRunning,
   type StudySession,
+  type StudySound,
   type StudyState,
   type StudySubject,
   type StudySummary
@@ -44,6 +46,8 @@ export interface StudyDeps {
   onChange: (summary: StudySummary) => void
   /** Said when the timer stops or moves on by itself. */
   notify: (text: string) => void
+  /** Plays the chosen end-of-round sound, where a window can. */
+  sound?: (sound: StudySound, volume: number) => void
   now?: () => number
   /** Off in tests, which call `tick` themselves. */
   timers?: boolean
@@ -116,7 +120,7 @@ export class StudyService {
     if (length < MIN_STUDY_SESSION_MS) return
     const oldest = this.now() - (STUDY_HISTORY_DAYS + 1) * 86_400_000
     const kept = this.sessions().filter((session) => session.end > oldest)
-    const session: StudySession = { id: randomUUID(), subjectId: running.subjectId, start: running.startedAt, end: running.startedAt + length, ...(running.distractions ? { distractions: running.distractions } : {}), ...(running.gaveIn ? { gaveIn: running.gaveIn } : {}) }
+    const session: StudySession = { id: randomUUID(), subjectId: running.subjectId, start: running.startedAt, end: running.startedAt + length, ...(running.distractions ? { distractions: running.distractions } : {}), ...(running.distractionTimes?.length ? { distractionTimes: running.distractionTimes } : {}), ...(running.gaveIn ? { gaveIn: running.gaveIn } : {}) }
     this.deps.kv.set(SESSIONS, [...kept, session])
   }
 
@@ -162,7 +166,39 @@ export class StudyService {
     const running = this.running()
     if (!running || !URL.canParse(url)) return
     const host = new URL(url).hostname.replace(/^www\./, '')
-    this.deps.kv.set(RUNNING, { ...running, distractions: addDistraction(running.distractions, host) })
+    const times = [...(running.distractionTimes ?? []), this.now()].slice(-MAX_DISTRACTION_TIMES)
+    this.deps.kv.set(RUNNING, { ...running, distractions: addDistraction(running.distractions, host), distractionTimes: times })
+  }
+
+  /**
+   * A break taken by hand (B on the timer page): the time so far is kept, blocked sites open up, and
+   * the same activity starts again by itself when the break is over, as a countdown's next round
+   * or the stopwatch it was.
+   */
+  takeBreak(): void {
+    const running = this.running()
+    if (!running) return
+    const now = this.now()
+    this.finish(running, now)
+    const breakMinutes = this.prefs().breakMinutes
+    const countdown = !!running.endsAt
+    this.deps.kv.set(BREAK, {
+      subjectId: running.subjectId,
+      until: now + breakMinutes * 60_000,
+      round: countdown ? Math.min((running.round ?? 1) + 1, running.rounds ?? 1) : 1,
+      rounds: running.rounds ?? 1,
+      focusModeByTimer: running.focusModeByTimer,
+      ...(countdown ? {} : { mode: 'stopwatch' as const })
+    } satisfies StudyBreak)
+    if (running.focusModeByTimer && this.deps.focusMode()) this.deps.setFocusMode(false)
+    this.deps.notify(`Break: ${breakMinutes} minutes.`)
+    this.changed()
+    this.schedule()
+  }
+
+  private chime(): void {
+    const { sound, volume } = this.prefs()
+    if (sound !== 'none' && volume > 0) this.deps.sound?.(sound, volume)
   }
 
   /** The person let themselves through a blocked site for a minute while the timer ran. */
@@ -180,8 +216,10 @@ export class StudyService {
     const paused = this.onBreak()
     if (paused && now >= paused.until) {
       if (this.subjects().some((subject) => subject.id === paused.subjectId)) {
-        this.start(paused.subjectId, { round: paused.round, mode: 'countdown', focusMode: false })
-        this.deps.notify(`Break over. Round ${paused.round} of ${paused.rounds}: ${this.prefs().focusMinutes} minutes.`)
+        const mode = paused.mode ?? 'countdown'
+        this.start(paused.subjectId, { round: paused.round, mode, focusMode: false })
+        this.deps.notify(mode === 'stopwatch' ? 'Break over. The timer is running again.' : `Break over. Round ${paused.round} of ${paused.rounds}: ${this.prefs().focusMinutes} minutes.`)
+        this.chime()
       } else {
         this.deps.kv.set(BREAK, null)
         this.changed()
@@ -199,9 +237,11 @@ export class StudyService {
         this.deps.kv.set(BREAK, { subjectId: running.subjectId, until: running.endsAt + breakMinutes * 60_000, round: round + 1, rounds, focusModeByTimer: running.focusModeByTimer } satisfies StudyBreak)
         if (running.focusModeByTimer && this.deps.focusMode()) this.deps.setFocusMode(false)
         this.deps.notify(`Round ${round} of ${rounds} done. Take a ${breakMinutes}-minute break.`)
+        this.chime()
       } else {
         if (running.focusModeByTimer && this.deps.focusMode()) this.deps.setFocusMode(false)
         this.deps.notify(rounds > 1 ? `All ${rounds} rounds done. Nice work.` : 'Countdown done. Nice work.')
+        this.chime()
       }
       this.changed()
       return this.schedule()

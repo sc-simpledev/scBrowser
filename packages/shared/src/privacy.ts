@@ -80,7 +80,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'history', label: 'History', shortcut: 'Ctrl H' },
   { id: 'bookmarks', label: 'Bookmarks', shortcut: 'Ctrl Shift O' },
   { id: 'downloads', label: 'Downloads', shortcut: 'Ctrl J' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'settings', label: 'Settings', shortcut: 'Ctrl ,' },
   { id: 'ai-settings', label: 'AI settings' },
   { id: 'screenshot', label: 'Take a screenshot of this page', shortcut: 'Ctrl Shift S' },
   { id: 'hide-part', label: 'Hide part of this page' },

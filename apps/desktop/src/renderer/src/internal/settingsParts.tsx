@@ -1,7 +1,18 @@
 import { RotateCcw } from 'lucide-react'
-import { createContext, useContext, type ComponentProps, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { cx, IconButton, Select } from '@scbrowser/ui'
 import { isChangedSetting, type Settings } from '@scbrowser/shared'
+import { ConfirmButton } from './ConfirmButton'
+
+/** Fired when a search result's name is clicked: Settings leaves the search and shows it on its page. */
+export const JUMP_TO_SETTING = 'sc-settings-jump'
+export interface SettingJump {
+  group: string
+  label: string
+}
+
+/** The page a row is on, and how it tells the page which settings it holds (for "Reset this page"). */
+const GroupScope = createContext<{ id: string; register: (key: keyof Settings, on: boolean) => void } | null>(null)
 
 /**
  * Settings search: each row knows the words around it (its page, its section, its own label, hint
@@ -46,11 +57,29 @@ export function useShown(text: string): boolean {
 }
 
 export function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const [keys, setKeys] = useState<(keyof Settings)[]>([])
+  const register = useCallback((key: keyof Settings, on: boolean) => setKeys((current) => (on ? (current.includes(key) ? current : [...current, key]) : current.filter((other) => other !== key))), [])
+  const { values, changedOnly, reset } = useContext(Values)
+  const { words } = useContext(SearchScope)
+  const changed = values ? keys.filter((key) => isChangedSetting(key, values[key])) : []
   return (
-    <div data-settings-group={id} className="flex flex-col gap-6">
-      <h2 className="text-md font-semibold tracking-[-0.01em]">{title}</h2>
-      <Around text={title}>{children}</Around>
-    </div>
+    <GroupScope.Provider value={{ id, register }}>
+      <div data-settings-group={id} className="flex flex-col gap-6">
+        <h2 className="text-md font-semibold tracking-[-0.01em]">{title}</h2>
+        <Around text={title}>{children}</Around>
+        {/* A quiet way back to how scTerra comes, for this page only, asking first. */}
+        {words.length === 0 && !changedOnly && changed.length > 0 && (
+          <div className="flex items-center justify-end gap-2 border-t border-border pt-3 text-xs text-text-faint">
+            <span>
+              {changed.length} {changed.length === 1 ? 'setting' : 'settings'} on this page {changed.length === 1 ? 'differs' : 'differ'} from the defaults.
+            </span>
+            <ConfirmButton variant="ghost" confirmLabel={`Reset ${changed.length === 1 ? 'it' : `all ${changed.length}`}?`} onConfirm={() => changed.forEach(reset)}>
+              Reset this page to defaults
+            </ConfirmButton>
+          </div>
+        )}
+      </div>
+    </GroupScope.Provider>
   )
 }
 
@@ -72,14 +101,30 @@ export function Section({ title, description, keywords = '', children }: { title
 export function Row({ label, hint, keywords = '', tone, setting, children }: { label: string; hint?: ReactNode; keywords?: string; tone?: 'danger'; setting?: keyof Settings; children?: ReactNode }) {
   const shown = useShown(`${label} ${typeof hint === 'string' ? hint : ''} ${keywords}`)
   const { values, changedOnly, reset } = useContext(Values)
+  const { words } = useContext(SearchScope)
+  const scope = useContext(GroupScope)
+  const register = scope?.register
+  useEffect(() => {
+    if (!setting || !register) return
+    register(setting, true)
+    return () => register(setting, false)
+  }, [setting, register])
   const changed = !!setting && !!values && isChangedSetting(setting, values[setting])
   if (!shown || (changedOnly && !changed)) return null
+  // In search results the name leads to the setting on its own page.
+  const jumps = !!scope && (words.length > 0 || changedOnly)
   return (
     // Wraps rather than squeezing the words, so a wide control drops under them in a narrow window.
-    <div data-setting className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-2 px-3 py-2 [&>*:last-child:not(:first-child)]:shrink-0">
+    <div data-setting data-setting-label={label} className="flex min-h-12 flex-wrap items-center justify-between gap-x-6 gap-y-2 px-3 py-2 first:rounded-t-[inherit] last:rounded-b-[inherit] [&>*:last-child:not(:first-child)]:shrink-0">
       <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
         <div className={cx(tone === 'danger' && 'text-danger')} role={tone === 'danger' ? 'alert' : undefined}>
-          {label}
+          {jumps ? (
+            <button type="button" title="Show it on its page" className="text-left decoration-text-faint underline-offset-2 hover:underline" onClick={() => dispatchEvent(new CustomEvent<SettingJump>(JUMP_TO_SETTING, { detail: { group: scope!.id, label } }))}>
+              {label}
+            </button>
+          ) : (
+            label
+          )}
         </div>
         {hint && <div className="text-xs text-text-faint">{hint}</div>}
       </div>

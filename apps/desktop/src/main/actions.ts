@@ -49,6 +49,8 @@ export interface BrowserActions {
   searchWeb: (text: string) => void
   spellCheck: { enabled: () => boolean; toggle: () => void }
   performanceMode: { enabled: () => boolean; toggle: () => void }
+  /** False after "Remove VPN", which hides its menu rows. */
+  vpnInstalled: () => boolean
   askAssistant: (prompt: AssistantPrompt) => void
   quit: () => void
   openPrivateWindow: () => void

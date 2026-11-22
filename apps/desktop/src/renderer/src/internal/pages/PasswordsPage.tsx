@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { EMPTY_IDENTITY, formatTotp, generatePassword, IDENTITY_FIELDS, identityName, MIN_MASTER_LENGTH, PASSWORD_LOCK_CHOICES, passwordStrength, STRENGTH_LABELS, type Identity, type LeakCheck, type PasswordEntry, type PasswordState, type PasswordSummary, type TotpCode } from '@scbrowser/shared'
 import { api } from '../api'
+import { EmptyState } from '../EmptyState'
 
 const cleanError = (error: Error) => error.message.replace(/^.*Error: /, '')
 const random = (values: Uint32Array) => void crypto.getRandomValues(values as Uint32Array<ArrayBuffer>)
@@ -847,7 +848,7 @@ export function PasswordsPage() {
             }}
           />
         )}
-        {logins.length === 0 && !adding && <p className="px-2 py-1 text-text-muted">No logins yet. Sign in to a site and scTerra will offer to save it, or add one here.</p>}
+        {logins.length === 0 && !adding && <EmptyState compact icon={KeyRound} title="No logins yet">Sign in to a site and scTerra will offer to save it, or add one here.</EmptyState>}
         <ul>
           {shown.map((login) => (
             <LoginRow key={login.id} login={login} reload={reload} />

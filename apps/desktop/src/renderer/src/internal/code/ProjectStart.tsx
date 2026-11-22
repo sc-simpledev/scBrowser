@@ -20,10 +20,29 @@ function ago(iso: string): string {
 
 /** Picks one of the person's GitHub repositories and clones it, without a terminal. */
 export function CloneCard({ onCloned, onClose, onConnect }: { onCloned: (folder: string) => void; onClose: () => void; onConnect: () => void }) {
+  return (
+    <RepoPicker
+      label="Clone from GitHub"
+      working="Cloning"
+      onClose={onClose}
+      onConnect={onConnect}
+      onPick={(repo) =>
+        api()
+          .invoke('coder:clone', repo.fullName)
+          .then((folder) => {
+            if (folder) onCloned(folder)
+          })
+      }
+    />
+  )
+}
+
+/** A searchable list of the person's GitHub repositories; picking one runs `onPick`. */
+export function RepoPicker({ label, working, onPick, onClose, onConnect, compact }: { label: string; working: string; onPick: (repo: GithubRepo) => Promise<unknown>; onClose: () => void; onConnect?: () => void; compact?: boolean }) {
   const [query, setQuery] = useState('')
   const [repos, setRepos] = useState<GithubRepo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [cloning, setCloning] = useState<string | null>(null)
+  const [picking, setPicking] = useState<string | null>(null)
   useEffect(() => {
     const timer = setTimeout(
       () =>
@@ -40,20 +59,16 @@ export function CloneCard({ onCloned, onClose, onConnect }: { onCloned: (folder:
     )
     return () => clearTimeout(timer)
   }, [query])
-  const clone = (repo: GithubRepo) => {
-    setCloning(repo.fullName)
+  const pick = (repo: GithubRepo) => {
+    setPicking(repo.fullName)
     setError(null)
-    void api()
-      .invoke('coder:clone', repo.fullName)
-      .then(
-        (folder) => folder && onCloned(folder),
-        (failure: Error) => setError(cleanError(failure.message))
-      )
-      .finally(() => setCloning(null))
+    void onPick(repo)
+      .catch((failure: Error) => setError(cleanError(failure.message)))
+      .finally(() => setPicking(null))
   }
   const needsGithub = error !== null && /Connect GitHub/.test(error)
   return (
-    <section aria-label="Clone from GitHub" className="flex max-w-130 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+    <section aria-label={label} className={cx('flex flex-col overflow-hidden rounded-lg border border-border bg-surface', !compact && 'max-w-130')}>
       <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
         <Search aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
         <input autoFocus value={query} aria-label="Find a repository" placeholder="Find a repository" onChange={(event) => setQuery(event.target.value)} className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-faint" />
@@ -64,12 +79,14 @@ export function CloneCard({ onCloned, onClose, onConnect }: { onCloned: (folder:
       {needsGithub ? (
         <div className="flex flex-col items-start gap-2 p-3 text-xs text-text-muted">
           GitHub isn’t connected yet.
-          <Button variant="primary" onClick={onConnect}>
-            Connect GitHub
-          </Button>
+          {onConnect && (
+            <Button variant="primary" onClick={onConnect}>
+              Connect GitHub
+            </Button>
+          )}
         </div>
       ) : (
-        <ul aria-label="Repositories" className="sc-scroll-quiet flex max-h-72 flex-col overflow-y-auto p-1">
+        <ul aria-label="Repositories" className={cx('sc-scroll-quiet flex flex-col overflow-y-auto p-1', compact ? 'max-h-52' : 'max-h-72')}>
           {repos === null && !error && (
             <li className="flex items-center gap-2 px-2 py-2 text-xs text-text-faint">
               <Spinner /> Finding your repositories…
@@ -78,7 +95,7 @@ export function CloneCard({ onCloned, onClose, onConnect }: { onCloned: (folder:
           {repos?.length === 0 && <li className="px-2 py-2 text-xs text-text-faint">Nothing matches.</li>}
           {repos?.map((repo) => (
             <li key={repo.fullName}>
-              <button type="button" disabled={cloning !== null} onClick={() => clone(repo)} className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors enabled:hover:bg-surface-hover disabled:opacity-60">
+              <button type="button" disabled={picking !== null} onClick={() => pick(repo)} className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors enabled:hover:bg-surface-hover disabled:opacity-60">
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex min-w-0 items-center gap-1.5 text-sm">
                     <span className="truncate">{repo.fullName}</span>
@@ -86,7 +103,7 @@ export function CloneCard({ onCloned, onClose, onConnect }: { onCloned: (folder:
                   </span>
                   {repo.description && <span className="truncate text-2xs text-text-faint">{repo.description}</span>}
                 </span>
-                {cloning === repo.fullName ? <Spinner label="Cloning" /> : <span className="shrink-0 text-2xs text-text-faint">{ago(repo.pushedAt)}</span>}
+                {picking === repo.fullName ? <Spinner label={working} /> : <span className="shrink-0 text-2xs text-text-faint">{ago(repo.pushedAt)}</span>}
               </button>
             </li>
           ))}

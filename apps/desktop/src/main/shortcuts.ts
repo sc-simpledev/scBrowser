@@ -69,6 +69,7 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (mod && input.shift && key === 'b') return run(actions.toggleBookmarksBar)
   if (mod && input.shift && key === 'o') return run(() => actions.openPage('bookmarks'))
   if (mod && !input.shift && key === 'h') return run(() => actions.openPage('history'))
+  if (mod && !input.shift && key === ',') return run(() => actions.openPage('settings'))
   if (mod && !input.shift && key === 'j') return run(() => actions.openPage('downloads'))
   if (mod && !input.shift && key === 'p') return onActive((id) => tabs.print(id))
   if (mod && (key === '=' || key === '+')) return onActive((id) => tabs.zoomBy(id, 1))

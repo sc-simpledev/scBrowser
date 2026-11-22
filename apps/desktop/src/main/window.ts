@@ -1,6 +1,6 @@
 import { studySession } from './focusTimer'
 import { extractContext } from './ai/pageText'
-import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont } from '@scbrowser/shared'
+import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont, VPN_PALETTE_IDS, ASK_COMMAND } from '@scbrowser/shared'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
@@ -411,7 +411,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     togglePalette: () => {
       const recent = kv.get(PALETTE_RECENT_KEY)
-      overlay.togglePalette({ recent: Array.isArray(recent) ? recent.filter((id): id is string => typeof id === 'string') : [], skills: isPrivate ? [] : aiStore.skills().map(({ id, name }) => ({ id, name })) })
+      overlay.togglePalette({ recent: Array.isArray(recent) ? recent.filter((id): id is string => typeof id === 'string') : [], skills: isPrivate ? [] : aiStore.skills().map(({ id, name }) => ({ id, name })), hidden: settings.get().vpnInstalled ? [] : VPN_PALETTE_IDS })
       core.onboarding.mark('palette')
     },
     searchTabs: () => overlay.toggleTabSearch(searchRowsEverywhere()),
@@ -461,6 +461,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       enabled: () => settings.get().spellCheck,
       toggle: () => settings.set({ spellCheck: !settings.get().spellCheck })
     },
+    vpnInstalled: () => settings.get().vpnInstalled,
     performanceMode: {
       enabled: () => settings.get().performanceMode,
       toggle: () => {
@@ -765,6 +766,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     {
       onPaletteRun: (id) => {
         if (id.startsWith(AI_COMMAND)) return runTabCommand(id.slice(AI_COMMAND.length))
+        if (id.startsWith(ASK_COMMAND)) return actions.askAssistant({ text: id.slice(ASK_COMMAND.length), selection: null, includePage: false })
         if (id.startsWith(SKILL_COMMAND)) {
           const skill = aiStore.skills().find((candidate) => candidate.id === id.slice(SKILL_COMMAND.length))
           return skill ? send('ui:assistant-prompt', { text: skill.prompt, selection: null, includePage: true }) : undefined
@@ -940,7 +942,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       focus: workspace?.focus ?? false,
       schedule: workspace?.schedule ?? null,
       vpn: workspace?.vpn ?? false,
-      vpnAvailable: !isPrivate && vpn.state().connections.length > 0,
+      vpnAvailable: !isPrivate && vpn.summary().available,
+      vpnInstalled: vpn.installed(),
       canRemove: !!workspace && workspace.id !== DEFAULT_WORKSPACE.id,
       x: Math.round(Math.max(8, Math.min(width - WORKSPACE_POPUP.width - 8, x))),
       y: Math.round(Math.max(8, Math.min(height - WORKSPACE_POPUP.height - 8, y)))

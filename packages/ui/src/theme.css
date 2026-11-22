@@ -91,9 +91,30 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The intro sets data-motion="full" where it plays anyway: see WelcomePage. */
-  :root:not([data-motion='full']) * {
+  /*
+   * The system's "reduce motion" does what Performance Mode does for movement, without needing it:
+   * no slides, fades or smooth scrolling. Spinners keep turning, as a still one looks stuck.
+   * The intro sets data-motion="full" where it plays anyway: see WelcomePage.
+   */
+  :root:not([data-motion='full']) *:not(.animate-spin),
+  :root:not([data-motion='full']) *::before,
+  :root:not([data-motion='full']) *::after {
     animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Every control shows where the keyboard is, as the address bar does, including plain buttons, links
+ * and rows that don't come from the kit. Components with a ring of their own keep theirs; anything
+ * marked outline-none draws its focus another way.
+ */
+@layer base {
+  :where(a[href], button, summary, select, [role='button'], [role='tab'], [role='checkbox'], [role='switch'], [role='radio'], [role='menuitem'], [role='option'], [tabindex]:not([tabindex='-1'])):focus-visible {
+    outline: 2px solid var(--sc-focus-ring);
+    outline-offset: 1px;
   }
 }
 

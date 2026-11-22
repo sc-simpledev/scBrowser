@@ -139,6 +139,54 @@ describe('VpnService', () => {
   })
 })
 
+describe('Remove VPN', () => {
+  it('turns it off, keeps it off, and brings it back with the connections kept', async () => {
+    const { vpn, deps, proxies } = setup()
+    let installed = true
+    const removable = new VpnService({ ...deps, installed: () => installed })
+    await removable.ready
+    await removable.add('socks5://p.example:1080', null)
+    await removable.setEnabled(true)
+    expect(removable.summary()).toMatchObject({ installed: true, enabled: true })
+
+    installed = false
+    await removable.uninstall(false)
+    expect(removable.summary()).toMatchObject({ installed: false, available: false, enabled: false })
+    expect(removable.state().installed).toBe(false)
+    expect(proxies.at(-1)).toBeNull()
+
+    // Nothing starts it while removed: not the switch, the starting list, a check or the start of day.
+    const before = proxies.length
+    await removable.turnOn()
+    await removable.useDefault()
+    await removable.connectAtStart()
+    expect(await removable.ping(removable.state().connections.map(({ id }) => id))).toEqual({})
+    expect(removable.summary().enabled).toBe(false)
+    expect(removable.summary().error).toContain('removed')
+    expect(proxies.slice(before).every((rules) => rules === null)).toBe(true)
+
+    installed = true
+    removable.install()
+    expect(removable.summary()).toMatchObject({ installed: true, available: true, error: null })
+    await removable.setEnabled(true)
+    expect(removable.summary().enabled).toBe(true)
+    await removable.setEnabled(false)
+    expect(vpn.installed()).toBe(true)
+  })
+
+  it('forgets the connections when asked to', async () => {
+    const { deps } = setup()
+    const removable = new VpnService({ ...deps, installed: () => false })
+    await removable.ready
+    await removable.add(SECRET, null)
+    await removable.uninstall(true)
+    expect(removable.state().connections).toEqual([])
+    const reopened = new VpnService(deps)
+    await reopened.ready
+    expect(reopened.state().connections).toEqual([])
+  })
+})
+
 describe('VPN ping', () => {
   it('reports a warm round trip, not the slow first load with its handshakes', async () => {
     // The first request on a connection waits, as a tunnel's setup and a DNS lookup would.

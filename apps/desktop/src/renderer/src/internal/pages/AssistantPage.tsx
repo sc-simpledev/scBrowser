@@ -719,7 +719,7 @@ export function AssistantPage() {
   )
 }
 
-const loadHasVpn = () => api().invoke('vpn:state').then((state) => state.connections.length > 0)
+const loadHasVpn = () => api().invoke('vpn:state').then((state) => (state.installed ? state.connections.length > 0 : ('removed' as const)))
 
 /** What the reply did to answer: searches, pages read, tools used. Folded to one line once there are a few. */
 function ToolSteps({ steps, working }: { steps: string[]; working: boolean }) {

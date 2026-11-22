@@ -74,7 +74,7 @@ export function OverlayApp() {
           )}
         </div>
       )}
-      {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} recent={palette.recent ?? []} skills={palette.skills ?? []} />}
+      {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} recent={palette.recent ?? []} skills={palette.skills ?? []} hidden={palette.hidden ?? []} />}
       {tabSearch && <TabSearch rows={tabSearch.rows} x={tabSearch.x - origin.x} y={tabSearch.y - origin.y} />}
       {toast && (
         <div

@@ -1,4 +1,4 @@
-import { ArrowUp, BellPlus, CalendarClock, ChevronRight, Download, FileDown, FileText, Headphones, StickyNote, Newspaper, Pencil, Play, Plus, Square, Trash2, Volume2, X } from 'lucide-react'
+import { ArrowUp, BellPlus, CalendarClock, ChevronRight, Clock, Download, FileDown, FileText, Headphones, StickyNote, Newspaper, Pencil, Play, Plus, Square, Trash2, Volume2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch, Segmented } from '@scbrowser/ui'
 import {
@@ -491,23 +491,25 @@ function IssueCard({ issue, open, onToggle, onDelete, canFollow, onFollow, icons
     const timer = setTimeout(() => setNote(null), 4000)
     return () => clearTimeout(timer)
   }, [note])
+  // Briefs already read fold to their title line, so today's unread ones stand out.
+  const folded = !open && !issue.unseen
   return (
-    <article id={issue.id} aria-label={issue.title} className={cx('flex scroll-mt-6 flex-col rounded-lg bg-surface transition-shadow', open ? 'shadow-2' : 'shadow-1 hover:shadow-2')}>
-      <button type="button" aria-expanded={open} onClick={onToggle} className="flex items-start gap-3.5 rounded-lg p-4 text-left">
-        <Monogram name={issue.title} />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex items-center gap-2">
-            <h3 className={cx('truncate font-semibold tracking-[-0.01em]', open ? 'text-lg' : 'text-md')}>{issue.title}</h3>
+    <article id={issue.id} aria-label={issue.title} data-read={folded || undefined} className={cx('flex scroll-mt-6 flex-col rounded-lg bg-surface transition-shadow', open ? 'shadow-2' : 'shadow-1 hover:shadow-2')}>
+      <button type="button" aria-expanded={open} onClick={onToggle} className={cx('flex gap-3.5 rounded-lg text-left', folded ? 'items-center px-4 py-2.5' : 'items-start p-4')}>
+        <Monogram name={issue.title} size={folded ? 'sm' : 'md'} />
+        <div className={cx('flex min-w-0 flex-1', folded ? 'items-baseline gap-2.5' : 'flex-col gap-0.5')}>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className={cx('truncate tracking-[-0.01em]', open ? 'text-lg font-semibold' : folded ? 'text-sm font-medium text-text-muted' : 'text-md font-semibold')}>{issue.title}</h3>
             {issue.unseen && (
               <span aria-label="New" className="shrink-0 rounded-sm bg-accent-soft px-1.5 py-px text-2xs font-medium text-accent">
                 New
               </span>
             )}
           </div>
-          <div className="text-xs text-text-faint">{meta.join(' · ')}</div>
-          {!open && <p className="mt-1.5 line-clamp-2 text-text-muted">{preview}</p>}
+          <div className={cx('text-xs text-text-faint', folded && 'shrink-0')}>{folded ? clock(issue.createdAt) : meta.join(' · ')}</div>
+          {!open && !folded && <p className="mt-1.5 line-clamp-2 text-text-muted">{preview}</p>}
         </div>
-        <ChevronRight aria-hidden size={15} strokeWidth={2} className={cx('mt-1 shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
+        <ChevronRight aria-hidden size={15} strokeWidth={2} className={cx('shrink-0 text-text-faint transition-transform', !folded && 'mt-1', open && 'rotate-90')} />
       </button>
       {open && (
         <div className="flex flex-col gap-5 px-4 pb-5 sm:pr-6 sm:pl-[4.125rem]">
@@ -792,7 +794,9 @@ export function BriefsPage() {
               Set one up, like “Latest AI news” every day at 8:00, and it will appear here.
             </EmptyState>
           ) : (
-            <p className="text-text-muted">{busy ? 'Writing your first brief…' : 'Your first brief will appear here at its time. Press Run now to see one straight away.'}</p>
+            <EmptyState icon={Clock} title={busy ? 'Writing your first brief…' : 'Your first brief is on its way'}>
+              {busy ? 'scAI is reading around. It takes a minute or two.' : 'It appears here at its time. Press Run now to see one straight away.'}
+            </EmptyState>
           )
         ) : (
           byDay(state.issues).map(([day, issues]) => (

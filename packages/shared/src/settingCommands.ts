@@ -58,7 +58,23 @@ export const SKILL_COMMAND = 'skill:'
  * What the palette lists for what's typed. With nothing typed, recent commands come first. Saved
  * skills whose name matches are offered before handing a sentence to the AI.
  */
-export function matchPalette(query: string, context: { recent?: string[]; skills?: { id: string; name: string }[] } = {}): PaletteCommand[] {
+export function matchPalette(query: string, context: { recent?: string[]; skills?: { id: string; name: string }[]; hidden?: string[] } = {}): PaletteCommand[] {
+  const { hidden = [] } = context
+  const all = matchPaletteAll(query, context)
+  const shown = hidden.length ? all.filter((command) => !hidden.some((prefix) => command.id.startsWith(prefix))) : all
+  // Nothing matched: rather than a dead end, offer to ask the assistant.
+  const asked = query.replace(/\s+/g, ' ').trim()
+  if (shown.length === 0 && asked) return [{ id: `${ASK_COMMAND}${asked.slice(0, 500)}`, label: `No commands match. Ask scAI: “${asked.length > 40 ? `${asked.slice(0, 39)}…` : asked}”`, ai: true }]
+  return shown
+}
+
+/** The start of a palette id that asks the assistant, followed by the question. */
+export const ASK_COMMAND = 'ai-ask:'
+
+/** Palette ids that belong to the VPN, as prefixes, hidden once it's removed. */
+export const VPN_PALETTE_IDS = ['vpn', `${PREFIX}vpn`]
+
+function matchPaletteAll(query: string, context: { recent?: string[]; skills?: { id: string; name: string }[] }): PaletteCommand[] {
   const { recent = [], skills = [] } = context
   if (!query.trim()) {
     const all = matchCommands(query)

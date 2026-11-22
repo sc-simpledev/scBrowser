@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { GITHUB_CLIENT_ID, type CoderGithubStatus } from '@scbrowser/shared'
+import { GITHUB_CLIENT_ID, type CoderGithubStatus, type GithubProject } from '@scbrowser/shared'
 import type { CoderGithubHost } from './coder'
 
 /** Tests point this at a stand-in GitHub, under SCB_E2E only. */
@@ -32,6 +32,8 @@ export interface CoderGithubDeps {
   cliToken?: () => Promise<string | null>
   /** `git remote get-url origin` in a folder. */
   remote?: (folder: string) => Promise<string | null>
+  /** Whether a folder is inside a git repository. */
+  isRepo?: (folder: string) => Promise<boolean>
 }
 
 /** The GitHub CLI's own sign-in, if it has one. */
@@ -51,6 +53,15 @@ export function gitRemote(folder: string): Promise<string | null> {
     execFile('git', ['remote', 'get-url', 'origin'], { cwd: folder, timeout: CLI_TIMEOUT_MS, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout).trim() || null))
   })
 }
+
+export function gitIsRepo(folder: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('git', ['rev-parse', '--is-inside-work-tree'], { cwd: folder, timeout: CLI_TIMEOUT_MS, windowsHide: true }, (error, stdout) => resolve(!error && String(stdout).trim() === 'true'))
+  })
+}
+
+/** A remote address as it can be shown: any name and password in it taken out. */
+export const shownRemote = (remote: string) => remote.replace(/^(\w+:\/\/)[^@/]+@/, '$1')
 
 /** owner/name from a GitHub remote address, in any of the forms git uses. */
 export function githubRepoOf(remote: string | null): string | null {
@@ -117,11 +128,23 @@ export class CoderGithub implements CoderGithubHost {
   private readonly fetchImpl: typeof fetch
   private readonly cliToken: () => Promise<string | null>
   private readonly remote: (folder: string) => Promise<string | null>
+  private readonly isRepo: (folder: string) => Promise<boolean>
 
   constructor(private readonly deps: CoderGithubDeps) {
     this.fetchImpl = deps.fetch ?? fetch
     this.cliToken = deps.cliToken ?? ghToken
     this.remote = deps.remote ?? gitRemote
+    this.isRepo = deps.isRepo ?? gitIsRepo
+  }
+
+  /** How a folder stands with GitHub, for the steps in Terra Code's GitHub settings. */
+  async project(folder: string | null): Promise<{ project: GithubProject; folder: string | null; repo: string | null; remote: string | null }> {
+    if (!folder) return { project: 'no-folder', folder: null, repo: null, remote: null }
+    const remote = await this.remote(folder)
+    const repo = githubRepoOf(remote)
+    if (repo) return { project: 'linked', folder, repo, remote: null }
+    if (remote) return { project: 'other-remote', folder, repo: null, remote: shownRemote(remote) }
+    return { project: (await this.isRepo(folder)) ? 'no-remote' : 'not-git', folder, repo: null, remote: null }
   }
 
   access(): 'off' | 'read' | 'write' {
@@ -155,8 +178,8 @@ export class CoderGithub implements CoderGithubHost {
 
   async status(folder: string | null): Promise<CoderGithubStatus> {
     const saved = this.saved()
-    const [cli, repo] = await Promise.all([this.cliToken(), folder ? this.repo(folder) : Promise.resolve(null)])
-    const base = { source: saved?.source ?? null, login: saved?.login ?? null, cliReady: cli !== null, scopes: null, repo, error: null, deviceFlow: githubClientId() !== '' }
+    const [cli, where] = await Promise.all([this.cliToken(), this.project(folder)])
+    const base = { source: saved?.source ?? null, login: saved?.login ?? null, cliReady: cli !== null, scopes: null, ...where, error: null, deviceFlow: githubClientId() !== '' }
     if (!saved) return base
     const token = saved.source === 'cli' ? cli : await this.token()
     if (!token) return { ...base, error: saved.source === 'cli' ? 'The GitHub CLI isn’t signed in any more. Run gh auth login, or paste a token.' : 'The saved token can’t be read on this computer. Paste it again.' }

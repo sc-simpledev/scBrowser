@@ -49,13 +49,15 @@ export function WorkspaceEditor({ editor, x, y }: { editor: WorkspaceEditorState
         </div>
         <Switch label="Focus Mode in this workspace" checked={focus} onChange={setFocus} />
       </div>
-      <div className={cx('flex items-center justify-between gap-3', !editor.vpnAvailable && 'opacity-50')}>
-        <div className="min-w-0">
-          <div>VPN</div>
-          <div className="truncate text-xs text-text-faint">{editor.vpnAvailable ? 'On while this workspace is open' : 'Add a VPN connection first'}</div>
+      {editor.vpnInstalled !== false && (
+        <div className={cx('flex items-center justify-between gap-3', !editor.vpnAvailable && 'opacity-50')}>
+          <div className="min-w-0">
+            <div>VPN</div>
+            <div className="truncate text-xs text-text-faint">{editor.vpnAvailable ? 'On while this workspace is open' : 'Add a VPN connection first'}</div>
+          </div>
+          <Switch label="VPN in this workspace" checked={vpn && editor.vpnAvailable} disabled={!editor.vpnAvailable} onChange={setVpn} />
         </div>
-        <Switch label="VPN in this workspace" checked={vpn && editor.vpnAvailable} disabled={!editor.vpnAvailable} onChange={setVpn} />
-      </div>
+      )}
       <div className="flex flex-col gap-2.5 border-t border-border pt-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">

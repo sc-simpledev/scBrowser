@@ -4,6 +4,7 @@ import { cx, TooltipProvider } from '@scbrowser/ui'
 import type { InternalPage } from '@scbrowser/shared'
 import { applyPerformance, applyTint } from './api'
 import { openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, useSettingsSearching } from './settingsGroups'
+import { useVpnInstalled } from './VpnInstall'
 const AiPage = lazy(() => import('./pages/AiPage').then((m) => ({ default: m.AiPage })))
 const AssistantPage = lazy(() => import('./pages/AssistantPage').then((m) => ({ default: m.AssistantPage })))
 const BookmarksPage = lazy(() => import('./pages/BookmarksPage').then((m) => ({ default: m.BookmarksPage })))
@@ -134,6 +135,9 @@ function SettingsSections() {
 function PageFrame() {
   const current = (location.host in pages ? location.host : 'settings') as InternalPage
   const { title, component: Page, bare, wide } = pages[current]
+  // After "Remove VPN" its page leaves the sidebar, unless it's the one open, which offers Install VPN.
+  const vpnInstalled = useVpnInstalled()
+  const shown = (page: InternalPage) => page !== 'vpn' || vpnInstalled !== false || current === 'vpn'
 
   useEffect(() => {
     document.title = title
@@ -155,7 +159,7 @@ function PageFrame() {
           {NAV.map(({ label, pages: section }) => (
             <div key={section[0]} className="flex shrink-0 flex-col gap-px">
               {label && <h2 className="px-2 pt-3.5 pb-1 text-2xs font-medium text-text-faint max-[720px]:sr-only">{label}</h2>}
-              {section.map((page) => (
+              {section.filter(shown).map((page) => (
                 <NavLink key={page} page={page} current={current} />
               ))}
             </div>

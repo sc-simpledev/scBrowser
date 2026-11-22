@@ -391,17 +391,31 @@ export interface CoderGithubStatus {
   scopes: string[] | null
   /** The project's repository on GitHub, from its git remote. */
   repo: string | null
+  /**
+   * How the open folder stands with GitHub: no folder chosen, not a git repository yet, a git
+   * repository with no remote, a remote somewhere other than GitHub, or linked to `repo`.
+   */
+  project: GithubProject
+  /** The open project folder, if one is chosen. */
+  folder: string | null
+  /** The folder's origin remote when it isn't on GitHub, without any password in it. */
+  remote: string | null
   error: string | null
   /** "Sign in with GitHub" is available: scTerra has an OAuth app to sign in with. */
   deviceFlow: boolean
 }
 
 /**
- * The OAuth app scTerra signs in to GitHub with, by GitHub's device flow (no secret needed). Empty
- * until the owner registers one at github.com/settings/applications/new with "Enable Device Flow"
- * ticked; "Sign in with GitHub" only shows once it's set. SCTERRA_GITHUB_CLIENT_ID overrides it.
+ * The OAuth app scTerra signs in to GitHub with, by GitHub's device flow (no secret needed, so the
+ * client ID is safe to ship). Registered by the owner with "Enable Device Flow" ticked.
+ * "Sign in with GitHub" shows only while this is set. SCTERRA_GITHUB_CLIENT_ID overrides it.
  */
-export const GITHUB_CLIENT_ID = ''
+export const GITHUB_CLIENT_ID = 'Ov23libgHeyg6nDouzxz'
+
+export type GithubProject = 'no-folder' | 'not-git' | 'no-remote' | 'other-remote' | 'linked'
+
+/** A repository name GitHub accepts: letters, digits, '.', '-' and '_', up to 100. */
+export const isGithubRepoName = (name: string) => /^[\w.-]{1,100}$/.test(name) && name !== '.' && name !== '..'
 
 /** A repository the person can reach, for cloning. */
 export interface GithubRepo {

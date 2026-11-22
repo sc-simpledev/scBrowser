@@ -72,6 +72,34 @@
   display: none;
 }
 
+/* A setting just jumped to from search: a brief tint so the eye lands on it. */
+.sc-flash {
+  animation: sc-flash 1.8s ease-out;
+}
+
+@keyframes sc-flash {
+  0%,
+  35% {
+    background: var(--sc-accent-soft);
+    box-shadow: inset 2px 0 0 var(--sc-accent);
+  }
+}
+
+/* A key to press, in running text. */
+.sc-kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0 0.35em;
+  border: 1px solid var(--sc-border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--sc-radius-sm, 4px);
+  font: inherit;
+  font-size: 0.95em;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--sc-text-muted);
+}
+
 /* Study calendar: five steps from nothing to the day's goal. */
 .sc-heat {
   background: var(--sc-surface-active);

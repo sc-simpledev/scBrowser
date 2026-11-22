@@ -52,7 +52,7 @@ test('the star edits the name, and bookmarks can be grouped and edited from the 
   await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.getByRole('textbox', { name: 'Bookmark address' }).fill(site.url('/beta'))
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(site.url('/beta'))).toBeVisible()
+  await expect(page.getByTitle(site.url('/beta'))).toHaveText(site.url('/beta').replace('http://', ''))
 })
 
 test('bookmarks drag along the bar and into a group', async () => {

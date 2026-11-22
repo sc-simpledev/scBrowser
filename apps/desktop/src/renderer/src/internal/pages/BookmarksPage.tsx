@@ -1,9 +1,13 @@
-import { Bookmark as BookmarkIcon, FolderPlus, Globe, Pencil, X } from 'lucide-react'
+import { Bookmark as BookmarkIcon, FolderPlus, Globe, Pencil, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
-import { folderTree, type Bookmark, type BookmarkGroup } from '@scbrowser/shared'
+import { duplicateBookmarks, folderTree, type Bookmark, type BookmarkGroup, type LinkCheck } from '@scbrowser/shared'
 import { api } from '../api'
 import { EmptyState } from '../EmptyState'
+import { ConfirmButton } from '../ConfirmButton'
+
+/** An address without the parts everyone knows: the scheme, "www." and a lone trailing slash. */
+const shortAddress = (url: string) => url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')
 
 function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups: BookmarkGroup[]; reload: () => void }) {
   const [editing, setEditing] = useState(false)
@@ -45,7 +49,7 @@ function BookmarkRow({ bookmark, groups, reload }: { bookmark: Bookmark; groups:
       <a href={bookmark.url} className="min-w-0 flex-1 truncate">
         {bookmark.title || bookmark.url}
       </a>
-      <span className="min-w-0 max-w-52 truncate text-xs text-text-faint">{bookmark.url}</span>
+      <span title={bookmark.url} className="min-w-0 max-w-52 truncate text-xs text-text-faint">{shortAddress(bookmark.url)}</span>
       {groups.length > 0 && (
         <Select
           aria-label={`Folder for ${bookmark.title || bookmark.url}`}
@@ -208,6 +212,7 @@ export function BookmarksPage() {
         </Button>
       </form>}
       {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">Press Ctrl D on any page to add one.</EmptyState>}
+      {bookmarks.length > 1 && <TidyUp bookmarks={bookmarks} reload={load} />}
       {groups
         .filter((group) => group.parentId === null)
         .map((group) => (
@@ -221,5 +226,93 @@ export function BookmarksPage() {
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * Finds bookmarks saved twice and pages that are gone, and removes them only when asked: each one,
+ * or all of a kind after a second press.
+ */
+function TidyUp({ bookmarks, reload }: { bookmarks: Bookmark[]; reload: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [checks, setChecks] = useState<LinkCheck[] | null>(null)
+  const [checking, setChecking] = useState(false)
+  const duplicates = duplicateBookmarks(bookmarks)
+  const extra = duplicates.flatMap((set) => set.slice(1))
+  const deadUrls = new Set((checks ?? []).filter((check) => check.state === 'dead').map((check) => check.url))
+  const dead = bookmarks.filter((bookmark) => deadUrls.has(bookmark.url))
+  const unknown = (checks ?? []).filter((check) => check.state === 'unknown').length
+  const remove = (ids: number[]) => void Promise.all(ids.map((id) => api().invoke('bookmarks:remove', id))).then(reload)
+  const check = () => {
+    setChecking(true)
+    void api()
+      .invoke('bookmarks:check-links', [...new Set(bookmarks.map((bookmark) => bookmark.url))])
+      .then(setChecks, () => setChecks([]))
+      .finally(() => setChecking(false))
+  }
+  if (!open)
+    return (
+      <Button variant="ghost" className="self-start" onClick={() => setOpen(true)}>
+        <Sparkles aria-hidden size={13} strokeWidth={1.75} />
+        Tidy up: find duplicates and dead links
+      </Button>
+    )
+  const row = (bookmark: Bookmark, note: string) => (
+    <li key={bookmark.id} className="group flex h-9 items-center gap-3 rounded-md px-2 hover:bg-surface-hover">
+      <a href={bookmark.url} className="min-w-0 flex-1 truncate">
+        {bookmark.title || bookmark.url}
+      </a>
+      <span className="min-w-0 max-w-64 truncate text-xs text-text-faint">{note}</span>
+      <Button variant="ghost" className="h-7 px-2" onClick={() => remove([bookmark.id])}>
+        Remove
+      </Button>
+    </li>
+  )
+  return (
+    <section aria-label="Tidy up bookmarks" className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-medium">Tidy up</h2>
+          <p className="text-xs text-text-faint">Nothing is removed until you press Remove.</p>
+        </div>
+        <IconButton size="sm" label="Close tidy up" onClick={() => setOpen(false)}>
+          <X size={13} strokeWidth={1.75} />
+        </IconButton>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm">Saved more than once</h3>
+          {extra.length > 1 && (
+            <ConfirmButton variant="ghost" confirmLabel={`Remove ${extra.length}?`} onConfirm={() => remove(extra.map((bookmark) => bookmark.id))}>
+              Remove all {extra.length} copies
+            </ConfirmButton>
+          )}
+        </div>
+        {extra.length === 0 ? <p className="text-xs text-text-muted">No duplicates.</p> : <ul>{extra.map((bookmark) => row(bookmark, 'A copy; the first one stays'))}</ul>}
+      </div>
+      <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm">Pages that are gone</h3>
+          {checks === null ? (
+            <Button disabled={checking} onClick={check}>
+              {checking ? 'Checking…' : `Check ${bookmarks.length} links`}
+            </Button>
+          ) : (
+            dead.length > 1 && (
+              <ConfirmButton variant="ghost" confirmLabel={`Remove ${dead.length}?`} onConfirm={() => remove(dead.map((bookmark) => bookmark.id))}>
+                Remove all {dead.length}
+              </ConfirmButton>
+            )
+          )}
+        </div>
+        {checks === null ? (
+          <p className="text-xs text-text-muted">Asks each site whether the page is still there. Sites see a visit from scTerra, without your sign-ins.</p>
+        ) : dead.length === 0 ? (
+          <p role="status" className="text-xs text-text-muted">Every page answered{unknown > 0 ? `, apart from ${unknown} that didn’t reply in time, so they’re left alone` : ''}.</p>
+        ) : (
+          <ul aria-label="Pages that are gone">{dead.map((bookmark) => row(bookmark, (checks.find((one) => one.url === bookmark.url)?.status ?? 0) ? `Answered ${checks.find((one) => one.url === bookmark.url)!.status}` : 'The site no longer exists'))}</ul>
+        )}
+      </div>
+    </section>
   )
 }

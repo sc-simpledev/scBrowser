@@ -21,6 +21,8 @@ export interface StudySession {
   distractions?: Record<string, number>
   /** Times the person took "one more minute" on a blocked site during it. */
   gaveIn?: number
+  /** When each blocked site was tried. */
+  distractionTimes?: number[]
 }
 
 export interface StudyRunning {
@@ -33,6 +35,8 @@ export interface StudyRunning {
   round?: number
   rounds?: number
   distractions?: Record<string, number>
+  /** When each blocked site was tried, for ticks on the Today timeline. At most `MAX_DISTRACTION_TIMES`. */
+  distractionTimes?: number[]
   gaveIn?: number
 }
 
@@ -44,6 +48,8 @@ export interface StudyBreak {
   round: number
   rounds: number
   focusModeByTimer: boolean
+  /** A break taken by hand from the stopwatch, which carries on as a stopwatch afterwards. */
+  mode?: StudyMode
 }
 
 export type StudyMode = 'stopwatch' | 'countdown'
@@ -60,7 +66,21 @@ export interface StudyPrefs {
   focusMinutes: number
   breakMinutes: number
   rounds: number
+  /** Played when a round, a break or the countdown ends. */
+  sound: StudySound
+  /** 0 to 100. */
+  volume: number
 }
+
+export const STUDY_SOUNDS = [
+  { id: 'chime', label: 'Chime' },
+  { id: 'bell', label: 'Bell' },
+  { id: 'soft', label: 'Soft' },
+  { id: 'none', label: 'None' }
+] as const
+export type StudySound = (typeof STUDY_SOUNDS)[number]['id']
+/** Kept per session, so a long session can't grow without end. */
+export const MAX_DISTRACTION_TIMES = 100
 
 export interface StudyDay {
   /** Local date as `YYYY-MM-DD`. */
@@ -110,7 +130,7 @@ export const MAX_STUDY_SUBJECT_NAME = 40
 export const STUDY_HISTORY_DAYS = 84
 /** Sessions shorter than this are dropped as accidental clicks. */
 export const MIN_STUDY_SESSION_MS = 10_000
-export const DEFAULT_STUDY_PREFS: StudyPrefs = { goalMinutes: 180, idleMinutes: 5, focusMode: false, mode: 'stopwatch', focusMinutes: 25, breakMinutes: 5, rounds: 4 }
+export const DEFAULT_STUDY_PREFS: StudyPrefs = { goalMinutes: 180, idleMinutes: 5, focusMode: false, mode: 'stopwatch', focusMinutes: 25, breakMinutes: 5, rounds: 4, sound: 'chime', volume: 60 }
 export const STUDY_FOCUS_CHOICES = [15, 20, 25, 30, 45, 50, 60, 90] as const
 export const STUDY_BREAK_CHOICES = [3, 5, 10, 15, 20] as const
 export const STUDY_ROUND_CHOICES = [1, 2, 3, 4, 6, 8] as const
@@ -220,7 +240,7 @@ const oneOf = (value: unknown, choices: readonly number[], fallback: number) => 
 
 export function sanitizeStudyPrefs(patch: unknown, current: StudyPrefs): StudyPrefs {
   if (!patch || typeof patch !== 'object') return current
-  const { goalMinutes, idleMinutes, focusMode, mode, focusMinutes, breakMinutes, rounds } = patch as Partial<StudyPrefs>
+  const { goalMinutes, idleMinutes, focusMode, mode, focusMinutes, breakMinutes, rounds, sound, volume } = patch as Partial<StudyPrefs>
   return {
     goalMinutes: typeof goalMinutes === 'number' && Number.isInteger(goalMinutes) && goalMinutes >= 0 && goalMinutes <= 24 * 60 ? goalMinutes : current.goalMinutes,
     idleMinutes: oneOf(idleMinutes, STUDY_IDLE_CHOICES, current.idleMinutes),
@@ -228,7 +248,9 @@ export function sanitizeStudyPrefs(patch: unknown, current: StudyPrefs): StudyPr
     mode: mode === 'stopwatch' || mode === 'countdown' ? mode : current.mode,
     focusMinutes: oneOf(focusMinutes, STUDY_FOCUS_CHOICES, current.focusMinutes),
     breakMinutes: oneOf(breakMinutes, STUDY_BREAK_CHOICES, current.breakMinutes),
-    rounds: oneOf(rounds, STUDY_ROUND_CHOICES, current.rounds)
+    rounds: oneOf(rounds, STUDY_ROUND_CHOICES, current.rounds),
+    sound: STUDY_SOUNDS.some((choice) => choice.id === sound) ? (sound as StudySound) : (current.sound ?? DEFAULT_STUDY_PREFS.sound),
+    volume: typeof volume === 'number' && Number.isInteger(volume) && volume >= 0 && volume <= 100 ? volume : (current.volume ?? DEFAULT_STUDY_PREFS.volume)
   }
 }
 

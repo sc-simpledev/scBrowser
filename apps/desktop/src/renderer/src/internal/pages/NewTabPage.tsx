@@ -1,9 +1,10 @@
-import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Plus, Search, Settings2, Sparkles, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Pin, Plus, Search, Settings2, Sparkles, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
   DEFAULT_NEW_TAB,
   isDarkColor,
+  MAX_HIDDEN_SITES,
   MAX_NEW_TAB_LINKS,
   MAX_NOTES_LENGTH,
   NEW_TAB_WIDGETS,
@@ -335,47 +336,127 @@ function QuickAiWidget({ keepChats }: { keepChats: boolean }) {
   )
 }
 
-function SiteTile({ link }: { link: NewTabLink }) {
+/** The site's own first letter, or the page's where the address is a number, as on a local server. */
+const tileLetter = (link: NewTabLink) => {
+  const host = hostOf(link.url).replace(/^www\./, '')
+  const fromHost = /^[\d.:[\]]+$/.test(host) || host.startsWith('localhost') ? '' : host
+  return (fromHost || link.title || host).match(/[\p{L}\p{N}]/u)?.[0] ?? '·'
+}
+/** The same eight hues as brief monograms, so the page's colours sit together. */
+const tileHue = (host: string) => [200, 155, 38, 285, 0, 240, 95, 330][[...host].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 8]!
+
+function SiteTile({ link, pinned, onMenu }: { link: NewTabLink; pinned?: boolean; onMenu?: (x: number, y: number) => void }) {
   const label = link.title || hostOf(link.url)
   return (
     <a
       href={link.url}
-      title={link.url}
-      className="group/site flex min-w-0 flex-col items-center gap-1.5 rounded-lg p-2 transition-colors hover:bg-surface-hover"
+      title={pinned ? `${link.url} (pinned)` : link.url}
+      className="group/site relative flex min-w-0 flex-col items-center gap-1.5 rounded-lg p-2 transition-colors hover:bg-surface-hover"
       onClick={(e) => {
         e.preventDefault()
         openHere(link.url)
       }}
+      onContextMenu={(e) => {
+        if (!onMenu) return
+        e.preventDefault()
+        onMenu(e.clientX, e.clientY)
+      }}
+      onKeyDown={(e) => {
+        if (!onMenu || !(e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) return
+        e.preventDefault()
+        const box = e.currentTarget.getBoundingClientRect()
+        onMenu(box.left + 8, box.bottom)
+      }}
     >
-      {/* A letter rather than a favicon, so that opening a new tab contacts no website. */}
-      <span aria-hidden className="grid size-9 place-items-center rounded-md bg-surface-active font-medium text-text-muted uppercase">
-        {hostOf(link.url).charAt(0)}
+      {pinned && <Pin aria-label="Pinned" size={10} strokeWidth={2} className="absolute top-1.5 right-1.5 text-text-faint" />}
+      {/* A letter rather than a favicon, so that opening a new tab contacts no website. Each site keeps its own tint. */}
+      <span aria-hidden style={{ '--hue': tileHue(hostOf(link.url)) } as CSSProperties} className="sc-hued grid size-9 place-items-center rounded-md bg-[var(--hued-soft)] font-semibold text-[var(--hued)] uppercase">
+        {tileLetter(link)}
       </span>
       <span className="w-full truncate text-center text-xs text-text-muted">{label}</span>
     </a>
   )
 }
 
-function ShortcutsWidget({ config }: { config: NewTabConfig }) {
+function ShortcutsWidget({ config, update }: { config: NewTabConfig; update: Update }) {
   const [frequent, setFrequent] = useState<NewTabLink[]>([])
+  const [menu, setMenu] = useState<{ link: NewTabLink; x: number; y: number } | null>(null)
+  const hidden = config.hiddenSites ?? []
   useEffect(() => {
     if (!config.topSites) return setFrequent([])
+    // A few extra, so hiding one lets the next take its place.
     void api()
-      .invoke('newtab:top-sites', MAX_SHORTCUTS)
+      .invoke('newtab:top-sites', MAX_SHORTCUTS + Math.min(hidden.length, 20))
       .then((sites) => setFrequent(sites.map(({ title, url }) => ({ title, url }))))
-  }, [config.topSites])
+  }, [config.topSites, hidden.length])
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && close()
+    addEventListener('pointerdown', close)
+    addEventListener('keydown', onKey)
+    addEventListener('blur', close)
+    return () => {
+      removeEventListener('pointerdown', close)
+      removeEventListener('keydown', onKey)
+      removeEventListener('blur', close)
+    }
+  }, [menu])
 
   const chosen = new Set(config.links.map((link) => link.url))
-  const links = [...config.links, ...frequent.filter((link) => !chosen.has(link.url))].slice(0, Math.max(MAX_SHORTCUTS, config.links.length))
+  const links = [...config.links, ...frequent.filter((link) => !chosen.has(link.url) && !hidden.includes(link.url))].slice(0, Math.max(MAX_SHORTCUTS, config.links.length))
   // Nothing to show on a new profile, so no empty card either.
   if (links.length === 0) return null
+  const pinned = (link: NewTabLink) => chosen.has(link.url)
+  const pin = (link: NewTabLink) => update({ links: [...config.links, { title: link.title.slice(0, 80) || hostOf(link.url), url: link.url }].slice(0, MAX_NEW_TAB_LINKS) })
+  const remove = (link: NewTabLink) =>
+    update({
+      links: config.links.filter((other) => other.url !== link.url),
+      // A most-visited site would only come back, so it's kept off as well.
+      hiddenSites: frequent.some((other) => other.url === link.url) ? [...hidden.filter((url) => url !== link.url), link.url].slice(-MAX_HIDDEN_SITES) : hidden
+    })
   return (
     <Card title="Shortcuts">
       <div className="grid grid-cols-4 gap-1">
         {links.map((link) => (
-          <SiteTile key={link.url} link={link} />
+          <SiteTile key={link.url} link={link} pinned={pinned(link)} onMenu={(x, y) => setMenu({ link, x, y })} />
         ))}
       </div>
+      {menu && (
+        <div
+          role="menu"
+          aria-label={`Shortcut: ${menu.link.title || hostOf(menu.link.url)}`}
+          style={{ left: Math.min(menu.x, innerWidth - 216), top: Math.min(menu.y, innerHeight - 120) }}
+          className="sc-glass-strong fixed z-50 flex w-52 flex-col rounded-lg p-1 shadow-3"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {[
+            pinned(menu.link)
+              ? { label: 'Unpin', run: () => update({ links: config.links.filter((other) => other.url !== menu.link.url) }) }
+              : config.links.length < MAX_NEW_TAB_LINKS && /^https?:\/\//i.test(menu.link.url)
+                ? { label: 'Pin in place', run: () => pin(menu.link) }
+                : null,
+            { label: 'Open in a new tab', run: () => openNewTab(menu.link.url) },
+            { label: 'Remove from shortcuts', run: () => remove(menu.link) }
+          ]
+            .filter((item) => item !== null)
+            .map((item, index) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                autoFocus={index === 0}
+                className="flex h-8 items-center rounded-md px-2.5 text-left text-sm hover:bg-surface-hover"
+                onClick={() => {
+                  setMenu(null)
+                  item.run()
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+        </div>
+      )}
     </Card>
   )
 }
@@ -856,7 +937,7 @@ function Widget({ id, config, update, keepChats, autofill }: { id: NewTabWidgetI
     case 'ai':
       return <QuickAiWidget keepChats={keepChats} />
     case 'shortcuts':
-      return <ShortcutsWidget config={config} />
+      return <ShortcutsWidget config={config} update={update} />
     case 'bookmarks':
       return <BookmarksWidget />
     case 'notes':
@@ -1027,6 +1108,12 @@ function ShortcutOptions({ config, update }: { config: NewTabConfig; update: Upd
       <Row label="Include most visited sites">
         <Switch label="Include most visited sites" checked={config.topSites} onChange={(topSites) => update({ topSites })} />
       </Row>
+      <p className="text-2xs text-text-faint">Right-click a shortcut to pin it in place or remove it.</p>
+      {(config.hiddenSites?.length ?? 0) > 0 && (
+        <button type="button" className="self-start text-xs text-accent hover:text-accent-hover" onClick={() => update({ hiddenSites: [] })}>
+          Show {config.hiddenSites!.length} removed {config.hiddenSites!.length === 1 ? 'site' : 'sites'} again
+        </button>
+      )}
       {config.links.map((link) => (
         <div key={link.url} className="flex items-center justify-between gap-1">
           <span className="min-w-0 truncate">{hostOf(link.url)}</span>

@@ -185,6 +185,8 @@ export interface WorkspaceEditorState {
   vpn: boolean
   /** Whether any VPN connection has been added, so the switch can do something. */
   vpnAvailable: boolean
+  /** False after "Remove VPN", which hides the workspace's VPN switch. */
+  vpnInstalled?: boolean
   canRemove: boolean
   x: number
   y: number
@@ -231,6 +233,8 @@ export interface PaletteState {
   /** Command ids, newest first. */
   recent: string[]
   skills: { id: string; name: string }[]
+  /** Commands not offered here, such as the VPN's once it's removed. */
+  hidden?: string[]
 }
 
 export interface WorkspaceEdit {

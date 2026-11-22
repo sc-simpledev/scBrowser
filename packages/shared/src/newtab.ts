@@ -63,8 +63,12 @@ export interface NewTabConfig {
   links: NewTabLink[]
   /** Fill the shortcuts with the most visited sites. */
   topSites: boolean
+  /** Most visited sites the person took off the shortcuts, by address. */
+  hiddenSites?: string[]
   notes: string
 }
+
+export const MAX_HIDDEN_SITES = 100
 
 export const DEFAULT_NEW_TAB: NewTabConfig = {
   widgets: [
@@ -105,7 +109,7 @@ const isWidgets = (value: unknown): value is NewTabWidget[] =>
 
 const inRange = (value: unknown, max: number) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max
 
-const fields: { [K in keyof NewTabConfig]: (value: unknown) => boolean } = {
+const fields: { [K in keyof NewTabConfig]-?: (value: unknown) => boolean } = {
   widgets: isWidgets,
   background: (v) => v === 'none' || v === 'color' || v === 'image',
   color: (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v),
@@ -119,6 +123,7 @@ const fields: { [K in keyof NewTabConfig]: (value: unknown) => boolean } = {
   width: (v) => v === 'narrow' || v === 'wide',
   links: (v) => Array.isArray(v) && v.length <= MAX_NEW_TAB_LINKS && v.every(isLink),
   topSites: (v) => typeof v === 'boolean',
+  hiddenSites: (v) => Array.isArray(v) && v.length <= MAX_HIDDEN_SITES && v.every((url) => typeof url === 'string' && url.length <= 2048),
   notes: (v) => typeof v === 'string' && v.length <= MAX_NOTES_LENGTH
 }
 

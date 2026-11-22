@@ -90,8 +90,13 @@ interface VpnDeps {
   probeTarget: ProbeTarget
   /** The address the internet sees for this computer, asked outside the browser. Null if it couldn't be found. */
   traceIp?: () => Promise<string | null>
+  /** False after "Remove VPN": Xray never starts until it's installed again. Missing means installed. */
+  installed?: () => boolean
   onChange: () => void
 }
+
+/** Said when something asks for the VPN after "Remove VPN". */
+export const VPN_REMOVED = 'The VPN is removed. Install it again in Settings or on sc://vpn to use it.'
 
 /** Long enough for Windows and macOS to settle the new routes before checking them. */
 const TUN_CHECK_DELAY_MS = 2000
@@ -306,9 +311,37 @@ export class VpnService {
     }
   }
 
+  /** Whether the VPN is installed, which "Remove VPN" turns off. */
+  installed(): boolean {
+    return this.deps.installed?.() ?? true
+  }
+
+  /**
+   * "Remove VPN": turns it off (system proxy and tunnel included), stops Xray and any checks, and
+   * forgets the connections when asked. The caller hides the VPN's controls.
+   */
+  async uninstall(forget: boolean): Promise<void> {
+    await this.ready
+    this.stopPing()
+    await this.applyEnabled(false)
+    this.pings = {}
+    if (forget) {
+      this.store = { connections: [], groups: [], activeId: null }
+      await this.save()
+    }
+    this.deps.onChange()
+  }
+
+  /** "Install VPN", after the caller has marked it installed: its controls come back with whatever was kept. */
+  install(): void {
+    this.error = null
+    this.deps.onChange()
+  }
+
   state(): VpnState {
     const { scope, method } = this.deps.route()
     return {
+      installed: this.installed(),
       scope,
       method,
       unavailable: this.unavailable(),
@@ -325,7 +358,8 @@ export class VpnService {
 
   summary(): VpnSummary {
     const active = this.store.connections.find((connection) => connection.id === this.store.activeId)
-    return { available: this.store.connections.length > 0, enabled: this.enabled, connecting: this.connecting, name: active?.name ?? null, error: this.error }
+    const installed = this.installed()
+    return { installed, available: installed && this.store.connections.length > 0, enabled: this.enabled, connecting: this.connecting, name: active?.name ?? null, error: this.error }
   }
 
   private addLinks(lines: string[], groupId: string | null): VpnAddResult {
@@ -458,6 +492,7 @@ export class VpnService {
    * the check moves on. Results arrive in `pings` as they come in.
    */
   async ping(ids: string[], timeout = PING_TIMEOUT_MS): Promise<VpnPings> {
+    if (!this.installed()) return {}
     const run = ++this.pingRun
     const wanted = new Set(ids)
     const queue = this.store.connections.filter((connection) => wanted.has(connection.id))
@@ -525,7 +560,7 @@ export class VpnService {
   /** A failure stays closed, as someone who asked to always connect shouldn't silently browse without it. */
   async connectAtStart(): Promise<void> {
     await this.ready
-    if (!this.store.connections.some((connection) => connection.id === this.store.activeId)) return this.deps.applyProxy(null)
+    if (!this.installed() || !this.store.connections.some((connection) => connection.id === this.store.activeId)) return this.deps.applyProxy(null)
     await this.turnOn()
     if (this.enabled) return
     const reason = this.error
@@ -542,6 +577,10 @@ export class VpnService {
    */
   async useDefault(): Promise<void> {
     await this.ready
+    if (!this.installed()) {
+      this.error = VPN_REMOVED
+      return this.deps.onChange()
+    }
     this.error = null
     this.connecting = true
     this.deps.onChange()
@@ -580,6 +619,7 @@ export class VpnService {
 
   /** What the on switch does: picks a connection if asked to, then connects. */
   async turnOn(): Promise<void> {
+    if (!this.installed()) return this.setEnabled(true)
     if (this.deps.autoFastest()) await this.pickFastest()
     await this.setEnabled(true)
   }
@@ -693,6 +733,10 @@ export class VpnService {
   /** Looks at TOGGLE.md once when turning on. If that fails, it just carries on and connects. */
   async setEnabled(on: boolean): Promise<void> {
     if (!on) return this.applyEnabled(false)
+    if (!this.installed()) {
+      this.error = VPN_REMOVED
+      return this.deps.onChange()
+    }
     this.connecting = true
     this.deps.onChange()
     const before = this.deps.route().method
@@ -705,7 +749,9 @@ export class VpnService {
     }
   }
 
-  private async applyEnabled(on: boolean, { stayClosed = false }: { stayClosed?: boolean } = {}): Promise<void> {
+  private async applyEnabled(wanted: boolean, { stayClosed = false }: { stayClosed?: boolean } = {}): Promise<void> {
+    // Nothing reaches Xray once the VPN is removed, failover included.
+    const on = wanted && this.installed()
     this.error = null
     await this.stopEverything()
     if (!on) {
@@ -910,6 +956,7 @@ export function xrayPath(resourcesPath: string, appPath: string, packaged: boole
 /** Someone with connections of their own gets theirs turned on; anyone else gets the starting one. */
 export async function useVpnForAi(vpn: VpnService): Promise<VpnSummary> {
   await vpn.ready
+  if (!vpn.installed()) return { ...vpn.summary(), error: VPN_REMOVED }
   if (!vpn.summary().enabled) {
     if (vpn.summary().available && !vpn.onlyDefault()) await vpn.turnOn()
     else await vpn.useDefault()

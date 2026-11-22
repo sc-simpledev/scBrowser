@@ -16,6 +16,7 @@ import { connectApp, useApp } from './state/app'
 import { connectAssistant } from './state/assistant'
 import { connectOverlay, overlayTooltipHost } from './state/overlay'
 import { connectTabs } from './state/tabs'
+import { playChime } from './shared/chime'
 
 /** An installed site's window, which only has the page and a slim bar above it. */
 const isAppWindow = new URLSearchParams(location.search).get('window') === 'app'
@@ -25,6 +26,7 @@ export function App() {
   useEffect(connectApp, [])
   useEffect(connectOverlay, [])
   useEffect(connectAssistant, [])
+  useEffect(() => window.scb.on('study:sound', ({ sound, volume }) => playChime(sound, volume)), [])
   const vertical = useApp((s) => s.settings.tabLayout === 'vertical')
   const sideBookmarks = useVerticalBookmarks()
   const bookmarksDown = useApp((s) => s.settings.bookmarksLayout === 'vertical')

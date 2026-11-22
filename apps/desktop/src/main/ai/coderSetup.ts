@@ -93,6 +93,41 @@ export function cloneRepo(fullName: string, into: string, token: string | null):
   })
 }
 
+/** Git in a folder, with the token (if any) only on this one command, and its error in words. */
+function git(folder: string, args: string[], token: string | null = null, base = 'https://github.com'): Promise<string> {
+  const auth = token ? ['-c', `http.${base}/.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`] : []
+  return new Promise((resolve, reject) => {
+    execFile('git', [...auth, ...args], { cwd: folder, env: { ...commandEnv(), GIT_TERMINAL_PROMPT: '0' }, timeout: 10 * 60_000, windowsHide: true, maxBuffer: 10_000_000 }, (error, stdout, stderr) => {
+      if (!error) return resolve(String(stdout))
+      const said = String(stderr).split('\n').filter((line) => /fatal|error|rejected|hint: Updates/i.test(line)).join(' ').replace(/x-access-token:[^@\s]+/g, '…').slice(0, 300)
+      reject(new Error(said || `git ${args[0]} failed.`))
+    })
+  })
+}
+
+/**
+ * Links a project folder to a GitHub repository as its `origin`, starting a git repository first
+ * when there isn't one. Nothing is pushed or fetched, and an existing origin is never replaced.
+ */
+export async function linkRepo(folder: string, fullName: string, base = 'https://github.com'): Promise<void> {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) throw new Error('That isn’t a repository name.')
+  const inside = await git(folder, ['rev-parse', '--is-inside-work-tree']).then((out) => out.trim() === 'true', () => false)
+  if (!inside) await git(folder, ['init'])
+  const origin = await git(folder, ['remote', 'get-url', 'origin']).then((out) => out.trim(), () => '')
+  if (origin) throw new Error('This project already has a remote called origin. Change it with git remote set-url origin, or ask Terra Code to.')
+  await git(folder, ['remote', 'add', 'origin', `${base}/${fullName}.git`])
+}
+
+/** Whether the folder's repository has a commit to push yet. */
+export const hasCommits = (folder: string) => git(folder, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(() => true, () => false)
+
+/** Pushes the current branch to origin and tracks it there. */
+export async function pushBranch(folder: string, token: string | null, base = 'https://github.com'): Promise<string> {
+  const branch = (await git(folder, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+  await git(folder, ['push', '--set-upstream', 'origin', branch], token, base)
+  return branch
+}
+
 /** GitHub's device sign-in: a code the person types on github.com, with nothing to copy back. */
 export interface DeviceCode {
   device_code: string

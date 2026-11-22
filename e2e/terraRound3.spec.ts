@@ -332,3 +332,35 @@ test('the chat uses MCP tools after asking, looks at the page, and a sent messag
     site.server.close()
   }
 })
+
+test('a project folder that isn’t on GitHub is linked to an existing repository from the GitHub steps', async () => {
+  const page = await open()
+  await expect(page.getByText('GitHub isn’t connected.')).toBeVisible()
+  const { settings } = await connectGithub(page, false)
+  await expect(settings.getByRole('list', { name: 'Connecting GitHub' }).first()).toBeVisible()
+  await expect(settings).toContainText('isn’t on GitHub yet')
+  await settings.getByRole('button', { name: 'Link to an existing one' }).click()
+  const picker = settings.getByRole('region', { name: 'Link to a repository' })
+  await picker.getByRole('button', { name: /me\/project/ }).click()
+  await expect(settings).toContainText('This project is me/project on GitHub.')
+  await expect(settings).toContainText('Linked to me/project')
+  // The start screen's line follows without a reload.
+  await expect(page.getByText('On GitHub as')).toContainText('me/project')
+  expect(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: folder, encoding: 'utf8' }).trim()).toBe('https://github.com/me/project.git')
+})
+
+test('Create a repository makes one on GitHub and links the folder to it', async () => {
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: folder })
+  const page = await open()
+  const { settings } = await connectGithub(page, false)
+  github!.routes.unshift(['POST', /^\/user\/repos$/, { full_name: 'tester/fresh' }, 201])
+  await settings.getByRole('button', { name: 'Create a repository' }).click()
+  const name = settings.getByRole('textbox', { name: 'Repository name' })
+  await expect(name).toHaveValue(folder.split('/').at(-1)!)
+  await name.fill('fresh')
+  await settings.getByRole('button', { name: 'Create and push' }).click()
+  await expect(settings).toContainText('This project is tester/fresh on GitHub.')
+  await expect(settings).toContainText('Made tester/fresh. It’s empty until your first commit is pushed')
+  expect(github!.calls.find((call) => call.method === 'POST' && call.path === '/user/repos')?.body).toEqual({ name: 'fresh', private: true, auto_init: false })
+  expect(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: folder, encoding: 'utf8' }).trim()).toBe('https://github.com/tester/fresh.git')
+})
