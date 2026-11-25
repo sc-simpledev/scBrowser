@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, type ToolOutput, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { localDay, memoryPrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef } from '@scbrowser/shared'
+import { localDay, memoryPrompt, replyStylePrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef, type ReplyStyle } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
 import { Coder, git, type CoderBrowserHost, type CoderGithubHost, type CoderMcpHost } from './coder'
@@ -58,7 +58,9 @@ export class AiService {
     private readonly tabIdOf: (contents: WebContents) => number | null = () => null,
     /** Where Terra Code keeps checkpoints, and whether it may. Absent for background work. */
     coderHome?: CoderHome,
-    private readonly memoryOn: () => boolean = () => false
+    private readonly memoryOn: () => boolean = () => false,
+    /** How replies in Chat are written: see `REPLY_STYLES`. */
+    private readonly replyStyle: () => ReplyStyle = () => 'normal'
   ) {
     const checkpoints = coderHome && new CoderCheckpoints(join(coderHome.dir, 'checkpoints'))
     const snapshots = coderHome && new CoderSnapshots(join(coderHome.dir, 'snapshots'))
@@ -327,7 +329,7 @@ export class AiService {
       if (controller.signal.aborted) return
 
       let stopReason: string | null = null
-      const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : '')
+      const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : '') + replyStylePrompt(this.replyStyle())
       const convo: ChatMessage[] = [...withContext(request.messages, pages, request.selection)]
       const key = `${chat.providerId}\n${chat.model}`
       // The hosted server takes tools only once its Worker with tool support is deployed.
@@ -384,6 +386,12 @@ export class AiService {
             break
           } catch (error) {
             const refused = withTool && !sent && !controller.signal.aborted && error instanceof AiError && error.kind === 'bad-request'
+            // A picture of the person's the model can't take: it goes again without, and says so.
+            const turnedDown = !sent && !controller.signal.aborted && error instanceof AiError && error.kind === 'bad-request'
+            if (turnedDown && convo.some((message) => message.images?.length)) {
+              for (const message of convo) if (message.images?.length) Object.assign(message, { images: undefined, content: `${message.content}\n\n(A picture was attached, but it couldn't be sent: this model may not take pictures. Say so if the question needs it.)` })
+              continue
+            }
             // A picture the model can't take: the round goes again with words in its place.
             const pictures = convo.at(-1)?.toolResults?.some((result) => result.images?.length)
             if (refused && pictures) {

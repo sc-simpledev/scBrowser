@@ -3,7 +3,7 @@ import type { Bookmark } from './library'
 import type { SuggestionSourceId } from './settings'
 import type { TabId, TabState } from './tabs'
 import { convertUnits } from './units'
-import { DEFAULT_SEARCH_ENGINE, isNewTabUrl, resolveOmniboxInput, type SearchEngine } from './url'
+import { DEFAULT_SEARCH_ENGINE, isNewTabUrl, keywordNamed, keywordSearch, resolveOmniboxInput, type SearchEngine, type SearchKeyword } from './url'
 
 export interface HistoryEntry {
   url: string
@@ -12,7 +12,7 @@ export interface HistoryEntry {
   lastVisit: number
 }
 
-export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion' | 'ask' | 'ask-page' | 'calc' | 'scope'
+export type SuggestionKind = 'navigate' | 'search' | 'tab' | 'bookmark' | 'history' | 'search-suggestion' | 'ask' | 'ask-page' | 'calc' | 'scope' | 'keyword'
 
 export type SuggestionAction =
   | { type: 'navigate'; url: string }
@@ -21,6 +21,8 @@ export type SuggestionAction =
   | { type: 'ask'; text: string }
   | { type: 'ask-page'; text: string }
   | { type: 'scope'; scope: OmniboxScope }
+  /** Puts this text in the box to carry on typing, like a keyword and its space. */
+  | { type: 'fill'; text: string }
 
 /** `@bookmarks`, `@history`, `@tabs` and `@ai` narrow the address bar to one kind of row. */
 export const OMNIBOX_SCOPES = [
@@ -86,6 +88,8 @@ interface BuildOptions {
   calculator?: boolean
   /** Only this kind of row, after `@bookmarks` and the like. */
   scope?: OmniboxScope | null
+  /** Words that search one site, like `yt cats`. */
+  keywords?: readonly SearchKeyword[]
 }
 
 export interface Autofill {
@@ -152,13 +156,26 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
   const isSearch = resolved === searchUrl(input, engine)
 
   const autofill = options.autofill ?? null
-  const results: Suggestion[] = [
-    autofill
-      ? { id: 'default', kind: 'navigate', title: autofill.url, action: { type: 'navigate', url: autofill.url } }
-      : isSearch
-        ? { id: 'default', kind: 'search', title: input, detail: `Search ${engine.name}`, action: { type: 'navigate', url: resolved } }
-        : { id: 'default', kind: 'navigate', title: resolved, action: { type: 'navigate', url: resolved } }
-  ]
+  const keywords = options.keywords ?? []
+  const site = keywordSearch(input, keywords)
+  const results: Suggestion[] = site
+    ? // The site's search is what Enter does; the whole text as a web search is one row down.
+      [
+        { id: 'default', kind: 'search', title: site.query, detail: `Search ${site.keyword.name}`, action: { type: 'navigate', url: site.url } },
+        { id: 'web', kind: 'search', title: input, detail: `Search ${engine.name}`, action: { type: 'navigate', url: searchUrl(input, engine) } }
+      ]
+    : [
+        autofill
+          ? { id: 'default', kind: 'navigate', title: autofill.url, action: { type: 'navigate', url: autofill.url } }
+          : isSearch
+            ? { id: 'default', kind: 'search', title: input, detail: `Search ${engine.name}`, action: { type: 'navigate', url: resolved } }
+            : { id: 'default', kind: 'navigate', title: resolved, action: { type: 'navigate', url: resolved } }
+      ]
+  // `yt` on its own: say what a space and a search would do. Tab or picking the row adds the space.
+  const named = site ? null : keywordNamed(input, keywords)
+  if (named) {
+    results.push({ id: 'keyword', kind: 'keyword', title: `Search ${named.name}`, detail: `${named.keyword} and your search`, action: { type: 'fill', text: `${named.keyword} ` } })
+  }
   // Right under what Enter does, as in Firefox. Picking it copies the answer.
   const sum = options.calculator === false ? null : calculate(input)
   const converted = options.calculator === false || sum !== null ? null : convertUnits(input)
@@ -176,7 +193,7 @@ export function buildSuggestions(rawInput: string, options: BuildOptions): Sugge
       { id: 'ask-page', kind: 'ask-page', title: input, detail: 'Ask Assistant', action: { type: 'ask-page', text: input } }
     )
   }
-  const seenUrls = new Set([resolved, ...(autofill ? [autofill.url] : [])])
+  const seenUrls = new Set([resolved, ...(autofill ? [autofill.url] : []), ...(site ? [site.url] : [])])
 
   const tabs = (sources.includes('tabs') ? options.tabs : [])
     .filter((tab) => tab.id !== options.activeTabId && !isNewTabUrl(tab.url) && matches(needle, tab.url, tab.title))

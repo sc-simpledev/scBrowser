@@ -98,6 +98,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm dist
+      # The packaged app, not just out/, must open a window and load a tab.
+      - name: Start the packaged app once
+        shell: bash
+        run: |
+          cd apps/desktop/release/*/
+          case "$RUNNER_OS" in
+            Linux) xvfb-run -a ./scTerra-*.AppImage --appimage-extract-and-run --no-sandbox --smoke-test ;;
+            Windows) ./win-unpacked/scTerra.exe --smoke-test ;;
+          esac
       - uses: actions/upload-artifact@v4
         # Running out of storage isn't a broken build. Releases don't use these.
         continue-on-error: true

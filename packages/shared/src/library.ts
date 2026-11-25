@@ -36,14 +36,19 @@ export interface BarItem {
   id: number
 }
 
-/** Bookmarks and groups in the order they sit on the bar. */
-export function barItems(bookmarks: Bookmark[], groups: BookmarkGroup[]): ({ kind: 'bookmark'; item: Bookmark } | { kind: 'group'; item: BookmarkGroup })[] {
-  const items = [
-    ...groups.filter((group) => group.parentId === null).map((item) => ({ kind: 'group' as const, item })),
-    ...bookmarks.filter((b) => b.groupId === null).map((item) => ({ kind: 'bookmark' as const, item }))
+export type FolderEntry = { kind: 'bookmark'; item: Bookmark } | { kind: 'group'; item: BookmarkGroup }
+
+/** What's in one folder, or on the bar for null, in the order it sits. */
+export function folderItems(bookmarks: Bookmark[], groups: BookmarkGroup[], folderId: number | null): FolderEntry[] {
+  const items: FolderEntry[] = [
+    ...groups.filter((group) => group.parentId === folderId).map((item) => ({ kind: 'group' as const, item })),
+    ...bookmarks.filter((b) => b.groupId === folderId).map((item) => ({ kind: 'bookmark' as const, item }))
   ]
   return items.sort((a, b) => a.item.position - b.item.position)
 }
+
+/** Bookmarks and groups in the order they sit on the bar. */
+export const barItems = (bookmarks: Bookmark[], groups: BookmarkGroup[]): FolderEntry[] => folderItems(bookmarks, groups, null)
 
 export type DownloadState = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
 

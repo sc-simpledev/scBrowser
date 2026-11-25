@@ -5,7 +5,9 @@ import {
   engineById,
   isCitationSource,
   isCitationTarget,
+  isChatImage,
   isOmniboxScope,
+  MAX_CHAT_IMAGES,
   MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
   type AssistantRequest,
@@ -26,6 +28,7 @@ import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { readFlags } from './flags'
 import { route, unroute } from './ipcRouter'
+import { saveChatMarkdown } from './chatExport'
 import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
@@ -65,7 +68,7 @@ const isSuggestion = (value: unknown): value is Suggestion => {
   const { action } = value
   const validAction =
     (action.type === 'navigate' && isShortString(action.url)) || (action.type === 'switch-tab' && isId(action.tabId)) ||
-    ((action.type === 'ask' || action.type === 'ask-page' || action.type === 'copy') && isShortString(action.text)) ||
+    ((action.type === 'ask' || action.type === 'ask-page' || action.type === 'copy' || action.type === 'fill') && isShortString(action.text)) ||
     (action.type === 'scope' && isOmniboxScope(action.scope))
   return validAction && isShortString(value.id) && isShortString(value.kind, 32) && isShortString(value.title) &&
     (value.detail === undefined || isShortString(value.detail)) &&
@@ -80,10 +83,15 @@ export const isAssistantRequest = (value: unknown): value is AssistantRequest =>
   if (!record(value) || !Array.isArray(value.messages) || value.messages.length === 0 || value.messages.length > 500) return false
   const messagesOk = value.messages.every(
     (m: unknown) =>
-      record(m) && (m.role === 'user' || m.role === 'assistant') && isShortString(m.content, MAX_CONVERSATION_CHARS)
+      record(m) &&
+      (m.role === 'user' || m.role === 'assistant') &&
+      isShortString(m.content, MAX_CONVERSATION_CHARS) &&
+      (m.images === undefined || (m.role === 'user' && Array.isArray(m.images) && m.images.every(isChatImage)))
   )
+  const pictures = value.messages.reduce((count: number, m: Record<string, unknown>) => count + (Array.isArray(m.images) ? m.images.length : 0), 0)
   return (
     messagesOk &&
+    pictures <= MAX_CHAT_IMAGES &&
     (value.tabId === null || isId(value.tabId)) &&
     Array.isArray(value.extraTabIds) &&
     value.extraTabIds.length <= MAX_MENTIONED_TABS &&
@@ -280,7 +288,11 @@ const validators: Validators = {
   'sidebar-sites:state': noArgs,
   'sidebar-sites:action': (args): args is ['back' | 'reload' | 'open-tab' | 'close'] => args.length === 1 && ['back', 'reload', 'open-tab', 'close'].includes(args[0] as string),
   'sidebar-sites:add-current': noArgs,
-  'sidebar-sites:menu': (args): args is [string, number, number] => args.length === 3 && isShortString(args[0], 2048) && Number.isFinite(args[1]) && Number.isFinite(args[2])
+  'sidebar-sites:menu': (args): args is [string, number, number] => args.length === 3 && isShortString(args[0], 2048) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
+  'chats:export': (args): args is [SavedTurn[]] => args.length === 1 && isTurns(args[0]),
+  'ai:style-menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'media:action': (args): args is [number, 'toggle' | 'pip' | 'focus'] => args.length === 2 && isId(args[0]) && ['toggle', 'pip', 'focus'].includes(args[1] as string),
+  'media:menu': (args): args is [number, number, number] => args.length === 3 && isId(args[0]) && Number.isFinite(args[1]) && Number.isFinite(args[2])
 }
 
 interface IpcServices {
@@ -550,7 +562,11 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'sidebar-sites:state': () => sidebar.sites.state(),
     'sidebar-sites:action': (action) => sidebar.sites.act(action),
     'sidebar-sites:add-current': () => sidebar.addCurrent(),
-    'sidebar-sites:menu': (url, x, y) => sidebar.menu(url, x, y)
+    'sidebar-sites:menu': (url, x, y) => sidebar.menu(url, x, y),
+    'chats:export': (turns) => saveChatMarkdown(window, turns, settings.get().downloadDir),
+    'ai:style-menu': (x, y) => actions.styleMenu(x, y),
+    'media:action': (id, action) => actions.mediaAction(id, action),
+    'media:menu': (id, x, y) => actions.mediaMenu(id, x, y)
   }
 
   const channels = Object.keys(handlers) as CommandChannel[]

@@ -17,11 +17,28 @@ export function FindBar() {
     void window.scb.invoke('find:stop')
   }
 
+  const search = (value: string, forward: boolean, findNext: boolean) => {
+    if (!value) setResult(null)
+    void window.scb.invoke('find:query', value, { forward, findNext })
+  }
+  const openWith = (words: string | null) => {
+    setOpen(true)
+    if (words) {
+      setText(words)
+      search(words, true, false)
+    }
+    setFocusRequest((n) => n + 1)
+  }
+  // Words found from Tab search arrive with their tab, which may not be the open one here yet.
+  const tabRef = useRef(tabId)
+  tabRef.current = tabId
+  const pending = useRef<{ text: string; tabId: number } | null>(null)
+
   useEffect(
     () =>
-      window.scb.on('ui:open-find', () => {
-        setOpen(true)
-        setFocusRequest((n) => n + 1)
+      window.scb.on('ui:open-find', (request) => {
+        if (request && request.tabId !== tabRef.current) pending.current = request
+        else openWith(request?.text ?? null)
       }),
     []
   )
@@ -34,12 +51,12 @@ export function FindBar() {
   useEffect(() => {
     setOpen(false)
     setResult(null)
+    const waiting = pending.current
+    if (waiting && waiting.tabId === tabId) {
+      pending.current = null
+      openWith(waiting.text)
+    }
   }, [tabId])
-
-  const search = (value: string, forward: boolean, findNext: boolean) => {
-    if (!value) setResult(null)
-    void window.scb.invoke('find:query', value, { forward, findNext })
-  }
 
   if (!open) return null
   return (
@@ -59,13 +76,13 @@ export function FindBar() {
           if (e.key === 'Escape') close()
         }}
       />
-      <span aria-live="polite" className="w-16 text-center text-xs text-text-faint">
-        {result ? `${result.active} of ${result.total}` : ''}
+      <span aria-live="polite" className="w-20 text-center text-xs text-text-faint tabular-nums">
+        {result ? (result.total === 0 ? 'No matches' : `${result.active} of ${result.total}`) : ''}
       </span>
-      <IconButton size="sm" label="Previous match" onClick={() => search(text, false, true)}>
+      <IconButton size="sm" label="Previous match" disabled={result?.total === 0} onClick={() => search(text, false, true)}>
         <ChevronUp size={14} strokeWidth={1.75} />
       </IconButton>
-      <IconButton size="sm" label="Next match" onClick={() => search(text, true, true)}>
+      <IconButton size="sm" label="Next match" disabled={result?.total === 0} onClick={() => search(text, true, true)}>
         <ChevronDown size={14} strokeWidth={1.75} />
       </IconButton>
       <IconButton size="sm" label="Close find bar" onClick={close}>

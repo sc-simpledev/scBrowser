@@ -5,7 +5,7 @@ import { CONTAINERS, isToolbarOrder, TOOLBAR_ITEMS, TOOLBAR_SLOTS, type ToolbarI
 import { DEFAULT_BLOCKER, isBlockerConfig, type BlockerConfig } from './blocker'
 import { DEFAULT_NEW_TAB, isNewTabConfig, type NewTabConfig } from './newtab'
 import { ACCENTS, type AccentId } from './privacy'
-import type { SearchEngine } from './url'
+import { DEFAULT_SEARCH_KEYWORDS, isSearchKeywords, type SearchEngine, type SearchKeyword } from './url'
 import { isHiddenElements, isSiteCss, isSiteHost } from './siteTweaks'
 import { isSidebarSites, type SidebarSite } from './sidebarSites'
 import { ARCHIVE_CHOICES } from './archive'
@@ -79,6 +79,8 @@ export interface Settings {
   addressAutofill: boolean
   /** Answer sums like 7*8 in the address bar and the new tab search box. */
   addressCalculator: boolean
+  /** Words that search one site from the address bar, like `yt cats`. */
+  searchKeywords: SearchKeyword[]
   theme: 'system' | 'light' | 'dark'
   tabLayout: 'horizontal' | 'vertical'
   verticalTabsCollapsed: boolean
@@ -105,6 +107,8 @@ export interface Settings {
   /** Standard blocks ads and trackers; strict also blocks annoyances like cookie banners. */
   trackingProtection: 'off' | 'standard' | 'strict'
   httpsOnly: boolean
+  /** Takes tracking tags like utm_source and fbclid off addresses as pages open. */
+  cleanLinks: boolean
   /** Shift-clicking a link shows it over the page instead of opening a window. */
   linkPreview: boolean
   /** Presses a cookie banner's reject button, never accept. Off for sites where tracking protection is off. */
@@ -135,6 +139,10 @@ export interface Settings {
   tabTree: boolean
   /** The focus timer under the side tabs. Only shown with vertical tabs. */
   sidebarTimer: boolean
+  /** A small Now playing control for sound or video in a tab you aren't looking at. */
+  mediaControls: boolean
+  /** A playing video floats in picture in picture when you switch away from its tab. */
+  autoPictureInPicture: boolean
   /** Split view comes back when either of its tabs is picked again after switching away. */
   splitPairs: boolean
   /** Tab groups folded down to their name. */
@@ -157,6 +165,8 @@ export interface Settings {
   secureDns: SecureDns
   /** Adds the notes on sc://ai to what the model is told. */
   aiMemory: boolean
+  /** How the assistant writes its replies. */
+  replyStyle: ReplyStyle
   /** Turning the VPN on first picks the fastest working connection in the same group. */
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
@@ -233,6 +243,22 @@ export interface Settings {
   updateOnQuit: boolean
 }
 
+/** Ways the assistant can write, as Claude's styles. Each adds one line to what the model is told. */
+export const REPLY_STYLES = [
+  { id: 'normal', name: 'Normal', description: 'As it sees fit', prompt: '' },
+  { id: 'concise', name: 'Concise', description: 'Short and to the point', prompt: 'Keep replies short: lead with the answer, skip preamble and recaps, and use a few bullets at most unless asked for more.' },
+  { id: 'explanatory', name: 'Explanatory', description: 'Teaches the why', prompt: 'Explain as a patient teacher would: say why as well as what, define terms the first time they appear, and add a short example where it helps.' },
+  { id: 'steps', name: 'Step by step', description: 'Numbered steps', prompt: 'Where the answer is something to do, give it as numbered steps, one action each, and say what the person should see after the steps that change something.' }
+] as const
+
+export type ReplyStyle = (typeof REPLY_STYLES)[number]['id']
+
+/** The line a style adds to the system prompt, or nothing for Normal. */
+export const replyStylePrompt = (style: ReplyStyle): string => {
+  const line = REPLY_STYLES.find((entry) => entry.id === style)?.prompt
+  return line ? `\n\nReply style: ${line}` : ''
+}
+
 /** Budgets a Terra Code session can be given, in tokens. */
 export const CODER_BUDGETS = [0, 200_000, 500_000, 1_000_000, 2_000_000, 5_000_000] as const
 
@@ -257,6 +283,7 @@ export const DEFAULT_SETTINGS: Settings = {
   suggestionSources: SUGGESTION_SOURCES.map((source) => source.id),
   addressAutofill: true,
   addressCalculator: true,
+  searchKeywords: DEFAULT_SEARCH_KEYWORDS,
   theme: 'system',
   tabLayout: 'vertical',
   verticalTabsCollapsed: false,
@@ -273,6 +300,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saveChats: true,
   trackingProtection: 'standard',
   httpsOnly: true,
+  cleanLinks: true,
   linkPreview: true,
   rejectCookieBanners: true,
   forgetOnClose: [],
@@ -290,6 +318,8 @@ export const DEFAULT_SETTINGS: Settings = {
   tabSleepButton: false,
   tabTree: true,
   sidebarTimer: false,
+  mediaControls: true,
+  autoPictureInPicture: false,
   splitPairs: true,
   collapsedTabGroups: [],
   spellCheck: true,
@@ -303,6 +333,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vpnFailover: false,
   secureDns: 'default',
   aiMemory: true,
+  replyStyle: 'normal',
   vpnAutoFastest: false,
   vpnBypass: [],
   vpnDirectContainers: [],
@@ -369,6 +400,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   bookmarksBar: (v) => oneOf(v, ['always', 'new-tab', 'bookmarks-page']),
   addressAutofill: (v) => typeof v === 'boolean',
   addressCalculator: (v) => typeof v === 'boolean',
+  searchKeywords: isSearchKeywords,
   suggestionSources: (v) => Array.isArray(v) && v.every((id) => SUGGESTION_SOURCES.some((source) => source.id === id)),
   startup: (v) => oneOf(v, ['restore', 'new-tab']),
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
@@ -380,6 +412,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   saveChats: (v) => typeof v === 'boolean',
   trackingProtection: (v) => oneOf(v, ['off', 'standard', 'strict']),
   httpsOnly: (v) => typeof v === 'boolean',
+  cleanLinks: (v) => typeof v === 'boolean',
   linkPreview: (v) => typeof v === 'boolean',
   rejectCookieBanners: (v) => typeof v === 'boolean',
   forgetOnClose: (v) => Array.isArray(v) && v.length <= 200 && v.every(isSiteHost),
@@ -395,6 +428,8 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   tabSleepButton: (v) => typeof v === 'boolean',
   tabTree: (v) => typeof v === 'boolean',
   sidebarTimer: (v) => typeof v === 'boolean',
+  mediaControls: (v) => typeof v === 'boolean',
+  autoPictureInPicture: (v) => typeof v === 'boolean',
   splitPairs: (v) => typeof v === 'boolean',
   collapsedTabGroups: (v) => Array.isArray(v) && v.length <= 200 && v.every((name) => typeof name === 'string' && name.length <= 60),
   spellCheck: (v) => typeof v === 'boolean',
@@ -410,6 +445,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   vpnFailover: (v) => typeof v === 'boolean',
   secureDns: (v) => typeof v === 'string' && v in SECURE_DNS,
   aiMemory: (v) => typeof v === 'boolean',
+  replyStyle: (v) => REPLY_STYLES.some((style) => style.id === v),
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
   vpnDirectContainers: (v) => Array.isArray(v) && v.every((id) => CONTAINERS.some((container) => container.id === id)),

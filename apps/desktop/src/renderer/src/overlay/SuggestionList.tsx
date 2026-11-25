@@ -1,4 +1,4 @@
-import { AppWindow, AtSign, Bot, Calculator, Globe, History, MessageCircle, Search, Star, type LucideIcon } from 'lucide-react'
+import { AppWindow, AtSign, Bot, Calculator, Globe, History, MessageCircle, Search, Star, TextSearch, type LucideIcon } from 'lucide-react'
 import { cx } from '@scbrowser/ui'
 import { POPUP_PADDING, SUGGESTION_ROW_HEIGHT, type Suggestion, type SuggestionKind } from '@scbrowser/shared'
 
@@ -12,7 +12,8 @@ const icons: Record<SuggestionKind, LucideIcon> = {
   history: History,
   'search-suggestion': Search,
   calc: Calculator,
-  scope: AtSign
+  scope: AtSign,
+  keyword: TextSearch
 }
 
 /** Rows where the typed text is worth picking out: the ones that matched it, not the ones that are it. */
@@ -35,6 +36,7 @@ function Matched({ text, query, className, strong = 'font-semibold text-text' }:
 function hint(suggestion: Suggestion, selected: boolean): string | null {
   if (suggestion.kind === 'tab') return 'Switch to tab'
   if (suggestion.kind === 'calc') return 'Copy'
+  if (suggestion.kind === 'keyword') return 'Tab'
   // Only on the chosen row, so the list doesn't fill up with the same words.
   if (suggestion.kind === 'history' && selected) return 'Shift+Delete to remove'
   return null

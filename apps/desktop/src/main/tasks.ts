@@ -17,13 +17,18 @@ function tabsByProcess(core: BrowserCore): Map<number, { title: string; url: str
   return found
 }
 
+/** The browser's own views by what they draw: the bars and sidebars, or the popups and menus over the page. */
+const BROWSER_PARTS = ['Browser interface', 'Popups and menus']
+const nameOf = (url: string, title: string) =>
+  /^(chrome-extension|devtools):/.test(url) ? title || 'Extension' : /\/overlay\.html($|[?#])/.test(url) ? BROWSER_PARTS[1]! : BROWSER_PARTS[0]!
+
 export function taskList(core: BrowserCore): TaskList {
   const byProcess = tabsByProcess(core)
   const others = new Map(
     webContents
       .getAllWebContents()
       .filter((contents) => !contents.isDestroyed())
-      .map((contents) => [contents.getOSProcessId(), /^(chrome-extension|devtools):/.test(contents.getURL()) ? (contents.getTitle() || 'Extension') : 'Browser interface'] as const)
+      .map((contents) => [contents.getOSProcessId(), nameOf(contents.getURL(), contents.getTitle())] as const)
   )
   const rows = app.getAppMetrics().map((metric): TaskRow => {
     const tabs = byProcess.get(metric.pid)
@@ -31,7 +36,7 @@ export function taskList(core: BrowserCore): TaskList {
     const cpu = metric.cpu.percentCPUUsage
     if (tabs) return { pid: metric.pid, kind: 'Tab', name: tabs.map((tab) => tab.title).join(', '), memoryKb, cpu, canEnd: tabs.every((tab) => isEndable(tab.url)) }
     const other = others.get(metric.pid)
-    if (other) return { pid: metric.pid, kind: other === 'Browser interface' ? 'Browser' : 'Extension', name: other, memoryKb, cpu, canEnd: false }
+    if (other) return { pid: metric.pid, kind: BROWSER_PARTS.includes(other) ? 'Browser' : 'Extension', name: other, memoryKb, cpu, canEnd: false }
     return { pid: metric.pid, kind: 'System', name: metric.name || metric.serviceName || SYSTEM_NAMES[metric.type] || metric.type, memoryKb, cpu, canEnd: false }
   })
   return { rows: rows.toSorted((a, b) => b.memoryKb - a.memoryKb), sleeping: core.windows.reduce((sum, { tabs }) => sum + tabs.sleepingCount(), 0) }

@@ -1,6 +1,6 @@
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
-import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, treeFolds, resolveOmniboxInput, DEFAULT_SEARCH_ENGINE, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
+import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, treeFolds, resolveOmniboxInput, DEFAULT_SEARCH_ENGINE, cleanUrl, highlightLink, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { listProfiles, openProfile } from './profiles'
 import type { BookmarksRepo } from './storage/bookmarks'
@@ -65,6 +65,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { label: 'Preview link', click: () => actions.previewLink(params.linkURL, contents) },
       { label: 'Save link as…', click: () => contents.downloadURL(params.linkURL) },
       { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+      // Only where there's something to take off, like utm_source or fbclid.
+      ...(cleanUrl(params.linkURL) !== params.linkURL ? [{ label: 'Copy clean link', click: () => clipboard.writeText(cleanUrl(params.linkURL)) }] : []),
       ...(params.linkText.trim() ? [{ label: 'Copy link text', click: () => clipboard.writeText(params.linkText.trim()) }] : [])
     ])
   } else if (appScheme(params.linkURL)) {
@@ -78,7 +80,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       { label: 'Open image in new tab', click: () => openInTab(params.srcURL) },
       { label: 'Save image as…', click: () => contents.downloadURL(params.srcURL) },
       { label: 'Copy image', click: () => contents.copyImageAt(params.x, params.y) },
-      { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) }
+      { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) },
+      ...(sourcePage ? [{ type: 'separator' as const }, { label: 'Ask AI about this image', click: () => actions.askAboutImage(contents, params.srcURL, params.x, params.y) }] : [])
     ])
   }
   if (params.mediaType === 'video' || params.mediaType === 'audio') {
@@ -148,7 +151,18 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
           { label: 'Explain with the page for context', click: () => actions.askAssistant({ text: 'Explain the selected text, using the rest of the page for context.', selection: params.selectionText, includePage: true }) }
         ]
       },
-      ...(isWeb(params.pageURL) || params.pageURL.startsWith('file:') ? [{ label: 'Highlight', click: () => actions.highlight(contents, params.selectionText) }] : [])
+      ...(isWeb(params.pageURL) || params.pageURL.startsWith('file:') ? [{ label: 'Highlight', click: () => actions.highlight(contents, params.selectionText) }] : []),
+      ...(highlightLink(params.pageURL, selection)
+        ? [
+            {
+              label: 'Copy link to highlight',
+              click: () => {
+                clipboard.writeText(highlightLink(cleanUrl(params.pageURL), selection)!)
+                actions.notify('Link copied. It opens the page at these words')
+              }
+            }
+          ]
+        : [])
     ])
   }
   if (groups.length === 0) {
@@ -182,7 +196,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       },
       { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: actions.screenshot },
       { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', registerAccelerator: false, click: actions.toggleBookmark },
-      { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) }
+      { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) },
+      ...(cleanUrl(params.pageURL) !== params.pageURL ? [{ label: 'Copy clean page address', click: () => clipboard.writeText(cleanUrl(params.pageURL)) }] : [])
     ])
     if (isWeb(params.pageURL)) {
       groups.push([

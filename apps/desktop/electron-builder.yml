@@ -21,6 +21,9 @@ linux:
   maintainer: sc-simpledev <sc-simpledev@users.noreply.github.com>
   category: Network;WebBrowser
   executableName: scterra
+  # One file per size: the hicolor theme has no 1024x1024 folder, so icon.png alone left
+  # menus and pinned taskbar launchers with a blank icon.
+  icon: build/icons
   mimeTypes: [text/html, x-scheme-handler/http, x-scheme-handler/https]
   desktop:
     entry:

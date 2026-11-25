@@ -1,11 +1,12 @@
 import { TOOLBAR_ITEMS } from './containers'
 import { ACCENTS, matchCommands, type PaletteCommand } from './privacy'
-import { SEARCH_ENGINES, type Settings } from './settings'
+import { REPLY_STYLES, SEARCH_ENGINES, type Settings } from './settings'
 
 /** Switches the command palette can flip, by name. Performance and Focus Mode have commands of their own. */
 const SWITCHES: [keyof Settings, string][] = [
   ['accentTint', 'accent tint'],
   ['httpsOnly', 'HTTPS-only mode'],
+  ['cleanLinks', 'clean links (taking tracking tags off addresses)'],
   ['rejectCookieBanners', 'rejecting cookie banners'],
   ['keepSignIns', 'staying signed in after closing'],
   ['linkPreview', 'link preview with Shift-click'],
@@ -21,6 +22,8 @@ const SWITCHES: [keyof Settings, string][] = [
   ['passwordAutoFill', 'filling passwords by themselves'],
   ['passwordOfferSave', 'offering to save passwords'],
   ['profilesButton', 'the profiles button'],
+  ['mediaControls', 'Now playing controls'],
+  ['autoPictureInPicture', 'floating videos when switching tabs'],
   ['autoUpdate', 'automatic updates']
 ]
 
@@ -32,7 +35,8 @@ const CHOICES: { key: keyof Settings; name: string; options: { value: string; la
   { key: 'trackingProtection', name: 'Tracking protection', options: [{ value: 'off', label: 'off' }, { value: 'standard', label: 'standard' }, { value: 'strict', label: 'strict' }] },
   { key: 'startup', name: 'On start', options: [{ value: 'restore', label: 'reopen previous tabs' }, { value: 'new-tab', label: 'open a new tab' }] },
   { key: 'accent', name: 'Accent colour', options: ACCENTS.map((accent) => ({ value: accent.id, label: accent.name })) },
-  { key: 'searchEngine', name: 'Search with', options: SEARCH_ENGINES.map((engine) => ({ value: engine.id, label: engine.name })) }
+  { key: 'searchEngine', name: 'Search with', options: SEARCH_ENGINES.map((engine) => ({ value: engine.id, label: engine.name })) },
+  { key: 'replyStyle', name: 'Assistant reply style', options: REPLY_STYLES.map((style) => ({ value: style.id, label: style.name.toLowerCase() })) }
 ]
 
 const PREFIX = 'set:'

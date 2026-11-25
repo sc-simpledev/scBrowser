@@ -26,7 +26,7 @@ import type { ReportFormat, ReportThemeId } from './report'
 import type { ReportPreset } from './reportPresets'
 import type { CardProgress, QuizProgress } from './quiz'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
-import type { PageRect, TabId, TabsSnapshot } from './tabs'
+import type { PageRect, TabId, TabsSnapshot, TabTextMatch } from './tabs'
 import type { UpdateState } from './updates'
 
 /**
@@ -178,6 +178,14 @@ export interface ChromeCommands {
   /** Adds the page in the active tab to the rail. */
   'sidebar-sites:add-current': () => void
   'sidebar-sites:menu': (url: string, x: number, y: number) => void
+  /** Saves the side assistant's conversation as Markdown, asking where. True once saved. */
+  'chats:export': (turns: SavedTurn[]) => boolean
+  /** How the assistant writes replies, as a menu at this point. */
+  'ai:style-menu': (x: number, y: number) => void
+  /** Now playing: play or pause, picture in picture, or go to the tab. */
+  'media:action': (tabId: TabId, action: 'toggle' | 'pip' | 'focus') => void
+  /** Now playing's menu: speed, mute and the rest. */
+  'media:menu': (tabId: TabId, x: number, y: number) => void
 }
 
 /** Events the main process pushes to the chrome UI. */
@@ -189,7 +197,8 @@ export interface ChromeEvents {
   'bookmarks:changed': Bookmark[]
   'bookmark-groups:changed': BookmarkGroup[]
   'settings:changed': Settings
-  'ui:open-find': void
+  /** Opens the find bar, with words to find in that tab when they're given. */
+  'ui:open-find': { text: string; tabId: TabId } | null
   'find:result': { active: number; total: number }
   'downloads:progress': { active: number; fraction: number | null }
   'ai:changed': AiStatus
@@ -225,7 +234,10 @@ export interface OverlayCommands {
   'overlay:app-link-answer': (choice: 'open' | 'always' | 'cancel') => void
   'overlay:extensions-action': (action: 'open' | 'pin' | 'menu' | 'store' | 'manage', id: string, x: number, y: number) => void
   'overlay:extensions-close': () => void
-  'overlay:tab-search-pick': (id: TabId) => void
+  /** `find` opens the tab's find bar with these words, for a match inside the page. */
+  'overlay:tab-search-pick': (id: TabId, find?: string) => void
+  /** Tabs whose pages hold these words, read on this computer. */
+  'overlay:tab-search-text': (query: string) => TabTextMatch[]
   'overlay:tab-search-remove': (id: TabId) => void
   'overlay:tab-search-close': () => void
   /** Returns what's wrong, or null once saved. */
@@ -372,7 +384,11 @@ export const COMMAND_CHANNELS = [
   'sidebar-sites:state',
   'sidebar-sites:action',
   'sidebar-sites:add-current',
-  'sidebar-sites:menu'
+  'sidebar-sites:menu',
+  'chats:export',
+  'ai:style-menu',
+  'media:action',
+  'media:menu'
 ] as const satisfies readonly CommandChannel[]
 
 export const EVENT_CHANNELS = [
@@ -405,7 +421,7 @@ export const EVENT_CHANNELS = [
   'overlay:clear-tooltip'
 ] as const satisfies readonly EventChannel[]
 
-export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:password-suggest', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:site-action', 'overlay:site-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
+export const OVERLAY_COMMAND_CHANNELS = ['overlay:pick', 'overlay:permission', 'overlay:palette-run', 'overlay:palette-close', 'overlay:app-link-answer', 'overlay:extensions-action', 'overlay:extensions-close', 'overlay:tab-search-pick', 'overlay:tab-search-text', 'overlay:tab-search-remove', 'overlay:tab-search-close', 'overlay:bookmark-save', 'overlay:bookmark-remove', 'overlay:bookmark-close', 'overlay:answer-action', 'overlay:answer-link', 'overlay:password-answer', 'overlay:password-suggest', 'overlay:auth', 'overlay:cleanup', 'overlay:workspace-save', 'overlay:workspace-remove', 'overlay:workspace-close', 'overlay:site-action', 'overlay:site-close', 'overlay:tooltip-clear', 'overlay:preview-action'] as const satisfies readonly (keyof OverlayCommands)[]
 export const OVERLAY_EVENT_CHANNELS = ['overlay:state'] as const satisfies readonly (keyof OverlayEvents)[]
 
 /** A typed `invoke`/`on` pair over a set of command and event channels. */
@@ -531,8 +547,14 @@ export interface InternalCommands {
   'newtab:top-sites': (limit: number) => HistoryEntry[]
   /** Opens an address or search in the new tab itself. */
   'newtab:go': (input: string) => void
-  /** Rows for the new tab search box: the address bar's, minus tabs and the assistant. */
+  /** Rows for the new tab search box: the address bar's, with open tabs and Ask rows. */
   'newtab:suggest': (query: string) => Suggestion[]
+  /** A Switch to tab row picked in the new tab search box. */
+  'newtab:switch-tab': (tabId: TabId) => void
+  /** An Ask row picked in the new tab search box: the question goes to the side assistant. */
+  'newtab:ask': (text: string) => void
+  /** Saves a conversation as Markdown, asking where. True once saved. */
+  'chats:export': (turns: SavedTurn[]) => boolean
   'extensions:open-store': () => void
   'sync:status': () => SyncStatus
   'sync:pick-folder': () => string | null
@@ -810,6 +832,8 @@ export interface InternalCommands {
   'briefs:issue': (id: string) => BriefIssue | null
   /** A question about a brief, answered from it and its sources. Nothing is saved. */
   'briefs:ask': (id: string, question: string) => string
+  /** Forgets one kept follow-up question, named by when it was asked. */
+  'briefs:forget-question': (id: string, askedAt: number) => BriefState
   /** Follows a story in a web brief. */
   'briefs:follow': (scheduleId: string, story: string) => BriefState
   'briefs:unfollow': (scheduleId: string, story: string) => BriefState
@@ -931,6 +955,9 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'newtab:top-sites',
   'newtab:go',
   'newtab:suggest',
+  'newtab:switch-tab',
+  'newtab:ask',
+  'chats:export',
   'extensions:open-store',
   'sync:status',
   'sync:pick-folder',
@@ -1118,6 +1145,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'briefs:prefs',
   'briefs:issue',
   'briefs:ask',
+  'briefs:forget-question',
   'briefs:follow',
   'briefs:unfollow',
   'briefs:to-notes',

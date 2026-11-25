@@ -53,6 +53,9 @@ import { WebApps } from './webApps'
 import type { BaseWindow, BrowserWindow, WebContentsView } from 'electron'
 import type { ChromeEvents, EventChannel, ExtensionsPopupState, PageRect, PermissionPrompt, TabId } from '@scbrowser/shared'
 
+/** How often open reading-list pages are checked for how far down they've been read. */
+const READING_PROGRESS_MS = 15_000
+
 const SYNC_FIRST_MS = 20_000
 const SYNC_EVERY_MS = 10 * 60_000
 const WORKSPACES_KEY = 'workspaces'
@@ -493,6 +496,13 @@ export class BrowserCore {
     app.on('will-quit', stopFocus)
     const stopSchedules = this.startWorkspaceSchedules()
     app.on('will-quit', stopSchedules)
+    // How far down pages on the reading list have been read, from tabs showing them.
+    const readingTimer = setInterval(() => {
+      if (!this.readingList) return
+      void this.readingList.noteProgress(this.windows.flatMap((handle) => (handle.kind === 'browser' ? handle.tabs.allContents() : [])))
+    }, READING_PROGRESS_MS)
+    readingTimer.unref?.()
+    app.on('will-quit', () => clearInterval(readingTimer))
   }
 
   /**

@@ -15,7 +15,8 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 test.beforeEach(async () => {
   mock = await startAiMock()
   site = await serveSite({
-    '/alpha': titled('Alpha page')
+    '/alpha': titled('Alpha page'),
+    '/other': titled('Other page')
   })
   h = await launch()
 })
@@ -135,6 +136,9 @@ test('search and shortcuts open in the same tab', async () => {
 test('the search box suggests bookmarks and history, with keyboard picking', async () => {
   await go(h, site.url('/alpha'))
   await expect(activeTab(h)).toContainText('Alpha page')
+  // Still open, the page would be offered as Switch to tab in place of its history row.
+  await go(h, site.url('/other'))
+  await expect(activeTab(h)).toContainText('Other page')
   await h.chrome.evaluate(() => window.scb.invoke('tabs:create'))
   await expect(h.chrome.getByRole('tab')).toHaveCount(2)
   const page = await newTab()

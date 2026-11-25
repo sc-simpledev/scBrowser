@@ -14,6 +14,8 @@ export interface BrowserActions {
   openInBrowser: () => void
   focusOmnibox: () => void
   openFind: () => void
+  /** Opens the find bar on these words, for the tab that's just been brought up. */
+  findText: (text: string, tabId: number) => void
   toggleBookmark: () => void
   toggleBookmarksBar: () => void
   toggleFullscreen: () => void
@@ -52,6 +54,14 @@ export interface BrowserActions {
   /** False after "Remove VPN", which hides its menu rows. */
   vpnInstalled: () => boolean
   askAssistant: (prompt: AssistantPrompt) => void
+  /** Sends the picture at this point of the page to the side assistant, to ask about. */
+  askAboutImage: (contents: WebContents, src: string, x: number, y: number) => void
+  /** Now playing's menu for a tab: speed, picture in picture, mute. */
+  mediaMenu: (tabId: number, x: number, y: number) => void
+  /** Now playing's buttons. */
+  mediaAction: (tabId: number, action: 'toggle' | 'pip' | 'focus') => void
+  /** How the assistant writes replies, as a menu at this point of the window. */
+  styleMenu: (x: number, y: number) => void
   quit: () => void
   openPrivateWindow: () => void
   installUpdate: () => void

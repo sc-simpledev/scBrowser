@@ -116,3 +116,27 @@ export function videoTimeUrl(url: string, seconds: number | null): string {
   parsed.searchParams.set('t', `${seconds}s`)
   return parsed.toString()
 }
+
+/** Text directives treat `-`, `,` and `&` as their own punctuation, so those are escaped too. */
+const fragmentText = (text: string) => encodeURIComponent(text).replace(/-/g, '%2D')
+
+const LONG_HIGHLIGHT = 80
+const HIGHLIGHT_EDGE_WORDS = 5
+
+/**
+ * A link that opens the page scrolled to the selected words and marks them, as Chrome's
+ * "Copy link to highlight" does. Long selections are named by their first and last few words.
+ * Null when there's nothing to point at.
+ */
+export function highlightLink(pageUrl: string, selection: string): string | null {
+  if (!/^https?:/i.test(pageUrl) || !URL.canParse(pageUrl)) return null
+  const text = selection.replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  const parsed = new URL(pageUrl)
+  const words = text.split(' ')
+  parsed.hash =
+    text.length <= LONG_HIGHLIGHT || words.length <= HIGHLIGHT_EDGE_WORDS * 2
+      ? `:~:text=${fragmentText(text)}`
+      : `:~:text=${fragmentText(words.slice(0, HIGHLIGHT_EDGE_WORDS).join(' '))},${fragmentText(words.slice(-HIGHLIGHT_EDGE_WORDS).join(' '))}`
+  return parsed.toString()
+}

@@ -302,16 +302,37 @@ function ScheduleCard({ schedule, running, onEdit, update, onStarted }: { schedu
   )
 }
 
-/** One brief to read: its first lines while folded, all of it with its sources when open. */
-/** A question about one brief, answered under it. Asking again replaces the answer; nothing is kept. */
-function AskBrief({ issue }: { issue: BriefIssue }) {
+/**
+ * A question about one brief, answered under it. Asking again replaces the answer, unless "Keep my
+ * questions" is on: then each one stays with the brief, to read again later.
+ */
+function AskBrief({ issue, keep, onKept }: { issue: BriefIssue; keep: boolean; onKept: (state: BriefState) => void }) {
   const [question, setQuestion] = useState('')
   const [asked, setAsked] = useState<string | null>(null)
   const [answer, setAnswer] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const busy = asked !== null && answer === null && problem === null
+  const kept = issue.questions ?? []
   return (
     <div className="flex flex-col gap-2.5">
+      {kept.map((entry) => (
+        <div key={entry.askedAt} className="group/kept flex flex-col gap-1.5">
+          <div className="flex items-start justify-end gap-1">
+            <IconButton
+              size="sm"
+              label="Forget this question"
+              className="opacity-0 transition-opacity group-hover/kept:opacity-100 focus-visible:opacity-100"
+              onClick={() => void api().invoke('briefs:forget-question', issue.id, entry.askedAt).then(onKept)}
+            >
+              <X size={12} strokeWidth={2} />
+            </IconButton>
+            <p className="rounded-lg bg-surface-hover px-3 py-1.5 text-sm">{entry.question}</p>
+          </div>
+          <div className="select-text">
+            <ReplyMarkdown text={entry.answer} onOpenLink={openLink} sources={issue.sources} onOpenSource={openSource} />
+          </div>
+        </div>
+      ))}
       <form
         aria-label={`Ask about ${issue.title}`}
         className="flex items-center gap-2 rounded-lg border border-border bg-field py-1 pr-1 pl-3 transition-colors focus-within:border-border-strong"
@@ -325,7 +346,13 @@ function AskBrief({ issue }: { issue: BriefIssue }) {
           setQuestion('')
           api()
             .invoke('briefs:ask', issue.id, text)
-            .then((reply) => (reply ? setAnswer(reply) : setProblem('The AI sent back nothing. Try again.')))
+            .then(async (reply) => {
+              if (!reply) return setProblem('The AI sent back nothing. Try again.')
+              if (!keep) return setAnswer(reply)
+              // Kept with the brief: it shows in the list above once the brief is read again.
+              onKept(await api().invoke('briefs:state'))
+              setAsked(null)
+            })
             .catch((error: unknown) => setProblem(cleanError(error)))
         }}
       >
@@ -478,7 +505,7 @@ function FollowForm({ initial, onFollow, onCancel }: { initial: string; onFollow
   )
 }
 
-function IssueCard({ issue, open, onToggle, onDelete, canFollow, onFollow, icons }: { issue: BriefIssue; open: boolean; onToggle: () => void; onDelete: () => void; canFollow: boolean; onFollow: (story: string) => Promise<void>; icons: Record<string, string> }) {
+function IssueCard({ issue, open, onToggle, onDelete, canFollow, onFollow, icons, keepQuestions, onState }: { issue: BriefIssue; open: boolean; onToggle: () => void; onDelete: () => void; canFollow: boolean; onFollow: (story: string) => Promise<void>; icons: Record<string, string>; keepQuestions: boolean; onState: (state: BriefState) => void }) {
   const speech = useSpeak(issue.id)
   const preview = briefPreview(issue.text)
   const sources = issue.sources.filter((source) => !/duckduckgo\.com$/.test(hostOf(source.url)) && /^https?:/i.test(source.url))
@@ -594,7 +621,7 @@ function IssueCard({ issue, open, onToggle, onDelete, canFollow, onFollow, icons
               </ol>
             </div>
           )}
-          <AskBrief issue={issue} />
+          <AskBrief issue={issue} keep={keepQuestions} onKept={onState} />
         </div>
       )}
     </article>
@@ -817,6 +844,8 @@ export function BriefsPage() {
                   onDelete={() => void update(api().invoke('briefs:delete-issue', issue.id))}
                   canFollow={(state.schedules.find((schedule) => schedule.id === issue.scheduleId)?.source ?? 'web') === 'web' && state.schedules.some((schedule) => schedule.id === issue.scheduleId)}
                   onFollow={async (story) => setState(await api().invoke('briefs:follow', issue.scheduleId, story))}
+                  keepQuestions={state.prefs.keepQuestions}
+                  onState={setState}
                   icons={icons}
                 />
               ))}
@@ -857,6 +886,13 @@ export function BriefsPage() {
             <span className="text-xs text-text-faint">A system notification while scTerra is open.</span>
           </span>
           <Switch label="Notify me when a brief is ready" checked={state.prefs.notify} onChange={(notify) => void update(api().invoke('briefs:prefs', { notify }))} />
+        </label>
+        <label className="flex items-center justify-between gap-4">
+          <span className="flex flex-col">
+            <span>Keep my questions</span>
+            <span className="text-xs text-text-faint">Follow-up questions and their answers stay with each brief, on this computer. Turning this off forgets them.</span>
+          </span>
+          <Switch label="Keep my questions" checked={state.prefs.keepQuestions} onChange={(keepQuestions) => void update(api().invoke('briefs:prefs', { keepQuestions }))} />
         </label>
       </section>
     </>

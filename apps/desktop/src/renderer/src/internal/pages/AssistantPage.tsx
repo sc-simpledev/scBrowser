@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronRight, Code2, Pencil, Plug, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, Code2, Download, Pencil, Plug, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
@@ -554,6 +554,17 @@ export function AssistantPage() {
             <PanelLeft size={15} strokeWidth={1.75} />
           </IconButton>
           <ViewSwitch view={view} onChange={setView} />
+          {!empty && (
+            <IconButton
+              size="sm"
+              label="Save chat as Markdown"
+              className="ml-auto"
+              disabled={!!streamId}
+              onClick={() => void api().invoke('chats:export', turns.filter((turn) => turn.content && !turn.error).map(({ role, content, pageTitle }) => ({ role, content, ...(pageTitle ? { pageTitle } : {}) })))}
+            >
+              <Download size={15} strokeWidth={1.75} />
+            </IconButton>
+          )}
         </div>
         {empty ? (
           <div className="flex min-h-0 flex-1 flex-col justify-center pb-28">

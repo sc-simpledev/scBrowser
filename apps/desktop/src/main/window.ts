@@ -1,6 +1,8 @@
 import { studySession } from './focusTimer'
 import { extractContext } from './ai/pageText'
-import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont, VPN_PALETTE_IDS, ASK_COMMAND } from '@scbrowser/shared'
+import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont, VPN_PALETTE_IDS, ASK_COMMAND, MEDIA_SPEEDS, REPLY_STYLES } from '@scbrowser/shared'
+import { pictureAt } from './imageAsk'
+import { tabTextMatches } from './tabText'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
 import { existsSync } from 'node:fs'
@@ -299,6 +301,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     newTabPage: (target): string | null => extensions.newTabPage(target),
     engine: () => engineById(settings.get().searchEngine),
+    keywords: () => settings.get().searchKeywords,
+    autoPictureInPicture: () => settings.get().autoPictureInPicture,
     errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
     prepareSession: (target) => core.prepareSession(target),
     onLogin: (contents, details, info, respond) => httpAuth.ask(contents, details, info, respond),
@@ -339,7 +343,11 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     focusOmnibox,
     openFind: () => {
       chromeUi.focus()
-      send('ui:open-find')
+      send('ui:open-find', null)
+    },
+    findText: (text, tabId) => {
+      chromeUi.focus()
+      send('ui:open-find', { text, tabId })
     },
     toggleBookmark: () => {
       const active = tabs.active
@@ -523,6 +531,55 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (contents) void takeScreenshot(contents).catch(() => notify("Couldn't save the screenshot"))
     },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
+    askAboutImage: (contents, src, x, y) => {
+      const url = contents.getURL()
+      if (URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)) return notify('AI is off for this site')
+      void pictureAt(contents, src, x, y).then((image) => {
+        if (!image) return notify("Couldn't read that image")
+        send('ui:assistant-prompt', { text: '', selection: null, includePage: false, image })
+      })
+    },
+    mediaAction: (id, action) => {
+      if (action === 'focus') return tabs.activate(id)
+      void tabs.mediaAction(id, action).then((found) => {
+        if (found === 0) notify(action === 'pip' ? 'No video to float on this page' : 'Nothing to play on this page')
+      })
+    },
+    mediaMenu: (id, x, y) => {
+      const state = tabs.snapshot().tabs.find((tab) => tab.id === id)
+      if (!state) return
+      const speed = state.mediaSpeed ?? 1
+      Menu.buildFromTemplate([
+        {
+          label: 'Speed',
+          submenu: MEDIA_SPEEDS.map((rate) => ({
+            label: rate === 1 ? 'Normal' : `${rate}×`,
+            type: 'radio' as const,
+            checked: speed === rate,
+            click: () => void tabs.setMediaSpeed(id, rate).then((found) => found === 0 && notify('Nothing playing on this page'))
+          }))
+        },
+        { label: 'Picture in picture', click: () => actions.mediaAction(id, 'pip') },
+        { label: state.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !state.muted) },
+        { type: 'separator' },
+        { label: 'Go to tab', click: () => tabs.activate(id) },
+        { label: 'Close tab', click: () => tabs.close(id) },
+        { type: 'separator' },
+        { label: 'Turn off Now playing', click: () => settings.set({ mediaControls: false }) }
+      ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+    },
+    styleMenu: (x, y) => {
+      const current = settings.get().replyStyle
+      Menu.buildFromTemplate([
+        { label: 'Reply style', enabled: false },
+        ...REPLY_STYLES.map((style) => ({
+          label: `${style.name}: ${style.description}`,
+          type: 'radio' as const,
+          checked: current === style.id,
+          click: () => settings.set({ replyStyle: style.id })
+        }))
+      ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+    },
     quit: () => app.quit(),
     openPrivateWindow: () => openPrivateWindow(settings.get(), bookmarks.list()),
     installUpdate: () => updates.install(),
@@ -734,7 +791,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       folder: () => settings.get().coderFolder,
       budget: () => settings.get().coderBudget
     },
-    () => settings.get().aiMemory
+    () => settings.get().aiMemory,
+    () => settings.get().replyStyle
   )
   const coderCloud = new CoderCloud({
     github: coderGithub,
@@ -783,10 +841,19 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       onPaletteClose: () => tabs.focusActive(),
       onAppLinkAnswer: (choice) => appLinks.answer(choice),
       onExtensionsAction: (action, id, x, y) => extensions.listAction(action, id, x, y, window),
-      onTabSearchPick: (id) => {
+      onTabSearchPick: (id, find) => {
         const owner = ownerOf(id)
         owner.tabs.reveal(id)
         if (owner.tabs !== tabs) owner.window.focus()
+        // A match inside the page: its find bar opens on the words.
+        if (find) ('actions' in owner ? owner.actions : actions).findText(find, id)
+      },
+      onTabSearchText: (query) => {
+        const handles = [{ tabs }, ...core.windows.filter((handle) => handle.kind === 'browser' && handle.tabs !== tabs)]
+        return tabTextMatches(
+          query,
+          handles.flatMap((handle) => handle.tabs.searchRows().map((row) => ({ id: row.id, url: row.url, contents: handle.tabs.contentsFor(row.id) })))
+        )
       },
       onTabSearchRemove: (id) => ownerOf(id).tabs.close(id),
       accent: () => settings.get().accent,

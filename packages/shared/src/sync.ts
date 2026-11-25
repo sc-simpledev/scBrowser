@@ -1,3 +1,4 @@
+import type { FolderEntry } from './library'
 import type { Settings } from './settings'
 
 export interface SyncStatus {
@@ -25,6 +26,21 @@ export interface SyncData {
   placements?: Record<string, string>
   /** The folder each folder sits inside, by name. */
   folders?: Record<string, string>
+  /** The order of what's in each folder by name, and on the bar under '', as `orderKey`s. */
+  order?: Record<string, string[]>
+}
+
+/** How a bookmark or folder is named in a synced order: by address and by name, as ids differ between devices. */
+export const orderKey = (entry: FolderEntry): string => (entry.kind === 'group' ? `f:${entry.item.name}` : `b:${entry.item.url}`)
+
+/** Puts items in a synced order: the ones it names first, as it has them, then the rest as they were. */
+export function inSyncedOrder<T>(items: readonly T[], keyOf: (item: T) => string, wanted: readonly string[]): T[] {
+  const rank = new Map(wanted.map((key, index) => [key, index]))
+  const at = (item: T) => rank.get(keyOf(item)) ?? Number.MAX_SAFE_INTEGER
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => at(a.item) - at(b.item) || a.index - b.index)
+    .map(({ item }) => item)
 }
 
 export const EMPTY_SYNC: SyncData = { bookmarks: {}, history: {}, settings: {} }
@@ -80,10 +96,13 @@ export function mergeSync(base: SyncData, local: SyncData, remote: SyncData): Sy
   const groups = remote.groups ? mergeEntries(base.groups ?? {}, local.groups ?? {}, remote.groups) : (local.groups ?? {})
   const placements = remote.placements ? mergeEntries(base.placements ?? {}, local.placements ?? {}, remote.placements) : (local.placements ?? {})
   const folders = remote.folders ? mergeEntries(base.folders ?? {}, local.folders ?? {}, remote.folders) : (local.folders ?? {})
+  // When both devices reordered the same folder, this one's order stands.
+  const order = remote.order ? mergeEntries(base.order ?? {}, local.order ?? {}, remote.order) : (local.order ?? {})
   return {
     groups,
     placements,
     folders,
+    order,
     bookmarks: mergeEntries(base.bookmarks, local.bookmarks, remote.bookmarks),
     history: recent(mergeEntries(base.history, local.history, remote.history, newestVisit)),
     settings: mergeEntries(base.settings, local.settings, remote.settings) as Partial<Settings>

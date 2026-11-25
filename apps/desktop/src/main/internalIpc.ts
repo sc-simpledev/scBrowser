@@ -8,7 +8,7 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { BrowserActions } from './actions'
@@ -18,6 +18,7 @@ import type { DownloadManager } from './downloads'
 import type { ExtensionManager } from './extensions'
 import { readBackground, removeBackground, saveBackground } from './internal/background'
 import { isAssistantRequest, isTurns } from './ipc'
+import { saveChatMarkdown } from './chatExport'
 import { allowBasicPdf, fetchPdf, pdfSource } from './internal/pdf'
 import { readFlags, setFlag } from './flags'
 import { listPrinters, printWith } from './printing'
@@ -60,7 +61,7 @@ const ACTIONS: DownloadAction[] = ['pause', 'resume', 'cancel', 'open', 'show', 
 interface InternalServices {
   window: BaseWindow
   tabs: TabManager
-  actions: Pick<BrowserActions, 'toggleAssistant' | 'togglePalette'>
+  actions: Pick<BrowserActions, 'toggleAssistant' | 'togglePalette' | 'askAssistant'>
   settings: SettingsStore
   history: HistoryRepo
   bookmarks: BookmarksRepo
@@ -503,20 +504,38 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'newtab:top-sites': (limit) => history.top(Math.min(int(limit), 24)).filter((entry) => isHttpUrl(entry.url)),
     'newtab:suggest': async (query) => {
       const input = text(query, 1024)
-      const { searchEngine, searchSuggestions, suggestionSources, addressCalculator } = settings.get()
+      const { searchEngine, searchSuggestions, suggestionSources, addressCalculator, searchKeywords } = settings.get()
       const engine = engineById(searchEngine)
       const phrases = searchSuggestions ? await fetchSearchSuggestions(input, engine).catch(() => []) : []
+      // Same rows as the address bar, apart from asking about the page: a new tab has none.
       return buildSuggestions(input, {
         history: history.search(input),
         bookmarks: bookmarks.list(),
-        tabs: [],
-        activeTabId: null,
+        tabs: tabs.snapshot().tabs,
+        activeTabId: caller ? tabs.tabIdFor(caller) : null,
         searchSuggestions: phrases,
         engine,
-        assistantReady: false,
+        assistantReady: !!aiStore.roles().chat,
         calculator: addressCalculator,
-        sources: suggestionSources.filter((source) => source === 'history' || source === 'bookmarks')
-      })
+        sources: suggestionSources,
+        keywords: searchKeywords
+      }).filter((row) => row.kind !== 'ask-page')
+    },
+    'newtab:switch-tab': (id) => {
+      const tabId = int(id)
+      if (!tabs.snapshot().tabs.some((tab) => tab.id === tabId)) return
+      // The new tab it was picked from has done its job.
+      const from = caller ? tabs.tabIdFor(caller) : null
+      tabs.activate(tabId)
+      if (from !== null && from !== tabId && isNewTabUrl(tabs.snapshot().tabs.find((tab) => tab.id === from)?.url ?? '')) tabs.close(from)
+    },
+    'newtab:ask': (question) => {
+      const words = text(question, 4000).trim()
+      if (words) actions.askAssistant({ text: words, selection: null, includePage: false })
+    },
+    'chats:export': (turns) => {
+      if (!isTurns(turns)) throw new Error('Invalid chat')
+      return saveChatMarkdown(window, turns, settings.get().downloadDir)
     },
     'newtab:go': (input) => {
       const id = caller && tabs.tabIdFor(caller)
@@ -798,6 +817,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'briefs:issue': (id) => core.briefs?.issues().find((issue) => issue.id === text(id, 64)) ?? null,
     'briefs:ask': (id, question) => briefs().ask(text(id, 64), text(question, MAX_BRIEF_QUESTION)),
+    'briefs:forget-question': (id, askedAt) => {
+      briefs().forgetQuestion(text(id, 64), int(askedAt))
+      return briefs().state()
+    },
     'briefs:follow': (id, story) => {
       briefs().follow(text(id, 64), text(story, 2_000))
       return briefs().state()
@@ -880,7 +903,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const item = core.readingList?.get(text(id, 64))
       if (!item || !/^(https?|file):/i.test(item.url)) return
       core.readingList!.patch(item.id, { readAt: item.readAt ?? Date.now() })
-      tabs.create(item.url, { afterId: tabs.active?.id })
+      const opened = tabs.create(item.url, { afterId: tabs.active?.id })
+      // Half-read: it opens where it was left.
+      const contents = tabs.contentsFor(opened)
+      if (contents) core.readingList!.resume(contents, item)
     },
     'reading:set-read': (id, read) => core.readingList?.patch(text(id, 64), { readAt: read === true ? Date.now() : null }),
     'reading:remove': (id) => core.readingList?.remove(text(id, 64)),

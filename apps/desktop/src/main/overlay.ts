@@ -21,6 +21,8 @@ import {
   type PermissionPopupState,
   type TabId,
   type TabSearchRow,
+  type TabTextMatch,
+  MAX_TAB_TEXT_QUERY,
   type TabSearchState,
   type WorkspaceEdit,
   type WorkspaceEditorState,
@@ -75,7 +77,8 @@ export class Overlay {
       onPaletteClose: () => void
       onAppLinkAnswer: (choice: 'open' | 'always' | 'cancel') => void
       onExtensionsAction: (action: 'open' | 'pin' | 'menu' | 'store' | 'manage', id: string, x: number, y: number) => void
-      onTabSearchPick: (id: TabId) => void
+      onTabSearchPick: (id: TabId, find: string | null) => void
+      onTabSearchText: (query: string) => Promise<TabTextMatch[]>
       onTabSearchRemove: (id: TabId) => void
       accent: () => AccentId
       performance: () => boolean
@@ -227,11 +230,16 @@ export class Overlay {
       if (!Number.isInteger(id)) throw new Error('Invalid tab')
       return id as TabId
     }
-    handle('overlay:tab-search-pick', (id) => {
+    handle('overlay:tab-search-pick', (id, find) => {
       const tab = tabArg(id)
+      if (find !== undefined && (typeof find !== 'string' || find.length > MAX_TAB_TEXT_QUERY)) throw new Error('Invalid arguments')
       this.tabSearch = null
       this.render()
-      this.hooks.onTabSearchPick(tab)
+      this.hooks.onTabSearchPick(tab, find?.trim() ? find.trim() : null)
+    })
+    handle('overlay:tab-search-text', (query) => {
+      if (typeof query !== 'string' || query.length > MAX_TAB_TEXT_QUERY) throw new Error('Invalid arguments')
+      return this.hooks.onTabSearchText(query)
     })
     handle('overlay:tab-search-remove', (id) => this.hooks.onTabSearchRemove(tabArg(id)))
     handle('overlay:tab-search-close', () => this.closeTabSearch())

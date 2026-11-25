@@ -143,7 +143,12 @@ export function HistoryPage() {
                       <span className="truncate font-medium">{row.host}</span>
                       <span className="shrink-0 rounded-sm bg-surface-active px-1.5 text-2xs text-text-muted tabular-nums">{row.entries.length} pages</span>
                     </span>
-                    <span className="min-w-0 max-w-60 truncate text-xs text-text-faint">{timeLabel(row.entries.at(-1)!.lastVisit)} to {timeLabel(row.entries[0]!.lastVisit)}</span>
+                    {/* The span of the visits, when there is one: the first time is already at the start of the row. */}
+                    {timeLabel(row.entries.at(-1)!.lastVisit) !== timeLabel(row.entries[0]!.lastVisit) && (
+                      <span className="min-w-0 max-w-60 truncate text-xs text-text-faint">
+                        {timeLabel(row.entries.at(-1)!.lastVisit)} to {timeLabel(row.entries[0]!.lastVisit)}
+                      </span>
+                    )}
                   </button>
                   {open && (
                     <ul aria-label={`Pages on ${row.host}`} className="ml-[5.25rem] border-l border-border pl-1">

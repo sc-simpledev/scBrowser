@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
-import { EMPTY_SYNC, LOCAL_SETTINGS, MAX_SYNCED_HISTORY, mergeSync, sanitizeSettings, type Settings, type SyncData, type SyncStatus } from '@scbrowser/shared'
+import { EMPTY_SYNC, folderItems, inSyncedOrder, LOCAL_SETTINGS, orderKey, MAX_SYNCED_HISTORY, mergeSync, sanitizeSettings, type Settings, type SyncData, type SyncStatus } from '@scbrowser/shared'
 import type { SettingsStore } from './settings'
 import type { BookmarksRepo } from './storage/bookmarks'
 import type { HistoryRepo } from './storage/history'
@@ -196,6 +196,7 @@ export class SyncService {
       groups: Object.fromEntries(groups.map(({ name }) => [name, true as const])),
       folders: Object.fromEntries(groups.flatMap(({ name, parentId }) => (parentId !== null && names.has(parentId) ? [[name, names.get(parentId)!]] : []))),
       placements: Object.fromEntries(bookmarks.list().flatMap(({ url, groupId }) => (groupId !== null && names.has(groupId) ? [[url, names.get(groupId)!]] : []))),
+      order: this.orderNow(),
       bookmarks: Object.fromEntries(bookmarks.list().map(({ url, title }) => [url, title])),
       // With history switched off, leave what's in the folder as it is.
       history: current.syncHistory ? visits : base.history,
@@ -262,7 +263,32 @@ export class SyncService {
       bookmarks.setGroup(id, target)
       changed = true
     }
+    // Last, once everything is in its folder: the order inside each one, and on the bar.
+    const list = bookmarks.list()
+    const folders = bookmarks.groups()
+    for (const [name, wanted] of Object.entries(merged.order ?? {})) {
+      const folder = name === '' ? null : ids.get(name)
+      if (folder === undefined) continue
+      const current = folderItems(list, folders, folder)
+      const next = inSyncedOrder(current, orderKey, wanted)
+      if (next.every((entry, index) => entry === current[index])) continue
+      bookmarks.arrange(next.map((entry) => ({ kind: entry.kind, id: entry.item.id })))
+      changed = true
+    }
     return changed
+  }
+
+  /** The order of each folder with two or more things in it, and of the bar. */
+  private orderNow(): Record<string, string[]> {
+    const { bookmarks } = this.deps
+    const list = bookmarks.list()
+    const groups = bookmarks.groups()
+    return Object.fromEntries(
+      [{ id: null, name: '' }, ...groups].flatMap(({ id, name }) => {
+        const keys = folderItems(list, groups, id).map(orderKey)
+        return keys.length > 1 ? [[name, keys]] : []
+      })
+    )
   }
 
   /** The merge also drops the oldest visits to stay small; those stay on this device. */

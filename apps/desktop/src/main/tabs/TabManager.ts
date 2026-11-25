@@ -20,6 +20,7 @@ import {
   type CleanupInput,
   type PageRect,
   type SearchEngine,
+  type SearchKeyword,
   type TabId,
   type TabSearchRow,
   type TabState,
@@ -27,6 +28,7 @@ import {
   type Workspace, PDF_PAGE_URL, MAX_TREE_DEPTH } from '@scbrowser/shared'
 import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
 import { tabIcon } from '../siteIcons'
+import { runMedia, setMediaSpeed } from '../media'
 
 /** A tab as saved to disk or held while asleep; `entries` is its back/forward list. */
 export interface SavedTab {
@@ -114,6 +116,10 @@ interface TabManagerOptions {
   onPageRect?: (rect: PageRect) => void
   /** A sidebar is being dragged, so other native views step aside too. */
   onResizing?: (resizing: boolean) => void
+  /** Words that search one site from the address bar, like `yt cats`. */
+  keywords?: () => readonly SearchKeyword[]
+  /** A playing video floats in picture in picture when its tab is left. */
+  autoPictureInPicture?: () => boolean
 }
 
 const PAGE_RADIUS = 0
@@ -475,6 +481,7 @@ export class TabManager {
     tab.state.isSleeping = true
     tab.state.isLoading = false
     tab.state.audible = false
+    tab.state.media = null
     this.emitChange()
     return true
   }
@@ -506,6 +513,24 @@ export class TabManager {
     tab.state.muted = muted
     tab.view?.webContents.setAudioMuted(muted)
     this.emitChange()
+  }
+
+  /** Now playing's play/pause and picture in picture. Resolves to how many players were found. */
+  async mediaAction(id: TabId, action: 'toggle' | 'pip'): Promise<number> {
+    const contents = this.tabs.get(id)?.view?.webContents
+    if (!contents) return 0
+    if (action === 'pip') return runMedia(contents, 'pip')
+    return runMedia(contents, this.tabs.get(id)!.state.media === 'playing' ? 'pause' : 'play')
+  }
+
+  /** Sets the speed of every player in the tab, and keeps it for players that start later on the same page. */
+  async setMediaSpeed(id: TabId, rate: number): Promise<number> {
+    const tab = this.tabs.get(id)
+    const contents = tab?.view?.webContents
+    if (!tab || !contents) return 0
+    tab.state.mediaSpeed = rate === 1 ? undefined : rate
+    this.emitChange()
+    return setMediaSpeed(contents, rate)
   }
 
   /** Every tab, in any workspace, for tab search. */
@@ -655,6 +680,7 @@ export class TabManager {
     if (this.activeId !== null && this.activeId !== id) {
       const previous = this.tabs.get(this.activeId)
       if (previous) {
+        if (previous.state.media === 'playing' && previous.view && this.options.autoPictureInPicture?.()) void runMedia(previous.view.webContents, 'enterPip')
         this.leaveFullscreen(previous)
         previous.view?.setVisible(false)
         previous.lastActiveAt = Date.now()
@@ -663,6 +689,8 @@ export class TabManager {
     }
     this.activeId = id
     this.unfoldTo(id)
+    // Back on a page whose video was floated: it comes back into the page.
+    if (next.view && this.options.autoPictureInPicture?.()) void runMedia(next.view.webContents, 'leavePip')
     this.wake(next)
     next.lastActiveAt = Date.now()
     this.applyBounds()
@@ -812,7 +840,7 @@ export class TabManager {
     this.wake(tab)
     const contents = tab.view!.webContents
     this.selfLoads.delete(contents)
-    void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine())))
+    void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine(), this.options.keywords?.() ?? [])))
     contents.focus()
   }
 
@@ -1417,6 +1445,7 @@ export class TabManager {
     if (contents && !contents.isDestroyed()) contents.close()
     tab.view = null
     tab.state.audible = false
+    tab.state.media = null
   }
 
   private toSaved(tab: Tab): SavedTab {
@@ -1490,9 +1519,12 @@ export class TabManager {
         void contents.loadURL(this.options.errorUrl(url, 'This page kept reloading itself, so scTerra stopped it. Try again, or turn off tracker blocking or cookie banner rejection for this site in its site controls.')).catch(() => undefined)
       }, 0)
     })
+    // Now playing is for sound: a muted video looping on a news page shouldn't bring it up.
+    let playingSilently = false
     contents.on('did-navigate', (_e, url) => {
       if (remembersZoom(url)) contents.setZoomFactor(this.options.zoomFor(url))
-      sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100) })
+      playingSilently = false
+      sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100), media: null, mediaSpeed: undefined })
       this.options.onVisit(url)
     })
     contents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -1524,7 +1556,21 @@ export class TabManager {
     contents.on('found-in-page', (_e, result) =>
       this.options.onFound({ active: result.activeMatchOrdinal, total: result.matches })
     )
-    contents.on('audio-state-changed', ({ audible }) => sync({ audible }))
+    contents.on('audio-state-changed', ({ audible }) => {
+      const heard = audible && (playingSilently || state.media === 'paused')
+      if (heard) playingSilently = false
+      sync({ audible, ...(heard ? { media: 'playing' as const } : {}) })
+    })
+    contents.on('media-started-playing', () => {
+      if (state.audible || state.media) sync({ media: 'playing' })
+      else playingSilently = true
+      // A speed picked in Now playing carries on to the next video on the same page.
+      if (state.mediaSpeed) void setMediaSpeed(contents, state.mediaSpeed)
+    })
+    contents.on('media-paused', () => {
+      playingSilently = false
+      if (state.media) sync({ media: 'paused' })
+    })
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 
     contents.on('dom-ready', () => this.options.onDomReady?.(contents))
@@ -1535,7 +1581,7 @@ export class TabManager {
     contents.on('render-process-gone', (_e, { reason }) => {
       if (reason === 'clean-exit') return
       // A page that died sends no more news, and would keep its spinner and sound icon.
-      sync({ isLoading: false, audible: false })
+      sync({ isLoading: false, audible: false, media: null })
       void contents.loadURL(this.options.errorUrl(effectiveUrl(state.url), 'This page stopped working.')).catch(() => undefined)
     })
 

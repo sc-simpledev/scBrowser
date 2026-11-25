@@ -2,13 +2,15 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { FiltersEngine, Request } from '@ghostery/adblocker'
 import { app, type OnBeforeRequestListenerDetails, type Session, type WebContents } from 'electron'
-import { httpsUpgrade, type Settings } from '@scbrowser/shared'
+import { cleanUrl, httpsUpgrade, type Settings } from '@scbrowser/shared'
 import { isBasicPdf, isPdfResponse } from '../internal/pdf'
 import type { SettingsStore } from '../settings'
 import type { KeyValueRepo } from '../storage/kv'
 
 const OFF_HOSTS = 'privacy:off-hosts'
 const MAX_REMEMBERED_UPGRADES = 200
+/** A site that puts tracking tags back after they were taken off gets its way for this long. */
+const CLEAN_AGAIN_MS = 30_000
 const ISOLATED_WORLD = 1002
 
 /** The classes and ids on a page, which pick out the rules it needs. */
@@ -63,6 +65,8 @@ export class PrivacyService {
   /** Sites where the person chose plain HTTP after the upgrade failed. Forgotten on restart. */
   private readonly httpAllowed = new Set<string>()
   private readonly upgraded = new Map<string, string>()
+  /** Addresses whose tracking tags were just taken off, so a site that puts them back can't loop. */
+  private readonly cleaned = new Map<string, number>()
   /** Checked on every request, so it's kept in memory rather than read from the database. */
   private readonly off: Set<string>
 
@@ -171,6 +175,8 @@ export class PrivacyService {
 
   private decide(details: OnBeforeRequestListenerDetails) {
     if (details.resourceType === 'mainFrame') {
+      const clean = this.cleanTarget(details)
+      if (clean) return { redirectURL: clean }
       const target = this.settings.get().httpsOnly && !this.httpAllowed.has(new URL(details.url).host) ? httpsUpgrade(details.url) : null
       if (target) {
         this.rememberUpgrade(target, details.url)
@@ -191,6 +197,18 @@ export class PrivacyService {
     )
     if (match && webContentsId !== undefined) this.options.onBlocked(webContentsId, url)
     return match
+  }
+
+  /** The address without tracking tags, for a page load where that's wanted and hasn't just been tried. */
+  private cleanTarget({ url, method }: OnBeforeRequestListenerDetails): string | null {
+    if (!this.settings.get().cleanLinks || method !== 'GET' || !/^https?:/i.test(url)) return null
+    const clean = cleanUrl(url)
+    if (clean === url || this.off.has(new URL(url).host)) return null
+    const now = Date.now()
+    if (now - (this.cleaned.get(url) ?? 0) < CLEAN_AGAIN_MS) return null
+    if (this.cleaned.size >= MAX_REMEMBERED_UPGRADES) this.cleaned.clear()
+    this.cleaned.set(url, now)
+    return clean
   }
 
   private rememberUpgrade(target: string, original: string): void {

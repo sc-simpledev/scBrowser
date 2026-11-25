@@ -1,7 +1,7 @@
 import { BookMarked, Check, Clock, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { pickForMinutes, type ReadingItem } from '@scbrowser/shared'
+import { isHalfRead, minutesLeft, pickForMinutes, type ReadingItem } from '@scbrowser/shared'
 import { api } from '../api'
 import { EmptyState } from '../EmptyState'
 import { ReplyMarkdown } from '../../shared/ReplyContent'
@@ -15,8 +15,9 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
   const [problem, setProblem] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const read = item.readAt !== null
+  const started = isHalfRead(item)
   return (
-    <li className="flex flex-col gap-2 rounded-lg bg-surface p-3 shadow-1">
+    <li className="relative flex flex-col gap-2 overflow-hidden rounded-lg bg-surface p-3 shadow-1">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <button type="button" className={cx('block max-w-full truncate text-left font-medium', read && 'text-text-muted')} onClick={() => void api().invoke('reading:open', item.id).then(reload)}>
@@ -24,7 +25,10 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
           </button>
           <div className="truncate text-xs text-text-faint">
             {hostOf(item.url)}
-            {typeof item.minutes === 'number' && ` · ${item.minutes} min read`} · Saved {new Date(item.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+            {started
+              ? ` · ${Math.round(item.progress! * 100)}% read${typeof item.minutes === 'number' ? `, about ${minutesLeft(item)} min left` : ''}`
+              : typeof item.minutes === 'number' && ` · ${item.minutes} min read`}{' '}
+            · Saved {new Date(item.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
           </div>
         </div>
         {item.summary ? (
@@ -65,6 +69,12 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
           <ReplyMarkdown text={item.summary} onOpenLink={openLink} />
         </div>
       )}
+      {/* How far down it's been read; it opens there again. */}
+      {started && (
+        <div role="progressbar" aria-label="Read so far" aria-valuenow={Math.round(item.progress! * 100)} aria-valuemin={0} aria-valuemax={100} className="absolute inset-x-0 bottom-0 h-0.5 bg-surface-active">
+          <div className="h-full bg-accent" style={{ width: `${item.progress! * 100}%` }} />
+        </div>
+      )}
     </li>
   )
 }
@@ -73,14 +83,14 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
 function QuickRead({ items, reload }: { items: ReadingItem[]; reload: () => void }) {
   const [minutes, setMinutes] = useState(10)
   const pick = pickForMinutes(items, minutes)
-  const timed = items.some((item) => item.readAt === null && typeof item.minutes === 'number')
+  const timed = items.some((item) => (item.readAt === null || isHalfRead(item)) && typeof item.minutes === 'number')
   if (!timed) return null
   return (
     <div className="flex h-6 items-center overflow-hidden rounded-sm border border-border">
       <button
         type="button"
         disabled={!pick}
-        title={pick ? `${pick.title || pick.url}, ${pick.minutes} min` : undefined}
+        title={pick ? `${pick.title || pick.url}, ${isHalfRead(pick) ? `${minutesLeft(pick)} min left` : `${pick.minutes} min`}` : undefined}
         onClick={() => pick && void api().invoke('reading:open', pick.id).then(reload)}
         className="flex h-full items-center gap-1 px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
       >

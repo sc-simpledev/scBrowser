@@ -42,6 +42,26 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.9.0',
+    date: '2026-11-25',
+    items: [
+      'Now playing: when a tab you aren’t looking at plays sound or video, a small control under the tabs (or in the toolbar) plays and pauses it, floats it in picture in picture, changes its speed or takes you back to it. Videos can also float by themselves when you switch tabs, in Settings.',
+      'Search keywords: type yt, wiki, gh, maps or ddg, a space and your search in the address bar to search that site. Tab after the keyword adds the space, and you can add your own in Settings.',
+      'Tab search (Ctrl Shift E) also finds words inside your open pages, and opens the tab with them found.',
+      'Right-click an image to ask the AI about it, or paste or drop a picture into the assistant’s box.',
+      'Reply styles for the assistant: Normal, Concise, Explanatory or Step by step, from the pen under its box.',
+      'Save a chat as a Markdown file, from the side assistant or the full-page one.',
+      'A skill gallery on the AI page: ready-made skills like Find the catch, Draft a reply and Quiz me, one click each.',
+      'Clean links: tracking tags like utm_source and fbclid come off addresses as pages open. Right-click a link for “Copy clean link”, or selected words for “Copy link to highlight”.',
+      'The new tab search box offers your open tabs and Ask rows, like the address bar.',
+      'Reading list: pages remember how far down you read, show it on their card, and open there again. “Read something in” offers to finish a half-read page first.',
+      'AI Briefs can keep your follow-up questions and answers with each brief, if you turn that on.',
+      'With tabs across the top, the focus timer can sit in the toolbar with its own play button.',
+      'Sync now carries the order of your bookmarks and folders.',
+      'Fixed: scTerra had no icon in the Linux app menu or on a pinned taskbar button. Smaller things: the find bar says when nothing matches, tab search marks the words it found, and the Task Manager names the popup layer.'
+    ]
+  },
+  {
     version: '0.8.0',
     date: '2026-11-23',
     items: [

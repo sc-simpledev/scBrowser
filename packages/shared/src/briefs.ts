@@ -53,7 +53,19 @@ export interface BriefIssue {
   sources: CitationSource[]
   /** Not yet looked at. */
   unseen: boolean
+  /** Follow-up questions and their answers, kept only while "Keep my questions" is on. */
+  questions?: BriefQuestion[]
 }
+
+export interface BriefQuestion {
+  question: string
+  /** Markdown, citing the brief's sources by number. */
+  answer: string
+  askedAt: number
+}
+
+/** Kept questions per brief; the oldest go first. */
+export const MAX_KEPT_QUESTIONS = 10
 
 export interface BriefInput {
   title: string
@@ -83,9 +95,11 @@ export interface BriefPrefs {
   openOnStart: boolean
   /** A system notification when one is ready. */
   notify: boolean
+  /** Keeps follow-up questions and their answers with the brief, to read again later. */
+  keepQuestions: boolean
 }
 
-export const DEFAULT_BRIEF_PREFS: BriefPrefs = { openOnStart: true, notify: true }
+export const DEFAULT_BRIEF_PREFS: BriefPrefs = { openOnStart: true, notify: true, keepQuestions: false }
 
 export interface BriefState {
   schedules: BriefSchedule[]

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MAX_TWEAK_REQUEST, tweakCommand, conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { MAX_CHAT_IMAGES, MAX_TWEAK_REQUEST, tweakCommand, conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 import { STOP_NOTES } from '../shared/stopNotes'
 
@@ -23,7 +23,12 @@ export interface Turn extends SavedTurn {
   steps?: string[]
   /** Why the reply ended early, in words. */
   note?: string
+  /** A picture the person sent with this message. Kept for the conversation, not saved with the chat. */
+  image?: string
 }
+
+/** What's asked when a picture is sent with no words. */
+export const IMAGE_QUESTION = 'What does this picture show?'
 
 interface AssistantStore {
   open: boolean
@@ -39,6 +44,8 @@ interface AssistantStore {
   /** Searches the web for each message first. Stays on until turned off. */
   webSearch: boolean
   selection: string | null
+  /** A picture going with the next message, like an image from the page. */
+  image: string | null
   /** Other tabs @-mentioned for the next message. */
   mentions: number[]
   /** Messages become goals for the agent to carry out in this tab. */
@@ -54,6 +61,7 @@ interface AssistantStore {
   setIncludePage: (includePage: boolean) => void
   setWebSearch: (webSearch: boolean) => void
   clearSelection: () => void
+  clearImage: () => void
   setAgentMode: (agentMode: boolean) => void
   answerApproval: (allow: boolean) => void
   mention: (id: number) => void
@@ -84,6 +92,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   includePage: true,
   webSearch: false,
   selection: null,
+  image: null,
   mentions: [],
   agentMode: false,
   approval: null,
@@ -111,6 +120,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   setIncludePage: (includePage) => set({ includePage }),
   setWebSearch: (webSearch) => set({ webSearch }),
   clearSelection: () => set({ selection: null }),
+  clearImage: () => set({ image: null }),
   setAgentMode: (agentMode) => set({ agentMode }),
   answerApproval: (allow) => {
     const { approval } = get()
@@ -122,7 +132,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   unmention: (id) => set((s) => ({ mentions: s.mentions.filter((m) => m !== id) })),
   reset: () => {
     get().stop()
-    set({ turns: [], chatId: null, chats: null, report: null, selection: null, includePage: true, streamId: null })
+    set({ turns: [], chatId: null, chats: null, report: null, selection: null, image: null, includePage: true, streamId: null })
   },
 
   toggleChats: () => {
@@ -146,7 +156,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch } = get()
+    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch, image } = get()
     // "/tweak hide the sidebar" changes how the open site looks, rather than starting a reply.
     const tweak = tweakCommand(text)
     const tweakTab = useTabs.getState().activeId
@@ -163,17 +173,18 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
         })
       return
     }
-    if (streamId || !status.ready || !text.trim()) return
+    const words = text.trim() || (image ? IMAGE_QUESTION : '')
+    if (streamId || !status.ready || !words) return
     const id = crypto.randomUUID()
-    const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: text.trim() }]
-    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, chatId: chatId ?? crypto.randomUUID(), chats: null, mentions: [] })
+    const sent: Turn[] = [...turns.filter((t) => t.content && !t.error), { role: 'user', content: words, ...(image ? { image } : {}) }]
+    set({ turns: [...sent, { role: 'assistant', content: '' }], streamId: id, selection: null, image: null, chatId: chatId ?? crypto.randomUUID(), chats: null, mentions: [] })
     const tabId = useTabs.getState().activeId
-    if (agentMode && tabId !== null) {
+    if (agentMode && tabId !== null && !image) {
       void window.scb.invoke('ai:agent-start', id, text.trim(), tabId)
       return
     }
     void window.scb.invoke('ai:send', id, {
-      messages: sent.map(({ role, content }) => ({ role, content })),
+      messages: withPictures(sent),
       tabId,
       includePage,
       extraTabIds: withSplitPartner(mentions, includePage ? tabId : null),
@@ -187,8 +198,8 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     if (streamId) return
     const lastUser = turns.findLastIndex((turn) => turn.role === 'user')
     if (lastUser === -1) return
-    const text = turns[lastUser]!.content
-    set({ turns: turns.slice(0, lastUser) })
+    const { content: text, image } = turns[lastUser]!
+    set({ turns: turns.slice(0, lastUser), ...(image ? { image } : {}) })
     get().send(text)
   },
 
@@ -197,11 +208,17 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
     if (streamId) void window.scb.invoke('ai:cancel', streamId)
   },
 
-  applyPrompt: ({ text, selection, includePage }) => {
-    set((s) => ({ open: true, selection, includePage, focusRequest: s.focusRequest + 1 }))
+  applyPrompt: ({ text, selection, includePage, image }) => {
+    set((s) => ({ open: true, selection, includePage, focusRequest: s.focusRequest + 1, ...(image ? { image, agentMode: false } : {}) }))
     if (text) get().send(text)
   }
 }))
+
+/** Pictures go with every message of a chat, so a follow-up question can still see them; only the newest few fit. */
+function withPictures(turns: Turn[]) {
+  const pictured = turns.flatMap((turn, index) => (turn.image ? [index] : [])).slice(-MAX_CHAT_IMAGES)
+  return turns.map(({ role, content, image }, index) => ({ role, content, ...(image && pictured.includes(index) ? { images: [image] } : {}) }))
+}
 
 function saveChat() {
   const { chatId, turns } = useAssistant.getState()

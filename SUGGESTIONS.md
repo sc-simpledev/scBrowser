@@ -1,6 +1,6 @@
 # Suggestions: refinements for scTerra
 
-Ideas for polishing what's already there, not new features. Each one names where it lives so it can be picked up on its own. Roughly in order of how much difference they'd make day to day.
+Ideas for polishing what's already there (1 to 35), ideas for Terra Code (36 to 53) and new features (54 on). Each one names where it lives so it can be picked up on its own. Roughly in order of how much difference they'd make day to day.
 
 ## Built in 0.6.5
 
@@ -8,7 +8,11 @@ Items 1 to 13 are in 0.6.5: site icons and bold matches in address bar rows, Shi
 
 ## Built in 0.8.0
 
-15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 30, 31, 32 and 33 are in 0.8.0 (see CONTEXT.md). Still open: 14, 16, 21, 28, 29, 34 and 35. 25's shortcut on each palette row was already there; 0.8.0 added the "Ask scAI" row.
+15, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 30, 31, 32 and 33 are in 0.8.0 (see CONTEXT.md). 25's shortcut on each palette row was already there; 0.8.0 added the "Ask scAI" row.
+
+## Built in 0.9.0
+
+The last open refinements, 14, 16, 21, 28, 29, 34 and 35, are in 0.9.0, with ten of the new features below: 54, 56, 57, 58, 59, 60, 67, 69, 70 and 71 (see CONTEXT.md). 35 is a manual test set that spends real credit, so it hasn't been run. Still open from the new list: 55, 61 to 66, 68 and 72 to 79.
 
 ## New tab and briefs
 
@@ -82,3 +86,42 @@ Coding power:
 51. **Budgets.** A token or spending cap per session that stops the run when reached, shown in the panel's Context section.
 52. **Secret scanning.** Check diffs for keys and tokens before a commit, a push or a cloud run, and stop with the line that looks like one.
 53. **Task templates.** "Add tests", "Upgrade dependencies", "Write docs", as starters with good built-in prompts, beside the existing `STARTERS`.
+
+## New features (brainstormed after 0.8.0)
+
+New things rather than refinements, taken from Dia, Arc, Zen, Chrome, Firefox, Vivaldi, Raycast and Claude Code, and checked against what scTerra already has (compare tabs, `/remember` notes, link preview, site tweaks, research across tabs and tab sets are already in, so they aren't here).
+
+Browsing:
+
+54. **Find in all tabs.** Tab search (Ctrl Shift E) also looks inside the words of every awake tab, shows a line around each match, and picking one opens the tab and finds the words there. Nothing leaves the computer. From Arc's and Vivaldi's tab search, and Dia's idea that the browser knows what's in your tabs. `overlay/TabSearch.tsx`, a text read per tab in the main process.
+55. **Always open a site in a container or workspace.** "Always open github.com in Work" from the padlock's site controls; links and typed addresses to that site move there. Firefox Multi-Account Containers, Arc's Air Traffic Control. `SiteControls.tsx`, `TabManager.navigate`.
+56. **Clean links.** "Copy clean link" on links and pages strips `utm_*`, `fbclid`, `gclid` and friends, and Ctrl Shift C copies the page's clean address (Arc). A setting could strip them from links as they open (Firefox's and Brave's query stripping). A list in `shared/url.ts`.
+57. **Copy link to highlight.** Right-click selected words for a link that opens the page scrolled to them and marked (Chrome's text fragments). `citations.ts` already builds these.
+58. **Now playing.** When a tab you aren't looking at plays sound or video, a small control in the sidebar's foot (or the toolbar with tabs across the top): its site and title, play/pause, go to the tab, picture in picture. Arc's mini player. `TabManager`'s `media-started-playing` and `media-paused`, a component beside `SidebarTimer`.
+59. **Video speed and auto picture in picture.** Speed (0.5× to 3×) in the same control, and an opt-in to float a playing video when you switch away from its tab (Chrome's automatic picture in picture).
+60. **Search keywords.** `yt cats`, `gh electron`, `w Moon`, `maps cafe` in the address bar search that site, with Tab to turn the word into a chip; a list to edit in Settings. Firefox keywords, Chrome's site search. `shared/omnibox.ts`.
+61. **Link hints.** A shortcut puts a letter or two on every link and button, and typing them clicks it, so the keyboard can drive any page (Vimium, qutebrowser). Off by default; an isolated-world script.
+62. **Hide the toolbar.** The address bar shows when the pointer reaches the top or with Ctrl L, giving the page the whole height (Zen's compact mode, Arc). Pairs with the hiding sidebar from 0.7.4.
+63. **A little window for links from other apps.** Links from chat or mail apps open in a small window with "Open in scTerra" to move them into the main one, so a quick look doesn't add a tab (Little Arc). The installed-site window kind (`app`) is most of it.
+64. **QR code for this page.** In the page menu and padlock, drawn on the computer with no network, to take a page to a phone (Chrome).
+65. **Select several tabs.** Ctrl and Shift click on side tabs to close, group, move to a workspace or ask the AI about all of them at once.
+66. **Edit keyboard shortcuts.** A Settings page to change any browser key, warning about clashes (Vivaldi, Firefox). `shortcuts.ts` already lists them in one place.
+
+AI:
+
+67. **Ask about an image.** Right-click an image for "Ask scAI about this image": it goes to the side assistant as a picture, ready for a question (Chrome's Lens, Dia).
+68. **Ask about part of the screen.** The screenshot tool gets a region picker and "Ask scAI", for charts, maps or anything that isn't text (Circle to Search).
+69. **Reply styles.** Concise, Normal, Explanatory or Step by step, picked under the assistant's box and kept (Claude's styles). One line added to the system prompt.
+70. **Skill gallery.** Ready-made skills to add with one click (find the catch in these terms, draft a reply, counterarguments, action items, explain like I'm new, quiz me), next to "New skill" on sc://ai (Dia's skills gallery).
+71. **Save a chat.** Copy or download a conversation as Markdown, from the side assistant's menu and sc://assistant (Claude).
+72. **Context meter and `/compact` in chats.** How full the model's context is, and a command that sums up older messages so a long chat can keep going (Claude Code). Terra Code has both; Chat doesn't.
+73. **Memory suggestions.** After a chat, the model may offer one thing to remember ("You prefer metric units") with a Remember button; nothing is kept without that click (Claude's memory, Dia). Builds on `/remember` notes.
+74. **Tidy tab titles.** Shorten long tab titles with AI on request, the real title on hover (Arc).
+75. **Plan first for agent mode.** The agent shows its plan, and reading steps run without asking once the plan is approved; clicks and typing still ask (Claude in Chrome). Needs the owner's say, as every step asks today by design.
+
+Claude Code ideas for the whole browser:
+
+76. **A status line for the side assistant.** Model, this chat's tokens and cost on one quiet line, like Claude Code's status line.
+77. **Background tasks list.** Briefs being written, cloud runs, downloads with AI names, and agent runs in one place with their state, like Claude Code's tasks pane. sc://tasks has the start of it.
+78. **Output to a file from chat.** "Save this answer as a note" into a chosen folder or the reading list, for people who keep notes in Markdown (Obsidian).
+79. **Routines.** "Every weekday at 9, open my mail, calendar and the team board in Work": tab sets on a schedule, beside workspace hours.

@@ -25,6 +25,7 @@ import { PermissionsRepo } from './storage/permissions'
 import { BrowserCore } from './browserCore'
 import { webAppUrlFromArgv } from './webApps'
 import { createBrowserWindow } from './window'
+import { isSmokeTest, prepareSmokeTest, runSmokeTest } from './smokeTest'
 
 /** The app used to be called scDelta, and scBrowser before that. Copy that profile on first launch, leaving the original. */
 function moveLegacyProfile(): void {
@@ -55,8 +56,10 @@ if (process.env.SCB_E2E_SANDBOX) app.commandLine.removeSwitch('no-sandbox')
 app.setName('scTerra')
 // Windows matches the taskbar button to the installed shortcut, and its icon, by this id.
 if (process.platform === 'win32') app.setAppUserModelId('app.scterra.desktop')
+const smokeTest = isSmokeTest(process.argv)
 // Lets tests (and power users) run with a throwaway profile.
-if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
+if (smokeTest) prepareSmokeTest()
+else if (process.env.SCB_USER_DATA_DIR) app.setPath('userData', process.env.SCB_USER_DATA_DIR)
 else moveLegacyProfile()
 applyProfile()
 applyPrivate()
@@ -201,6 +204,7 @@ if (headless) {
     const code = codeFromArgv(process.argv, process.cwd(), app.isPackaged ? 1 : 2)
     if (code) setTimeout(() => void openCode(code), 1500)
     const first = webApp ? core.openWindow({ kind: 'app', urls: [webApp] }) : core.openWindow({ urls: [...urlsFromArgv(process.argv), ...earlyUrls] })
+    if (smokeTest) runSmokeTest(first)
     if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: first.tabs, scbActions: first.actions, scbExtensions: core.extensions, scbSync: core.sync, scbVpn: core.vpn, scbReporter: reporter, scbUpdates: core.updates, scbCore: core })
   })
 

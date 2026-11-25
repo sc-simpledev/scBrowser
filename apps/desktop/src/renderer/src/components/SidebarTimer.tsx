@@ -2,11 +2,12 @@ import { ChevronDown, Coffee, Pause, Play } from 'lucide-react'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { stopwatch, type StudySummary } from '@scbrowser/shared'
+import { useApp } from '../state/app'
 
 const RING = 2 * Math.PI * 15
 
 /** The timer's numbers right now: what to show big, how far along the ring is, and a line under it. */
-function reading(summary: StudySummary, now: number) {
+export function reading(summary: StudySummary, now: number) {
   const { running, breakUntil, goalMinutes, todayBefore } = summary
   const today = todayBefore + (running ? Math.max(0, now - running.startedAt) : 0)
   const goal = goalMinutes * 60_000
@@ -23,7 +24,8 @@ function reading(summary: StudySummary, now: number) {
  * The focus timer under the side tabs, when turned on in Settings: the activity, the time, a bar to
  * the goal and one button. Folded down to a ring when the sidebar is a rail.
  */
-export function SidebarTimer({ rail }: { rail: boolean }) {
+/** The timer's summary, kept current, and the time ticking each second while it runs. */
+function useStudy(): { summary: StudySummary | null; now: number; live: boolean } {
   const [summary, setSummary] = useState<StudySummary | null>(null)
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
@@ -36,6 +38,55 @@ export function SidebarTimer({ rail }: { rail: boolean }) {
     const timer = setInterval(() => setNow(Date.now()), live ? 1000 : 30_000)
     return () => clearInterval(timer)
   }, [live])
+  return { summary, now, live }
+}
+
+/**
+ * The same timer as a chip in the toolbar, for when tabs are across the top: the time, a play or
+ * stop button and the line to the goal. Its time opens the timer's menu.
+ */
+export function ToolbarTimer() {
+  const { summary, now, live } = useStudy()
+  const compact = useApp((s) => s.compact)
+  if (!summary) return null
+  const { running, breakUntil } = summary
+  const activity = running ? { subject: running.subject, hue: running.hue } : summary.next
+  const { big, progress } = reading(summary, now)
+  const label = breakUntil ? `Focus timer: break, ${big} left. End the session` : running ? `Focus timer: ${running.subject}, ${big}. Stop` : `Focus timer: ${big} today. Start ${activity?.subject ?? ''}`.trim()
+  return (
+    <span style={{ '--hue': activity?.hue ?? 200 } as CSSProperties} className="sc-hued sc-no-drag relative flex h-7 shrink-0 items-center overflow-hidden rounded-md border border-border bg-surface text-xs">
+      <button
+        type="button"
+        aria-label="Focus timer menu"
+        title={activity?.subject ?? 'Focus timer'}
+        onClick={(event) => {
+          const { left, bottom } = event.currentTarget.getBoundingClientRect()
+          void window.scb.invoke('study:menu', left, bottom + 4)
+        }}
+        className="flex h-full items-center gap-1.5 pr-1.5 pl-2 font-medium tabular-nums transition-colors hover:bg-surface-hover"
+      >
+        {breakUntil ? <Coffee aria-hidden size={12} strokeWidth={1.75} className="text-text-muted" /> : <span aria-hidden className={cx('size-1.5 shrink-0 rounded-full', live ? 'bg-[var(--hued)]' : 'bg-text-faint')} />}
+        {!compact && running?.endsAt && running.rounds > 1 && <span className="text-text-faint">{running.round}/{running.rounds}</span>}
+        <span role="timer" className={cx(breakUntil && 'text-text-muted', running && 'text-[var(--hued)]')}>{big}</span>
+      </button>
+      <button
+        type="button"
+        aria-label={label}
+        title={running || breakUntil ? 'Stop' : 'Start'}
+        onClick={() => void window.scb.invoke('study:toggle')}
+        className="grid h-full w-7 place-items-center border-l border-border text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+      >
+        {running || breakUntil ? <Pause aria-hidden size={12} strokeWidth={2.25} /> : <Play aria-hidden size={12} strokeWidth={2.25} className="translate-x-px" />}
+      </button>
+      <span aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 bg-surface-active">
+        <span className={cx('block h-full transition-[width] duration-500', live ? 'bg-[var(--hued)]' : 'bg-text-faint')} style={{ width: `${Math.min(100, progress * 100)}%` }} />
+      </span>
+    </span>
+  )
+}
+
+export function SidebarTimer({ rail }: { rail: boolean }) {
+  const { summary, now, live } = useStudy()
   if (!summary) return null
   const { running, breakUntil } = summary
   const activity = running ? { subject: running.subject, hue: running.hue } : summary.next

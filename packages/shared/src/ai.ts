@@ -46,6 +46,18 @@ export interface Skill {
   prompt: string
 }
 
+/** Ready-made skills to add with one click on sc://ai, like Dia's skills gallery. */
+export const SKILL_GALLERY: { name: string; description: string; prompt: string }[] = [
+  { name: 'Key points', description: 'The page in short bullets', prompt: 'List the key points of this page as short bullets, most important first.' },
+  { name: 'Find the catch', description: 'Fees, limits and fine print', prompt: 'Read this page as a careful lawyer would. What are the catches someone could miss: fees, limits, renewals, cancellation terms or uses of their data? Quote the lines they come from.' },
+  { name: 'Counterarguments', description: 'The best case against it', prompt: 'What are the strongest arguments against what this page claims? Say which are well supported and which are weak.' },
+  { name: 'Action items', description: 'Tasks, owners and dates', prompt: 'List every action item in this page or selection as a checklist, with who owns it and any deadline. Say if none are given.' },
+  { name: 'Explain like I’m new', description: 'Plain words and an example', prompt: 'Explain this to someone new to the subject: plain words, no jargon, and one everyday example.' },
+  { name: 'Draft a reply', description: 'A short reply in my voice', prompt: 'Draft a short, friendly reply to this message or email. Match its tone, keep it brief, and put anything you don’t know in [brackets] for me to fill in.' },
+  { name: 'Quiz me', description: 'Five questions to check myself', prompt: 'Write five quick questions to test what I learned from this page, mixing recall and understanding. Put the answers at the end.' },
+  { name: 'Sum up the reviews', description: 'What people say, on balance', prompt: 'Summarise what the reviews or comments on this page say: the main opinions, roughly how many share each, and any standout points or warnings.' }
+]
+
 export const DEFAULT_SKILLS: Skill[] = [
   { id: 'simple', name: 'Explain simply', prompt: 'Explain this page in plain language, as if to someone new to the topic.' },
   { id: 'points', name: 'Key points', prompt: 'List the key points of this page as short bullets.' },
@@ -120,7 +132,15 @@ export interface AiStatus {
 export interface AssistantMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Pictures sent with a message of the person's, as data addresses. */
+  images?: string[]
 }
+
+/** Pictures in one request, and the most one may weigh as a data address. */
+export const MAX_CHAT_IMAGES = 6
+export const MAX_CHAT_IMAGE_CHARS = 3_000_000
+export const isChatImage = (value: unknown): value is string =>
+  typeof value === 'string' && value.length <= MAX_CHAT_IMAGE_CHARS && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
 
 export interface AssistantRequest {
   messages: AssistantMessage[]
@@ -192,6 +212,8 @@ export interface AssistantPrompt {
   text: string
   selection: string | null
   includePage: boolean
+  /** A picture to ask about, like an image on the page, as a data address. */
+  image?: string | null
 }
 
 /** What the assistant calls itself. */

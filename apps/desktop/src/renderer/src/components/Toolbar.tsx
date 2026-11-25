@@ -6,6 +6,8 @@ import { useApp } from '../state/app'
 import { useAssistant } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
 import { Omnibox } from './Omnibox'
+import { NowPlaying } from './NowPlaying'
+import { ToolbarTimer } from './SidebarTimer'
 
 function DownloadsButton() {
   const { active, fraction } = useApp((s) => s.downloads)
@@ -319,14 +321,16 @@ function StudyChip() {
   }, [])
   const running = summary?.running
   const breakUntil = summary?.breakUntil ?? null
-  // The sidebar has its own timer, so the chip would only repeat it.
+  // The sidebar has its own timer, so the chip would only repeat it; across the top it has the full chip.
   const inSidebar = useApp((s) => s.settings.sidebarTimer && s.settings.tabLayout === 'vertical')
+  const fullChip = useApp((s) => s.settings.sidebarTimer && s.settings.tabLayout === 'horizontal')
   useEffect(() => {
     if (!running && !breakUntil) return
     setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [running, breakUntil])
+  if (fullChip) return <ToolbarTimer />
   if (!summary || (!running && !breakUntil) || inSidebar) return null
   const today = summary.todayBefore + (running ? Math.max(0, now - running.startedAt) : 0)
   const left = running?.endsAt ? running.endsAt - now : breakUntil ? breakUntil - now : null
@@ -400,6 +404,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
   const order = useApp((s) => s.settings.toolbarOrder)
   const showProfiles = useApp((s) => s.settings.profilesButton)
   const compact = useApp((s) => s.compact)
+  const horizontal = useApp((s) => s.settings.tabLayout === 'horizontal')
   const [dragging, setDragging] = useState<ToolbarSlot | null>(null)
   const [target, setTarget] = useState<{ slot: ToolbarSlot; after: boolean } | null>(null)
   const invoke = (channel: 'tabs:back' | 'tabs:forward' | 'tabs:reload' | 'tabs:stop') => {
@@ -465,6 +470,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
       ))}
       {/* These stay at the end of the bar, wherever everything else has been dragged. */}
       <PrivateBadge />
+      {horizontal && <NowPlaying variant="toolbar" />}
       <FocusChip />
       <StudyChip />
       <BriefChip />

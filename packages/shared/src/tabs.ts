@@ -23,6 +23,10 @@ export interface TabState {
   /** Playing sound right now, whether or not it's muted. */
   audible: boolean
   muted: boolean
+  /** Sound or video on the page is playing, or was and is paused. Null once the page moves on. */
+  media?: 'playing' | 'paused' | null
+  /** The playback speed set from Now playing, when it isn't 1. */
+  mediaSpeed?: number
   /** The tab whose link opened this one, while that tab is still open. */
   parentId?: TabId | null
   /** How far in to draw it under the tabs it came from, for the tab tree. 0 is the top level. */
@@ -191,6 +195,21 @@ export interface TabSearchRow {
   lastActiveAt: number
 }
 
+/** Where a tab's page has the words searched for, from Tab search's look inside pages. */
+export interface TabTextMatch {
+  id: TabId
+  /** The words around the first match, cut to a line. */
+  before: string
+  match: string
+  after: string
+  /** How many times the page has them, up to 99. */
+  count: number
+}
+
+/** Tab search only looks inside pages for this much typed, so a letter or two doesn't read every tab. */
+export const MIN_TAB_TEXT_QUERY = 3
+export const MAX_TAB_TEXT_QUERY = 200
+
 /** Tabs holding every word of the query, most recently used first when there's nothing to go on. */
 export function matchTabs(query: string, rows: TabSearchRow[]): TabSearchRow[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -232,4 +251,16 @@ export function suggestCleanup(tabs: CleanupInput[], activeId: TabId | null, now
     const days = Math.floor((now - tab.lastActiveAt) / DAY_MS)
     return days >= STALE_TAB_DAYS ? [{ ...row, reason: `Not opened for ${days} days` }] : []
   })
+}
+
+/** Playback speeds offered from Now playing. */
+export const MEDIA_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
+
+/**
+ * Which tab Now playing should show: one playing that isn't on screen, else the one paused most
+ * recently (the last in the list), else none. Tabs on screen are already in reach.
+ */
+export function nowPlayingTab<T extends Pick<TabState, 'id' | 'media'>>(tabs: readonly T[], onScreen: readonly TabId[]): T | null {
+  const away = tabs.filter((tab) => !onScreen.includes(tab.id) && tab.media)
+  return away.find((tab) => tab.media === 'playing') ?? away.findLast((tab) => tab.media === 'paused') ?? null
 }

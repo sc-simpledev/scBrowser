@@ -6,6 +6,7 @@ import {
   BRIEF_TOKENS,
   briefQuestion,
   MAX_BRIEF_QUESTION,
+  MAX_KEPT_QUESTIONS,
   previousBriefNote,
   briefPrompt,
   briefQuery,
@@ -207,7 +208,19 @@ export class BriefService {
     const next = { ...this.prefs() }
     if (typeof prefs.openOnStart === 'boolean') next.openOnStart = prefs.openOnStart
     if (typeof prefs.notify === 'boolean') next.notify = prefs.notify
+    if (typeof prefs.keepQuestions === 'boolean') next.keepQuestions = prefs.keepQuestions
     this.deps.kv.set(PREFS_KEY, next)
+    // Turning it off forgets what was kept, as the switch says.
+    if (prefs.keepQuestions === false && this.issues().some((issue) => issue.questions?.length)) {
+      this.saveIssues(this.issues().map(({ questions: _gone, ...issue }) => issue))
+    }
+  }
+
+  /** Forgets one kept question, named by when it was asked. */
+  forgetQuestion(issueId: string, askedAt: number): void {
+    const issues = this.issues()
+    if (!issues.some((issue) => issue.id === issueId && issue.questions?.some((kept) => kept.askedAt === askedAt))) return
+    this.saveIssues(issues.map((issue) => (issue.id === issueId ? { ...issue, questions: issue.questions!.filter((kept) => kept.askedAt !== askedAt) } : issue)))
   }
 
   markSeen(id: string | null): void {
@@ -233,14 +246,26 @@ export class BriefService {
     return true
   }
 
-  /** Answers a question about a brief already written, from the brief and its sources. Nothing is saved. */
+  /** Answers a question about a brief already written, from the brief and its sources. Kept with it only if the person chose that. */
   async ask(issueId: string, question: string): Promise<string> {
     const issue = this.issues().find((candidate) => candidate.id === issueId)
     const asked = question.trim().slice(0, MAX_BRIEF_QUESTION)
     if (!issue) throw new Error('That brief no longer exists.')
     if (!asked) throw new Error('Ask a question first.')
     if (this.deps.hosted() === null) throw new Error('Choose a model in AI settings first.')
-    return (await this.deps.write(BRIEF_ASK_PROMPT, briefQuestion(issue, asked), 4_000)).trim()
+    const answer = (await this.deps.write(BRIEF_ASK_PROMPT, briefQuestion(issue, asked), 4_000)).trim()
+    if (answer && this.prefs().keepQuestions) {
+      // Read again now, as the brief may have changed or gone while the answer was written.
+      this.saveIssues(
+        this.issues().map((candidate) => {
+          if (candidate.id !== issueId) return candidate
+          // The time names it for Forget, so no two share one.
+          const askedAt = Math.max(this.now(), (candidate.questions?.at(-1)?.askedAt ?? 0) + 1)
+          return { ...candidate, questions: [...(candidate.questions ?? []), { question: asked, answer, askedAt }].slice(-MAX_KEPT_QUESTIONS) }
+        })
+      )
+    }
+    return answer
   }
 
   /** Runs every brief whose time has come. */

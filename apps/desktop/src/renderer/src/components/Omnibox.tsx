@@ -113,6 +113,7 @@ export function Omnibox() {
   const sources = useApp((s) => s.settings.suggestionSources)
   const autofillOn = useApp((s) => s.settings.addressAutofill)
   const calculator = useApp((s) => s.settings.addressCalculator)
+  const keywords = useApp((s) => s.settings.searchKeywords)
   const protection = useApp((s) => s.settings.trackingProtection)
   const hidden = useApp((s) => s.settings.hiddenToolbarItems)
   const compact = useApp((s) => s.compact)
@@ -165,9 +166,10 @@ export function Omnibox() {
             sources,
             autofill,
             calculator,
-            scope
+            scope,
+            keywords
           }),
-    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources, autofill, calculator, scope]
+    [draft, history, bookmarks, phrases, tabs, tab?.id, searchEngine, assistantReady, sources, autofill, calculator, scope, keywords]
   )
   // Saved icons only: bookmarked sites, so drawing the list contacts nobody.
   const iconByHost = useMemo(() => new Map(bookmarks.flatMap((b) => (b.icon && hostOf(b.url) ? [[hostOf(b.url)!, b.icon] as const] : []))), [bookmarks])
@@ -268,6 +270,18 @@ export function Omnibox() {
         void window.scb.invoke('omnibox:refocus').then(() => inputRef.current?.focus())
         return
       }
+      if (action.type === 'fill') {
+        // `yt` becomes `yt `, ready for the search.
+        setDraft(action.text)
+        setSelectedIndex(0)
+        setDismissed(false)
+        void window.scb.invoke('omnibox:refocus').then(() => {
+          const input = inputRef.current
+          input?.focus()
+          input?.setSelectionRange(action.text.length, action.text.length)
+        })
+        return
+      }
       if (action.type === 'copy') void window.scb.invoke('omnibox:copy', action.text)
       else if (action.type === 'switch-tab') void window.scb.invoke('tabs:activate', action.tabId)
       else if (action.type === 'ask-page') void window.scb.invoke('ai:open-assistant', action.text)
@@ -347,6 +361,14 @@ export function Omnibox() {
       const gone = row.action.url
       void window.scb.invoke('history:forget', gone)
       setForgotten((current) => new Set([...current, gone]))
+      return
+    }
+    // Tab after a search keyword adds the space, as Tab-to-search does in other browsers.
+    const keywordRow = open && !e.shiftKey ? suggestions.find((suggestion) => suggestion.kind === 'keyword') : undefined
+    if (e.key === 'Tab' && keywordRow?.action.type === 'fill') {
+      e.preventDefault()
+      setDraft(keywordRow.action.text)
+      setSelectedIndex(0)
       return
     }
     if (e.key === 'Backspace' && scope && !draft && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {

@@ -8,7 +8,20 @@ export interface ReadingItem {
   summary: string | null
   /** Minutes to read, from the page's word count when it was saved or summarised. */
   minutes?: number | null
+  /** How far down the page has been read, from 0 to 1: the furthest it was scrolled in a tab. */
+  progress?: number | null
 }
+
+/** A page counts as started past this, and as finished from the second. */
+export const STARTED_READING = 0.05
+export const FINISHED_READING = 0.95
+
+/** Started and not finished, so it's worth carrying on with. */
+export const isHalfRead = (item: Pick<ReadingItem, 'progress'>) => typeof item.progress === 'number' && item.progress >= STARTED_READING && item.progress < FINISHED_READING
+
+/** Minutes left to read, counting what's been read already. */
+export const minutesLeft = (item: Pick<ReadingItem, 'minutes' | 'progress'>): number | null =>
+  typeof item.minutes === 'number' ? Math.max(1, Math.round(item.minutes * (1 - (isHalfRead(item) ? item.progress! : 0)))) : null
 
 /** Minutes to read some text, at a steady 230 words a minute. */
 export const readingMinutes = (text: string) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 230))
@@ -18,6 +31,11 @@ export const readingMinutes = (text: string) => Math.max(1, Math.round(text.trim
  * Pages saved before reading times were kept count as unknown and are left out.
  */
 export function pickForMinutes(items: ReadingItem[], minutes: number): ReadingItem | null {
+  // Something half-read whose rest fits comes first: finishing beats starting.
+  const started = items
+    .filter((item) => isHalfRead(item) && typeof item.minutes === 'number' && minutesLeft(item)! <= minutes)
+    .toSorted((a, b) => minutesLeft(b)! - minutesLeft(a)!)
+  if (started[0]) return started[0]
   const timed = items.filter((item) => item.readAt === null && typeof item.minutes === 'number')
   const fits = timed.filter((item) => item.minutes! <= minutes).toSorted((a, b) => b.minutes! - a.minutes!)
   return fits[0] ?? timed.toSorted((a, b) => a.minutes! - b.minutes!)[0] ?? null

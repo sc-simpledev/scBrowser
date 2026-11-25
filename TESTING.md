@@ -44,3 +44,16 @@ Nothing here can run in CI. Take a release build, tick what works, and note what
 - [ ] Encrypted DNS: pick Cloudflare, and pages still load
 - [ ] VPN failover: turn it on, connect, kill the server, and it moves within about 90 seconds
 - [ ] Padlock: Font changes the page's text and leaves icons alone
+
+## New in 0.9.0
+
+- [ ] After installing the .deb: scTerra has its icon in the app menu, and on a taskbar button pinned while it's closed
+- [ ] Now playing: play a YouTube video or Spotify song, switch tabs; pause, play, picture in picture and speed work from the control
+- [ ] "Float videos when you switch tabs" (Settings > Tabs and toolbar): a YouTube video floats when you leave its tab and comes back when you return
+- [ ] Clean links: open a link with utm_source or fbclid from a newsletter or Facebook; the address loses them and the page still works
+- [ ] Copy link to highlight: paste the link into another browser and it scrolls to the words
+- [ ] Tab search (Ctrl Shift E): a word from inside another tab finds it, and Enter opens the find bar there
+- [ ] Right-click an image on a real site, Ask AI about this image, and ask what it shows (needs a model that takes pictures)
+- [ ] Search keywords: yt, wiki, gh, maps, ddg and one of your own
+- [ ] Sync between two devices keeps the order of bookmarks on the bar and inside folders
+- [ ] With your OK to spend credit: `SCB_REAL_AI=hosted e2e/hidden.sh e2e/realAi.spec.ts` (see the top of that file for your own key)

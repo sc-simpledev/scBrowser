@@ -10,6 +10,7 @@ import { TabGroupHeader } from './TabGroupHeader'
 import { VerticalBookmarks, useVerticalBookmarks } from './VerticalBookmarks'
 import { WorkspaceBar } from './WorkspaceBar'
 import { SidebarTimer } from './SidebarTimer'
+import { NowPlaying } from './NowPlaying'
 
 const MIN_SIDEBAR = 180
 const MAX_SIDEBAR = 480
@@ -184,6 +185,7 @@ export function VerticalTabs() {
           </button>
         )}
       </div>
+      <NowPlaying variant={collapsed ? 'rail' : 'sidebar'} />
       {showTimer && <SidebarTimer rail={collapsed} />}
       {collapsed && (
         <div className="shrink-0 self-center border-t border-border pt-1">

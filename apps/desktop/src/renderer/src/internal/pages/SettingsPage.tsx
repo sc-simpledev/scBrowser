@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   PERFORMANCE_SLEEP_MINUTES,
   PERMISSION_LABELS,
+  REPLY_STYLES,
   SEARCH_ENGINES,
   SECURE_DNS,
   SUGGESTION_SOURCES,
@@ -14,6 +15,8 @@ import {
   TOOLBAR_SLOTS,
   TRANSLATE_LANGUAGES,
   cleanRuleMatch,
+  isKeywordWord,
+  isSearchKeyword,
   type CrashEntry,
   type DownloadRule,
   type ExtensionInfo,
@@ -362,8 +365,19 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
         <Row setting="tabTree" label="Tab tree" hint="With tabs down the side, a tab opened from a link sits indented under the tab it came from." keywords="nested tree indent children">
           <Switch label="Tab tree" checked={settings.tabTree} onChange={(tabTree) => update({ tabTree })} />
         </Row>
-        <Row setting="sidebarTimer" label="Focus timer in the sidebar" hint="With tabs down the side, the focus timer sits under them, to start and stop it from any page." keywords="timer pomodoro study focus sidebar">
-          <Switch label="Focus timer in the sidebar" checked={settings.sidebarTimer} onChange={(sidebarTimer) => update({ sidebarTimer })} />
+        <Row
+          setting="sidebarTimer"
+          label={settings.tabLayout === 'vertical' ? 'Focus timer in the sidebar' : 'Focus timer in the toolbar'}
+          hint={settings.tabLayout === 'vertical' ? 'The focus timer sits under the tabs, to start and stop it from any page.' : 'The focus timer stays in the toolbar with its own play button, to start and stop it from any page.'}
+          keywords="timer pomodoro study focus sidebar toolbar"
+        >
+          <Switch label={settings.tabLayout === 'vertical' ? 'Focus timer in the sidebar' : 'Focus timer in the toolbar'} checked={settings.sidebarTimer} onChange={(sidebarTimer) => update({ sidebarTimer })} />
+        </Row>
+        <Row setting="mediaControls" label="Now playing" hint={`When a tab you aren't looking at plays sound or video, a small control ${settings.tabLayout === 'vertical' ? 'under the tabs' : 'in the toolbar'} plays or pauses it, floats it or changes its speed.`} keywords="media music video player controls pause speed mini player">
+          <Switch label="Now playing" checked={settings.mediaControls} onChange={(mediaControls) => update({ mediaControls })} />
+        </Row>
+        <Row setting="autoPictureInPicture" label="Float videos when you switch tabs" hint="A playing video moves into picture in picture when you leave its tab, and back into the page when you return." keywords="picture in picture pip video float automatic">
+          <Switch label="Float videos when you switch tabs" checked={settings.autoPictureInPicture} onChange={(autoPictureInPicture) => update({ autoPictureInPicture })} />
         </Row>
         <Row setting="tabSleepButton" label="Sleep button on tabs" hint="A moon beside each tab's close button puts it to sleep, freeing its memory until you open it again.">
           <Switch label="Sleep button on tabs" checked={settings.tabSleepButton} onChange={(tabSleepButton) => update({ tabSleepButton })} />
@@ -431,7 +445,72 @@ function SearchPage({ settings, update }: { settings: Settings; update: Update }
           <Switch label="Calculator" checked={settings.addressCalculator} onChange={(addressCalculator) => update({ addressCalculator })} />
         </Row>
       </Section>
+      <Section title="Search keywords" description="Type a keyword, a space and your search in the address bar to search that site, like yt cats. Tab after the keyword adds the space." keywords="site search shortcut keyword youtube wikipedia github">
+        <Searchable text={`keywords ${settings.searchKeywords.map((entry) => `${entry.keyword} ${entry.name}`).join(' ')}`}>
+          <KeywordsEditor settings={settings} update={update} />
+        </Searchable>
+      </Section>
     </>
+  )
+}
+
+/** Words that search one site: a list to remove from, and a row to add one. */
+function KeywordsEditor({ settings, update }: { settings: Settings; update: Update }) {
+  const [keyword, setKeyword] = useState('')
+  const [name, setName] = useState('')
+  const [address, setAddress] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const keywords = settings.searchKeywords
+  const changed = JSON.stringify(keywords) !== JSON.stringify(DEFAULT_SETTINGS.searchKeywords)
+  return (
+    <div className="flex flex-col divide-y divide-border">
+      {keywords.map((entry) => (
+        <div key={entry.keyword} className="flex min-h-11 items-center gap-3 px-3 py-2">
+          <span className="w-14 shrink-0">
+            <kbd className="sc-kbd max-w-full truncate">{entry.keyword}</kbd>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate">{entry.name}</div>
+            <div className="truncate text-xs text-text-faint">{entry.template.replace(/^https?:\/\/(www\.)?/, '')}</div>
+          </div>
+          <Button variant="ghost" onClick={() => update({ searchKeywords: keywords.filter((other) => other.keyword !== entry.keyword) })}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <form
+        className="flex flex-wrap items-center gap-2 px-3 py-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const entry = { keyword: keyword.trim().toLowerCase(), name: name.trim(), template: address.trim() }
+          if (!isKeywordWord(entry.keyword)) return setProblem('A keyword is one short word of letters or numbers, like yt.')
+          if (keywords.some((other) => other.keyword === entry.keyword)) return setProblem(`${entry.keyword} is already a keyword.`)
+          if (!isSearchKeyword(entry)) return setProblem('Enter a name, and a full web address with %s where the search goes.')
+          setProblem(null)
+          update({ searchKeywords: [...keywords, entry] })
+          setKeyword('')
+          setName('')
+          setAddress('')
+        }}
+      >
+        <Input aria-label="Keyword" placeholder="yt" className="w-20 shrink-0" value={keyword} onChange={(e) => setKeyword(e.target.value)} aria-invalid={!!problem} />
+        <Input aria-label="Site name" placeholder="YouTube" className="w-36 min-w-0" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input aria-label="Search address" placeholder="https://example.com/search?q=%s" className="min-w-0 flex-1 basis-56" value={address} onChange={(e) => setAddress(e.target.value)} />
+        <Button type="submit" disabled={!keyword.trim() || !address.trim()}>
+          Add
+        </Button>
+        {changed && (
+          <Button variant="ghost" onClick={() => update({ searchKeywords: DEFAULT_SETTINGS.searchKeywords })}>
+            Reset
+          </Button>
+        )}
+        {problem && (
+          <span role="alert" className="w-full text-xs text-danger">
+            {problem}
+          </span>
+        )}
+      </form>
+    </div>
   )
 }
 
@@ -601,6 +680,9 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
         </Row>
         <Row setting="httpsOnly" label="HTTPS-only mode" hint="Moves sites to secure connections, and asks before using an insecure one." keywords="secure ssl">
           <Switch label="HTTPS-only mode" checked={settings.httpsOnly} onChange={(httpsOnly) => update({ httpsOnly })} />
+        </Row>
+        <Row setting="cleanLinks" label="Clean links" hint="Takes tracking tags like utm_source and fbclid off addresses as pages open. Sites where tracking protection is off keep theirs." keywords="utm fbclid gclid tracking parameters query strip">
+          <Switch label="Clean links" checked={settings.cleanLinks} onChange={(cleanLinks) => update({ cleanLinks })} />
         </Row>
         <Row setting="secureDns" label="Encrypted DNS" hint="Hides which sites you look up from your network. If you pick a service and it can't be reached, pages won't load." keywords="doh dns over https cloudflare quad9 google">
           <Select aria-label="Encrypted DNS" className="w-40" value={settings.secureDns} onChange={(e) => update({ secureDns: e.target.value as Settings['secureDns'] })}>
@@ -922,6 +1004,15 @@ function AiPage({ settings, update }: { settings: Settings; update: Update }) {
     <>
       <Section title="Assistant" keywords="ai chat">
         <LinkRow label="AI providers and models" hint="Add your own key, a model on this computer, or use scTerra AI." address="sc://ai" keywords="api key openai anthropic claude ollama skills" />
+        <Row setting="replyStyle" label="Reply style" hint={REPLY_STYLES.find((style) => style.id === settings.replyStyle)?.description} keywords="tone concise short explanatory steps length">
+          <RowSelect aria-label="Reply style" value={settings.replyStyle} onChange={(e) => update({ replyStyle: e.target.value as Settings['replyStyle'] })}>
+            {REPLY_STYLES.map((style) => (
+              <option key={style.id} value={style.id}>
+                {style.name}
+              </option>
+            ))}
+          </RowSelect>
+        </Row>
         <Row setting="saveChats" label="Keep chats on this device" hint="Page text sent with a message isn't kept." keywords="history save">
           <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
         </Row>

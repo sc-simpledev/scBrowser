@@ -1,7 +1,7 @@
-import { Plus, TriangleAlert, X } from 'lucide-react'
+import { LayoutGrid, Plus, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconButton, Input, Select, Switch } from '@scbrowser/ui'
-import { HOSTED_PROVIDER_ID, MAX_MEMORY_CHARS, type MemoryNote, isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol, type Skill } from '@scbrowser/shared'
+import { HOSTED_PROVIDER_ID, MAX_MEMORY_CHARS, SKILL_GALLERY, type MemoryNote, isInsecureEndpoint, PROVIDER_PRESETS, type AiState, type ProviderProtocol, type Skill } from '@scbrowser/shared'
 import { api } from '../api'
 
 const CUSTOM = 'custom'
@@ -300,8 +300,38 @@ function HostedCard({ onChange }: { onChange: () => void }) {
   )
 }
 
+/** Ready-made skills not added yet, each one click away. */
+function SkillGallery({ skills, onAdd }: { skills: Skill[]; onAdd: (skill: (typeof SKILL_GALLERY)[number]) => void }) {
+  const have = new Set(skills.map((skill) => skill.name.toLowerCase()))
+  const left = SKILL_GALLERY.filter((skill) => !have.has(skill.name.toLowerCase()))
+  if (left.length === 0) return <p className="px-1 text-xs text-text-faint">You've added every skill in the gallery.</p>
+  return (
+    <ul aria-label="Skill gallery" className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-1.5">
+      {left.map((skill) => (
+        <li key={skill.name}>
+          <button
+            type="button"
+            title={skill.prompt}
+            aria-label={`Add ${skill.name}: ${skill.description}`}
+            onClick={() => onAdd(skill)}
+            className="group flex w-full items-center gap-2 rounded-md border border-border px-2.5 py-2 text-left transition-colors hover:border-border-strong hover:bg-surface-hover"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{skill.name}</span>
+              <span className="block truncate text-xs text-text-faint">{skill.description}</span>
+            </span>
+            <Plus aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint group-hover:text-text" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => void }) {
   const [adding, setAdding] = useState(false)
+  // Someone with no skills yet sees the gallery straight away.
+  const [browsing, setBrowsing] = useState(skills.length === 0)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const save = (next: Skill[]) => void api().invoke('ai:save-skills', next).then(onChange)
@@ -319,10 +349,16 @@ function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => v
           <p className="text-xs text-text-faint">Saved prompts. Type / in the assistant to run one.</p>
         </div>
         {!adding && (
-          <Button variant="ghost" className="shrink-0" onClick={() => setAdding(true)}>
-            <Plus aria-hidden size={14} strokeWidth={1.75} />
-            New skill
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" aria-pressed={browsing} onClick={() => setBrowsing(!browsing)}>
+              <LayoutGrid aria-hidden size={14} strokeWidth={1.75} />
+              Gallery
+            </Button>
+            <Button variant="ghost" onClick={() => setAdding(true)}>
+              <Plus aria-hidden size={14} strokeWidth={1.75} />
+              New skill
+            </Button>
+          </div>
         )}
       </div>
       {skills.length > 0 && (
@@ -339,6 +375,12 @@ function SkillsEditor({ skills, onChange }: { skills: Skill[]; onChange: () => v
             </li>
           ))}
         </ul>
+      )}
+      {browsing && !adding && (
+        <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+          <p className="text-xs font-medium text-text-faint">Add from the gallery</p>
+          <SkillGallery skills={skills} onAdd={(skill) => save([...skills, { id: crypto.randomUUID(), name: skill.name, prompt: skill.prompt }])} />
+        </div>
       )}
       {adding && (
         <form

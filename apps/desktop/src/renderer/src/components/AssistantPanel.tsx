@@ -1,13 +1,14 @@
-import { AlignLeft, ArrowUp, AtSign, Check, Columns2, FileText, Globe, Hand, History, Lightbulb, ListChecks, Plus, Quote, Square, Trash2, X } from 'lucide-react'
+import { AlignLeft, ArrowUp, AtSign, Check, Columns2, Download, FileText, Globe, Hand, History, Lightbulb, ListChecks, PenLine, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CONTINUE_PROMPT, isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
+import { CONTINUE_PROMPT, REPLY_STYLES, isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
 import { splitPartner, useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
 import { CopyReply, ReplyContent, RetryReply, Thinking, type OpenSource } from '../shared/ReplyContent'
 import { CUT_OFF } from '../shared/stopNotes'
 import { ReportPane } from '../shared/ReportPane'
 import { pasteCleanly } from '../shared/pasteCleanly'
+import { pictureData, pictureFile } from '../shared/pastedPicture'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { AiNetworkHelp } from '../shared/AiNetworkHelp'
@@ -129,7 +130,12 @@ function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; 
   const report = useAssistant((s) => s.report)
   const { showReport } = useAssistant.getState()
   if (turn.role === 'user') {
-    return <div className="ml-8 self-end rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap select-text [overflow-wrap:anywhere]">{shownMessage(turn.content)}</div>
+    return (
+      <div className="ml-8 flex flex-col items-end gap-1.5 self-end">
+        {turn.image && <img src={turn.image} alt="Picture you sent" draggable={false} className="max-h-40 max-w-full rounded-lg border border-border object-contain" />}
+        <div className="rounded-lg bg-surface-hover px-3 py-2 whitespace-pre-wrap select-text [overflow-wrap:anywhere]">{shownMessage(turn.content)}</div>
+      </div>
+    )
   }
   return (
     <div className="group/reply flex flex-col gap-1.5 select-text">
@@ -200,8 +206,10 @@ function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; 
 const loadHasVpn = () => window.scb.invoke('vpn:summary').then((summary) => (summary.installed ? summary.available : ('removed' as const)))
 
 export function AssistantPanel() {
-  const { open, status, turns, streamId, includePage, selection, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()
-  const { close, reset, send, stop, setIncludePage, clearSelection, toggleChats, mention, unmention, setAgentMode, answerApproval, setWebSearch } = useAssistant.getState()
+  const { open, status, turns, streamId, includePage, selection, image, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()
+  const { close, reset, send, stop, setIncludePage, clearSelection, clearImage, toggleChats, mention, unmention, setAgentMode, answerApproval, setWebSearch } = useAssistant.getState()
+  const replyStyle = useApp((s) => s.settings.replyStyle)
+  const style = REPLY_STYLES.find((option) => option.id === replyStyle)
   const allTabs = useTabs((s) => s.tabs)
   const [pickerIndex, setPickerIndex] = useState(0)
   const tab = useActiveTab()
@@ -266,10 +274,14 @@ export function AssistantPanel() {
   if (!open) return null
 
   const submit = () => {
-    if (!draft.trim() || streamId) return
+    if ((!draft.trim() && !image) || streamId) return
     send(draft)
     setDraft('')
   }
+  const ready = !!draft.trim() || !!image
+  // A picture pasted or dropped into the box goes with the next message.
+  const takePicture = (file: File) => void pictureData(file).then((picture) => picture && useAssistant.setState({ image: picture, agentMode: false }))
+  const saved = turns.filter((turn) => turn.content && !turn.error).map(({ role, content, pageTitle }) => ({ role, content, ...(pageTitle ? { pageTitle } : {}) }))
 
   return (
     <aside aria-label="Assistant" className="relative flex shrink-0 flex-col border-l border-border bg-surface" style={{ width }}>
@@ -292,6 +304,9 @@ export function AssistantPanel() {
           </div>
           <IconButton size="sm" label="Saved chats" aria-pressed={!!chats} onClick={toggleChats}>
             <History size={14} strokeWidth={1.75} />
+          </IconButton>
+          <IconButton size="sm" label="Save chat as Markdown" disabled={saved.length === 0 || !!streamId} onClick={() => void window.scb.invoke('chats:export', saved)}>
+            <Download size={14} strokeWidth={1.75} />
           </IconButton>
           <IconButton size="sm" label="New chat" disabled={turns.length === 0} onClick={reset}>
             <Plus size={14} strokeWidth={1.75} />
@@ -386,6 +401,15 @@ export function AssistantPanel() {
                   </div>
                 </div>
               )}
+              {image && (
+                <div className="flex items-center gap-2 rounded-md bg-surface-hover p-1 pr-1.5 text-xs text-text-muted">
+                  <img src={image} alt="" draggable={false} className="size-9 shrink-0 rounded-sm object-cover" />
+                  <span className="min-w-0 flex-1 truncate">Picture to ask about</span>
+                  <IconButton size="sm" label="Remove picture" onClick={clearImage}>
+                    <X size={12} strokeWidth={2} />
+                  </IconButton>
+                </div>
+              )}
               {selection && (
                 <div className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-xs text-text-muted">
                   <Quote aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
@@ -395,18 +419,34 @@ export function AssistantPanel() {
                   </IconButton>
                 </div>
               )}
-              <div className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong">
+              <div
+                className="flex flex-col rounded-lg border border-border bg-field transition-colors focus-within:border-border-strong"
+                onDragOver={(e) => {
+                  if ([...e.dataTransfer.items].some((item) => item.kind === 'file' && item.type.startsWith('image/'))) e.preventDefault()
+                }}
+                onDrop={(e) => {
+                  const file = pictureFile(e)
+                  if (!file) return
+                  e.preventDefault()
+                  takePicture(file)
+                }}
+              >
                 <textarea
                   ref={inputRef}
                   rows={2}
                   value={draft}
                   aria-label="Message the assistant"
-                  placeholder={agentMode ? 'What should it do on this page?' : 'Ask anything, / for skills, @ for tabs'}
+                  placeholder={agentMode ? 'What should it do on this page?' : image ? 'Ask about this picture' : 'Ask anything, / for skills, @ for tabs'}
                   onChange={(e) => {
                     setDraft(e.target.value)
                     setPickerIndex(0)
                   }}
-                  onPaste={pasteCleanly}
+                  onPaste={(e) => {
+                    const file = pictureFile(e)
+                    if (!file) return pasteCleanly(e)
+                    e.preventDefault()
+                    takePicture(file)
+                  }}
                   onKeyDown={(e) => {
                     if (pickerItems.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                       e.preventDefault()
@@ -468,13 +508,26 @@ export function AssistantPanel() {
                       Web
                     </button>
                   )}
-                  <div className="ml-auto shrink-0 pl-1">
+                  <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-1">
+                    {!agentMode && (
+                      <IconButton
+                        size="sm"
+                        label={`Reply style: ${style?.name ?? 'Normal'}`}
+                        className={replyStyle === 'normal' ? 'text-text-faint' : 'text-accent'}
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          void window.scb.invoke('ai:style-menu', rect.left, rect.top)
+                        }}
+                      >
+                        <PenLine size={13} strokeWidth={1.75} />
+                      </IconButton>
+                    )}
                     {streamId ? (
                       <IconButton size="sm" label="Stop" onClick={stop}>
                         <Square size={12} strokeWidth={2} />
                       </IconButton>
                     ) : (
-                      <IconButton size="sm" label="Send" disabled={!draft.trim()} className={draft.trim() ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={submit}>
+                      <IconButton size="sm" label="Send" disabled={!ready} className={ready ? 'bg-text! text-surface! hover:opacity-85' : ''} onClick={submit}>
                         <ArrowUp size={14} strokeWidth={2} />
                       </IconButton>
                     )}

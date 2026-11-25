@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, Check, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Pin, Plus, Search, Settings2, Sparkles, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
+import { AppWindow, ArrowDown, ArrowUp, Bot, Calculator, Check, TextSearch, Pause, Play, Columns2, Command, Globe, History, LayoutGrid, MessageCircle, Newspaper, Pin, Plus, Search, Settings2, Sparkles, Square, Star, Volume2, X, type LucideIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Select, Switch } from '@scbrowser/ui'
 import {
@@ -93,7 +93,9 @@ function GreetingWidget({ name }: { name: string }) {
 }
 
 const SUGGEST_DELAY_MS = 120
-const SUGGESTION_ICONS: Partial<Record<SuggestionKind, LucideIcon>> = { bookmark: Star, history: History, navigate: Globe, calc: Calculator }
+const SUGGESTION_ICONS: Partial<Record<SuggestionKind, LucideIcon>> = { bookmark: Star, history: History, navigate: Globe, calc: Calculator, tab: AppWindow, ask: Bot, keyword: TextSearch }
+/** Words on the right of a row, only where it does something other than open, as in the address bar. */
+const SUGGESTION_HINTS: Partial<Record<SuggestionKind, string>> = { tab: 'Switch to tab', calc: 'Copy', keyword: 'Tab' }
 
 function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
   const [query, setQuery] = useState('')
@@ -128,8 +130,18 @@ function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
   }, [query])
 
   const pick = (row: Suggestion) => {
-    if (row.action.type === 'navigate') openHere(row.action.url)
-    if (row.action.type === 'copy') void navigator.clipboard.writeText(row.action.text)
+    const { action } = row
+    if (action.type === 'navigate') openHere(action.url)
+    if (action.type === 'copy') void navigator.clipboard.writeText(action.text)
+    if (action.type === 'switch-tab') void api().invoke('newtab:switch-tab', action.tabId)
+    if (action.type === 'ask') {
+      void api().invoke('newtab:ask', action.text)
+      setQuery('')
+    }
+    if (action.type === 'fill') {
+      setQuery(action.text)
+      inputRef.current?.focus()
+    }
   }
   const showing = open && suggestions.length > 0
 
@@ -175,6 +187,13 @@ function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
               const kept = accept()
               if (kept !== null) setQuery(kept)
             }
+            // Tab after a search keyword adds the space, as in the address bar.
+            const keyword = showing && !e.shiftKey ? suggestions.find((row) => row.kind === 'keyword') : undefined
+            if (e.key === 'Tab' && keyword?.action.type === 'fill') {
+              e.preventDefault()
+              setQuery(keyword.action.text)
+              return
+            }
             if (!showing || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
             e.preventDefault()
             const count = suggestions.length
@@ -198,10 +217,10 @@ function SearchWidget({ autofillOn }: { autofillOn: boolean }) {
                 }}
                 className={cx('flex h-9 items-center gap-3 rounded-md px-2.5', index === selected ? 'bg-accent-soft' : 'hover:bg-surface-hover')}
               >
-                <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+                <Icon aria-hidden size={14} strokeWidth={1.75} className={cx('shrink-0', index === selected ? 'text-accent' : 'text-text-faint')} />
                 <span className="min-w-0 shrink truncate">{row.title}</span>
                 {row.detail && <span className="min-w-0 flex-1 truncate text-xs text-text-faint">{row.detail}</span>}
-                {row.kind === 'calc' && <span className="ml-auto shrink-0 text-2xs font-medium text-text-muted">Copy</span>}
+                {SUGGESTION_HINTS[row.kind] && <span className="ml-auto shrink-0 text-2xs font-medium text-text-muted">{SUGGESTION_HINTS[row.kind]}</span>}
               </li>
             )
           })}

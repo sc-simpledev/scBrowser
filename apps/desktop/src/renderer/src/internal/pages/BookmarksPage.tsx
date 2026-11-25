@@ -211,7 +211,9 @@ export function BookmarksPage() {
           Add folder
         </Button>
       </form>}
-      {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">Press Ctrl D on any page to add one.</EmptyState>}
+      {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">
+          Press <kbd className="sc-kbd">Ctrl</kbd> <kbd className="sc-kbd">D</kbd> on any page to add one, or import them from another browser in Settings.
+        </EmptyState>}
       {bookmarks.length > 1 && <TidyUp bookmarks={bookmarks} reload={load} />}
       {groups
         .filter((group) => group.parentId === null)

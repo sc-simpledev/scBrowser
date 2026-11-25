@@ -44,6 +44,18 @@ jobs:
       - run: pnpm release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      # The packaged app must open a window and load a tab. If it can't, this fails, the draft is
+      # never published, and nobody is offered a broken build. It runs on a throwaway profile.
+      - name: Start the packaged app once
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd "apps/desktop/release/$version"
+          case "$RUNNER_OS" in
+            Linux) xvfb-run -a "./scTerra-$version.AppImage" --appimage-extract-and-run --no-sandbox --smoke-test ;;
+            Windows) ./win-unpacked/scTerra.exe --smoke-test ;;
+            macOS) "$(ls -d mac*/scTerra.app | head -1)/Contents/MacOS/scTerra" --smoke-test ;;
+          esac
       # Terra Code's workflows installed on GitHub (comment and scheduled runs) download this.
       - name: Attach Terra Code's cloud runner
         if: runner.os == 'Linux'

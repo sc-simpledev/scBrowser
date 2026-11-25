@@ -116,5 +116,5 @@ export function withContext(
   }
   if (selection) parts.push(`<selection>\n${neutralise(selection.slice(0, MAX_SELECTION_CHARS))}\n</selection>`)
   parts.push(last.content)
-  return [...messages.slice(0, -1), { role: 'user', content: parts.join('\n\n') }]
+  return [...messages.slice(0, -1), { ...last, content: parts.join('\n\n') }]
 }
