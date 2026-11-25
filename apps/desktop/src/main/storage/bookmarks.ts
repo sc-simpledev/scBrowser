@@ -157,6 +157,33 @@ export class BookmarksRepo {
     return added
   }
 
+  /**
+   * Puts newly imported bookmarks in their folders, making the folders that aren't there yet.
+   * Bookmarks saved before the import keep their place.
+   */
+  placeImported(items: { url: string; folder?: string[] }[], newUrls: ReadonlySet<string>): void {
+    const ids = new Map(this.list().map((bookmark) => [bookmark.url, bookmark.id]))
+    const folders = this.groups()
+    const folderId = (path: string[]): number | null => {
+      let parent: number | null = null
+      for (const name of path) {
+        const found = folders.find((group) => group.name === name && group.parentId === parent)
+        if (found) parent = found.id
+        else {
+          const id = this.addGroup(name, parent)
+          folders.push({ id, name, parentId: parent, position: 0 })
+          parent = id
+        }
+      }
+      return parent
+    }
+    for (const { url, folder } of items) {
+      const id = ids.get(url)
+      if (id === undefined || !newUrls.has(url) || !folder?.length) continue
+      this.setGroup(id, folderId(folder))
+    }
+  }
+
   rename(id: number, title: string): void {
     this.rename_.run(title, id)
   }

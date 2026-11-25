@@ -294,6 +294,24 @@ export const localDay = (time: number) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+/**
+ * The calendar day `days` before the one `time` falls on, as `localDay` writes it. Counted on the
+ * calendar rather than in 24-hour steps, which skip or repeat a day when the clocks change.
+ */
+export const localDayBefore = (time: number, days: number) => {
+  const date = new Date(time)
+  return localDay(new Date(date.getFullYear(), date.getMonth(), date.getDate() - days, 12).getTime())
+}
+
+/** Whole calendar days from `earlier` to `later`: 0 on the same day, 1 for yesterday, whatever the hour. */
+export function calendarDaysBetween(earlier: number, later: number): number {
+  const noon = (time: number) => {
+    const date = new Date(time)
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  }
+  return Math.round((noon(later) - noon(earlier)) / 86_400_000)
+}
+
 const LENGTH_GUIDE: Record<BriefLength, string> = {
   short: 'Keep it short: a one-sentence overview, then 3 to 5 bullet points of one or two sentences each. About 150 words.',
   medium: 'Medium length: a two-sentence overview, then the main stories or findings under a few short "##" headings, with bullets where they help. About 400 words.',

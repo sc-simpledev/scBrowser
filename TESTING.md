@@ -57,3 +57,10 @@ Nothing here can run in CI. Take a release build, tick what works, and note what
 - [ ] Search keywords: yt, wiki, gh, maps, ddg and one of your own
 - [ ] Sync between two devices keeps the order of bookmarks on the bar and inside folders
 - [ ] With your OK to spend credit: `SCB_REAL_AI=hosted e2e/hidden.sh e2e/realAi.spec.ts` (see the top of that file for your own key)
+
+## New in 0.9.1
+
+- [ ] Import from your real Chrome, Edge, Brave or Firefox: the folders come along, and bookmarks you already had stay where they were
+- [ ] Bookmarks > Tidy up with Wi-Fi off: nothing is offered for removal as dead
+- [ ] A mistyped address shows "The site's address couldn't be found" with ERR_NAME_NOT_RESOLVED under it
+- [ ] Reader view (F9) on a real article: the title once, with site and reading time

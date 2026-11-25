@@ -1008,37 +1008,44 @@ function WidgetList({ config, update }: { config: NewTabConfig; update: Update }
   return (
     <Group title="Widgets">
       {widgets.map(({ id, size, when }, index) => (
-        <div key={id} className="flex items-center gap-1">
-          <span className="min-w-0 flex-1 truncate">{name(id)}</span>
-          <Select
-            aria-label={`When to show ${name(id)}`}
-            title="Show it only at some times of day"
-            value={when ?? 'always'}
-            onChange={(e) => update({ widgets: widgets.map((w) => (w.id === id ? { ...w, when: e.target.value as WidgetTime } : w)) })}
-          >
-            {WIDGET_TIMES.map((time) => (
-              <option key={time} value={time}>
-                {WIDGET_TIME_LABELS[time]}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label={`${name(id)} width`}
-            value={size}
-            onChange={(e) => update({ widgets: widgets.map((w) => (w.id === id ? { ...w, size: e.target.value as 'full' | 'half' } : w)) })}
-          >
-            <option value="full">Full</option>
-            <option value="half">Half</option>
-          </Select>
-          <IconButton label={`Move ${name(id)} up`} disabled={index === 0} onClick={() => move(index, -1)}>
-            <ArrowUp size={14} strokeWidth={1.75} />
-          </IconButton>
-          <IconButton label={`Move ${name(id)} down`} disabled={index === widgets.length - 1} onClick={() => move(index, 1)}>
-            <ArrowDown size={14} strokeWidth={1.75} />
-          </IconButton>
-          <IconButton label={`Remove ${name(id)}`} onClick={() => update({ widgets: widgets.filter((w) => w.id !== id) })}>
-            <X size={14} strokeWidth={1.75} />
-          </IconButton>
+        // The name gets a line of its own: beside two menus and three buttons it had room for one letter.
+        <div key={id} className="flex flex-col gap-1.5 rounded-md border border-border p-2">
+          <div className="flex items-center gap-0.5">
+            <span className="min-w-0 flex-1 truncate font-medium">{name(id)}</span>
+            <IconButton size="sm" label={`Move ${name(id)} up`} disabled={index === 0} onClick={() => move(index, -1)}>
+              <ArrowUp size={13} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton size="sm" label={`Move ${name(id)} down`} disabled={index === widgets.length - 1} onClick={() => move(index, 1)}>
+              <ArrowDown size={13} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton size="sm" label={`Remove ${name(id)}`} onClick={() => update({ widgets: widgets.filter((w) => w.id !== id) })}>
+              <X size={13} strokeWidth={1.75} />
+            </IconButton>
+          </div>
+          <div className="flex gap-1.5">
+            <Select
+              aria-label={`When to show ${name(id)}`}
+              title="Show it only at some times of day"
+              className="min-w-0 flex-1"
+              value={when ?? 'always'}
+              onChange={(e) => update({ widgets: widgets.map((w) => (w.id === id ? { ...w, when: e.target.value as WidgetTime } : w)) })}
+            >
+              {WIDGET_TIMES.map((time) => (
+                <option key={time} value={time}>
+                  {WIDGET_TIME_LABELS[time]}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label={`${name(id)} width`}
+              className="w-28 shrink-0"
+              value={size}
+              onChange={(e) => update({ widgets: widgets.map((w) => (w.id === id ? { ...w, size: e.target.value as 'full' | 'half' } : w)) })}
+            >
+              <option value="full">Full width</option>
+              <option value="half">Half width</option>
+            </Select>
+          </div>
         </div>
       ))}
       {off.map(({ id, name: label }) => (

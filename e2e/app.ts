@@ -1,9 +1,9 @@
-import { mkdtempSync } from 'node:fs'
+import { appendFileSync, mkdtempSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, test, type ElectronApplication, type Page } from '@playwright/test'
 
 export interface Harness {
   app: ElectronApplication
@@ -27,8 +27,17 @@ export async function launch(profile = newProfile(), switches: string[] = [], ex
     ...(executablePath ? { executablePath, args } : { args: [...args, resolve(__dirname, '../apps/desktop')] }),
     env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js\n##.ad-slot', SCTERRA_AI_URL: process.env.SCTERRA_AI_URL ?? 'off', ...extraEnv }
   })
+  const where = (() => {
+    try {
+      return test.info().titlePath.join(' › ')
+    } catch {
+      return 'outside a test'
+    }
+  })()
   app.process().stderr?.on('data', (data: Buffer) => {
     if (String(data).includes('Uncaught exception')) console.error(String(data))
+    // SCB_E2E_STDERR collects everything the app prints, with SCB_E2E_CONSOLE adding its pages' errors.
+    if (process.env.SCB_E2E_STDERR) appendFileSync(process.env.SCB_E2E_STDERR, `--- ${where}\n${String(data)}`)
   })
   const find = async (matches: (page: Page) => boolean) => {
     for (let attempt = 0; attempt < 200; attempt++) {

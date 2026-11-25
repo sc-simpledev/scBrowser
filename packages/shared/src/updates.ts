@@ -42,6 +42,20 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.9.1',
+    date: '2026-11-26',
+    items: [
+      'Importing from Chrome, Edge, Brave or Firefox now brings your bookmark folders, not just the bookmarks.',
+      'Bookmarks Tidy up no longer calls every link dead when you’re offline, and a site that’s just down isn’t offered for removal.',
+      'The new tab’s Customise panel shows each widget by its whole name, with its menus underneath.',
+      'Error pages say what went wrong in plain words, like “The site’s address couldn’t be found”, with the technical name underneath.',
+      'Reader view names the article once, with its site and reading time.',
+      'Now playing lets go of a player paused more than half an hour ago, and its menu can hide one until it plays again.',
+      'In a narrow window, the full-page assistant and Terra Code start with their chat list folded, and Terra Code’s floating session panel steps aside for a commit it starts.',
+      'Fixed: saved chats called anything under 24 hours old “Today”; the reading list mixed up pages that differ only after the “?”; the privacy week could skip a day when the clocks changed; “Close other tabs” was offered with no other tabs; find in all tabs re-read every page on each key; and a few errors when a page or the app closed at the wrong moment.'
+    ]
+  },
+  {
     version: '0.9.0',
     date: '2026-11-25',
     items: [

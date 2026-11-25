@@ -1,11 +1,10 @@
-import { localDay, type PrivacyWeek } from '@scbrowser/shared'
+import { localDay, localDayBefore, type PrivacyWeek } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'privacy:stats'
 const KEEP_DAYS = 14
 const MAX_HOSTS_PER_DAY = 40
 const FLUSH_MS = 30_000
-const DAY_MS = 86_400_000
 
 interface Day {
   blocked: number
@@ -56,7 +55,7 @@ export class PrivacyStats {
   /** The last seven days, today included. */
   week(): PrivacyWeek {
     const now = this.now()
-    const days = Array.from({ length: 7 }, (_, index) => localDay(now - (6 - index) * DAY_MS))
+    const days = Array.from({ length: 7 }, (_, index) => localDayBefore(now, 6 - index))
     const hosts = new Map<string, number>()
     for (const day of days) for (const [host, count] of Object.entries(this.days[day]?.hosts ?? {})) hosts.set(host, (hosts.get(host) ?? 0) + count)
     return {
@@ -70,7 +69,7 @@ export class PrivacyStats {
   flush(): void {
     if (!this.dirty) return
     this.dirty = false
-    const keep = new Set(Array.from({ length: KEEP_DAYS }, (_, index) => localDay(this.now() - index * DAY_MS)))
+    const keep = new Set(Array.from({ length: KEEP_DAYS }, (_, index) => localDayBefore(this.now(), index)))
     this.days = Object.fromEntries(Object.entries(this.days).filter(([day]) => keep.has(day)))
     this.kv.set(KEY, this.days)
   }

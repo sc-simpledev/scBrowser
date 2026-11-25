@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, type ToolOutput, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { localDay, memoryPrompt, replyStylePrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef, type ReplyStyle } from '@scbrowser/shared'
+import { localDay, memoryPrompt, replyStylePrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef, type ReplyStyle } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
 import { Coder, git, type CoderBrowserHost, type CoderGithubHost, type CoderMcpHost } from './coder'

@@ -127,7 +127,14 @@ describe('bookmark order in sync', () => {
 })
 
 describe('find in all tabs', () => {
-  const tab = (id: number, url: string, text: string | null, destroyed = false) => ({
+  // Each page's isolated world, where its words are kept between searches.
+  const worlds = new Map<number, Record<string, unknown>>()
+  const tab = (id: number, url: string, text: string | null, destroyed = false) => {
+    const world = worlds.get(id) ?? {}
+    worlds.set(id, world)
+    return tab_(id, url, text, destroyed, world)
+  }
+  const tab_ = (id: number, url: string, text: string | null, destroyed: boolean, world: Record<string, unknown>) => ({
     id,
     url,
     contents: {
@@ -135,7 +142,7 @@ describe('find in all tabs', () => {
       // Runs the real script against a fake page body.
       executeJavaScriptInIsolatedWorld: async (_world: number, scripts: { code: string }[]) => {
         const document = { body: text === null ? null : { innerText: text } }
-        return new Function('document', `return ${scripts[0]!.code}`)(document)
+        return new Function('document', 'location', 'globalThis', `return ${scripts[0]!.code}`)(document, { href: url }, world)
       }
     } as never
   })

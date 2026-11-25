@@ -190,6 +190,23 @@ test('a commit that would include a key stops and offers to go ahead anyway', as
   await expect(page.getByText(/^Committed [0-9a-f]+ Add config\.$/)).toBeVisible()
 })
 
+test('in a narrow window the floating session panel steps aside for the commit it starts', async () => {
+  const page = await open({ git: true })
+  await h.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(760, 700))
+  // The window manager takes a moment to apply the new size.
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(800)
+  mock!.queue.push(tool({ tool: 'write', path: 'notes.md', content: 'Notes\n' }), 'Added notes.', 'Add notes')
+  await say(page, 'add notes')
+  await expect(page.getByText('Added notes.')).toBeVisible()
+  const panel = await showPanel(page)
+  await panel.getByRole('button', { name: 'Commit' }).click()
+  await expect(panel).toHaveCount(0)
+  const commit = page.getByRole('region', { name: 'Commit' })
+  await commit.getByRole('textbox', { name: 'Commit message' }).fill('Add notes')
+  await commit.getByRole('button', { name: 'Commit', exact: true }).click()
+  await expect(page.getByText(/^Committed [0-9a-f]+ Add notes\.$/)).toBeVisible()
+})
+
 test('a budget shows how much of it a session has used', async () => {
   const page = await open()
   await setSetting(h, { coderBudget: 200_000 })

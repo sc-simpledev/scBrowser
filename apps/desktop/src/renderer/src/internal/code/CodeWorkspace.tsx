@@ -1025,9 +1025,16 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       const saved = await api().invoke('coder:open', chat)
       if (cancelled) return
       let next = emptyState()
-      if (saved) {
-        const data = JSON.parse(saved.data) as SavedData
-        next = { ...next, items: data.items, todo: data.todo, agents: data.agents ?? [] }
+      // A session saved damaged opens empty rather than leaving the screen stuck.
+      const data = saved ? ((): SavedData | null => {
+        try {
+          return JSON.parse(saved.data) as SavedData
+        } catch {
+          return null
+        }
+      })() : null
+      if (data) {
+        next = { ...next, items: data.items ?? [], todo: data.todo, agents: data.agents ?? [] }
         setModel(data.model ?? null)
         setEffort(data.effort ?? null)
         setWhere(data.where ?? 'local')
@@ -1624,6 +1631,11 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     </>
   )
 
+  // Floating, the panel covers the conversation, so anything it starts there needs it out of the way.
+  const fromPanel = <A extends unknown[]>(action: (...args: A) => void) => (...args: A) => {
+    if (narrow) setFloatOpen(false)
+    action(...args)
+  }
   const panel = (
     <SessionPanel
       status={status}
@@ -1649,11 +1661,11 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       onClose={() => togglePanel(false)}
       onOpenFolder={() => void api().invoke('coder:open-folder')}
       onReview={(path) => openReview(path ?? null)}
-      onCommit={() => setCommitting(true)}
-      onCompact={compactNow}
+      onCommit={fromPanel(() => setCommitting(true))}
+      onCompact={fromPanel(compactNow)}
       onStopJob={(id) => void api().invoke('coder:job-stop', session.current, id)}
       onTodo={changeTodo}
-      onParallel={parallel}
+      onParallel={fromPanel(parallel)}
       where={where}
       onWhere={setWhere}
       cloudPr={cloudPr}

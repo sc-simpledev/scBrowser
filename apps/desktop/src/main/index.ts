@@ -50,6 +50,19 @@ process.on('uncaughtException', (error) => {
   reporter?.record('exception', error.name, error.stack)
 })
 
+// Tests can collect errors from the browser's own pages (its interface, popups and sc:// pages), which
+// would otherwise only show in their developer tools. Websites' own errors are left out.
+if (process.env.SCB_E2E && process.env.SCB_E2E_CONSOLE) {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+      if (level !== 'error' && level !== 'warning') return
+      const url = contents.getURL()
+      if (!/^(sc:|file:|http:\/\/localhost:5173)/.test(url) || /^file:.*\.(html?|pdf)$/.test(url) && !url.includes('/renderer/')) return
+      process.stderr.write(`[page ${level}] ${url.split('?')[0]} ${sourceId.split('/').pop()}:${lineNumber} ${message}\n`)
+    })
+  })
+}
+
 // Playwright turns the sandbox off, but service worker extensions need it to get their APIs.
 if (process.env.SCB_E2E_SANDBOX) app.commandLine.removeSwitch('no-sandbox')
 

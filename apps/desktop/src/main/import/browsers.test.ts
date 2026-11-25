@@ -37,9 +37,11 @@ function firefoxRoot(root: string) {
   writeFileSync(join(root, 'installs.ini'), '')
   const db = new DatabaseSync(join(profile, 'places.sqlite'))
   db.exec(`CREATE TABLE moz_places (id INTEGER, url TEXT, title TEXT, visit_count INTEGER, last_visit_date INTEGER);
-    CREATE TABLE moz_bookmarks (id INTEGER, fk INTEGER, type INTEGER, title TEXT);
+    CREATE TABLE moz_bookmarks (id INTEGER, fk INTEGER, type INTEGER, title TEXT, parent INTEGER, guid TEXT);
     INSERT INTO moz_places VALUES (1, 'https://fox.dev/', 'Fox', 2, 1577836800000000), (2, 'place:sort=8', NULL, 0, NULL), (3, 'https://never.dev/', 'Never', 0, NULL);
-    INSERT INTO moz_bookmarks VALUES (1, 1, 1, 'Fox bookmark'), (2, 2, 1, 'Query'), (3, NULL, 2, 'Folder');`)
+    INSERT INTO moz_bookmarks VALUES (10, NULL, 2, '', NULL, 'root________'), (11, NULL, 2, 'toolbar', 10, 'toolbar_____'), (12, NULL, 2, 'menu', 10, 'menu________'),
+      (13, NULL, 2, 'Recipes', 12, 'recipesguid1'), (14, NULL, 2, 'Bread', 13, 'breadguid123'),
+      (1, 1, 1, 'Fox bookmark', 11, 'a'), (2, 2, 1, 'Query', 11, 'b'), (3, 3, 1, 'Never', 14, 'c');`)
   db.close()
 }
 
@@ -48,7 +50,23 @@ describe('Chromium import', () => {
     const root = dir()
     chromeProfile(root)
     const bookmarks = parseChromiumBookmarks(JSON.stringify({ roots: { a: { children: [{ type: 'url', name: 'X', url: 'https://x.dev/' }] } } }))
-    expect(bookmarks).toEqual([{ url: 'https://x.dev/', title: 'X' }])
+    expect(bookmarks).toEqual([{ url: 'https://x.dev/', title: 'X', folder: ['a'] }])
+  })
+
+  it('keeps folders: items of the bar stay on the bar, other roots become folders', () => {
+    const bookmarks = parseChromiumBookmarks(
+      JSON.stringify({
+        roots: {
+          bookmark_bar: { name: 'Bookmarks bar', type: 'folder', children: [{ type: 'url', name: 'Top', url: 'https://top.dev/' }, { type: 'folder', name: 'Work', children: [{ type: 'folder', name: 'Docs', children: [{ type: 'url', name: 'Deep', url: 'https://deep.dev/' }] }] }] },
+          other: { name: 'Other bookmarks', type: 'folder', children: [{ type: 'url', name: 'Else', url: 'https://else.dev/' }] }
+        }
+      })
+    )
+    expect(bookmarks.map(({ title, folder }) => [title, folder])).toEqual([
+      ['Top', []],
+      ['Deep', ['Work', 'Docs']],
+      ['Else', ['Other bookmarks']]
+    ])
   })
 
   it('converts visit times', () => {
@@ -82,7 +100,10 @@ describe('Firefox import', () => {
     const root = dir()
     firefoxRoot(root)
     const { bookmarks, history } = readFirefoxPlaces(join(root, 'abc.default-release', 'places.sqlite'))
-    expect(bookmarks).toEqual([{ url: 'https://fox.dev/', title: 'Fox bookmark' }])
+    expect(bookmarks).toEqual([
+      { url: 'https://fox.dev/', title: 'Fox bookmark', folder: [] },
+      { url: 'https://never.dev/', title: 'Never', folder: ['Bookmarks menu', 'Recipes', 'Bread'] }
+    ])
     expect(history).toEqual([{ url: 'https://fox.dev/', title: 'Fox', visitCount: 2, lastVisit: Date.UTC(2020, 0, 1) }])
   })
 })

@@ -5,8 +5,11 @@ const TIMEOUT_MS = 8000
 const AT_ONCE = 6
 export const MAX_LINKS_CHECKED = 500
 
-/** Errors that mean the site itself is gone, rather than this computer being offline or slow. */
-const GONE = /ERR_NAME_NOT_RESOLVED|ENOTFOUND|ERR_CONNECTION_REFUSED|ERR_ADDRESS_UNREACHABLE/
+/**
+ * Errors that mean the site's name is gone. A refused or unreachable connection is left out: a
+ * server down for the evening, or a network that blocks it, isn't a dead link.
+ */
+const GONE = /ERR_NAME_NOT_RESOLVED|ENOTFOUND/
 
 /**
  * Whether bookmarked pages still answer: 404 and 410, or a name that no longer resolves, count as
@@ -33,5 +36,8 @@ export async function checkLinks(urls: string[], fetchImpl: (url: string, init: 
     for (let url = queue.shift(); url !== undefined; url = queue.shift()) results.push(await one(url))
   })
   await Promise.all(workers)
-  return results
+  // Not one site answered: this computer is offline, or its network is blocking them, so a name
+  // that didn't resolve says nothing about the bookmark.
+  const anyAnswered = results.some((result) => result.status !== null)
+  return anyAnswered || results.length < 2 ? results : results.map((result) => ({ ...result, state: 'unknown' as const }))
 }

@@ -5,10 +5,16 @@ const WORLD = 1021
 /** A page that takes longer than this to answer is left out rather than holding up the list. */
 const READ_MS = 800
 const MAX_TABS = 60
+/** How long a page's words are kept in its isolated world between searches. */
+const TEXT_KEPT_MS = 15_000
 
 /** Reads the page's visible words in an isolated world and finds the first place the words are. */
 const findScript = (query: string) => `((q) => {
-  const text = document.body ? document.body.innerText : ''
+  // Reading the words lays the page out, so they're kept a little while for the next key typed.
+  const kept = globalThis.__scTabText
+  const fresh = kept && kept.url === location.href && Date.now() - kept.at < ${TEXT_KEPT_MS}
+  const text = fresh ? kept.text : document.body ? document.body.innerText : ''
+  if (!fresh) globalThis.__scTabText = { url: location.href, at: Date.now(), text }
   const lower = text.toLowerCase()
   const at = lower.indexOf(q)
   if (at === -1) return null

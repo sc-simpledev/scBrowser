@@ -27,6 +27,8 @@ export interface TabState {
   media?: 'playing' | 'paused' | null
   /** The playback speed set from Now playing, when it isn't 1. */
   mediaSpeed?: number
+  /** When `media` last changed, so a player paused long ago stops being offered. */
+  mediaAt?: number
   /** The tab whose link opened this one, while that tab is still open. */
   parentId?: TabId | null
   /** How far in to draw it under the tabs it came from, for the tab tree. 0 is the top level. */
@@ -258,9 +260,13 @@ export const MEDIA_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
 /**
  * Which tab Now playing should show: one playing that isn't on screen, else the one paused most
- * recently (the last in the list), else none. Tabs on screen are already in reach.
+ * recently, if that was in the last half hour, else none. Tabs on screen are already in reach.
  */
-export function nowPlayingTab<T extends Pick<TabState, 'id' | 'media'>>(tabs: readonly T[], onScreen: readonly TabId[]): T | null {
+export function nowPlayingTab<T extends Pick<TabState, 'id' | 'media' | 'mediaAt'>>(tabs: readonly T[], onScreen: readonly TabId[], now = Date.now()): T | null {
   const away = tabs.filter((tab) => !onScreen.includes(tab.id) && tab.media)
-  return away.find((tab) => tab.media === 'playing') ?? away.findLast((tab) => tab.media === 'paused') ?? null
+  const recent = (tab: T) => now - (tab.mediaAt ?? now) < PAUSED_SHOWN_MS
+  return away.find((tab) => tab.media === 'playing') ?? away.filter((tab) => tab.media === 'paused' && recent(tab)).toSorted((a, b) => (a.mediaAt ?? 0) - (b.mediaAt ?? 0)).at(-1) ?? null
 }
+
+/** A paused player stays in Now playing this long, then leaves it until it plays again. */
+export const PAUSED_SHOWN_MS = 30 * 60_000

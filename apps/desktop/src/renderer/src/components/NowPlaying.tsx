@@ -1,7 +1,7 @@
 import { EllipsisVertical, Pause, PictureInPicture2, Play } from 'lucide-react'
-import type { MouseEvent } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
-import { nowPlayingTab, type TabState } from '@scbrowser/shared'
+import { nowPlayingTab, PAUSED_SHOWN_MS, type TabState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useTabs } from '../state/tabs'
 import { Favicon } from './Favicon'
@@ -14,8 +14,16 @@ function useNowPlaying(): TabState | null {
   const tabs = useTabs((s) => s.tabs)
   const activeId = useTabs((s) => s.activeId)
   const splitIds = useTabs((s) => s.splitIds)
-  if (!on) return null
-  return nowPlayingTab(tabs, splitIds.length > 0 ? splitIds : activeId !== null ? [activeId] : [])
+  const [now, setNow] = useState(Date.now())
+  const tab = on ? nowPlayingTab(tabs, splitIds.length > 0 ? splitIds : activeId !== null ? [activeId] : [], now) : null
+  // A paused player leaves after a while even if nothing else changes.
+  const leavesAt = tab?.media === 'paused' && tab.mediaAt ? tab.mediaAt + PAUSED_SHOWN_MS : null
+  useEffect(() => {
+    if (leavesAt === null) return
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, leavesAt - Date.now()) + 50)
+    return () => clearTimeout(timer)
+  }, [leavesAt])
+  return tab
 }
 
 const act = (tab: TabState, action: 'toggle' | 'pip' | 'focus') => void window.scb.invoke('media:action', tab.id, action)

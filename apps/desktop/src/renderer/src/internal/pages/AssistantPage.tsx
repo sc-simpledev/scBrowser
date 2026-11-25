@@ -1,7 +1,7 @@
 import { ArrowUp, Check, ChevronRight, Code2, Download, Pencil, Plug, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { calendarDaysBetween, CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
 import { CopyReply, latestReport, ReplyContent, RetryReply, Thinking, type OpenSource } from '../../shared/ReplyContent'
 import { CUT_OFF, STOP_NOTES } from '../../shared/stopNotes'
 import { ReportPane, type QuizMemory, type SaveReport } from '../../shared/ReportPane'
@@ -72,11 +72,14 @@ const saveFile: SaveFile = (name, content) => api().invoke('files:save', name, c
 
 /** Below this, a report and the chat list don't both leave room for the conversation. */
 const ROOM_FOR_ALL = 1180
+/** Narrower than this, the chat list starts folded, so the conversation keeps the room. */
+const ROOM_FOR_LIST = 820
 /** There's more room here than beside a page, so a report starts out wider. */
 const REPORT_START_WIDTH = 640
 
 const dayLabel = (time: number) => {
-  const days = Math.floor((Date.now() - time) / 86_400_000)
+  // By the calendar: a chat from last night is yesterday's, even a few hours on.
+  const days = calendarDaysBetween(time, Date.now())
   return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
@@ -148,7 +151,18 @@ export function AssistantPage() {
   const [file, setFile] = useState<FileVersion | null>(null)
   const [preset, setPreset] = useState<ReportPreset | null>(() => presetById(new URLSearchParams(location.search).get('preset') ?? '') ?? null)
   const [gallery, setGallery] = useState(false)
-  const [listOpen, setListOpen] = useState(true)
+  const [listOpen, setListOpen] = useState(() => innerWidth >= ROOM_FOR_LIST)
+  // Made narrow later, the list folds too; opened again by hand, it's left open.
+  useEffect(() => {
+    let wide = innerWidth >= ROOM_FOR_LIST
+    const onResize = () => {
+      const now = innerWidth >= ROOM_FOR_LIST
+      if (wide && !now) setListOpen(false)
+      wide = now
+    }
+    addEventListener('resize', onResize)
+    return () => removeEventListener('resize', onResize)
+  }, [])
   const [reportWidth, setReportWidth] = useState(REPORT_START_WIDTH)
   const [designs, setDesigns] = useState<Record<string, ReportThemeId>>({})
   const [customPresets, setCustomPresets] = useState<ReportPreset[]>([])
@@ -415,7 +429,7 @@ export function AssistantPage() {
   if (view === 'chat' && !codeOpened && status && !status.ready && turns.length === 0) {
     return (
       <div className="flex h-full">
-        <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />
+        {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
         <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8 pb-16 text-center">
           <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-accent">
             <MessageSquare aria-hidden size={18} strokeWidth={1.75} />
@@ -427,6 +441,12 @@ export function AssistantPage() {
           <Button variant="primary" onClick={() => void api().invoke('browser:open', 'sc://ai/')}>
             Set up AI
           </Button>
+          {/* Folded away in a narrow window, saved chats are still a press away. */}
+          {!listOpen && chats.length > 0 && (
+            <Button variant="ghost" onClick={() => setListOpen(true)}>
+              Saved chats
+            </Button>
+          )}
         </div>
       </div>
     )

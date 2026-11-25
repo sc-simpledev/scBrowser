@@ -8,7 +8,7 @@ import { speakerNotes } from './reportNotes'
 import { toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
 import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, CODER_MAX_TASK_CHARS, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
+import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
 import type { BrowserActions } from './actions'
@@ -44,7 +44,7 @@ import type { UpdateService } from './updater'
 import { copySecret } from './passwordFill'
 import { LEAK_RANGE_URL } from './totp'
 import iconPath from '../../build/icon.png?asset'
-import { samePage } from './citations'
+import { sameReadingPage } from './readingList'
 import { prepareRecap } from './recap'
 import { withHiddenPage } from './hiddenPage'
 import { extractContext } from './ai/pageText'
@@ -477,7 +477,10 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'import:sources': () => availableSources(),
     'import:run': (id) => {
       const { bookmarks: imported, history: visits } = readSource(text(id, 32))
+      const before = new Set(bookmarks.list().map((bookmark) => bookmark.url))
       const result = { bookmarks: bookmarks.importMany(imported), history: history.importMany(visits) }
+      // Their folders come along, for the ones that are new here.
+      bookmarks.placeImported(imported, new Set(imported.map((bookmark) => bookmark.url).filter((url) => !before.has(url))))
       onBookmarksChanged()
       return result
     },
@@ -915,7 +918,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (!item) throw new Error("That page isn't on the list any more.")
       if (URL.canParse(item.url) && aiStore.disabledHosts().includes(new URL(item.url).host)) throw new Error('AI is off for this site.')
       // A tab already showing it saves loading it again.
-      const open = tabs.allContents().find((contents) => samePage(contents.getURL(), item.url))
+      const open = tabs.allContents().find((contents) => sameReadingPage(contents.getURL(), item.url))
       const page = open ? await extractContext(open) : await withHiddenPage(item.url, extractContext)
       if (!page?.text.trim()) throw new Error("Couldn't find an article on that page.")
       const [message] = withContext([{ role: 'user', content: 'Summarise this article.' }], [{ ...page, ...trimPage(page.text, 60_000) }], null)

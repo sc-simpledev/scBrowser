@@ -299,7 +299,8 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     },
     { type: 'separator' },
     { label: 'Close', accelerator: 'CmdOrCtrl+W', registerAccelerator: false, click: () => tabs.close(id) },
-    { label: 'Close other tabs', click: () => tabs.closeOthers(id) },
+    // Pinned tabs stay when the others close, so only unpinned ones count.
+    { label: 'Close other tabs', enabled: open.some((other) => other.id !== id && !other.pinned), click: () => tabs.closeOthers(id) },
     { type: 'separator' },
     ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },

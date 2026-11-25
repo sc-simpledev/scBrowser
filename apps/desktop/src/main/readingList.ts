@@ -1,10 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
-import { FINISHED_READING, isHalfRead, MAX_READING_ITEMS, type ReadingItem } from '@scbrowser/shared'
-import { samePage } from './citations'
+import { cleanUrl, FINISHED_READING, isHalfRead, MAX_READING_ITEMS, type ReadingItem } from '@scbrowser/shared'
 import type { KeyValueRepo } from './storage/kv'
 
 const KEY = 'reading:list'
+
+/**
+ * The same saved page in a tab: the whole address bar the fragment, so `story.php?id=1` and `?id=2`
+ * stay two pages, and a trailing slash or a tracking tag taken off on load doesn't count.
+ */
+export function sameReadingPage(a: string, b: string): boolean {
+  if (!URL.canParse(a) || !URL.canParse(b)) return false
+  const key = (url: string) => {
+    const parsed = new URL(cleanUrl(url))
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}${parsed.search}`
+  }
+  return key(a) === key(b)
+}
 const PROGRESS_WORLD = 1022
 /** How far down the page is scrolled, from 0 at the top to 1 at the end; null for a page too short to scroll. */
 const SCROLLED = `(() => {
@@ -31,13 +43,13 @@ export class ReadingList {
   }
 
   has(url: string): boolean {
-    return this.list().some((item) => item.url === url)
+    return this.list().some((item) => sameReadingPage(item.url, url))
   }
 
   add(url: string, title: string): ReadingItem {
     if (!/^(https?|file):/i.test(url)) throw new Error('Only web pages can go on the reading list.')
     const all = this.list()
-    const existing = all.find((item) => item.url === url)
+    const existing = all.find((item) => sameReadingPage(item.url, url))
     if (existing) return existing
     const item: ReadingItem = { id: randomUUID(), url, title: title.slice(0, 300), addedAt: Date.now(), readAt: null, summary: null }
     this.save([item, ...all])
@@ -65,7 +77,7 @@ export class ReadingList {
     if (items.length === 0) return
     for (const contents of open) {
       if (contents.isDestroyed()) continue
-      const item = items.find((candidate) => samePage(contents.getURL(), candidate.url))
+      const item = items.find((candidate) => sameReadingPage(contents.getURL(), candidate.url))
       if (!item || (item.progress ?? 0) >= FINISHED_READING) continue
       const fraction = (await contents.executeJavaScriptInIsolatedWorld(PROGRESS_WORLD, [{ code: SCROLLED }]).catch(() => null)) as number | null
       if (typeof fraction !== 'number' || !Number.isFinite(fraction)) continue
@@ -87,7 +99,7 @@ export class ReadingList {
 
   /** Marks it read when it's opened from the list, or when its page is visited. */
   markVisited(url: string): void {
-    const item = this.list().find((candidate) => candidate.url === url && candidate.readAt === null)
+    const item = this.list().find((candidate) => candidate.readAt === null && sameReadingPage(candidate.url, url))
     if (item) this.patch(item.id, { readAt: Date.now() })
   }
 }

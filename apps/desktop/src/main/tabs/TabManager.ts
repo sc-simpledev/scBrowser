@@ -523,6 +523,14 @@ export class TabManager {
     return runMedia(contents, this.tabs.get(id)!.state.media === 'playing' ? 'pause' : 'play')
   }
 
+  /** Takes a tab out of Now playing until its sound starts again. */
+  dismissMedia(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab?.state.media) return
+    tab.state.media = null
+    this.emitChange()
+  }
+
   /** Sets the speed of every player in the tab, and keeps it for players that start later on the same page. */
   async setMediaSpeed(id: TabId, rate: number): Promise<number> {
     const tab = this.tabs.get(id)
@@ -1417,7 +1425,8 @@ export class TabManager {
     if (saved && saved.entries.length > 0 && page === tab.state.url) {
       contents.navigationHistory
         .restore({ index: saved.entryIndex, entries: saved.entries })
-        .catch(() => contents.loadURL(saved.url).catch(() => undefined))
+        // A tab closed while its history came back has nothing left to load into.
+        .catch(() => (contents.isDestroyed() ? undefined : contents.loadURL(saved.url).catch(() => undefined)))
     } else {
       contents.loadURL(page).catch(() => undefined)
     }
@@ -1559,17 +1568,17 @@ export class TabManager {
     contents.on('audio-state-changed', ({ audible }) => {
       const heard = audible && (playingSilently || state.media === 'paused')
       if (heard) playingSilently = false
-      sync({ audible, ...(heard ? { media: 'playing' as const } : {}) })
+      sync({ audible, ...(heard ? { media: 'playing' as const, mediaAt: Date.now() } : {}) })
     })
     contents.on('media-started-playing', () => {
-      if (state.audible || state.media) sync({ media: 'playing' })
+      if (state.audible || state.media) sync({ media: 'playing', mediaAt: Date.now() })
       else playingSilently = true
       // A speed picked in Now playing carries on to the next video on the same page.
       if (state.mediaSpeed) void setMediaSpeed(contents, state.mediaSpeed)
     })
     contents.on('media-paused', () => {
       playingSilently = false
-      if (state.media) sync({ media: 'paused' })
+      if (state.media) sync({ media: 'paused', mediaAt: Date.now() })
     })
     contents.on('zoom-changed', (_e, direction) => this.zoomBy(state.id, direction === 'in' ? 1 : -1))
 

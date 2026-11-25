@@ -53,7 +53,6 @@ import {
   type Bookmark,
   type PermissionPrompt,
   type TabId,
-  type Workspace,
   type WorkspaceEdit
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
@@ -278,9 +277,10 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     onPageLoaded: (contents) => void privacy.applyCosmetics(contents),
     onDomReady: (contents) => {
-      if (forceDark) void darkenPage(contents)
-      void applySiteTweaks(contents, settings.get())
-      void core.highlights?.paint(contents)
+      // A page can finish loading while scTerra quits, after the database has closed.
+      if (forceDark) void darkenPage(contents).catch(() => undefined)
+      void applySiteTweaks(contents, settings.get()).catch(() => undefined)
+      void core.highlights?.paint(contents).catch(() => undefined)
       if (rejectsBanners(contents.getURL())) rejectCookieBanner(contents)
     },
     onTitle: (url, title) => {
@@ -565,6 +565,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         { label: 'Go to tab', click: () => tabs.activate(id) },
         { label: 'Close tab', click: () => tabs.close(id) },
         { type: 'separator' },
+        { label: 'Hide until it plays again', click: () => tabs.dismissMedia(id) },
         { label: 'Turn off Now playing', click: () => settings.set({ mediaControls: false }) }
       ]).popup({ window, x: Math.round(x), y: Math.round(y) })
     },
