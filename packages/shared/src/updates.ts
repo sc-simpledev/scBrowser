@@ -42,6 +42,29 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.9.2',
+    date: '2026-11-27',
+    items: [
+      'Terra Code can run a task on a computer of your own over SSH, not just on GitHub Actions: choose Your server under Runs on. Your folder goes as it is, uncommitted changes too, it carries on with this computer off, and the work comes back as a branch you fetch.',
+      'A cloud run that stops now says why on its card, in the model’s own words, and a reply the free scTerra AI cuts short is tried again.',
+      'In Terra Code, type ! and a command to run it yourself, and Terra Code sees what it printed. Type # and a note to add it to TERRA.md.',
+      'New Terra Code commands: /context shows what fills the model’s memory, /doctor checks your setup, /style makes it explain its choices or leave small pieces for you to write, plus /security-review and /pr-comments.',
+      'With a language server installed, Terra Code hears about errors in a file right after it edits it, the way your editor underlines them. Changed files open in your editor from the session panel.',
+      'The assistant has a status line with the chat’s tokens, cost and how full the model’s memory is, and /compact sums up a long chat so it can keep going.',
+      'Save an answer as a Markdown note, straight into a folder you choose (an Obsidian vault works), from the button under each reply.',
+      'With memory on, the assistant may offer to remember a preference you mention. Nothing is kept unless you click Remember.',
+      'Link hints: press Ctrl . and type the letters on a link or button to click it, without the mouse.',
+      'A QR code for the page, under the padlock or in the page menu, to open it on your phone. It’s made on this computer.',
+      'A site can always open in one workspace: choose where under the padlock.',
+      'Ctrl or Shift click tabs to pick several, then right-click to close, group, move, mute or ask AI about them together.',
+      'Tidy tab titles shortens long titles with AI, keeping the full one on hover (tab menu, With AI).',
+      'Ask AI about part of the page: drag a box over a chart or picture, from the page menu.',
+      'Saved tab sets can open by themselves at a time on the days you pick, in a workspace of your choice, from Archived tabs.',
+      'The Task Manager lists what’s working in the background: briefs being written, Terra Code, runs on GitHub or your server, and downloads.',
+      'Fixed: an address you were typing in a new tab disappeared when you switched to another tab. It now waits for you when you come back.'
+    ]
+  },
+  {
     version: '0.9.1',
     date: '2026-11-26',
     items: [

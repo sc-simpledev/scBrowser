@@ -15,7 +15,9 @@ import {
   type ModelRef
 } from '@scbrowser/shared'
 import { git } from './coder'
-import { GithubError, type CoderGithub } from './coderGithub'
+import { GithubError, githubRepoOf, gitRemote, shownRemote, type CoderGithub } from './coderGithub'
+import { parseServer, serverName, type CoderServer } from './coderServer'
+import type { SandboxMode } from './coderTools'
 
 const RUNS_KEY = 'coder:cloud'
 /** Runs kept per session, newest last. */
@@ -37,6 +39,12 @@ export interface CloudTask {
   title: string
   /** Started from a comment on this issue or pull request: the answer goes back there. */
   issue?: number
+  /** Where it runs: GitHub Actions (the default), or the person's own server over SSH. */
+  where?: 'github' | 'server'
+  /** On a server: push the finished branch here, with the server's own git sign-in. */
+  pushTo?: string | null
+  /** On a server: fence commands in as Terra Code does on this computer, where the server can. */
+  sandbox?: SandboxMode
 }
 
 /**
@@ -99,6 +107,8 @@ jobs:
 `
 }
 
+const folderName = (folder: string) => folder.split(/[\\/]/).filter(Boolean).at(-1) ?? 'project'
+
 /** A branch name from a task: a few of its words, then the run's id. */
 export function branchFor(task: string, id: string): string {
   const words = task
@@ -142,7 +152,11 @@ export interface CoderCloudDeps {
   /** The bundled runner script, which goes into the trigger branch. */
   runner: () => Promise<string>
   /** Where the model is, and the secret it needs (null when it needs none). */
-  model: (ref: ModelRef | null) => Promise<{ model: CoderCloudModel; secret: string | null }>
+  model: (ref: ModelRef | null, where?: 'github' | 'server') => Promise<{ model: CoderCloudModel; secret: string | null }>
+  /** Runs on the person's own server, over SSH. */
+  server?: CoderServer
+  /** The server from Terra Code's settings, and whether it pushes what it made. */
+  serverSettings?: () => { host: string; push: boolean; sandbox: SandboxMode }
   now?: () => number
 }
 
@@ -185,7 +199,8 @@ export class CoderCloud {
     return run
   }
 
-  async start(sessionId: string, folder: string, task: string, { pr, effort, model: ref = null }: { pr: boolean; effort: CoderEffort | null; model?: ModelRef | null }): Promise<CoderCloudRun> {
+  async start(sessionId: string, folder: string, task: string, { pr, effort, model: ref = null, where = 'github' }: { pr: boolean; effort: CoderEffort | null; model?: ModelRef | null; where?: 'github' | 'server' }): Promise<CoderCloudRun> {
+    if (where === 'server') return this.startOnServer(sessionId, folder, task, { pr, effort, model: ref })
     const { github } = this.deps
     if (github.access() !== 'write') throw new Error('Cloud runs push to GitHub, so Terra Code needs to look and act there. Connect GitHub in Terra Code settings and choose Look and act.')
     const repo = await github.repo(folder)
@@ -232,6 +247,34 @@ export class CoderCloud {
     return this.save(sessionId, { id, repo, base, trigger, branch, task, pr, state: 'queued', runId: null, runUrl: null, prUrl: null, summary: null, startedAt: this.now(), endedAt: null, error: null, warning })
   }
 
+  /** The server from settings, ready for ssh, or why not. */
+  private target(run?: CoderCloudRun) {
+    const host = run?.host ?? this.deps.serverSettings?.().host ?? ''
+    const target = parseServer(host)
+    if (!this.deps.server) throw new Error('Runs on a server aren’t available here.')
+    if (!target) throw new Error(host ? `“${host}” isn’t a server address scTerra can use. Write it as user@host, or a name from ~/.ssh/config.` : 'Add your server under Runs on first: user@host, or a name from ~/.ssh/config.')
+    return { server: this.deps.server, target }
+  }
+
+  /** The same task on the person's own server: the folder as it is now goes there over SSH, nothing through GitHub. */
+  private async startOnServer(sessionId: string, folder: string, task: string, { pr, effort, model: ref }: { pr: boolean; effort: CoderEffort | null; model: ModelRef | null }): Promise<CoderCloudRun> {
+    const { server, target } = this.target()
+    const settings = this.deps.serverSettings?.() ?? { host: '', push: false, sandbox: 'off' as SandboxMode }
+    const remote = await gitRemote(folder)
+    const pushTo = settings.push && remote ? shownRemote(remote) : null
+    const github = githubRepoOf(remote)
+    const { model, secret } = await this.deps.model(ref, 'server')
+    if (model.needsKey && !secret) throw new Error('This model needs a key, and none is saved for it. Add one in AI settings.')
+    const local = await git(folder, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    const base = local && local !== 'HEAD' ? local : ((await git(folder, ['rev-parse', '--short', 'HEAD'])) ?? 'HEAD')
+    const id = randomBytes(4).toString('hex')
+    const branch = branchFor(task, id)
+    const title = task.split('\n')[0]!.trim().slice(0, 72) || 'Terra Code run'
+    const spec: CloudTask = { id, task, repo: github ?? folderName(folder), base, branch, trigger: '', pr: pr && !!pushTo && !!github, model, effort, title, where: 'server', pushTo, sandbox: settings.sandbox === 'container' ? 'off' : settings.sandbox }
+    const { warning } = await server.start(target, folder, spec, secret)
+    return this.save(sessionId, { id, where: 'server', host: serverName(target), repo: spec.repo, base, trigger: '', branch, task, pr: spec.pr, state: 'working', runId: null, runUrl: null, prUrl: null, summary: null, startedAt: this.now(), endedAt: null, error: null, warning })
+  }
+
   /** What the cloud copy won't have: uncommitted changes, and commits not pushed. */
   private async warningFor(folder: string, remoteSha: string, base: string): Promise<string | null> {
     const [dirty, head] = await Promise.all([git(folder, ['status', '--porcelain']), git(folder, ['rev-parse', 'HEAD'])])
@@ -255,6 +298,16 @@ export class CoderCloud {
   }
 
   private async refresh(sessionId: string, run: CoderCloudRun): Promise<void> {
+    if (run.where === 'server') {
+      const { server, target } = this.target(run)
+      const now = await server.status(target, run)
+      const finished = now.state !== 'working'
+      let next: CoderCloudRun = { ...run, state: now.state, summary: now.summary ?? run.summary, pushed: now.pushed, error: now.error, live: now.live, ...(finished ? { endedAt: this.now() } : {}) }
+      // The server pushed its branch; the pull request is opened with the person's own GitHub sign-in.
+      if (now.state === 'done' && run.pr && now.pushed && !run.prUrl && this.deps.github.access() === 'write') next = { ...next, prUrl: await this.openPr(next).catch(() => null) }
+      this.save(sessionId, next)
+      return
+    }
     const { github } = this.deps
     const found = await github.call<{ workflow_runs: GithubRun[] }>('GET', `/repos/${run.repo}/actions/runs?branch=${encodeURIComponent(run.trigger)}&per_page=5`)
     const latest = found.workflow_runs[0]
@@ -283,10 +336,27 @@ export class CoderCloud {
     }
     // The runner deletes its trigger branch; if it couldn't, this does.
     await github.call('DELETE', `/repos/${run.repo}/git/refs/heads/${run.trigger}`).catch(() => undefined)
-    let next: CoderCloudRun = { ...base, state: ok ? 'done' : cancelled ? 'cancelled' : 'failed', summary, prUrl, endedAt: this.now(), error: ok || cancelled ? null : 'The run stopped with an error. Its log on GitHub says why.' }
+    // A failed run says why in its own words, the last error it printed, rather than sending the person to the log.
+    const why = ok || cancelled ? null : await this.lastError(run.repo, latest.id).catch(() => null)
+    let next: CoderCloudRun = { ...base, state: ok ? 'done' : cancelled ? 'cancelled' : 'failed', summary, prUrl, endedAt: this.now(), error: ok || cancelled ? null : why ? `It stopped: ${why}` : 'The run stopped with an error. Its log on GitHub says why.' }
     // The runner may not be allowed to open pull requests (a repository setting), so the person's own sign-in does.
     if (ok && run.pr && !prUrl && summary !== null) next = { ...next, prUrl: await this.openPr(next).catch(() => null) }
     this.save(sessionId, next)
+  }
+
+  /** The last error a finished run printed in its job's log. */
+  private async lastError(repo: string, runId: number): Promise<string | null> {
+    const events = await this.logEvents(repo, runId, '')
+    const error = events.filter((event): event is Extract<CoderEvent, { type: 'error' }> => event.type === 'error').at(-1)
+    return error ? error.message.slice(0, 600) : null
+  }
+
+  private async logEvents(repo: string, runId: number, sessionId: string): Promise<CoderEvent[]> {
+    const jobs = await this.deps.github.call<{ jobs: { id: number }[] }>('GET', `/repos/${repo}/actions/runs/${runId}/jobs`)
+    const job = jobs.jobs[0]
+    if (!job) return []
+    const log = await this.deps.github.call<string>('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`)
+    return eventsFromLog(typeof log === 'string' ? log : '', sessionId)
   }
 
   /** The steps the runner has posted to its check run so far, newest last, in a few words each. */
@@ -313,6 +383,7 @@ export class CoderCloud {
     const run = this.find(sessionId, id)
     if (run.prUrl) return run.prUrl
     if (run.state !== 'done') throw new Error('Wait for the run to finish first.')
+    if (run.where === 'server' && (!run.pushed || !run.repo.includes('/'))) throw new Error('The server kept this branch to itself. Fetch it here, push it, and open the pull request from there.')
     try {
       const url = await this.openPr(run)
       this.save(sessionId, { ...run, prUrl: url })
@@ -325,6 +396,12 @@ export class CoderCloud {
 
   async cancel(sessionId: string, id: string): Promise<CoderCloudRun[]> {
     const run = this.find(sessionId, id)
+    if (run.where === 'server') {
+      const { server, target } = this.target(run)
+      await server.cancel(target, run)
+      this.save(sessionId, { ...run, state: 'cancelled', endedAt: this.now() })
+      return this.runs(sessionId)
+    }
     if (run.runId) await this.deps.github.call('POST', `/repos/${run.repo}/actions/runs/${run.runId}/cancel`).catch(() => undefined)
     await this.deps.github.call('DELETE', `/repos/${run.repo}/git/refs/heads/${run.trigger}`).catch(() => undefined)
     this.save(sessionId, { ...run, state: 'cancelled', endedAt: this.now() })
@@ -334,17 +411,21 @@ export class CoderCloud {
   /** What the run did, from its log. Only there once the run has finished. */
   async events(sessionId: string, id: string): Promise<CoderEvent[]> {
     const run = this.find(sessionId, id)
+    if (run.where === 'server') {
+      const { server, target } = this.target(run)
+      return server.events(target, run, sessionId)
+    }
     if (!run.runId) return []
-    const jobs = await this.deps.github.call<{ jobs: { id: number }[] }>('GET', `/repos/${run.repo}/actions/runs/${run.runId}/jobs`)
-    const job = jobs.jobs[0]
-    if (!job) return []
-    const log = await this.deps.github.call<string>('GET', `/repos/${run.repo}/actions/jobs/${job.id}/logs`)
-    return eventsFromLog(typeof log === 'string' ? log : '', sessionId)
+    return this.logEvents(run.repo, run.runId, sessionId)
   }
 
   /** The run's branch, fetched into the project so it can be looked at or switched to. */
   async fetchBranch(sessionId: string, id: string, folder: string): Promise<string> {
     const run = this.find(sessionId, id)
+    if (run.where === 'server') {
+      const { server, target } = this.target(run)
+      return server.fetch(target, run, folder)
+    }
     const done = await git(folder, ['fetch', 'origin', `+refs/heads/${run.branch}:refs/remotes/origin/${run.branch}`], 60_000)
     if (done === null) throw new Error(`Couldn’t fetch ${run.branch}. Check git can reach GitHub from this computer.`)
     return `Fetched ${run.branch}. Look at it with git diff ${run.base}...origin/${run.branch}, or switch to it with git switch ${run.branch}.`

@@ -346,8 +346,62 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'settings', description: 'Permissions, MCP servers, agents, skills and hooks' },
   { name: 'todo', description: 'Add a step to the checklist', args: '<step>' },
   { name: 'cloud', description: 'Run this task in the cloud, on GitHub Actions', args: '<task>' },
+  { name: 'server', description: 'Run this task on your own server, over SSH', args: '<task>' },
+  { name: 'context', description: 'What fills the model’s memory in this session' },
+  { name: 'doctor', description: 'Check Terra Code’s setup: model, git, GitHub, sandbox, language servers, MCP' },
+  { name: 'style', description: 'How Terra Code explains: default, explanatory or learning', args: '[style]' },
+  { name: 'security-review', description: 'Look over the changes for security problems' },
+  { name: 'pr-comments', description: 'Read a pull request’s review comments and deal with them', args: '[#PR]' },
   { name: 'help', description: 'What Terra Code can do' }
 ]
+
+/** How Terra Code explains its work, like Claude Code's output styles. */
+export type CoderStyle = 'default' | 'explanatory' | 'learning'
+
+export const CODER_STYLES: { id: CoderStyle; label: string; hint: string }[] = [
+  { id: 'default', label: 'Default', hint: 'Gets the work done and says what it did' },
+  { id: 'explanatory', label: 'Explanatory', hint: 'Adds short insights on why it chose what it did' },
+  { id: 'learning', label: 'Learning', hint: 'Leaves small, meaningful pieces for you to write, and explains them' }
+]
+
+/** What a style adds to Terra Code's instructions. */
+export function coderStylePrompt(style: CoderStyle): string {
+  if (style === 'explanatory')
+    return `\n\nThe person wants to learn from how you work. Where a choice you make isn't obvious (a pattern in this codebase, a trade-off, why one approach beats another here), add a short "Insight" of two or three sentences in your reply, before or after the step it's about. Keep them specific to this project, never generic programming advice, and don't let them slow the work down.`
+  if (style === 'learning')
+    return `\n\nThe person wants to learn by doing. Do the routine parts yourself, but where there's a small, meaningful piece of logic (a few lines: a condition, a calculation, a key decision), leave it for them: write the surrounding code, put a comment marking the spot (TODO(you): …) that says exactly what's needed, stop, and tell them what to write there and why it matters. Ask for at most one such piece at a time, and carry on once they say it's done. Add short insights on the choices you make, as a teacher would.`
+  return ''
+}
+
+/** A look over the changes for security problems, as /security-review asks. */
+export const securityReviewTask = (base: string | null) => `Review ${base ? `the changes on this branch compared with ${base} (git diff ${base}...HEAD, plus anything uncommitted)` : 'the uncommitted changes (git diff, and git diff --staged), or the last commit if there are none'} for security problems only. Don't change anything.
+Look for: injection (SQL, shell, path, template), cross-site scripting, broken authentication or authorisation, secrets or keys in code, unsafe deserialisation, server-side request forgery, insecure defaults, missing input validation at trust boundaries, and dependencies added with known problems. Read the code around each change to see whether it's really reachable.
+Report each finding with the file and line, how it could be exploited, how sure you are, and the fix. Leave out style and anything that isn't a real risk. If you find nothing, say so plainly.`
+
+/** A pull request's review comments, read and dealt with, as /pr-comments asks. */
+export const prCommentsTask = (number: number | null) => `Read the review comments on ${number ? `pull request #${number}` : 'the pull request for this branch (find it with GET /repos/{owner}/{repo}/pulls?head={owner}:BRANCH)'} on GitHub with the github tool: GET /repos/{owner}/{repo}/pulls/NUMBER/comments for the comments on lines, and GET /repos/{owner}/{repo}/issues/NUMBER/comments for the conversation. List each one that still needs something, then deal with them here one by one: change the code where the comment is right, and say why where you think it isn't. Run the project's checks after. Don't reply on GitHub unless I ask.`
+
+/** What fills the model's memory in a Terra Code session, in estimated tokens, for /context. */
+export interface CoderContextBreakdown {
+  parts: { label: string; tokens: number }[]
+  used: number
+  /** Where Terra Code starts trimming old tool output. */
+  limit: number
+}
+
+/** One line of /doctor: something Terra Code needs or uses, and how it stands. */
+export interface CoderDoctorItem {
+  label: string
+  state: 'ok' | 'warn' | 'off'
+  detail: string
+}
+
+/** A command the person ran themselves from the message box with `!`. */
+export interface CoderShellResult {
+  code: number | null
+  output: string
+  ms: number
+}
 
 export const CODER_MAX_TODO = 40
 export const CODER_MAX_TODO_CHARS = 300
@@ -436,9 +490,15 @@ export interface CoderProjectSetup {
   mcp: string[]
 }
 
-/** A run of Terra Code on GitHub Actions, which carries on with this computer off. */
+/** A run of Terra Code away from this computer (GitHub Actions, or the person's own server over SSH), which carries on with it off. */
 export interface CoderCloudRun {
   id: string
+  /** Where it runs. Absent on runs saved before servers: GitHub. */
+  where?: 'github' | 'server'
+  /** The server, for runs there: user@host or a name from ~/.ssh/config, with :port if not 22. */
+  host?: string
+  /** The server pushed its branch to the project's remote. */
+  pushed?: boolean
   /** owner/name */
   repo: string
   /** The branch it started from, on GitHub. */
@@ -463,6 +523,15 @@ export interface CoderCloudRun {
   warning: string | null
   /** Its latest steps while it works, read from its check run on GitHub. */
   live?: string[]
+}
+
+/** Whether scTerra can reach the person's server over SSH, and what it found there. */
+export interface CoderServerCheck {
+  ok: boolean
+  message: string
+  node: string | null
+  git: string | null
+  system: string | null
 }
 
 /** A task Terra Code runs on GitHub on a timetable. `cron` is in UTC, as GitHub reads it. */
@@ -512,6 +581,8 @@ export interface CoderCloudModel {
   /** The provider needs a key, sent to the repository as the secret SCTERRA_AI_KEY. */
   needsKey: boolean
   firstParty: boolean
+  /** The provider's name, for what the run says when the model stops it. */
+  name?: string
 }
 
 /** The workflow a cloud run starts, kept in the trigger branch only. */

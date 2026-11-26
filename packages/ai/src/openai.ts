@@ -102,7 +102,11 @@ export function createOpenAiProvider({ config, secret, fetch }: ProviderOptions)
         } catch {
           continue
         }
-        if (chunk.error) throw new AiError('server', `${config.name} stopped with an error.`)
+        if (chunk.error) {
+          // Say what the server said, when it said something short enough to show.
+          const said = typeof chunk.error.message === 'string' ? chunk.error.message.trim().slice(0, 300) : ''
+          throw new AiError('server', said ? `${config.name} stopped with an error: ${said}` : `${config.name} stopped with an error.`)
+        }
         const choice = chunk.choices?.[0]
         // DeepSeek, Qwen and vLLM name it reasoning_content; OpenRouter and Ollama, reasoning.
         const thought = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning

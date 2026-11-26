@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MAX_CHAT_IMAGES, MAX_TWEAK_REQUEST, tweakCommand, conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
+import { isCompactCommand, withSummary, MAX_CHAT_IMAGES, MAX_TWEAK_REQUEST, tweakCommand, conversationReports, REPAIR_PROMPT, settleReply, MAX_MENTIONED_TABS, reviseReportPrompt, type AiStatus, type AssistantEvent, type AssistantPrompt, type ChatSummary, type Report, type SavedTurn } from '@scbrowser/shared'
 import { useTabs } from './tabs'
 import { STOP_NOTES } from '../shared/stopNotes'
 
@@ -25,7 +25,20 @@ export interface Turn extends SavedTurn {
   note?: string
   /** A picture the person sent with this message. Kept for the conversation, not saved with the chat. */
   image?: string
+  /** What the person did with the reply's offer to remember something. */
+  remembered?: 'kept' | 'dismissed'
 }
+
+/** This chat's tokens so far, for the status line. `context` is how much the last request carried. */
+export interface ChatUsage {
+  input: number
+  output: number
+  /** US dollars, where every request's price was known; null once one wasn't. */
+  cost: number | null
+  context: number
+}
+
+const NO_USAGE: ChatUsage = { input: 0, output: 0, cost: 0, context: 0 }
 
 /** What's asked when a picture is sent with no words. */
 export const IMAGE_QUESTION = 'What does this picture show?'
@@ -53,6 +66,14 @@ interface AssistantStore {
   approval: { id: string; text: string; reason: string } | null
   /** Bumped to pull focus into the composer. */
   focusRequest: number
+  usage: ChatUsage
+  /** Older messages summed up by /compact: the summary goes in their place, up to `upTo`. */
+  summary: { text: string; upTo: number } | null
+  compacting: boolean
+  /** Sums up the chat so far, for /compact. */
+  compact: () => void
+  /** Keeps or turns down a reply's offer to remember something. */
+  settleRemember: (index: number, keep: boolean, text: string) => void
   toggle: () => void
   showReport: (report: Report | null) => void
   /** Asks for a new draft of the open report. It only needs the conversation, not the page. */
@@ -97,6 +118,9 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   agentMode: false,
   approval: null,
   focusRequest: 0,
+  usage: NO_USAGE,
+  summary: null,
+  compacting: false,
 
   toggle: () => set((s) => ({ open: !s.open, report: s.open ? null : s.report, focusRequest: s.focusRequest + 1 })),
   close: () => set({ open: false, report: null }),
@@ -132,7 +156,30 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   unmention: (id) => set((s) => ({ mentions: s.mentions.filter((m) => m !== id) })),
   reset: () => {
     get().stop()
-    set({ turns: [], chatId: null, chats: null, report: null, selection: null, image: null, includePage: true, streamId: null })
+    set({ turns: [], chatId: null, chats: null, report: null, selection: null, image: null, includePage: true, streamId: null, usage: NO_USAGE, summary: null })
+  },
+
+  compact: () => {
+    const { turns, streamId, compacting } = get()
+    if (streamId || compacting) return
+    const kept = turns.filter((turn) => turn.content && !turn.error)
+    const note = (content: string) => set((s) => ({ turns: [...s.turns, { role: 'assistant', content: '', note: content }] }))
+    // The last exchange stays as it is, so the chat carries on naturally.
+    const upTo = kept.length - 2
+    if (upTo < 2) return note('There’s too little in this chat to sum up yet.')
+    set({ compacting: true, turns: kept })
+    void window.scb.invoke('ai:compact', kept.slice(0, upTo).map(({ role, content }) => ({ role, content }))).then(
+      (text) => set((s) => ({ compacting: false, summary: { text, upTo }, usage: { ...s.usage, context: Math.round((text.length + kept.slice(upTo).reduce((sum, turn) => sum + turn.content.length, 0)) / 4) } })),
+      (error: Error) => {
+        set({ compacting: false })
+        note(`Couldn’t sum up the chat: ${error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+      }
+    )
+  },
+
+  settleRemember: (index, keep, text) => {
+    set((s) => ({ turns: s.turns.map((turn, at) => (at === index ? { ...turn, remembered: keep ? 'kept' : 'dismissed' } : turn)) }))
+    if (keep) void window.scb.invoke('memory:add', text)
   },
 
   toggleChats: () => {
@@ -143,7 +190,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   openChat: (id) => {
     get().stop()
     void window.scb.invoke('chats:get', id).then((chat) => {
-      if (chat) set({ turns: chat.turns, chatId: chat.id, chats: null, report: null, streamId: null, selection: null })
+      if (chat) set({ turns: chat.turns, chatId: chat.id, chats: null, report: null, streamId: null, selection: null, usage: NO_USAGE, summary: null })
     })
   },
 
@@ -156,7 +203,8 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
   },
 
   send: (text) => {
-    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch, image } = get()
+    const { streamId, status, includePage, selection, turns, chatId, mentions, agentMode, webSearch, image, summary } = get()
+    if (isCompactCommand(text) && !image) return get().compact()
     // "/tweak hide the sidebar" changes how the open site looks, rather than starting a reply.
     const tweak = tweakCommand(text)
     const tweakTab = useTabs.getState().activeId
@@ -184,7 +232,7 @@ export const useAssistant = create<AssistantStore>((set, get) => ({
       return
     }
     void window.scb.invoke('ai:send', id, {
-      messages: withPictures(sent),
+      messages: withSummary(withPictures(sent), summary),
       tabId,
       includePage,
       extraTabIds: withSplitPartner(mentions, includePage ? tabId : null),
@@ -252,6 +300,9 @@ function onEvent(event: AssistantEvent) {
     useAssistant.setState({ turns: update({ steps: [...(last.steps ?? []), event.text] }) })
   } else if (event.type === 'approval') {
     useAssistant.setState({ approval: { id: event.approvalId, text: event.text, reason: event.reason } })
+  } else if (event.type === 'usage') {
+    const { usage } = useAssistant.getState()
+    useAssistant.setState({ usage: { input: usage.input + event.inputTokens, output: usage.output + event.outputTokens, cost: usage.cost === null || event.cost === null ? null : usage.cost + event.cost, context: event.inputTokens + event.outputTokens } })
   } else {
     const note = event.stopReason ? STOP_NOTES[event.stopReason] : undefined
     // A continued reply joins the one it carried on, and a report asked for again replaces the unreadable one.

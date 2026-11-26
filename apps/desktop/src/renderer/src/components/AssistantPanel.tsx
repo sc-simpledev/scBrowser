@@ -1,10 +1,10 @@
 import { AlignLeft, ArrowUp, AtSign, Check, Columns2, Download, FileText, Globe, Hand, History, Lightbulb, ListChecks, PenLine, Plus, Quote, Square, Trash2, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CONTINUE_PROMPT, REPLY_STYLES, isHttpUrl, reportVersions, shownMessage, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
+import { CONTINUE_PROMPT, REPLY_STYLES, contextWindowFor, isHttpUrl, noteMarkdown, reportVersions, shortCount, shownMessage, splitRemember, SUMMARISE_PROMPT, effectiveUrl, PDF_PAGE_URL, summarisePromptFor, VIDEO_SUMMARY_PROMPT } from '@scbrowser/shared'
 import { splitPartner, useAssistant, type Turn } from '../state/assistant'
 import { useActiveTab, useTabs } from '../state/tabs'
-import { CopyReply, ReplyContent, RetryReply, Thinking, type OpenSource } from '../shared/ReplyContent'
+import { CopyReply, RememberOffer, ReplyContent, RetryReply, SaveNoteReply, Thinking, type OpenSource } from '../shared/ReplyContent'
 import { CUT_OFF } from '../shared/stopNotes'
 import { ReportPane } from '../shared/ReportPane'
 import { pasteCleanly } from '../shared/pasteCleanly'
@@ -125,9 +125,46 @@ export function AssistantReport() {
   )
 }
 
-function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; newest: boolean }) {
+/** This chat's tokens and cost on one quiet line, with how full the model's context is, as in Claude Code. The model's name is in the header. */
+function StatusLine() {
+  const usage = useAssistant((s) => s.usage)
+  const model = useAssistant((s) => s.status.model)
+  const compacting = useAssistant((s) => s.compacting)
+  const summary = useAssistant((s) => s.summary)
+  if (!model) return <span />
+  const window = contextWindowFor(model)
+  const share = Math.min(1, usage.context / window)
+  const used = usage.input + usage.output
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 truncate text-2xs text-text-faint tabular-nums" title={used ? `${usage.input.toLocaleString()} tokens in, ${usage.output.toLocaleString()} out in this chat${usage.context ? `. The last request carried about ${usage.context.toLocaleString()} of roughly ${window.toLocaleString()}` : ''}. /compact sums up older messages to make room.` : undefined}>
+      {used > 0 && (
+        <>
+          <span className="shrink-0">{shortCount(used)} tokens</span>
+          {usage.cost !== null && usage.cost >= 0.005 && <span className="shrink-0">· ${usage.cost.toFixed(2)}</span>}
+          <span aria-hidden>·</span>
+          <span role="meter" aria-label="Context used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} className="flex shrink-0 items-center gap-1">
+            <span aria-hidden className="relative h-1 w-6 overflow-hidden rounded-full bg-surface-hover">
+              <span className={cx('absolute inset-y-0 left-0 rounded-full', share > 0.8 ? 'bg-danger' : 'bg-text-faint')} style={{ width: `${Math.max(4, share * 100)}%` }} />
+            </span>
+            {Math.round(share * 100)}%
+          </span>
+        </>
+      )}
+      {compacting ? <span className="shrink-0">{used > 0 && '· '}Summing up…</span> : summary ? <span className="shrink-0">{used > 0 && '· '}summed up</span> : null}
+    </span>
+  )
+}
+
+function Message({ turn, streaming, newest, index, question }: { turn: Turn; streaming: boolean; newest: boolean; index: number; question: string | null }) {
   const ready = useAssistant((s) => s.status.ready)
   const report = useAssistant((s) => s.report)
+  const tab = useActiveTab()
+  const offered = turn.role === 'assistant' && !streaming ? splitRemember(turn.content) : null
+  const answer = offered?.text ?? turn.content
+  const saveNote = () => {
+    const page = turn.pageTitle && tab && tab.title === turn.pageTitle && /^https?:/.test(tab.url) ? { title: turn.pageTitle, url: tab.url } : null
+    return window.scb.invoke('notes:save', noteMarkdown(answer, { question, page, date: new Date() }), question ?? turn.pageTitle ?? 'Answer')
+  }
   const { showReport } = useAssistant.getState()
   if (turn.role === 'user') {
     return (
@@ -168,9 +205,12 @@ function Message({ turn, streaming, newest }: { turn: Turn; streaming: boolean; 
         />
       )}
       {streaming && !turn.content && <Thinking />}
+      {offered?.remember && !turn.remembered && <RememberOffer text={offered.remember} onAnswer={(keep) => useAssistant.getState().settleRemember(index, keep, offered.remember!)} />}
+      {offered?.remember && turn.remembered === 'kept' && <p className="text-2xs text-text-faint">Remembered. Change it in AI settings, under Memory.</p>}
       {!streaming && turn.content && (
         <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
-          <CopyReply text={turn.content} />
+          <CopyReply text={answer} />
+          <SaveNoteReply onSave={saveNote} />
           {newest && ready && !turn.error && <RetryReply onRetry={() => useAssistant.getState().retry()} />}
         </div>
       )}
@@ -209,6 +249,8 @@ export function AssistantPanel() {
   const { open, status, turns, streamId, includePage, selection, image, focusRequest, chats, mentions, agentMode, approval, webSearch } = useAssistant()
   const { close, reset, send, stop, setIncludePage, clearSelection, clearImage, toggleChats, mention, unmention, setAgentMode, answerApproval, setWebSearch } = useAssistant.getState()
   const replyStyle = useApp((s) => s.settings.replyStyle)
+  const statusLine = useApp((s) => s.settings.assistantStatusLine)
+  const summary = useAssistant((s) => s.summary)
   const style = REPLY_STYLES.find((option) => option.id === replyStyle)
   const allTabs = useTabs((s) => s.tabs)
   const [pickerIndex, setPickerIndex] = useState(0)
@@ -370,7 +412,16 @@ export function AssistantPanel() {
                 </div>
               )}
               {turns.map((turn, index) => (
-                <Message key={index} turn={turn} streaming={!!streamId && index === turns.length - 1} newest={index === turns.length - 1} />
+                <Fragment key={index}>
+                  {summary && index === summary.upTo && (
+                    <div role="separator" className="flex items-center gap-2 text-2xs text-text-faint">
+                      <span className="h-px flex-1 bg-border" />
+                      Earlier messages summed up to make room
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                  <Message turn={turn} index={index} question={turn.role === 'assistant' ? (turns.slice(0, index).findLast((one) => one.role === 'user')?.content ?? null) : null} streaming={!!streamId && index === turns.length - 1} newest={index === turns.length - 1} />
+                </Fragment>
               ))}
             </div>
 
@@ -534,14 +585,19 @@ export function AssistantPanel() {
                   </div>
                 </div>
               </div>
-              {host && (
-                <button
-                  type="button"
-                  onClick={() => void window.scb.invoke('ai:set-site', host, !siteOff)}
-                  className="self-end rounded-sm px-1 text-2xs text-text-faint transition-colors hover:text-text"
-                >
-                  {siteOff ? 'Allow AI on this site' : 'Off for this site'}
-                </button>
+              {(host || statusLine) && (
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  {statusLine ? <StatusLine /> : <span />}
+                  {host && (
+                    <button
+                      type="button"
+                      onClick={() => void window.scb.invoke('ai:set-site', host, !siteOff)}
+                      className="shrink-0 rounded-sm px-1 text-2xs text-text-faint transition-colors hover:text-text"
+                    >
+                      {siteOff ? 'Allow AI on this site' : 'Off for this site'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </>

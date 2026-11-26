@@ -2,6 +2,7 @@ import { coderHandlers } from './ai/coderIpc'
 import type { CoderBrowserHost } from './ai/coder'
 import type { CoderMcp } from './ai/coderMcp'
 import type { CoderCloud } from './ai/coderCloud'
+import type { CoderServer } from './ai/coderServer'
 import type { CoderGithub } from './ai/coderGithub'
 import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
@@ -18,7 +19,7 @@ import type { DownloadManager } from './downloads'
 import type { ExtensionManager } from './extensions'
 import { readBackground, removeBackground, saveBackground } from './internal/background'
 import { isAssistantRequest, isTurns } from './ipc'
-import { saveChatMarkdown } from './chatExport'
+import { saveChatMarkdown, saveNote } from './chatExport'
 import { allowBasicPdf, fetchPdf, pdfSource } from './internal/pdf'
 import { readFlags, setFlag } from './flags'
 import { listPrinters, printWith } from './printing'
@@ -88,6 +89,7 @@ interface InternalServices {
   coderHome: string
   coderGithub: CoderGithub
   coderCloud: CoderCloud
+  coderServer: CoderServer
   /** Brings the window and the tab holding this page to the front. */
   focusContents: (contents: WebContents) => void
 }
@@ -540,6 +542,11 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (!isTurns(turns)) throw new Error('Invalid chat')
       return saveChatMarkdown(window, turns, settings.get().downloadDir)
     },
+    'ai:compact': (messages) => {
+      if (!isTurns(messages) || messages.length === 0) throw new Error('Invalid chat')
+      return ai.compactChat(messages.map(({ role, content }) => ({ role, content })))
+    },
+    'notes:save': (markdown, title) => saveNote(window, text(markdown, 2_000_000), text(title, 500), settings.get().notesFolder),
     'newtab:go': (input) => {
       const id = caller && tabs.tabIdFor(caller)
       if (id) tabs.navigate(id, text(input))
@@ -698,7 +705,7 @@ export function registerInternalIpc(services: InternalServices): () => void {
     },
     'archive:remove': (id) => void core.archive.take(text(id, 64)),
     'archive:clear': () => core.archive.clear(),
-    ...coderHandlers({ window, tabs, settings, chats, kv: core.services.kv, ai, trust: services.coderTrust, mcp: services.coderMcp, browser: services.coderBrowser, home: services.coderHome, github: services.coderGithub, cloud: services.coderCloud, coderOnly, focus: services.focusContents }),
+    ...coderHandlers({ window, tabs, settings, chats, kv: core.services.kv, ai, trust: services.coderTrust, mcp: services.coderMcp, browser: services.coderBrowser, home: services.coderHome, github: services.coderGithub, cloud: services.coderCloud, server: services.coderServer, coderOnly, focus: services.focusContents }),
     'groups:closed': () => core.closedGroups.list(),
     'groups:reopen': (id) => {
       const group = core.closedGroups.take(text(id, 64))
@@ -713,7 +720,14 @@ export function registerInternalIpc(services: InternalServices): () => void {
       const ids = tabs.openGroup(set.name, set.tabs)
       if (set.split && ids.length === 2) tabs.startSplit(ids[1]!)
     },
-    'tabsets:remove': (id) => void core.tabSets.take(text(id, 64)),
+    'tabsets:remove': (id) => {
+      const setId = text(id, 64)
+      void core.tabSets.take(setId)
+      // Its routine goes with it.
+      const { routines } = settings.get()
+      if (routines.some((routine) => routine.setId === setId)) settings.set({ routines: routines.filter((routine) => routine.setId !== setId) })
+    },
+    'workspaces:list': () => core.savedWorkspaces().map(({ id, name }) => ({ id, name })),
     'memory:list': () => aiStore.memory(),
     'memory:add': (note) => aiStore.addMemory(text(note, MAX_MEMORY_CHARS)),
     'memory:update': (id, note) => aiStore.updateMemory(text(id, 64), text(note, MAX_MEMORY_CHARS)),

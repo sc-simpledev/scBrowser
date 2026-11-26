@@ -1,7 +1,7 @@
 import { Check, ChevronRight, LogIn, LogOut, Pencil, Plus, RotateCw, Trash2, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Segmented, Switch } from '@scbrowser/ui'
-import { CODER_BUDGETS, CODER_EFFORTS, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
+import { CODER_BUDGETS, CODER_EFFORTS, CODER_STYLES, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { MODES, type ModelPick } from './Composer'
 import { GithubSettings, githubLabel, type useGithubStatus } from './GithubSettings'
@@ -466,6 +466,9 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
               />
             </SettingRow>
             <SwitchRow label="Show reasoning" hint="Its thinking, folded above each step" checked={prefs.coderShowReasoning} onChange={(coderShowReasoning) => onPrefs({ coderShowReasoning })} />
+            <SettingRow label="Style" value={CODER_STYLES.find((style) => style.id === prefs.coderStyle)?.label ?? 'Default'} open={open === 'style'} onToggle={() => toggle('style')}>
+              <Choices label="Style" value={prefs.coderStyle} onChange={(coderStyle) => onPrefs({ coderStyle })} options={CODER_STYLES.map((style) => ({ id: style.id, label: style.label, hint: style.hint }))} />
+            </SettingRow>
             <SettingRow label="Budget per session" value={budgetLabel(prefs.coderBudget)} open={open === 'budget'} onToggle={() => toggle('budget')}>
               <Choices
                 label="Budget per session"
@@ -505,6 +508,7 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
         <Group title="Automatic">
           <SwitchRow label="Format after edits" hint="With the project’s formatter, when allowed" checked={prefs.coderFormat} onChange={(coderFormat) => onPrefs({ coderFormat })} />
           <SwitchRow label="Check after edits" hint={setup?.diagnostics ? `Runs ${setup.diagnostics} when allowed` : 'With the project’s checker, when allowed'} checked={prefs.coderAutoCheck} onChange={(coderAutoCheck) => onPrefs({ coderAutoCheck })} />
+          <SwitchRow label="Errors after edits" hint="From the project’s language server" checked={prefs.coderLspProblems} onChange={(coderLspProblems) => onPrefs({ coderLspProblems })} />
           <SwitchRow label="Summarise long sessions" hint="Instead of forgetting earlier steps" checked={prefs.coderAutoCompact} onChange={(coderAutoCompact) => onPrefs({ coderAutoCompact })} />
           <SwitchRow label="Notify me" hint="When it finishes or needs you" checked={prefs.coderNotify} onChange={(coderNotify) => onPrefs({ coderNotify })} />
         </Group>

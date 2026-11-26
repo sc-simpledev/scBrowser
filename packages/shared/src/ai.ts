@@ -170,6 +170,8 @@ export type AssistantEvent =
   | { streamId: string; type: 'approval'; approvalId: string; text: string; reason: string }
   /** `network`: the AI service couldn't be reached at all, which a VPN may get around. */
   | { streamId: string; type: 'error'; message: string; network?: boolean }
+  /** Tokens one request of this reply used, and its cost where the price is known, for the status line. */
+  | { streamId: string; type: 'usage'; inputTokens: number; outputTokens: number; cost: number | null }
 
 export const TRANSLATE_LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Japanese', 'Korean', 'Chinese', 'Arabic', 'Hindi', 'Russian'] as const
 export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number]

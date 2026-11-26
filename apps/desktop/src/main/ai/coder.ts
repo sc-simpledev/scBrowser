@@ -71,6 +71,9 @@ import {
   todoChangeText,
   type CoderRunMode,
   type CoderRunOptions,
+  type CoderContextBreakdown,
+  type CoderStyle,
+  coderStylePrompt,
   type ModelRef
 } from '@scbrowser/shared'
 import { CoderJobs } from './coderJobs'
@@ -282,7 +285,11 @@ export interface CoderDependencies {
   /** The person's GitHub, when they connected it and let Terra Code use it. */
   github?: CoderGithubHost
   /** Language servers installed for the project, for the lsp tool. */
-  lsp?: { available(root: string): string[]; run(root: string, action: 'definition' | 'references' | 'hover' | 'symbols', path: string, line: number, column: number): Promise<string>; dispose?(): void }
+  lsp?: { available(root: string): string[]; run(root: string, action: 'definition' | 'references' | 'hover' | 'symbols', path: string, line: number, column: number): Promise<string>; problems?(root: string, path: string): Promise<string>; dispose?(): void }
+  /** After an edit, tell the model what the language server finds wrong in the file. On unless this says otherwise. */
+  lspProblems?: () => boolean
+  /** How Terra Code explains its work: as usual, with insights on its choices, or leaving small parts for the person to write. */
+  style?: () => CoderStyle
   /** Tokens a session may use before it stops; 0 or absent for no limit. */
   budget?: () => number
   /** Nobody is watching, as in a cloud run: questions get no answer, and approvals are settled by `approveAll`. */
@@ -736,6 +743,52 @@ export class Coder {
     await this.persist(sessionId, session)
   }
 
+  /**
+   * What fills the model's memory in a session, roughly (four characters to a token), for /context:
+   * the instructions, the tools on offer, the project's notes, and the conversation by kind.
+   */
+  async contextBreakdown(sessionId: string, folder: string, mode: CoderMode): Promise<CoderContextBreakdown> {
+    folder = await realpath(folder).catch(() => folder)
+    const session = await this.loaded(sessionId)
+    const project = await this.project(folder).catch(() => null)
+    const runMode: CoderRunMode = mode
+    const native = session?.native ?? !!this.deps.native?.available(session?.model)
+    const specs = this.toolSpecs(runMode, project)
+    const mcpNames = new Set(project?.mcp.map((tool) => tool.spec.name) ?? [])
+    const system = this.systemPrompt(native, runMode, project)
+    // Without tool calling, the tools are described inside the instructions instead.
+    const toolChars = native ? JSON.stringify(specs.filter((tool) => !mcpNames.has(tool.name))).length : 0
+    const mcpChars = native && mcpNames.size ? JSON.stringify(specs.filter((tool) => mcpNames.has(tool.name))).length : 0
+    const notes = session?.messages.length ? (await projectContext(session.folder)).length : 0
+    let yours = 0
+    let replies = 0
+    let output = 0
+    let pictures = 0
+    for (const message of session?.messages ?? []) {
+      pictures += (message.images?.length ?? 0) * 6000
+      if (message.role === 'user') yours += message.content.length
+      else replies += message.content.length
+      for (const result of message.toolResults ?? []) {
+        output += result.output.length
+        pictures += (result.images?.length ?? 0) * 6000
+      }
+      for (const use of message.toolUses ?? []) replies += JSON.stringify(use.input ?? '').length
+    }
+    yours = Math.max(0, yours - notes)
+    const tokens = (chars: number) => Math.round(chars / 4)
+    const parts = [
+      { label: 'Instructions', tokens: tokens(system.length) },
+      { label: 'Tools', tokens: tokens(toolChars) },
+      { label: 'MCP tools', tokens: tokens(mcpChars) },
+      { label: 'Project notes', tokens: tokens(notes) },
+      { label: 'Your messages', tokens: tokens(yours) },
+      { label: 'Replies', tokens: tokens(replies) },
+      { label: 'Tool output', tokens: tokens(output) },
+      { label: 'Pictures', tokens: tokens(pictures) }
+    ].filter((part) => part.tokens > 0)
+    return { parts, used: parts.reduce((sum, part) => sum + part.tokens, 0), limit: tokens(MAX_CONTEXT_CHARS) }
+  }
+
   /** Summarises the start of the conversation now, as /compact asks. */
   async compactNow(sessionId: string, emit: Emit): Promise<boolean> {
     const session = await this.loaded(sessionId)
@@ -1068,7 +1121,7 @@ export class Coder {
 
   private systemPrompt(native: boolean, mode: CoderRunMode, project: Project | null): string {
     const looking = mode === 'plan' || mode === 'review'
-    const base = (native ? CODER_NATIVE_PROMPT : CODER_PROMPT) + (project?.mcpNote ?? '')
+    const base = (native ? CODER_NATIVE_PROMPT : CODER_PROMPT) + (project?.mcpNote ?? '') + coderStylePrompt(this.deps.style?.() ?? 'default')
     const modeText = mode === 'plan' ? CODER_PLAN_PROMPT : mode === 'review' ? CODER_REVIEW_PROMPT : ''
     if (native || !project) return base + modeText
     const github = project.github && { repo: project.github.repo, write: project.github.write && !looking }
@@ -1313,6 +1366,11 @@ export class Coder {
         session.seen.set(full, (await stat(full).catch(() => null))?.mtimeMs ?? 0)
         notes.push(`(Formatted with ${formatter.name}, so read the file again before editing it.)`)
       }
+    }
+    // Like an editor's red underlines: errors the language server sees in the file now.
+    if (this.deps.lsp?.problems && this.deps.lspProblems?.() !== false && project.lsp.includes(extname(full).toLowerCase())) {
+      const problems = await this.deps.lsp.problems(session.folder, shown(session.folder, full))
+      if (problems) notes.push(`The language server sees these errors in the file now (fix them if your change caused them):\n${problems}`)
     }
     if (!project.hooks.some((set) => set.hooks.some((hook) => hook.event === 'afterEdit'))) return notes.length ? `\n\n${notes.join('\n\n')}` : ''
     const written = await readFile(full, 'utf8').catch(() => null)
@@ -1808,7 +1866,7 @@ function isTemporary(error: unknown): boolean {
   if (isNetwork(error)) return true
   const message = error instanceof Error ? error.message : ''
   if (/per day|daily|quota|billing|credit/i.test(message)) return false
-  return /\b(429|500|502|503|504|529)\b|overloaded|rate.?limit|too many requests|try again|temporarily/i.test(message)
+  return /\b(429|500|502|503|504|529)\b|overloaded|rate.?limit|too many requests|try again|temporarily|stopped with an error/i.test(message)
 }
 
 /** The tools the explore helper may use. */

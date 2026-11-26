@@ -1,8 +1,8 @@
 import { ArrowUp, Check, ChevronRight, Code2, Download, Pencil, Plug, Globe, Layers, LayoutTemplate, MessageSquare, PanelLeft, Plus, Settings, Square, SquareTerminal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { calendarDaysBetween, CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
-import { CopyReply, latestReport, ReplyContent, RetryReply, Thinking, type OpenSource } from '../../shared/ReplyContent'
+import { isCompactCommand, noteMarkdown, splitRemember, withSummary, calendarDaysBetween, CONTINUE_PROMPT, REPAIR_PROMPT, settleReply, splitReply, stitchReply, presetById, reportMarkdown, templateFrom, replaceReport, repliesReports, type ReportThemeId, rememberCommand, MAX_MENTIONED_TABS, conversationFiles, isCodeChat, presetPrompt, REPORT_PRESETS, reportVersions, reviseFilePrompt, reviseReportPrompt, shownMessage, type AiStatus, type AssistantEvent, type ChatSummary, type FileVersion, type Report, type ReportPreset, type SavedTurn } from '@scbrowser/shared'
+import { CopyReply, latestReport, RememberOffer, ReplyContent, RetryReply, SaveNoteReply, Thinking, type OpenSource } from '../../shared/ReplyContent'
 import { CUT_OFF, STOP_NOTES } from '../../shared/stopNotes'
 import { ReportPane, type QuizMemory, type SaveReport } from '../../shared/ReportPane'
 import { CodePane, type PreviewFile, type SaveFile } from '../../shared/CodePane'
@@ -228,6 +228,10 @@ export function AssistantPage() {
   }, [research])
   const logRef = useRef<HTMLDivElement>(null)
 
+  /** Older messages /compact summed up: the summary goes in their place. Forgotten with the chat. */
+  const summary = useRef<{ text: string; upTo: number } | null>(null)
+  const [remembered, setRemembered] = useState<Record<number, 'kept' | 'dismissed'>>({})
+
   const send = useCallback((text: string) => {
     const question = text.trim()
     if (!question) return
@@ -238,7 +242,7 @@ export function AssistantPage() {
     const history = [...turnsRef.current.filter((t) => t.content && !t.error), { role: 'user' as const, content: question }]
     setTurns([...history, { role: 'assistant', content: '' }])
     void api().invoke('ai:send', id, {
-      messages: history.map(({ role, content }) => ({ role, content })),
+      messages: withSummary(history.map(({ role, content }) => ({ role, content })), summary.current),
       tabId: null,
       includePage: false,
       extraTabIds: researchRef.current,
@@ -403,9 +407,31 @@ export function AssistantPage() {
     send(text)
   }
 
+  /** /compact: older messages summed up by the model, so a long chat can keep going. */
+  const compact = () => {
+    const kept = turnsRef.current.filter((turn) => turn.content && !turn.error)
+    const upTo = kept.length - 2
+    if (upTo < 2) return setNotice('There’s too little in this chat to sum up yet.')
+    setTurns(kept)
+    setNotice('Summing up the chat so far…')
+    void api()
+      .invoke('ai:compact', kept.slice(0, upTo).map(({ role, content }) => ({ role, content })))
+      .then(
+        (text) => {
+          summary.current = { text, upTo }
+          setNotice(`Summed up the first ${upTo} messages to make room. The model now reads the summary in their place.`)
+        },
+        (error: Error) => setNotice(`Couldn’t sum up the chat: ${error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+      )
+  }
+
   const submit = () => {
     if (streamId || !draft.trim()) return
     setNotice(null)
+    if (isCompactCommand(draft)) {
+      setDraft('')
+      return compact()
+    }
     const note = rememberCommand(draft)
     if (note !== null) {
       setDraft('')
@@ -679,12 +705,29 @@ export function AssistantPage() {
                           )}
                         </p>
                       )}
-                      {!streaming && turn.content && (
-                        <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
-                          <CopyReply text={turn.content} />
-                          {newest && status?.ready && !turn.error && <RetryReply onRetry={retry} />}
-                        </div>
-                      )}
+                      {!streaming && turn.content && (() => {
+                        const offered = splitRemember(turn.content)
+                        const question = turns.slice(0, index).findLast((one) => one.role === 'user')?.content ?? null
+                        return (
+                          <>
+                            {offered.remember && !remembered[index] && (
+                              <RememberOffer
+                                text={offered.remember}
+                                onAnswer={(keep) => {
+                                  setRemembered((current) => ({ ...current, [index]: keep ? 'kept' : 'dismissed' }))
+                                  if (keep) void api().invoke('memory:add', offered.remember!)
+                                }}
+                              />
+                            )}
+                            {offered.remember && remembered[index] === 'kept' && <p className="text-2xs text-text-faint">Remembered. Change it in AI settings, under Memory.</p>}
+                            <div className="-ml-1 flex h-6 opacity-0 transition-opacity group-focus-within/reply:opacity-100 group-hover/reply:opacity-100">
+                              <CopyReply text={offered.text} />
+                              <SaveNoteReply onSave={() => api().invoke('notes:save', noteMarkdown(offered.text, { question, page: null, date: new Date() }), question ?? turn.pageTitle ?? 'Answer')} />
+                              {newest && status?.ready && !turn.error && <RetryReply onRetry={retry} />}
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   )
                 })}

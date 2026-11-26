@@ -84,6 +84,8 @@ interface TabManagerOptions {
   onSplit?: () => void
   /** Whether a split left by switching tabs comes back when either side is picked again. */
   keepSplitPairs?: () => boolean
+  /** The workspace a site always opens in, if the person chose one. */
+  siteWorkspace?: (url: string) => string | null
   /** The new tab page finished loading, which pulls keyboard focus into it. */
   onNewTabLoaded: () => void
   /** A tab committed a navigation (including same-document ones). */
@@ -272,13 +274,23 @@ export class TabManager {
     // Only the browser's own controls may run a script, through `openAddress` in window.ts.
     // Previews only ever run inside the assistant's frame, never as a page of their own.
     const tab = this.addTab(isJavascriptUrl(url) || isPreviewUrl(url) ? NEW_TAB_URL : url, null, afterId)
+    // A site that always opens in another workspace takes the person there, unless it opens in the background.
+    const routed = activate ? this.routedWorkspace(url) : null
     tab.state.container = container
-    tab.state.workspace = this.workspaceId
-    tab.state.parentId = parentId
+    tab.state.workspace = routed ?? this.workspaceId
+    tab.state.parentId = routed ? null : parentId
     this.wake(tab)
+    if (routed) this.switchWorkspace(routed)
     if (activate || this.activeId === null) this.activate(tab.state.id)
     else this.emitChange()
     return tab.state.id
+  }
+
+  /** The workspace a site always opens in, when the person chose one and it isn't the open one. */
+  private routedWorkspace(url: string, from: string = this.workspaceId): string | null {
+    if (!/^https?:/i.test(url)) return null
+    const id = this.options.siteWorkspace?.(url) ?? null
+    return id && id !== from && this.workspaces.some((one) => one.id === id) ? id : null
   }
 
   /** Adds saved tabs without loading them; only the one that gets activated wakes up. */
@@ -487,6 +499,34 @@ export class TabManager {
   }
 
   /** Pinned tabs stay, as they're the ones someone chose to keep. */
+  /** Shorter titles from the AI, shown until each page's own title changes. Null takes them all away. */
+  setShortTitles(titles: Map<TabId, string> | null): void {
+    for (const tab of this.tabs.values()) {
+      if (titles === null) delete tab.state.shortTitle
+      else if (titles.has(tab.state.id)) tab.state.shortTitle = titles.get(tab.state.id)
+    }
+    this.emitChange()
+  }
+
+  /** Moves tabs to another workspace. If the open tab goes, a neighbour that stays takes over. */
+  moveToWorkspace(ids: TabId[], workspaceId: string): void {
+    if (!this.workspaces.some((one) => one.id === workspaceId)) return
+    const moving = ids.filter((id) => this.tabs.has(id) && this.tabs.get(id)!.state.workspace !== workspaceId)
+    if (moving.length === 0) return
+    const leaving = this.activeId !== null && moving.includes(this.activeId)
+    for (const id of moving) {
+      const tab = this.tabs.get(id)!
+      tab.state.workspace = workspaceId
+      tab.state.parentId = null
+      if (this.split?.includes(id)) this.endSplit()
+    }
+    if (leaving) {
+      const next = this.visible.at(-1)
+      if (next !== undefined) this.activate(next)
+      else this.create()
+    } else this.emitChange()
+  }
+
   closeOthers(id: TabId): void {
     for (const other of this.visible) if (other !== id && !this.tabs.get(other)?.state.pinned) this.close(other)
   }
@@ -845,10 +885,18 @@ export class TabManager {
     if (!tab) return
     // Only the browser's own controls may run a script, through `openAddress` in window.ts.
     if (isJavascriptUrl(input) || isPreviewUrl(input.trim())) return
+    const target = resolveOmniboxInput(input, this.options.engine(), this.options.keywords?.() ?? [])
+    // Typed into a tab here, for a site that lives in another workspace: it opens there instead, and an empty new tab goes.
+    if (this.routedWorkspace(target, tab.state.workspace)) {
+      const empty = isNewTabUrl(tab.state.url)
+      this.create(target, { container: tab.state.container })
+      if (empty) this.close(id)
+      return
+    }
     this.wake(tab)
     const contents = tab.view!.webContents
     this.selfLoads.delete(contents)
-    void contents.loadURL(this.pageFor(contents, resolveOmniboxInput(input, this.options.engine(), this.options.keywords?.() ?? [])))
+    void contents.loadURL(this.pageFor(contents, target))
     contents.focus()
   }
 
@@ -1542,7 +1590,8 @@ export class TabManager {
       this.options.onVisit(url)
     })
     contents.on('page-title-updated', (_e, title) => {
-      sync({ title })
+      // A tidied title stands for the old one only.
+      sync(title === state.title ? { title } : { title, shortTitle: undefined })
       this.options.onTitle(state.url, title)
     })
     contents.on('page-favicon-updated', (_e, favicons) => {

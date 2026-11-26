@@ -259,7 +259,7 @@ test('a cloud run shows its latest steps while it works, and carries on here whe
   github!.routes.unshift(...working)
   await panel.getByRole('tab', { name: 'Session' }).click()
   await panel.getByRole('button', { name: /Runs on/ }).click()
-  await panel.getByRole('radio', { name: /Cloud/ }).click()
+  await panel.getByRole('radio', { name: /GitHub Actions/ }).click()
   await say(page, 'Fix the flaky login test')
   const card = page.getByRole('region', { name: 'Cloud run' })
   await expect(card.getByRole('list', { name: 'Latest steps' })).toContainText('Edit login.test.ts')

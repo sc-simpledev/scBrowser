@@ -1,4 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -156,24 +158,48 @@ describe('the session list', () => {
   })
 })
 
+/**
+ * A port nothing is using, rather than one made from a name: on a busy test machine a made-up port
+ * can belong to something else, and the call to it hangs.
+ */
+const freePort = () =>
+  new Promise<number>((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as AddressInfo
+      probe.close(() => resolve(port))
+    })
+  })
+
+/** Calls the address once its listener has started, which a slow machine may take a moment to do. */
+async function callWhenListening(url: string): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(2_000) })
+    } catch (error) {
+      if (attempt >= 40) throw error
+      await new Promise((done) => setTimeout(done, 25))
+    }
+  }
+}
+
 describe('MCP sign-in and directory', () => {
   it('waits for the code on the computer itself, at a port that stays the same per server', async () => {
     expect(callbackPort('linear')).toBe(callbackPort('linear'))
     expect(callbackPort('linear')).toBeGreaterThanOrEqual(33418)
-    const port = callbackPort(`test-${Date.now()}`)
+    const port = await freePort()
     const code = waitForCode(port)
-    await new Promise((done) => setTimeout(done, 50))
-    const page = await fetch(`http://127.0.0.1:${port}/callback?code=abc&state=x`)
+    const page = await callWhenListening(`http://127.0.0.1:${port}/callback?code=abc&state=x`)
     expect(await page.text()).toContain('Signed in')
     await expect(code).resolves.toBe('abc')
   })
 
   it('reports a refused sign-in', async () => {
-    const port = callbackPort(`refused-${Date.now()}`)
+    const port = await freePort()
     const code = waitForCode(port)
     code.catch(() => undefined)
-    await new Promise((done) => setTimeout(done, 50))
-    await fetch(`http://127.0.0.1:${port}/callback?error=access_denied`)
+    await callWhenListening(`http://127.0.0.1:${port}/callback?error=access_denied`)
     await expect(code).rejects.toThrow('access_denied')
   })
 

@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
+import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, routineDue, routineLabel, routineRan, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
 import type { AiStore } from './ai/store'
@@ -104,6 +104,8 @@ export interface BrowserWindowHandle {
   openCode: (folder: string, task: string) => void
   /** What to save so this window comes back after a restart. */
   saved: () => SavedSession
+  /** Terra Code sessions working in this window, and those waiting for the person. */
+  coderBusy?: () => { working: number; waiting: number }
 }
 
 export interface WindowOptions {
@@ -495,7 +497,11 @@ export class BrowserCore {
     )
     app.on('will-quit', stopFocus)
     const stopSchedules = this.startWorkspaceSchedules()
-    app.on('will-quit', stopSchedules)
+    const stopRoutines = this.startRoutines(settings)
+    app.on('will-quit', () => {
+      stopSchedules()
+      stopRoutines()
+    })
     // How far down pages on the reading list have been read, from tabs showing them.
     const readingTimer = setInterval(() => {
       if (!this.readingList) return
@@ -503,6 +509,40 @@ export class BrowserCore {
     }, READING_PROGRESS_MS)
     readingTimer.unref?.()
     app.on('will-quit', () => clearInterval(readingTimer))
+  }
+
+  /**
+   * Routines open a saved tab set at their time on their days, in the first browser window,
+   * switching to their workspace first. One missed while scTerra was closed runs if it's opened
+   * within a few hours; each runs once a day.
+   */
+  private startRoutines(settings: { get(): AppSettings; set(patch: Partial<AppSettings>): void }): () => void {
+    const check = () => {
+      const handle = this.windows.find((one) => one.kind === 'browser')
+      if (!handle) return
+      const now = new Date()
+      const { routines } = settings.get()
+      const due = routines.filter((routine) => routineDue(routine, now))
+      if (due.length === 0) return
+      settings.set({ routines: routines.map((routine) => (due.includes(routine) ? routineRan(routine, now) : routine)) })
+      for (const routine of due) {
+        const set = this.tabSets.list().find((candidate) => candidate.id === routine.setId)
+        if (!set) continue
+        if (routine.workspace && handle.tabs.workspaceList().some((one) => one.id === routine.workspace)) handle.tabs.switchWorkspace(routine.workspace)
+        const ids = handle.tabs.openGroup(set.name, set.tabs)
+        if (set.split && ids.length === 2) handle.tabs.startSplit(ids[1]!)
+        if (ids[0] !== undefined) handle.tabs.activate(ids[0])
+        handle.actions.notify(`Opened ${set.name}: ${routineLabel(routine)}`)
+      }
+    }
+    const timer = setInterval(check, 30_000)
+    const soon = setTimeout(check, 5_000)
+    timer.unref?.()
+    soon.unref?.()
+    return () => {
+      clearInterval(timer)
+      clearTimeout(soon)
+    }
   }
 
   /**

@@ -1,7 +1,7 @@
-import { ChevronRight, Lock, Minus, Plus, TriangleAlert, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { ArrowLeft, Check, ChevronRight, Copy, Lock, Minus, Plus, QrCode, TriangleAlert, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Select, Switch } from '@scbrowser/ui'
-import { SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState, type SiteFont } from '@scbrowser/shared'
+import { encodeQr, qrPath, SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState, type SiteFont } from '@scbrowser/shared'
 
 const act = (action: SiteAction) => void window.scbOverlay.invoke('overlay:site-action', action)
 const close = () => void window.scbOverlay.invoke('overlay:site-close')
@@ -14,6 +14,42 @@ function Line({ label, hint, children }: { label: string; hint?: string; childre
         {hint && <div className="truncate text-xs text-text-faint">{hint}</div>}
       </div>
       {children}
+    </div>
+  )
+}
+
+/** The page's address as a QR code, drawn here: nothing about it leaves the computer. */
+function QrView({ url }: { url: string }) {
+  const code = useMemo(() => encodeQr(url), [url])
+  const [copied, setCopied] = useState(false)
+  const shown = url.replace(/^https?:\/\/(www\.)?/, '')
+  return (
+    <div className="flex flex-col items-center gap-2 px-3 py-3" style={{ height: SITE_POPUP.qr }}>
+      {code ? (
+        <svg role="img" aria-label={`QR code for ${url}`} viewBox={`0 0 ${code.size + 8} ${code.size + 8}`} shapeRendering="crispEdges" className="size-52 shrink-0 rounded-md bg-[white]">
+          <path d={qrPath(code)} fill="black" />
+        </svg>
+      ) : (
+        <p className="grid size-52 place-items-center text-center text-xs text-text-muted">This address is too long for a QR code.</p>
+      )}
+      <div className="flex w-full min-w-0 items-center gap-1">
+        <span title={url} className="min-w-0 flex-1 truncate text-center text-xs text-text-muted">
+          {shown}
+        </span>
+        {/* A plain button: the popups have no tooltip provider for the UI kit's IconButton. */}
+        <button
+          type="button"
+          aria-label={copied ? 'Copied' : 'Copy link'}
+          onClick={() => {
+            act('copy-link')
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-hover hover:text-text"
+        >
+          {copied ? <Check aria-hidden size={12} strokeWidth={2} /> : <Copy aria-hidden size={12} strokeWidth={1.75} />}
+        </button>
+      </div>
     </div>
   )
 }
@@ -46,10 +82,17 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
             {state.secure ? 'Secure connection' : 'Not secure'}
           </div>
         </div>
+        <button type="button" aria-label={state.qrOpen ? 'Back to the site’s controls' : 'QR code for this page'} title={state.qrOpen ? undefined : 'QR code, to open this page on a phone'} onClick={() => act('qr-toggle')} className="grid size-6 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-hover hover:text-text">
+          {state.qrOpen ? <ArrowLeft aria-hidden size={13} strokeWidth={2} /> : <QrCode aria-hidden size={13} strokeWidth={1.75} />}
+        </button>
         <button type="button" aria-label="Close" onClick={close} className="grid size-6 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-hover hover:text-text">
           <X aria-hidden size={13} strokeWidth={2} />
         </button>
       </div>
+      {state.qrOpen ? (
+        <QrView url={state.url} />
+      ) : (
+      <>
       <div className="flex flex-col py-1">
         <div className="flex items-center justify-between gap-3 px-3" style={{ height: SITE_POPUP.row }}>
           <div className="min-w-0">
@@ -102,6 +145,18 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
             <option value="mono">Mono</option>
           </Select>
         </Line>
+        {state.workspaces.length > 1 && (
+          <Line label="Opens in" hint={state.workspace ? 'Links and addresses for it go there' : 'Whichever workspace you’re in'}>
+            <Select aria-label="Workspace this site always opens in" className="w-28" value={state.workspace ?? ''} onChange={(e) => act(`workspace:${e.target.value}`)}>
+              <option value="">Any</option>
+              {state.workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </option>
+              ))}
+            </Select>
+          </Line>
+        )}
       </div>
       {state.permissions.length > 0 && (
         <div className="flex flex-col border-t border-border">
@@ -118,6 +173,8 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
       <div className="mt-auto flex shrink-0 items-center justify-between gap-2 border-t border-border px-2" style={{ height: SITE_POPUP.footer }}>
         <Button variant="ghost" onClick={() => act('forget-now')}>

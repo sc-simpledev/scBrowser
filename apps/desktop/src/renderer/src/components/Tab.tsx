@@ -4,10 +4,13 @@ import { cx } from '@scbrowser/ui'
 import { CONTAINERS, isNewTabUrl, type TabState } from '@scbrowser/shared'
 import { useApp } from '../state/app'
 import { useOverlay } from '../state/overlay'
+import { useTabs } from '../state/tabs'
 import { endTabDrag, startTabDrag } from '../state/tabDrag'
 import { Favicon } from './Favicon'
 
-const tabTitle = (tab: TabState) => tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
+const fullTitle = (tab: TabState) => tab.title || (isNewTabUrl(tab.url) ? 'New tab' : tab.url)
+/** A title tidied by the AI when there is one; the full one shows on hover. */
+const tabTitle = (tab: TabState) => tab.shortTitle || fullTitle(tab)
 
 const HOVER_CARD_DELAY_MS = 600
 
@@ -62,7 +65,7 @@ function useHoverCard(tab: TabState, enabled: boolean) {
       if (!element.isConnected || !inside.current) return
       const { x, y, width, height } = element.getBoundingClientRect()
       shown.current = true
-      useOverlay.getState().setTooltip({ anchor: { x, y, width, height }, label: tabTitle(latest), detail: cardDetail(latest, memory), placement: 'right' })
+      useOverlay.getState().setTooltip({ anchor: { x, y, width, height }, label: fullTitle(latest), detail: cardDetail(latest, memory), placement: 'right' })
     }, HOVER_CARD_DELAY_MS)
   }
   return { show, hide }
@@ -154,13 +157,15 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
   const depth = useApp((s) => s.settings.tabTree) && layout === 'vertical' && !tab.pinned ? (tab.depth ?? 0) : 0
   // Side tabs get a hover card; across the top, the title is already most of what's there.
   const card = useHoverCard(tab, side)
+  // Picked with Ctrl or Shift, along with others.
+  const picked = useTabs((s) => s.selected.length > 1 && s.selected.includes(tab.id))
 
   return (
     <div
       role="tab"
       aria-selected={active}
       tabIndex={active ? 0 : -1}
-      title={side ? undefined : tabTitle(tab)}
+      title={side ? undefined : fullTitle(tab)}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -189,15 +194,26 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       data-index={index}
       onMouseDown={(e) => {
         card.hide()
-        if (e.button === 0) void window.scb.invoke('tabs:activate', tab.id)
+        if (e.button !== 0) return
+        // Ctrl (⌘ on a Mac) or Shift picks tabs to act on together, without leaving the open one.
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          e.preventDefault()
+          useTabs.getState().pick(tab.id, e.shiftKey)
+          return
+        }
+        useTabs.getState().clearSelection()
+        void window.scb.invoke('tabs:activate', tab.id)
       }}
       onAuxClick={(e) => {
         if (e.button === 1) close()
       }}
       onContextMenu={() => {
         card.hide()
-        void window.scb.invoke('tabs:context-menu', tab.id)
+        const { selected } = useTabs.getState()
+        if (selected.length > 1 && selected.includes(tab.id)) void window.scb.invoke('tabs:selection-menu', selected)
+        else void window.scb.invoke('tabs:context-menu', tab.id)
       }}
+      data-picked={picked || undefined}
       data-active={active || undefined}
       data-depth={depth || undefined}
       style={depth > 0 ? { marginLeft: depth * 12, width: `calc(100% - ${depth * 12}px)` } : undefined}
@@ -214,11 +230,14 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
         layout === 'vertical' && tab.pinned && 'size-9 shrink-0 justify-center',
         layout === 'rail' && 'size-9 shrink-0 justify-center self-center',
         draggingId === tab.id && 'opacity-50',
+        picked && 'ring-1 ring-accent ring-inset',
         active
           ? cx('bg-surface font-medium text-text', side && 'shadow-1')
-          : split
-            ? 'bg-surface-hover text-text'
-            : 'text-text-muted hover:bg-surface-hover hover:text-text',
+          : picked
+            ? 'bg-accent-soft text-text'
+            : split
+              ? 'bg-surface-hover text-text'
+              : 'text-text-muted hover:bg-surface-hover hover:text-text',
         // The accent marks the active side tab, as the design rules reserve it for.
         side && active && !iconOnly && 'before:absolute before:inset-y-2.5 before:left-0 before:w-0.5 before:rounded-full before:bg-accent'
       )}

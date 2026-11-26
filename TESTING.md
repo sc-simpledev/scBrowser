@@ -64,3 +64,22 @@ Nothing here can run in CI. Take a release build, tick what works, and note what
 - [ ] Bookmarks > Tidy up with Wi-Fi off: nothing is offered for removal as dead
 - [ ] A mistyped address shows "The site's address couldn't be found" with ERR_NAME_NOT_RESOLVED under it
 - [ ] Reader view (F9) on a real article: the title once, with site and reading time
+
+## New in 0.9.2
+
+- [ ] Terra Code on your own server: Runs on > Your server, enter user@host (SSH key already set up), Check says Ready, send a task, close scTerra, reopen later: the card says Finished, and Fetch the branch brings it here
+- [ ] The same server run with "Push its branch" on, to a project whose remote the server can push to
+- [ ] A GitHub Actions run that fails shows "It stopped: …" with the model's own words on its card
+- [ ] Terra Code with typescript-language-server installed in a TypeScript project: a type error made by an edit is mentioned to the model, and fixed
+- [ ] Terra Code: !git status, # a note, /context, /doctor, /style learning, /security-review, /pr-comments #n on a real pull request
+- [ ] A changed file opens in VS Code at its line from the session panel (or in the system's app without VS Code)
+- [ ] Side assistant with your own Anthropic key: the status line shows tokens and a cost; /compact on a long chat, then the chat carries on
+- [ ] With memory on, say a lasting preference: a reply offers to remember it, and Remember adds it to AI settings > Memory
+- [ ] Save as a note into an Obsidian vault folder: the note opens in Obsidian with its front matter
+- [ ] Link hints (Ctrl .) on a busy real site (GitHub, Wikipedia): letters on links and buttons, typing one clicks it, Shift on the last letter opens a link in the background
+- [ ] QR code under the padlock: a phone's camera opens the page
+- [ ] "Opens in" a workspace under the padlock: a link to that site from another app or a typed address lands in that workspace
+- [ ] Ctrl and Shift click on side tabs, then right-click: group, move to a workspace, ask AI about them
+- [ ] Tidy tab titles (tab menu, With AI) on ten real tabs
+- [ ] Ask AI about part of the page (page menu) on a chart, with a model that takes pictures
+- [ ] A saved tab set with a timetable opens at its time, in its workspace

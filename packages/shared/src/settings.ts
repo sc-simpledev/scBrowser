@@ -8,6 +8,7 @@ import { ACCENTS, type AccentId } from './privacy'
 import { DEFAULT_SEARCH_KEYWORDS, isSearchKeywords, type SearchEngine, type SearchKeyword } from './url'
 import { isHiddenElements, isSiteCss, isSiteHost } from './siteTweaks'
 import { isSidebarSites, type SidebarSite } from './sidebarSites'
+import { isRoutine, MAX_ROUTINES, type Routine } from './tabs'
 import { ARCHIVE_CHOICES } from './archive'
 import { isDownloadRules, type DownloadRule } from './downloadRules'
 
@@ -167,6 +168,16 @@ export interface Settings {
   aiMemory: boolean
   /** How the assistant writes its replies. */
   replyStyle: ReplyStyle
+  /** A quiet line under the assistant's box: the model, this chat's tokens and cost, and how full its context is. */
+  assistantStatusLine: boolean
+  /** Saved tab sets that open by themselves on a timetable. */
+  routines: Routine[]
+  /** Sites that always open in one workspace (site without www. → workspace id), from the padlock's controls. */
+  siteWorkspaces: Record<string, string>
+  /** Where "Save as a note" writes answers as Markdown files. Empty: ask each time. */
+  notesFolder: string
+  /** With memory on, the assistant may offer one thing to remember, kept only if the person clicks Remember. */
+  memorySuggestions: boolean
   /** Turning the VPN on first picks the fastest working connection in the same group. */
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
@@ -218,6 +229,14 @@ export interface Settings {
   coderBudget: (typeof CODER_BUDGETS)[number]
   /** What Terra Code may do on GitHub. Off until the person connects it. */
   coderGithub: 'off' | 'read' | 'write'
+  /** How Terra Code explains its work, like Claude Code's output styles. */
+  coderStyle: 'default' | 'explanatory' | 'learning'
+  /** After Terra Code edits a file, tell it what the project's language server finds wrong there. */
+  coderLspProblems: boolean
+  /** The person's own server for runs away from this computer, reached over SSH: user@host, or a name from ~/.ssh/config. Empty: none. */
+  coderServer: string
+  /** A run on the server pushes its branch to the project's remote with the server's own git sign-in. */
+  coderServerPush: boolean
   /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
   coderNotify: boolean
   blocker: BlockerConfig
@@ -334,6 +353,11 @@ export const DEFAULT_SETTINGS: Settings = {
   secureDns: 'default',
   aiMemory: true,
   replyStyle: 'normal',
+  assistantStatusLine: true,
+  siteWorkspaces: {},
+  routines: [],
+  notesFolder: '',
+  memorySuggestions: true,
   vpnAutoFastest: false,
   vpnBypass: [],
   vpnDirectContainers: [],
@@ -363,6 +387,10 @@ export const DEFAULT_SETTINGS: Settings = {
   coderAgentModel: 'session',
   coderPanel: true,
   coderGithub: 'off',
+  coderServer: '',
+  coderServerPush: false,
+  coderStyle: 'default',
+  coderLspProblems: true,
   coderBudget: 0,
   blocker: DEFAULT_BLOCKER,
   focusMode: false,
@@ -446,6 +474,11 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   secureDns: (v) => typeof v === 'string' && v in SECURE_DNS,
   aiMemory: (v) => typeof v === 'boolean',
   replyStyle: (v) => REPLY_STYLES.some((style) => style.id === v),
+  assistantStatusLine: (v) => typeof v === 'boolean',
+  routines: (v) => Array.isArray(v) && v.length <= MAX_ROUTINES && v.every(isRoutine),
+  siteWorkspaces: (v) => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length <= 500 && Object.entries(v).every(([site, id]) => site.length <= 255 && typeof id === 'string' && /^[\w-]{1,64}$/.test(id)),
+  notesFolder: (v) => typeof v === 'string' && v.length <= 4096,
+  memorySuggestions: (v) => typeof v === 'boolean',
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
   vpnDirectContainers: (v) => Array.isArray(v) && v.every((id) => CONTAINERS.some((container) => container.id === id)),
@@ -475,6 +508,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   coderAgentModel: (v) => v === 'session' || v === 'quick',
   coderPanel: (v) => typeof v === 'boolean',
   coderGithub: (v) => v === 'off' || v === 'read' || v === 'write',
+  coderServer: (v) => typeof v === 'string' && v.length <= 255 && !v.trim().startsWith('-'),
+  coderServerPush: (v) => typeof v === 'boolean',
+  coderStyle: (v) => v === 'default' || v === 'explanatory' || v === 'learning',
+  coderLspProblems: (v) => typeof v === 'boolean',
   coderBudget: (v) => CODER_BUDGETS.includes(v as (typeof CODER_BUDGETS)[number]),
   blocker: isBlockerConfig,
   focusMode: (v) => typeof v === 'boolean',

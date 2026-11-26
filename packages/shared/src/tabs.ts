@@ -4,6 +4,8 @@ export interface TabState {
   id: TabId
   url: string
   title: string
+  /** A shorter title from "Tidy tab titles", shown in the tab with the real one on hover, until the page's title changes. */
+  shortTitle?: string
   faviconUrl: string | null
   isLoading: boolean
   canGoBack: boolean
@@ -116,6 +118,48 @@ export function workspaceScheduleLabel(schedule: WorkspaceSchedule): string {
   const sorted = [1, 2, 3, 4, 5, 6, 0].filter((day) => schedule.days.includes(day))
   const days = sorted.length === 7 ? 'Every day' : sorted.join() === '1,2,3,4,5' ? 'Mon–Fri' : sorted.join() === '6,0' ? 'Weekends' : sorted.map((day) => names[day]).join(', ')
   return `${days}, ${schedule.from}–${schedule.to}`
+}
+
+/** A saved tab set that opens by itself at a time on some days, optionally in a workspace. */
+export interface Routine {
+  /** The tab set it opens. */
+  setId: string
+  /** Days of the week, 0 for Sunday. */
+  days: number[]
+  /** Local time as `HH:MM`. */
+  time: string
+  /** Switches here first; null for whichever workspace is open. */
+  workspace: string | null
+  /** The local day it last ran, `YYYY-MM-DD`, so it runs once a day. */
+  lastRun: string | null
+}
+
+export const MAX_ROUTINES = 20
+/** A routine missed while scTerra was closed still runs if it's opened within this long. */
+export const ROUTINE_GRACE_MS = 3 * 60 * 60_000
+
+export const isRoutine = (value: unknown): value is Routine => {
+  const { setId, days, time, workspace, lastRun } = (value ?? {}) as Routine
+  return typeof setId === 'string' && setId.length > 0 && setId.length <= 64 && Array.isArray(days) && days.length >= 1 && days.length <= 7 && days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) && typeof time === 'string' && HH_MM.test(time) && (workspace === null || (typeof workspace === 'string' && workspace.length <= 64)) && (lastRun === null || (typeof lastRun === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(lastRun)))
+}
+
+const localDayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+/** Whether a routine should run now: a day of its, its time reached today, not yet run today, and not too long ago. */
+export function routineDue(routine: Routine, now: Date): boolean {
+  if (!routine.days.includes(now.getDay()) || routine.lastRun === localDayKey(now)) return false
+  const [hours, minutes] = routine.time.split(':').map(Number) as [number, number]
+  const at = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes)
+  const since = now.getTime() - at.getTime()
+  return since >= 0 && since <= ROUTINE_GRACE_MS
+}
+
+/** The routine marked as run today. */
+export const routineRan = (routine: Routine, now: Date): Routine => ({ ...routine, lastRun: localDayKey(now) })
+
+/** "Mon–Fri at 09:00", in the words workspace hours use. */
+export function routineLabel(routine: Pick<Routine, 'days' | 'time'>): string {
+  return `${workspaceScheduleLabel({ days: routine.days, from: routine.time, to: routine.time }).replace(/, \d\d:\d\d–\d\d:\d\d$/, '')} at ${routine.time}`
 }
 
 export const DEFAULT_WORKSPACE: Workspace = { id: 'main', name: 'Personal', focus: false }

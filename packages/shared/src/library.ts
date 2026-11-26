@@ -114,6 +114,16 @@ export interface TaskRow {
 export interface TaskList {
   rows: TaskRow[]
   sleeping: number
+  /** Work going on away from the screen: briefs being written, Terra Code, runs away from this computer, downloads. */
+  background: BackgroundTask[]
+}
+
+export interface BackgroundTask {
+  kind: 'brief' | 'code' | 'cloud' | 'download'
+  name: string
+  detail: string
+  /** The page to see it on. */
+  page: string
 }
 
 /** Whether a bookmarked page still answers, from the tidy-up on sc://bookmarks. */

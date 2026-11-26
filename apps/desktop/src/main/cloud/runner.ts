@@ -6,7 +6,8 @@
  * commits the work to a branch of its own, and opens a pull request if it was asked to.
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createProvider, type ChatMessage, type ToolUse } from '@scbrowser/ai'
 import { CLOUD_EVENT_MARK, CLOUD_SECRET, findSecrets, secretWarning, type CoderEvent, type ProviderConfig } from '@scbrowser/shared'
 import { randomBytes } from 'node:crypto'
@@ -113,12 +114,19 @@ async function main(): Promise<number> {
       secret.apiKey = secretText
     }
   }
-  if (spec.model.needsKey && !secret.apiKey) {
-    print({ type: 'error', message: `The repository secret ${CLOUD_SECRET} is missing, so the model can't be reached.` })
+  if (spec.model.needsKey && !secret.apiKey && !Object.keys(secret.headers).length) {
+    const message = spec.where === 'server' ? 'The model’s key didn’t reach the server, so the model can’t be reached.' : `The repository secret ${CLOUD_SECRET} is missing, so the model can't be reached.`
+    print({ type: 'error', message })
+    if (spec.where === 'server') writeFileSync(join(process.cwd(), '..', 'result.json'), JSON.stringify({ ok: false, error: message }))
     return 1
   }
 
-  const config: ProviderConfig = { id: 'cloud', name: 'Cloud', protocol: spec.model.protocol, baseUrl: spec.model.baseUrl, models: [spec.model.model], firstParty: spec.model.firstParty, ...(spec.model.needsKey ? {} : { hosted: true }) }
+  const onServer = spec.where === 'server'
+  // On a server, the app reads how it went from this file beside the work.
+  const finish = (result: { ok: boolean; summary?: string; error?: string | null; pushed?: boolean }) => {
+    if (onServer) writeFileSync(join(process.cwd(), '..', 'result.json'), JSON.stringify(result))
+  }
+  const config: ProviderConfig = { id: 'cloud', name: spec.model.name ?? (spec.model.needsKey ? 'The model' : 'scTerra AI'), protocol: spec.model.protocol, baseUrl: spec.model.baseUrl, models: [spec.model.model], firstParty: spec.model.firstParty, ...(spec.model.needsKey ? {} : { hosted: true }) }
   const provider = createProvider({ config, secret, fetch })
   const model = spec.model.model
   // The hosted service doesn't take tool calls yet, so it uses the text protocol, as in the app.
@@ -156,6 +164,8 @@ async function main(): Promise<number> {
   const ticker = setInterval(() => void sendProgress(), PROGRESS_EVERY_MS)
   const coder = new Coder({
     unattended: true,
+    // On the person's own server, commands are fenced in as they would be at home, where it can.
+    sandbox: () => spec.sandbox ?? 'off',
     autoCompact: () => true,
     autoCheck: () => true,
     autoFormat: () => true,
@@ -242,13 +252,31 @@ async function main(): Promise<number> {
   // Nothing that looks like a secret leaves this machine: the run stops before pushing instead.
   const leak = secretWarning(findSecrets(sh('git', ['diff', '--cached', '--no-color', '--unified=0'])))
   if (leak) {
-    print({ type: 'error', message: `${leak} The work wasn’t pushed. Its log on GitHub still shows what it did.` })
+    print({ type: 'error', message: onServer ? `${leak} The work wasn’t committed.` : `${leak} The work wasn’t pushed. Its log on GitHub still shows what it did.` })
     clearInterval(ticker)
     await sendProgress({ conclusion: 'failure', summary: leak })
+    finish({ ok: false, error: leak })
     return 1
   }
   const summary = (failed ? `Stopped: ${failed}\n\n${lastText}` : lastText).trim().slice(0, 6000) || (changed ? 'Done.' : 'Nothing needed changing.')
   sh('git', ['commit', ...(changed ? [] : ['--allow-empty']), '-m', spec.title, '-m', summary])
+
+  if (onServer) {
+    // The work stays in this folder for scTerra to fetch, unless the person asked the server to push it.
+    let pushed = false
+    if (spec.pushTo && changed && !failed) {
+      try {
+        execFileSync('git', ['push', spec.pushTo, `HEAD:refs/heads/${spec.branch}`], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 })
+        pushed = true
+        print({ type: 'note', text: `Pushed to ${spec.branch}.` })
+      } catch (error) {
+        const said = error instanceof Error && 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '').trim().split('\n').at(-1) : ''
+        print({ type: 'note', text: `The server couldn’t push ${spec.branch}${said ? ` (${said.slice(0, 200)})` : ''}. It’s kept there for scTerra to fetch.` })
+      }
+    }
+    finish({ ok: !failed, summary, error: failed, pushed })
+    return failed ? 1 : 0
+  }
   // Only this push carries the job's token: the model's commands had no way to push anywhere.
   const auth = githubToken ? ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${githubToken}`).toString('base64')}`] : []
   sh('git', [...auth, 'push', 'origin', `HEAD:refs/heads/${spec.branch}`])
@@ -281,7 +309,13 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (error: unknown) => {
-    print({ type: 'error', message: error instanceof Error ? error.message : 'The cloud run failed.' })
+    const message = error instanceof Error ? error.message : 'The cloud run failed.'
+    print({ type: 'error', message })
+    try {
+      if (process.argv[2] && process.argv[2] !== '--event' && (JSON.parse(readFileSync(process.argv[2], 'utf8')) as CloudTask).where === 'server') writeFileSync(join(process.cwd(), '..', 'result.json'), JSON.stringify({ ok: false, error: message }))
+    } catch {
+      // The app says the run stopped without saying why.
+    }
     process.exit(1)
   }
 )

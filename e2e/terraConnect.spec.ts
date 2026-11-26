@@ -225,15 +225,15 @@ test('GitHub connects with a token, Terra Code looks at issues, and a cloud run 
   // The cloud needs Look and act.
   await panel.getByRole('tab', { name: 'Session' }).click()
   await panel.getByRole('button', { name: /Runs on\s*This computer/ }).click()
-  await expect(panel.getByRole('radio', { name: /Cloud/ })).toBeDisabled()
+  await expect(panel.getByRole('radio', { name: /GitHub Actions/ })).toBeDisabled()
   await expect(panel).toContainText('Let Terra Code look and act on GitHub')
   await panel.getByRole('button', { name: 'Open settings' }).click()
   await settings.getByRole('radio', { name: /Look and act/ }).click()
   await panel.getByRole('tab', { name: 'Session' }).click()
   // The row stays open from before.
   await expect(panel.getByRole('button', { name: /Runs on/ })).toHaveAttribute('aria-expanded', 'true')
-  await panel.getByRole('radio', { name: /Cloud/ }).click()
-  await expect(panel.getByRole('button', { name: /Runs on\s*Cloud/ })).toBeVisible()
+  await panel.getByRole('radio', { name: /GitHub Actions/ }).click()
+  await expect(panel.getByRole('button', { name: /Runs on\s*GitHub Actions/ })).toBeVisible()
 
   const before = mock!.requests.length
   await say(page, 'Fix the flaky login test')

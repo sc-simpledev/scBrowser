@@ -60,6 +60,7 @@ export function handleShortcut(input: Input, actions: BrowserActions): boolean {
   if (mod && !input.shift && key === 'f') return run(actions.openFind)
   if (mod && !input.shift && key === 'd') return run(actions.toggleBookmark)
   if (mod && !input.shift && key === 'k') return run(actions.togglePalette)
+  if (mod && !input.shift && key === '.') return run(actions.linkHints)
   if (mod && input.shift && key === 'e') return run(actions.searchTabs)
   if (mod && !input.shift && key === 'o') return run(actions.openFile)
   if (mod && !input.shift && key === 'u') return run(actions.viewSource)

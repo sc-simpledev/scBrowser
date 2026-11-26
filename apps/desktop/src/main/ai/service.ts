@@ -1,7 +1,7 @@
 import { session, type WebContents } from 'electron'
 import { Agent } from './agent'
 import { AiError, ASK_TOOL, ASK_TOOL_PROMPT, type ChatEffort, type ChatMessage, createProvider, type ToolOutput, historyQueryPrompt, MAX_PAGE_CHARS, parseHistoryQuery, REPORT_TOOL, REPORT_TOOL_PROMPT, SYSTEM_PROMPT, trimPage, withContext, WORKSPACE_PROMPT, type FetchLike, type HistoryQuery, type PageContext, type Provider, type ToolUse } from '@scbrowser/ai'
-import { localDay, memoryPrompt, replyStylePrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type ModelRef, type ReplyStyle } from '@scbrowser/shared'
+import { CHAT_COMPACT_PROMPT, estimateCost, REMEMBER_INSTRUCTIONS, localDay, memoryPrompt, replyStylePrompt, effectiveUrl, QUESTION_FENCE, QUESTION_INSTRUCTIONS, MAX_MENTIONED_TABS, type AssistantEvent, type AssistantMessage, type AssistantRequest, type CoderCloudModel, type CoderModelChoice, type CoderStatus, type CoderStyle, type ModelRef, type ReplyStyle } from '@scbrowser/shared'
 import { extractContext, UnreadablePdfError } from './pageText'
 import { readResult, webContext } from './webSearch'
 import { Coder, git, type CoderBrowserHost, type CoderGithubHost, type CoderMcpHost } from './coder'
@@ -58,7 +58,8 @@ export class AiService {
     private readonly tabIdOf: (contents: WebContents) => number | null = () => null,
     /** Where Terra Code keeps checkpoints, and whether it may. Absent for background work. */
     coderHome?: CoderHome,
-    private readonly memoryOn: () => boolean = () => false,
+    /** Memory is on: notes go with every chat, and (unless turned off) the model may suggest one more. */
+    private readonly memoryOn: () => boolean | 'suggest' = () => false,
     /** How replies in Chat are written: see `REPLY_STYLES`. */
     private readonly replyStyle: () => ReplyStyle = () => 'normal'
   ) {
@@ -115,7 +116,7 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, budget: coderHome.budget, lsp: new CoderLsp(), ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, budget: coderHome.budget, style: coderHome.style, lspProblems: coderHome.lspProblems, lsp: new CoderLsp(), ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
       agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -192,15 +193,29 @@ export class AiService {
    * headers, as JSON), which goes to GitHub as a repository secret. Models on this computer can't
    * be reached from the cloud.
    */
-  async cloudModel(model?: ModelRef | null): Promise<{ model: CoderCloudModel; secret: string | null }> {
+  async cloudModel(model?: ModelRef | null, where: 'github' | 'server' = 'github'): Promise<{ model: CoderCloudModel; secret: string | null }> {
     const ref = this.coderRef(model)
     const config = this.store.provider(ref.providerId)
     if (!config) throw new AiError('not-found', 'That provider no longer exists.')
-    // Tests use a stand-in model on this computer, which a real cloud run couldn't reach.
-    if (process.env.SCB_E2E !== '1' && /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0|192\.168\.|10\.)/i.test(config.baseUrl)) throw new AiError('bad-request', `${config.name} runs on this computer or its network, so the cloud can't reach it. Choose another model for this session.`)
+    // Tests use a stand-in model on this computer, which a real cloud run couldn't reach. A server
+    // of the person's own may well share their network, so only this computer itself is out of reach.
+    const unreachable = where === 'server' ? /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i : /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0|192\.168\.|10\.)/i
+    if (process.env.SCB_E2E !== '1' && unreachable.test(config.baseUrl)) throw new AiError('bad-request', where === 'server' ? `${config.name} runs on this computer, so your server can't reach it. Choose another model for this session.` : `${config.name} runs on this computer or its network, so the cloud can't reach it. Choose another model for this session.`)
     const secret = config.hosted ? null : await this.store.secret(ref.providerId)
     const needsKey = !!secret && (secret.apiKey !== '' || Object.keys(secret.headers).length > 0)
-    return { model: { protocol: config.protocol, baseUrl: config.baseUrl, model: ref.model, needsKey, firstParty: config.firstParty }, secret: needsKey ? JSON.stringify(secret) : null }
+    return { model: { protocol: config.protocol, baseUrl: config.baseUrl, model: ref.model, needsKey, firstParty: config.firstParty, name: config.hosted ? 'scTerra AI' : config.name }, secret: needsKey ? JSON.stringify(secret) : null }
+  }
+
+  /** A chat's messages summed up by its own model, for /compact. Only the words go: no page, no pictures. */
+  async compactChat(messages: AssistantMessage[]): Promise<string> {
+    const ref = this.chatRef()
+    const transcript = messages
+      .map((message) => `${message.role === 'user' ? 'Person' : 'Assistant'}: ${message.content}`)
+      .join('\n\n')
+      .slice(-300_000)
+    const summary = (await this.collect(ref, CHAT_COMPACT_PROMPT, [{ role: 'user', content: `<conversation>\n${transcript}\n</conversation>\n\nSum this conversation up.` }], undefined, TASK_OUTPUT_TOKENS)).trim()
+    if (!summary) throw new AiError('server', 'The model sent back no summary. Try again.')
+    return summary
   }
 
   private chatRef(): ModelRef {
@@ -329,7 +344,9 @@ export class AiService {
       if (controller.signal.aborted) return
 
       let stopReason: string | null = null
-      const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (this.memoryOn() ? memoryPrompt(this.store.memory()) : '') + replyStylePrompt(this.replyStyle())
+      const memory = this.memoryOn()
+      const system = (files ? WORKSPACE_PROMPT : SYSTEM_PROMPT) + (memory ? memoryPrompt(this.store.memory()) : '') + (memory === 'suggest' ? REMEMBER_INSTRUCTIONS : '') + replyStylePrompt(this.replyStyle())
+      const firstParty = !!this.store.provider(chat.providerId)?.firstParty
       const convo: ChatMessage[] = [...withContext(request.messages, pages, request.selection)]
       const key = `${chat.providerId}\n${chat.model}`
       // The hosted server takes tools only once its Worker with tool support is deployed.
@@ -379,7 +396,10 @@ export class AiService {
               }
               if (event.type === 'tool') uses.push(event.use)
               if (event.type === 'blocks') blocks = event.blocks
-              if (event.type === 'usage') this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
+              if (event.type === 'usage') {
+                this.store.addUsage(chat.providerId, chat.model, event.inputTokens, event.outputTokens)
+                emit({ streamId, type: 'usage', inputTokens: event.inputTokens, outputTokens: event.outputTokens, cost: firstParty ? estimateCost(chat.model, event.inputTokens, event.outputTokens) : null })
+              }
               if (event.type === 'stop') stopReason = event.reason
             }
             text(call.end())
@@ -477,6 +497,8 @@ export interface CoderHome {
   browser?: CoderBrowserHost
   github?: CoderGithubHost
   budget?: () => number
+  style?: () => CoderStyle
+  lspProblems?: () => boolean
   /** Terra Code's chosen folder, for project MCP servers the chat may use too. */
   folder?: () => string
 }

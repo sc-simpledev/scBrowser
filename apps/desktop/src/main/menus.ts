@@ -195,9 +195,11 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
         }
       },
       { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: actions.screenshot },
+      ...(isWeb(params.pageURL) ? [{ label: 'Ask AI about part of the page…', click: actions.askAboutRegion }] : []),
       { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', registerAccelerator: false, click: actions.toggleBookmark },
       { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) },
-      ...(cleanUrl(params.pageURL) !== params.pageURL ? [{ label: 'Copy clean page address', click: () => clipboard.writeText(cleanUrl(params.pageURL)) }] : [])
+      ...(cleanUrl(params.pageURL) !== params.pageURL ? [{ label: 'Copy clean page address', click: () => clipboard.writeText(cleanUrl(params.pageURL)) }] : []),
+      ...(isWeb(params.pageURL) ? [{ label: 'QR code for this page', click: actions.showQr }] : [])
     ])
     if (isWeb(params.pageURL)) {
       groups.push([
@@ -294,6 +296,8 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
         ...researchRows(tab, open, tabs),
         { type: 'separator' as const },
         { label: 'Organise tabs into groups', click: actions.organiseTabs },
+        { label: 'Tidy tab titles', click: actions.tidyTitles },
+        ...(open.some((other) => other.shortTitle) ? [{ label: 'Show full tab titles', click: actions.restoreTitles }] : []),
         { label: 'Clean up tabs', click: actions.cleanupTabs }
       ]
     },
@@ -305,6 +309,36 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
     ...closedGroupRows(actions)
+  ]).popup({ window })
+}
+
+/** For several tabs picked with Ctrl or Shift: what can be done to all of them at once. */
+export function popupSelectionMenu(ids: TabId[], actions: BrowserActions, window: BaseWindow, done: () => void): void {
+  const { tabs } = actions
+  const { tabs: open, activeWorkspace, workspaces } = tabs.snapshot()
+  const picked = open.filter((tab) => ids.includes(tab.id))
+  if (picked.length === 0) return
+  const count = `${picked.length} tabs`
+  const readable = picked.filter((tab) => /^https?:/i.test(tab.url)).slice(0, MAX_MENTIONED_TABS)
+  const unpinned = picked.filter((tab) => !tab.pinned).map((tab) => tab.id)
+  const all = picked.map((tab) => tab.id)
+  const then = (action: () => void) => () => {
+    action()
+    done()
+  }
+  Menu.buildFromTemplate([
+    { label: `Add ${count} to a new group`, enabled: unpinned.length > 0, click: then(() => tabs.setGroup(unpinned, tabs.freshGroupName())) },
+    ...(tabs.groupNames().length > 0 ? [{ label: 'Add to group', enabled: unpinned.length > 0, submenu: tabs.groupNames().map((name) => ({ label: name, click: then(() => tabs.setGroup(unpinned, name)) })) }] : []),
+    ...(workspaces.length > 1 ? [{ label: 'Move to workspace', submenu: workspaces.filter((one) => one.id !== activeWorkspace).map((one) => ({ label: one.name, click: then(() => tabs.moveToWorkspace(all, one.id)) })) }] : []),
+    { type: 'separator' },
+    { label: `Ask AI about ${readable.length === picked.length ? 'these' : `the ${readable.length} web`} tabs`, enabled: readable.length > 0, click: then(() => tabs.create(`sc://assistant/?tabs=${readable.map((tab) => tab.id).join(',')}`)) },
+    { label: 'Research them into one report', enabled: readable.length > 1, click: then(() => tabs.create(`sc://assistant/?preset=brief&tabs=${readable.map((tab) => tab.id).join(',')}`)) },
+    { type: 'separator' },
+    { label: picked.every((tab) => tab.pinned) ? `Unpin ${count}` : `Pin ${count}`, click: then(() => all.forEach((id) => tabs.setPinned(id, !picked.every((tab) => tab.pinned)))) },
+    { label: picked.every((tab) => tab.muted) ? `Unmute ${count}` : `Mute ${count}`, click: then(() => all.forEach((id) => tabs.setMuted(id, !picked.every((tab) => tab.muted)))) },
+    { label: `Reload ${count}`, click: then(() => all.forEach((id) => tabs.reload(id))) },
+    { type: 'separator' },
+    { label: `Close ${count}`, click: then(() => all.forEach((id) => tabs.close(id))) }
   ]).popup({ window })
 }
 

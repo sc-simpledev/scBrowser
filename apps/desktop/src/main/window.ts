@@ -1,7 +1,7 @@
 import { studySession } from './focusTimer'
 import { extractContext } from './ai/pageText'
 import { readingMinutes, SKILL_COMMAND, snoozeHost, MAX_MENTIONED_TABS, AI_COMMAND, isSiteFont, localDay, siteFontOf, snoozeUntil, withSiteFont, VPN_PALETTE_IDS, ASK_COMMAND, MEDIA_SPEEDS, REPLY_STYLES } from '@scbrowser/shared'
-import { pictureAt } from './imageAsk'
+import { pictureAt, pictureOfRegion } from './imageAsk'
 import { tabTextMatches } from './tabText'
 import { randomFillSync } from 'node:crypto'
 import { reloadAfterCrash } from './crashReload'
@@ -56,13 +56,15 @@ import {
   type WorkspaceEdit
 } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
-import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabCommand, parseTabGroups, TAB_CLEANUP_PROMPT, TAB_COMMAND_PROMPT, tabCommandMessage } from '@scbrowser/ai'
+import { AiError, GROUP_TABS_PROMPT, groupTabsMessage, parseTabCleanup, parseTabCommand, parseTabGroups, parseTidyTitles, TAB_CLEANUP_PROMPT, TAB_COMMAND_PROMPT, tabCommandMessage, TIDY_TITLES_PROMPT } from '@scbrowser/ai'
 import { prepareRecap } from './recap'
 import { rewriteSelection, togglePageGoogleTranslation, togglePageTranslation } from './ai/pageTools'
 import { AiService } from './ai/service'
 import { coderBrowser } from './ai/coderBrowser'
 import { CoderMcp } from './ai/coderMcp'
 import { CoderCloud } from './ai/coderCloud'
+import { CoderServer } from './ai/coderServer'
+import { toggleLinkHints } from './linkHints'
 import { CoderGithub } from './ai/coderGithub'
 import { KvCoderTrust } from './ai/coderTrust'
 import type { BrowserCore, BrowserWindowHandle, Send, WindowOptions } from './browserCore'
@@ -255,6 +257,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     onSplit: () => core.onboarding.mark('split'),
     keepSplitPairs: () => settings.get().splitPairs,
+    siteWorkspace: (url) => settings.get().siteWorkspaces[siteOf(url) ?? ''] ?? null,
     onActivate: (tab) => {
       // A preview belongs to the page it was opened from.
       preview.close()
@@ -489,6 +492,18 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       return `Sorted into ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`
     }),
     cleanupTabs: () => void cleanupTabs(),
+    tidyTitles: () => void runTask('Tidying tab titles…', async () => {
+      const candidates = tabs
+        .snapshot()
+        .tabs.filter((tab) => /^https?:/.test(tab.url) && tab.title.trim().length > 24 && !aiStore.disabledHosts().includes(new URL(tab.url).host))
+        .slice(0, 80)
+      if (candidates.length === 0) return 'These tab titles are short already'
+      const titles = parseTidyTitles(await ai.complete(TIDY_TITLES_PROMPT, groupTabsMessage(candidates)), candidates)
+      if (titles.size === 0) return "Couldn't shorten these titles"
+      tabs.setShortTitles(titles)
+      return `Tidied ${titles.size} ${titles.size === 1 ? 'title' : 'titles'}. Hover a tab for its full title`
+    }),
+    restoreTitles: () => tabs.setShortTitles(null),
     autofillRows: (contents) => {
       const { available, exists, unlocked } = passwords.state()
       if (!available || !exists || !/^https?:/i.test(contents.getURL())) return []
@@ -538,6 +553,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         if (!image) return notify("Couldn't read that image")
         send('ui:assistant-prompt', { text: '', selection: null, includePage: false, image })
       })
+    },
+    askAboutRegion: () => {
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      const url = contents?.getURL() ?? ''
+      if (!contents || !/^(https?|file):/i.test(url)) return notify('This works on web pages')
+      if (URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)) return notify('AI is off for this site')
+      void pictureOfRegion(contents).then((image) => image && send('ui:assistant-prompt', { text: '', selection: null, includePage: false, image }))
     },
     mediaAction: (id, action) => {
       if (action === 'focus') return tabs.activate(id)
@@ -718,6 +740,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       settings.set({ hiddenElements })
       notify('Hidden parts are showing again')
     },
+    showQr: () => openSiteControls(tabs.page.x + 8, tabs.page.y + 8, true),
+    linkHints: () => {
+      const contents = tabs.active && tabs.contentsFor(tabs.active.id)
+      if (!contents || !/^(https?|file):/i.test(contents.getURL())) return notify('Link hints work on web pages')
+      void toggleLinkHints(contents).then((shown) => shown === 0 && notify('No links or buttons in view'))
+    },
     forgetSite: () => {
       const site = siteOf(tabs.active ? effectiveUrl(tabs.active.url) : '')
       if (!site) return notify('Only websites can be forgotten')
@@ -790,21 +818,27 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       browser: coderBrowserHost,
       github: coderGithub,
       folder: () => settings.get().coderFolder,
-      budget: () => settings.get().coderBudget
+      budget: () => settings.get().coderBudget,
+      style: () => settings.get().coderStyle,
+      lspProblems: () => settings.get().coderLspProblems
     },
-    () => settings.get().aiMemory,
+    () => (settings.get().aiMemory ? (settings.get().memorySuggestions ? 'suggest' : true) : false),
     () => settings.get().replyStyle
   )
+  const cloudRunner = async () => {
+    const file = join(app.getAppPath(), 'out/cloud/runner.mjs')
+    return readFile(file, 'utf8').catch(() => {
+      throw new Error('The cloud runner isn’t built. Run node scripts/build-cloud-runner.mjs in apps/desktop.')
+    })
+  }
+  const coderServer = new CoderServer({ runner: cloudRunner })
   const coderCloud = new CoderCloud({
     github: coderGithub,
     kv,
-    model: (ref) => ai.cloudModel(ref),
-    runner: async () => {
-      const file = join(app.getAppPath(), 'out/cloud/runner.mjs')
-      return readFile(file, 'utf8').catch(() => {
-        throw new Error('The cloud runner isn’t built. Run node scripts/build-cloud-runner.mjs in apps/desktop.')
-      })
-    }
+    model: (ref, where) => ai.cloudModel(ref, where),
+    runner: cloudRunner,
+    server: coderServer,
+    serverSettings: () => ({ host: settings.get().coderServer, push: settings.get().coderServerPush, sandbox: settings.get().coderSandbox })
   })
 
   const showPermission = (prompt: PermissionPrompt | null) =>
@@ -1037,6 +1071,10 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       ai: !aiStore.disabledHosts().includes(host),
       forgetOnClose: current.forgetOnClose.includes(site),
       zoom: active.zoomPercent,
+      url,
+      qrOpen: siteQrOpen,
+      workspaces: tabs.workspaceList().length > 1 ? tabs.workspaceList().map(({ id, name }) => ({ id, name })) : [],
+      workspace: current.siteWorkspaces[site] ?? null,
       permissions: core.services.permissions
         .list()
         .filter((decision) => decision.origin === origin)
@@ -1047,7 +1085,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         }))
     }
   }
-  const openSiteControls = (x: number, y: number) => {
+  const openSiteControls = (x: number, y: number, qr = false) => {
+    siteQrOpen = qr
     const state = siteControls()
     if (!state) return
     const { width, height } = window.getContentBounds()
@@ -1058,6 +1097,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     })
   }
   let siteBlockedOpen = false
+  let siteQrOpen = false
   const siteAction = (action: SiteAction) => {
     const state = siteControls()
     const active = tabs.active
@@ -1073,6 +1113,19 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     } else if (action === 'zoom-in' || action === 'zoom-out') tabs.zoomBy(active.id, action === 'zoom-in' ? 1 : -1)
     else if (action === 'zoom-reset') tabs.setZoom(active.id, 1)
     else if (action === 'blocked-toggle') siteBlockedOpen = !siteBlockedOpen
+    else if (action === 'qr-toggle') {
+      siteQrOpen = !siteQrOpen
+      // The panel changes height, so it's placed again.
+      const bounds = overlay.siteControlsAt()
+      if (bounds) return openSiteControls(bounds.x, bounds.y, siteQrOpen)
+    } else if (action === 'copy-link') {
+      clipboard.writeText(state.url)
+      return
+    } else if (action.startsWith('workspace:')) {
+      const id = action.slice('workspace:'.length)
+      const { [state.site]: _old, ...others } = settings.get().siteWorkspaces
+      settings.set({ siteWorkspaces: id && tabs.workspaceList().some((one) => one.id === id) ? { ...others, [state.site]: id } : others })
+    }
     else if (action.startsWith('font:')) {
       const font = action.slice('font:'.length)
       if (isSiteFont(font)) {
@@ -1098,6 +1151,10 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'new-window': () => actions.openWindow(),
     'install-app': actions.installApp,
     'task-manager': () => actions.openPage('tasks'),
+    'link-hints': actions.linkHints,
+    'tidy-titles': actions.tidyTitles,
+    'ask-region': actions.askAboutRegion,
+    'qr-code': actions.showQr,
     'private-window': actions.openPrivateWindow,
     'reopen-tab': () => tabs.reopenClosed(),
     find: actions.openFind,
@@ -1579,6 +1636,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     raiseOverlay: () => overlay.raise(),
     setExtensionFrame: (rect, view) => overlay.setExtensionFrame(rect, view),
     openExtensionsPopup: (popup, refresh) => overlay.openExtensionsPopup(popup, refresh),
+    coderBusy: () => ({ working: ai.coder.runningSessions().length, waiting: ai.coder.waitingSessions().length }),
     openCode: (folder, task) => {
       settings.set({ coderFolder: folder })
       if (task) ai.setPendingCode(task)
@@ -1661,6 +1719,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     coderHome,
     coderGithub,
     coderCloud,
+    coderServer,
     focusContents: (contents) => {
       window.show()
       window.focus()

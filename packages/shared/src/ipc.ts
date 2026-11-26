@@ -1,5 +1,5 @@
 import type { MemoryNote } from './memory'
-import type { AiState, AiStatus, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
+import type { AiState, AiStatus, AssistantMessage, AssistantEvent, AssistantPrompt, AssistantRequest, ChatSummary, ModelRef, ModelRole, ProviderProtocol, SavedChat, SavedTurn, Skill } from './ai'
 import type { ExtensionInfo, ExtensionPanelState, ExtensionSummary, ImportResult, ImportSource } from './containers'
 import type { BarItem, Bookmark, BookmarkGroup, DownloadAction, DownloadInfo, LinkCheck, PermissionDecision, TaskList, WebApp } from './library'
 import type { HistoryEntry, Suggestion } from './omnibox'
@@ -17,7 +17,7 @@ import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderAutomations, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderProjectSetup, GithubRepo, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
+import type { CoderAnswer, CoderAutomations, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderProjectSetup, GithubRepo, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderServerCheck, CoderShellResult, CoderContextBreakdown, CoderDoctorItem, CoderMode, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -80,6 +80,8 @@ export interface ChromeCommands {
   /** Ends split view, keeping this tab open. */
   'tabs:split-keep': (id: number) => void
   'tabs:context-menu': (id: TabId) => void
+  /** The menu for several tabs picked with Ctrl or Shift. */
+  'tabs:selection-menu': (ids: TabId[]) => void
   /** False if it couldn't sleep, such as the last tab left. */
   'tabs:sleep': (id: TabId) => boolean
   /** Null takes the tab out of its group. An empty name starts a new group. */
@@ -109,6 +111,8 @@ export interface ChromeCommands {
   'ai:status': () => AiStatus
   'ai:send': (streamId: string, request: AssistantRequest) => void
   'ai:cancel': (streamId: string) => void
+  /** Keeps one note in the assistant's memory, from a suggestion the person accepted. */
+  'memory:add': (text: string) => MemoryNote | null
   'ai:set-site': (host: string, disabled: boolean) => void
   'ai:open-settings': () => void
   'ai:enable-hosted': () => void
@@ -180,6 +184,10 @@ export interface ChromeCommands {
   'sidebar-sites:menu': (url: string, x: number, y: number) => void
   /** Saves the side assistant's conversation as Markdown, asking where. True once saved. */
   'chats:export': (turns: SavedTurn[]) => boolean
+  /** Sums up a chat's messages so it can carry on with less, for /compact. */
+  'ai:compact': (messages: AssistantMessage[]) => string
+  /** Writes an answer as a Markdown note in the notes folder (or where the person picks). The file's path, or null if they cancelled. */
+  'notes:save': (markdown: string, title: string) => string | null
   /** How the assistant writes replies, as a menu at this point. */
   'ai:style-menu': (x: number, y: number) => void
   /** Now playing: play or pause, picture in picture, or go to the tab. */
@@ -192,6 +200,8 @@ export interface ChromeCommands {
 export interface ChromeEvents {
   'tabs:changed': TabsSnapshot
   'ui:focus-omnibox': void
+  /** Something from the menu for several tabs was done, so the pick is cleared. */
+  'tabs:selection-done': void
   /** The user clicked a row in the omnibox dropdown (index into the current list). */
   'omnibox:pick': number
   'bookmarks:changed': Bookmark[]
@@ -306,6 +316,7 @@ export const COMMAND_CHANNELS = [
   'tabs:split-link',
   'tabs:split-keep',
   'tabs:context-menu',
+  'tabs:selection-menu',
   'tabs:sleep',
   'tabs:set-group',
   'tabs:rename-group',
@@ -330,6 +341,7 @@ export const COMMAND_CHANNELS = [
   'ai:status',
   'ai:send',
   'ai:cancel',
+  'memory:add',
   'ai:set-site',
   'ai:open-settings',
   'ai:enable-hosted',
@@ -386,6 +398,8 @@ export const COMMAND_CHANNELS = [
   'sidebar-sites:add-current',
   'sidebar-sites:menu',
   'chats:export',
+  'ai:compact',
+  'notes:save',
   'ai:style-menu',
   'media:action',
   'media:menu'
@@ -394,6 +408,7 @@ export const COMMAND_CHANNELS = [
 export const EVENT_CHANNELS = [
   'tabs:changed',
   'ui:focus-omnibox',
+  'tabs:selection-done',
   'sidebar-sites:changed',
   'omnibox:pick',
   'bookmarks:changed',
@@ -555,6 +570,10 @@ export interface InternalCommands {
   'newtab:ask': (text: string) => void
   /** Saves a conversation as Markdown, asking where. True once saved. */
   'chats:export': (turns: SavedTurn[]) => boolean
+  /** Sums up a chat's messages so it can carry on with less, for /compact. */
+  'ai:compact': (messages: AssistantMessage[]) => string
+  /** Writes an answer as a Markdown note in the notes folder (or where the person picks). The file's path, or null if they cancelled. */
+  'notes:save': (markdown: string, title: string) => string | null
   'extensions:open-store': () => void
   'sync:status': () => SyncStatus
   'sync:pick-folder': () => string | null
@@ -658,6 +677,8 @@ export interface InternalCommands {
   'tabsets:save': (name: string) => ClosedGroup | null
   'tabsets:open': (id: string) => void
   'tabsets:remove': (id: string) => void
+  /** The workspaces, by name, for choosing where a routine opens. */
+  'workspaces:list': () => { id: string; name: string }[]
   'memory:list': () => MemoryNote[]
   'memory:add': (text: string) => MemoryNote | null
   'memory:update': (id: string, text: string) => void
@@ -757,7 +778,17 @@ export interface InternalCommands {
   /** The open folder's first-run suggestions, or null without a folder. */
   'coder:project-setup': () => CoderProjectSetup | null
   /** Starts a task on GitHub Actions, from GitHub's copy of the current branch. */
-  'coder:cloud-start': (sessionId: string, task: string, options: { pr: boolean; model?: { providerId: string; model: string } | null; effort?: CoderEffort | null }) => CoderCloudRun
+  'coder:cloud-start': (sessionId: string, task: string, options: { pr: boolean; model?: { providerId: string; model: string } | null; effort?: CoderEffort | null; where?: 'github' | 'server' }) => CoderCloudRun
+  /** Whether the server in Terra Code's settings (or this one) can be reached over SSH, with git and Node there. */
+  'coder:server-check': (host: string) => CoderServerCheck
+  /** A command the person typed after `!`, run in the project folder; the model hears about it with the next message. */
+  'coder:shell': (sessionId: string, command: string) => CoderShellResult
+  /** What fills the model's memory in this session, for /context. */
+  'coder:context': (sessionId: string, mode: CoderMode) => CoderContextBreakdown
+  /** Terra Code's setup, checked, for /doctor. */
+  'coder:doctor': () => CoderDoctorItem[]
+  /** Opens a project file in the person's editor (VS Code when it's installed), at a line if given. */
+  'coder:open-file': (sessionId: string, path: string, line: number | null) => void
   /** This session's cloud runs, checked with GitHub when `check` is set. */
   'coder:cloud-runs': (sessionId: string, check: boolean) => CoderCloudRun[]
   'coder:cloud-cancel': (sessionId: string, runId: string) => CoderCloudRun[]
@@ -958,6 +989,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'newtab:switch-tab',
   'newtab:ask',
   'chats:export',
+  'ai:compact',
+  'notes:save',
   'extensions:open-store',
   'sync:status',
   'sync:pick-folder',
@@ -1036,6 +1069,7 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'archive:clear',
   'groups:closed',
   'tabsets:list',
+  'workspaces:list',
   'tabsets:save',
   'tabsets:open',
   'tabsets:remove',
@@ -1067,6 +1101,11 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'coder:github-create',
   'coder:project-setup',
   'coder:cloud-start',
+  'coder:server-check',
+  'coder:shell',
+  'coder:context',
+  'coder:doctor',
+  'coder:open-file',
   'coder:cloud-runs',
   'coder:cloud-cancel',
   'coder:cloud-fetch',

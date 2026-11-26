@@ -1,4 +1,4 @@
-import { CODER_MAX_STEPS, type CoderAgentRun, type CoderAnswer, type CoderCloudRun, type CoderQuestion, type CoderQuestionAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName, type CoderRunMode } from '@scbrowser/shared'
+import { CODER_MAX_STEPS, type CoderContextBreakdown, type CoderDoctorItem, type CoderAgentRun, type CoderAnswer, type CoderCloudRun, type CoderQuestion, type CoderQuestionAnswer, type CoderApprovalKind, type CoderChange, type CoderEvent, type CoderJob, type CoderTodo, type CoderToolName, type CoderRunMode } from '@scbrowser/shared'
 
 export type Item =
   /** What the person sent. `turnId` names the turn it started, for rewinding to before it. */
@@ -14,6 +14,12 @@ export type Item =
   | { kind: 'question'; id: string; questions: CoderQuestion[]; answers?: CoderQuestionAnswer[] | null }
   /** A task sent to the cloud, and what it did once read back (not saved: it's fetched again when asked). */
   | { kind: 'cloud'; run: CoderCloudRun; events?: CoderEvent[] | null }
+  /** A command the person ran themselves with `!`. `code` is undefined while it runs. */
+  | { kind: 'shell'; id: string; command: string; output: string; code?: number | null; ms?: number }
+  /** What fills the model's memory, as /context shows it. */
+  | { kind: 'context'; breakdown: CoderContextBreakdown }
+  /** Terra Code's setup, checked, as /doctor shows it. */
+  | { kind: 'doctor'; items: CoderDoctorItem[] }
 
 export interface ContextUse {
   used: number
@@ -161,6 +167,7 @@ export function savedItems(items: Item[]): Item[] {
     if (item.kind === 'approval') return { ...item, answer: item.answer ?? 'deny', detail: item.detail.slice(0, 4000) }
     if (item.kind === 'reasoning') return { ...item, text: item.text.slice(0, 8000) }
     if (item.kind === 'question' && item.answers === undefined) return { ...item, answers: null }
+    if (item.kind === 'shell') return { ...item, output: item.output.slice(-4000), code: item.code === undefined ? null : item.code }
     // One still being set up when the page went away never got a run of its own.
     if (item.kind === 'cloud') return { kind: 'cloud', run: item.run.id.startsWith('pending-') ? { ...item.run, state: 'failed', endedAt: item.run.endedAt ?? Date.now(), error: item.run.error ?? 'It didn’t finish starting. Send the task again.' } : item.run }
     return item
@@ -177,7 +184,9 @@ export function sessionMarkdown(title: string, items: Item[], todo: CoderTodo[])
     else if (item.kind === 'tool') lines.push(`- ${item.ok === false ? '✗' : '✓'} ${item.summary}`)
     else if (item.kind === 'approval' && item.answer === 'deny') lines.push(`- Declined: ${item.summary}`)
     else if (item.kind === 'note') lines.push(`> ${item.text}`, '')
-    else if (item.kind === 'cloud') lines.push(`> Cloud run on ${item.run.branch}: ${item.run.state}${item.run.prUrl ? ` (${item.run.prUrl})` : ''}`, '', ...(item.run.summary ? [item.run.summary, ''] : []))
+    else if (item.kind === 'doctor') lines.push('### Setup', '', ...item.items.map((one) => `- ${one.state === 'ok' ? '✓' : one.state === 'warn' ? '⚠' : '–'} **${one.label}:** ${one.detail}`), '')
+    else if (item.kind === 'shell') lines.push('```console', `$ ${item.command}`, ...(item.output ? [item.output] : []), '```', '')
+    else if (item.kind === 'cloud') lines.push(`> ${item.run.where === 'server' ? `Run on ${item.run.host ?? 'a server'}` : 'Cloud run'} on ${item.run.branch}: ${item.run.state}${item.run.prUrl ? ` (${item.run.prUrl})` : ''}`, '', ...(item.run.summary ? [item.run.summary, ''] : []))
     else if (item.kind === 'question') lines.push(...item.questions.map((question, index) => `- **${question.question}** ${item.answers ? (item.answers[index] ?? []).join(', ') || '(skipped)' : '(not answered)'}`), '')
   }
   if (todo.length) lines.push('', '## Checklist', '', ...todo.map((step) => `- [${step.done ? 'x' : ' '}] ${step.text}`))

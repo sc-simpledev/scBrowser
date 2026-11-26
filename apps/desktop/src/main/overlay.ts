@@ -347,6 +347,11 @@ export class Overlay {
     return this.siteControls !== null
   }
 
+  /** Where the padlock's panel is, while it's open. */
+  siteControlsAt(): { x: number; y: number } | null {
+    return this.siteControls && { x: this.siteControls.x, y: this.siteControls.y }
+  }
+
   closeSiteControls(): void {
     if (!this.siteControls) return
     this.siteControls = null

@@ -10,6 +10,7 @@ import {
   MAX_CHAT_IMAGES,
   MAX_MENTIONED_TABS,
   MAX_SUGGESTIONS,
+  type AssistantMessage,
   type AssistantRequest,
   type BarItem,
   type BriefSummary,
@@ -28,12 +29,12 @@ import type { AiService } from './ai/service'
 import type { AiStore } from './ai/store'
 import { readFlags } from './flags'
 import { route, unroute } from './ipcRouter'
-import { saveChatMarkdown } from './chatExport'
+import { saveChatMarkdown, saveNote } from './chatExport'
 import type { PasswordVault } from './passwords'
 import { isPrivate } from './private'
 import { isReportSave, saveReport } from './reportExport'
 import type { ExtensionManager } from './extensions'
-import { popupAppMenu, popupOmniboxMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupTabMenu } from './menus'
+import { popupAppMenu, popupOmniboxMenu, popupBookmarkGroup, popupBookmarkMenu, popupBookmarkOverflow, popupProfilesMenu, popupSelectionMenu, popupTabMenu } from './menus'
 import { fetchSearchSuggestions } from './omnibox/searchSuggestions'
 import type { Overlay } from './overlay'
 import type { PrivacyService } from './privacy/service'
@@ -187,6 +188,7 @@ const validators: Validators = {
   'tabs:split-link': noArgs,
   'tabs:split-keep': (args): args is [number] => args.length === 1 && Number.isInteger(args[0]),
   'tabs:context-menu': idArg,
+  'tabs:selection-menu': (args): args is [number[]] => args.length === 1 && Array.isArray(args[0]) && args[0].length >= 1 && args[0].length <= 500 && args[0].every(isId),
   'tabs:sleep': idArg,
   'tabs:set-group': (args): args is [number, string | null] => args.length === 2 && isId(args[0]) && (args[1] === null || isShortString(args[1], 60)),
   'tabs:rename-group': (args): args is [string, string] => args.length === 2 && isShortString(args[0], 60) && isShortString(args[1], 60),
@@ -290,6 +292,9 @@ const validators: Validators = {
   'sidebar-sites:add-current': noArgs,
   'sidebar-sites:menu': (args): args is [string, number, number] => args.length === 3 && isShortString(args[0], 2048) && Number.isFinite(args[1]) && Number.isFinite(args[2]),
   'chats:export': (args): args is [SavedTurn[]] => args.length === 1 && isTurns(args[0]),
+  'ai:compact': (args): args is [AssistantMessage[]] => args.length === 1 && isTurns(args[0]) && args[0].length > 0,
+  'notes:save': (args): args is [string, string] => args.length === 2 && isShortString(args[0], 2_000_000) && isShortString(args[1], 500),
+  'memory:add': (args): args is [string] => args.length === 1 && isShortString(args[0], 500),
   'ai:style-menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
   'media:action': (args): args is [number, 'toggle' | 'pip' | 'focus'] => args.length === 2 && isId(args[0]) && ['toggle', 'pip', 'focus'].includes(args[1] as string),
   'media:menu': (args): args is [number, number, number] => args.length === 3 && isId(args[0]) && Number.isFinite(args[1]) && Number.isFinite(args[2])
@@ -376,6 +381,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:split-link': () => tabs.toggleSplitLinked(),
     'tabs:split-keep': (id) => tabs.keepSplitSide(id),
     'tabs:context-menu': (id) => popupTabMenu(id, actions, window),
+    'tabs:selection-menu': (ids) => popupSelectionMenu(ids, actions, window, () => !chromeUi.isDestroyed() && chromeUi.send('tabs:selection-done')),
     'tabs:sleep': (id) => tabs.sleep(id),
     'tabs:set-group': (id, name) => tabs.setGroup([id], name === '' ? tabs.freshGroupName() : name),
     'tabs:rename-group': (from, to) => {
@@ -489,6 +495,9 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
       })
     },
     'ai:cancel': (streamId) => ai.cancel(streamId),
+    'ai:compact': (messages) => ai.compactChat(messages.map(({ role, content }) => ({ role, content }))),
+    'notes:save': (markdown, title) => saveNote(window, markdown, title, settings.get().notesFolder),
+    'memory:add': (note) => aiStore.addMemory(note.trim()),
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(host, disabled),
     'ai:open-settings': () => actions.openPage('ai'),
     'ai:enable-hosted': () => aiStore.enableHosted(),

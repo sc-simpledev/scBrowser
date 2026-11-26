@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -31,11 +32,13 @@ import type { CoderBrowserHost } from './coder'
 import { changeSummary, commit, COMMIT_MESSAGE_PROMPT, createWorktree, mergeWorktree, removeWorktree } from './coderGit'
 import type { CoderMcp } from './coderMcp'
 import type { CoderCloud } from './coderCloud'
+import type { CoderServer } from './coderServer'
 import { githubClientId, type CoderGithub } from './coderGithub'
 import { installAutomations } from './coderAutomations'
 import { cloneRepo, deviceStart, deviceWait, hasCommits, linkRepo, projectSetup, pushBranch, type DeviceCode } from './coderSetup'
 import { loadDefs, loadHooks, loadSkills, projectSettings, detectDiagnostics } from './coderProject'
-import { globFiles } from './coderTools'
+import { clip, commandEnv, findProgram, globFiles, inside, runCommand } from './coderTools'
+import { runDoctor } from './coderDoctor'
 import type { CoderTrust } from './coderTrust'
 import type { AiService } from './service'
 
@@ -48,6 +51,8 @@ const AUTOMATIONS_KEY = 'coder:automations'
 const MAX_CODE_CHAT_CHARS = 6_000_000
 /** Events kept per session for showing a run that went on while another chat was on screen. */
 const MAX_LOG = 4000
+/** A command the person runs with ! gets as long as one Terra Code runs. */
+const SHELL_TIMEOUT_MS = 2 * 60_000
 
 const text = (value: unknown, max = 8192): string => {
   if (typeof value !== 'string' || value.length > max) throw new Error('Expected a string')
@@ -66,6 +71,7 @@ export interface CoderIpcServices {
   browser: CoderBrowserHost
   github: CoderGithub
   cloud: CoderCloud
+  server: CoderServer
   /** Terra Code's own folder: checkpoints, worktrees, and the person's commands, agents and skills. */
   home: string
   /** The page that called, which must be sc://assistant. */
@@ -134,7 +140,7 @@ function notice(event: CoderEvent): string | null {
 
 /** Terra Code's channels, for sc://assistant only. */
 export function coderHandlers(services: CoderIpcServices): CoderHandlers {
-  const { window, tabs, settings, chats, kv, ai, trust, mcp, browser, github, cloud, home, coderOnly, focus } = services
+  const { window, tabs, settings, chats, kv, ai, trust, mcp, browser, github, cloud, server, home, coderOnly, focus } = services
   const logs = new Map<string, { turnId: string | null; task: string; events: CoderEvent[] }>()
   let lastSender: WebContents | null = null
   let fileCache: { folder: string; at: number; files: string[] } | null = null
@@ -348,7 +354,50 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       const id = text(sessionId, 64)
       if (!isRecord(options) || typeof options.pr !== 'boolean') throw new Error('Invalid options')
       const checked = runOptions({ model: options.model, effort: options.effort })
-      return cloud.start(id, folderFor(id) || projectFolder(), text(task, CODER_MAX_TASK_CHARS), { pr: options.pr, effort: checked.effort ?? null, model: checked.model ?? null })
+      const where = options.where === 'server' ? 'server' : 'github'
+      return cloud.start(id, folderFor(id) || projectFolder(), text(task, CODER_MAX_TASK_CHARS), { pr: options.pr, effort: checked.effort ?? null, model: checked.model ?? null, where })
+    },
+    'coder:server-check': (host) => {
+      coderOnly()
+      return server.check(text(host, 255))
+    },
+    'coder:shell': async (sessionId, command) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      const line = text(command, 4000).trim()
+      if (!line) throw new Error('Write a command after the !, such as !git status.')
+      const folder = folderFor(id) || projectFolder()
+      const started = Date.now()
+      // The person's own command, typed by them: it runs as they would run it, without asking.
+      const result = await runCommand(folder, line, new AbortController().signal, SHELL_TIMEOUT_MS)
+      const output = result.output.replace(/\n?\(exit code -?\d+\)$/, '').trimEnd()
+      await ai.coder.addNote(id, folder, `(The person ran a command themselves in the project folder: \`${line}\`. It exited with ${result.code ?? 'no code (stopped)'}. Its output:\n${clip(output, 12_000) || '(nothing)'})`)
+      return { code: result.code, output: clip(output, 40_000), ms: Date.now() - started }
+    },
+    'coder:context': async (sessionId, mode) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      if (mode !== 'plan' && mode !== 'ask' && mode !== 'edits') throw new Error('Invalid mode')
+      return ai.coder.contextBreakdown(id, folderFor(id) || projectFolder(), mode)
+    },
+    'coder:doctor': async () => {
+      coderOnly()
+      const prefs = settings.get()
+      const folder = prefs.coderFolder || null
+      return runDoctor({ settings: prefs, status: await ai.coderStatus(prefs.coderFolder), github: () => github.status(folder), mcp: () => mcp?.views(folder) ?? Promise.resolve([]), server: (host) => server.check(host) })
+    },
+    'coder:open-file': async (sessionId, path, line) => {
+      coderOnly()
+      const id = text(sessionId, 64)
+      const full = await inside(folderFor(id) || projectFolder(), text(path, 1024))
+      const at = typeof line === 'number' && Number.isInteger(line) && line > 0 ? line : null
+      // VS Code (or VSCodium) opens at the line; otherwise the system's own app for the file.
+      const editor = findProgram('code') ?? findProgram('codium')
+      if (editor) spawn(editor, ['-g', at ? `${full}:${at}` : full], { detached: true, stdio: 'ignore', env: commandEnv(), windowsHide: true }).unref()
+      else {
+        const failed = await shell.openPath(full)
+        if (failed) throw new Error(failed)
+      }
     },
     'coder:cloud-runs': (sessionId, check) => {
       coderOnly()

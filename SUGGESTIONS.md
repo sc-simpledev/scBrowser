@@ -14,6 +14,10 @@ Items 1 to 13 are in 0.6.5: site icons and bold matches in address bar rows, Shi
 
 The last open refinements, 14, 16, 21, 28, 29, 34 and 35, are in 0.9.0, with ten of the new features below: 54, 56, 57, 58, 59, 60, 67, 69, 70 and 71 (see CONTEXT.md). 35 is a manual test set that spends real credit, so it hasn't been run. Still open from the new list: 55, 61 to 66, 68 and 72 to 79.
 
+## Built in 0.9.2
+
+From the new features below: 55, 61, 64, 65, 68, 72, 73, 74, 76, 77, 78 and 79 (see CONTEXT.md). Still open: 62 (hide the toolbar), 63 (a little window for links from other apps), 66 (edit keyboard shortcuts) and 75 (plan first for agent mode, which needs the owner's say).
+
 ## New tab and briefs
 
 14. **New tab search box parity.** It now autofills and answers sums, but has no open-tab rows or Ask rows. Bring its rows in line with the address bar's (same icons, Switch to tab).

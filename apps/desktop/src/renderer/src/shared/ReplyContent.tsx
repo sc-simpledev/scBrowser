@@ -1,10 +1,10 @@
 import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Check, ChevronRight, Copy, FileCode2, FileText, MessageCircleQuestion, RotateCcw, TriangleAlert } from 'lucide-react'
+import { BookmarkPlus, Brain, Check, ChevronRight, Copy, FileCode2, FileText, MessageCircleQuestion, NotebookPen, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { QuestionCard } from './QuestionCard'
-import { conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, questionAnswerMessage, splitFiles, splitQuestion, splitReply, type CoderQuestion, type CoderQuestionAnswer, type BlockChange, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
+import { splitRemember, conversationReports, formatTimestamp, isHttpUrl, languageOf, linkCitations, parseCitationHref, questionAnswerMessage, splitFiles, splitQuestion, splitReply, type CoderQuestion, type CoderQuestionAnswer, type BlockChange, type CitationSource, type CitationTarget, type FileChange, type Report, type ReportBlock } from '@scbrowser/shared'
 
 /** Follows a citation to its page, or a time to its moment in the video. */
 export type OpenSource = (source: CitationSource, target: CitationTarget) => void
@@ -397,6 +397,54 @@ export function RetryReply({ onRetry }: { onRetry: () => void }) {
   )
 }
 
+/** Saves an answer as a Markdown note: in the notes folder, or wherever the person picks. */
+export function SaveNoteReply({ onSave }: { onSave: () => Promise<string | null> }) {
+  const [saved, setSaved] = useState<string | null>(null)
+  return (
+    <IconButton
+      size="sm"
+      label={saved ? `Saved to ${saved}` : 'Save as a note'}
+      side="bottom"
+      onClick={() =>
+        void onSave().then(
+          (path) => {
+            if (!path) return
+            setSaved(path.split(/[\\/]/).slice(-2).join('/'))
+            setTimeout(() => setSaved(null), 4000)
+          },
+          () => setSaved(null)
+        )
+      }
+    >
+      {saved ? <Check size={12} strokeWidth={2} /> : <NotebookPen size={12} strokeWidth={1.75} />}
+    </IconButton>
+  )
+}
+
+/** A reply's offer to remember one thing about the person: nothing is kept unless they say so. */
+export function RememberOffer({ text, onAnswer }: { text: string; onAnswer: (keep: boolean) => void }) {
+  return (
+    <div role="group" aria-label="Remember this?" className="flex flex-col gap-1.5 rounded-md border border-border bg-surface px-2.5 py-2 text-xs select-none">
+      <span className="flex min-w-0 items-start gap-2">
+        <Brain aria-hidden size={13} strokeWidth={1.75} className="mt-px shrink-0 text-accent" />
+        <span className="min-w-0 flex-1">
+          <span className="text-text-muted">Remember for next time? </span>
+          {text}
+        </span>
+      </span>
+      <span className="flex justify-end gap-1">
+        <Button variant="ghost" className="h-6 px-2 text-xs" onClick={() => onAnswer(false)}>
+          No thanks
+        </Button>
+        <Button className="h-6 px-2 text-xs" onClick={() => onAnswer(true)}>
+          <BookmarkPlus aria-hidden size={12} strokeWidth={1.75} />
+          Remember
+        </Button>
+      </span>
+    </div>
+  )
+}
+
 export function CopyReply({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -521,7 +569,7 @@ function ChatQuestion({ questions, onAnswer }: { questions: CoderQuestion[]; onA
 
 /** A reply's text, reports and files, in the order they were written. */
 export const ReplyContent = memo(function ReplyContent({ text: whole, fileChanges = [], onOpenFile, openFile, onAnswer, ...rest }: ReplyContentProps) {
-  const asked = splitQuestion(whole)
+  const asked = splitQuestion(splitRemember(whole).text)
   const text = asked.text
   const segments = splitFiles(text, !rest.streaming)
   let fileIndex = 0

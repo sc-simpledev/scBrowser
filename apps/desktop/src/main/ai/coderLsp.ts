@@ -37,6 +37,9 @@ class Server {
   private next = 1
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   private readonly opened = new Map<string, number>()
+  /** The latest problems the server published for each file, and who's waiting to hear. */
+  private readonly published = new Map<string, Diagnostic[]>()
+  private readonly listeners = new Set<(uri: string) => void>()
   readonly ready: Promise<void>
   lastUsed = Date.now()
   dead = false
@@ -55,7 +58,7 @@ class Server {
       processId: process.pid,
       rootUri: pathToFileURL(root).href,
       workspaceFolders: [{ uri: pathToFileURL(root).href, name: 'project' }],
-      capabilities: { textDocument: { hover: { contentFormat: ['plaintext', 'markdown'] }, definition: {}, references: {}, documentSymbol: { hierarchicalDocumentSymbolSupport: true } } }
+      capabilities: { textDocument: { hover: { contentFormat: ['plaintext', 'markdown'] }, definition: {}, references: {}, documentSymbol: { hierarchicalDocumentSymbolSupport: true }, publishDiagnostics: {} } }
     }).then(() => this.notify('initialized', {}))
   }
 
@@ -79,7 +82,7 @@ class Server {
       if (!Number.isFinite(length) || this.buffer.length < end + 4 + length) return
       const body = this.buffer.subarray(end + 4, end + 4 + length).toString('utf8')
       this.buffer = this.buffer.subarray(end + 4 + length)
-      let message: { id?: number; method?: string; result?: unknown; error?: { message?: string } }
+      let message: { id?: number; method?: string; params?: { uri?: string; diagnostics?: Diagnostic[] }; result?: unknown; error?: { message?: string } }
       try {
         message = JSON.parse(body)
       } catch {
@@ -88,6 +91,11 @@ class Server {
       // Requests from the server (configuration, progress) get an empty answer so it carries on.
       if (message.method && message.id !== undefined) {
         this.send({ id: message.id, result: message.method === 'workspace/configuration' ? [] : null })
+        continue
+      }
+      if (message.method === 'textDocument/publishDiagnostics' && typeof message.params?.uri === 'string') {
+        this.published.set(message.params.uri, Array.isArray(message.params.diagnostics) ? message.params.diagnostics : [])
+        for (const listener of this.listeners) listener(message.params.uri)
         continue
       }
       const waiting = message.id !== undefined ? this.pending.get(message.id) : undefined
@@ -136,13 +144,51 @@ class Server {
     return uri
   }
 
+  /**
+   * The file as it is on disk now, and what the server finds wrong with it: it publishes when it
+   * likes, so this waits for word on the file, then a moment more for a later, fuller report.
+   */
+  async problems(full: string, waitMs: number): Promise<Diagnostic[]> {
+    let heard: () => void = () => undefined
+    const arrived = new Promise<void>((done) => (heard = done))
+    const uri = pathToFileURL(full).href
+    const listener = (from: string) => from === uri && heard()
+    this.listeners.add(listener)
+    try {
+      this.published.delete(uri)
+      await this.open(full)
+      await Promise.race([arrived, new Promise((done) => setTimeout(done, waitMs))])
+      if (this.published.has(uri)) await new Promise((done) => setTimeout(done, 400))
+      return this.published.get(uri) ?? []
+    } finally {
+      this.listeners.delete(listener)
+    }
+  }
+
   stop(): void {
     this.dead = true
     this.child.kill()
   }
 }
 
+interface Diagnostic {
+  range: { start: { line: number; character: number } }
+  /** 1 error, 2 warning, 3 information, 4 hint. */
+  severity?: number
+  message: string
+}
+
+/** How long the first word on a file may take: a server reads the whole project when it starts. */
+const FIRST_PROBLEMS_MS = 12_000
+const PROBLEMS_MS = 4_000
+const MAX_PROBLEMS = 20
+
 type Location = { uri: string; range: { start: { line: number; character: number } } }
+
+/** The language servers installed for a project, by name, for /doctor. */
+export function installedServers(root: string): { language: string; program: string | null; wanted: string }[] {
+  return KINDS.map((kind) => ({ language: kind.id, program: kind.programs.map((program) => (findProgram(program.name, root) ? program.name : null)).find(Boolean) ?? null, wanted: kind.programs[0]!.name }))
+}
 
 /**
  * Language servers for Terra Code: go to a definition, find references, read a symbol's type and
@@ -215,6 +261,27 @@ export class CoderLsp {
     }
     walk(symbols, 0)
     return lines.join('\n') || 'No symbols.'
+  }
+
+  /**
+   * Errors the language server sees in a file just written, as lines for the model, or '' when
+   * there are none, no server for it, or it doesn't answer in time. Never throws.
+   */
+  async problems(root: string, path: string): Promise<string> {
+    const full = resolve(root, path)
+    if (relative(root, full).startsWith('..')) return ''
+    try {
+      const fresh = !this.servers.has(`${root}\n${KINDS.find((kind) => kind.extensions.includes(extname(full).toLowerCase()))?.id}`)
+      const server = this.server(root, full)
+      await server.ready
+      const found = (await server.problems(full, fresh ? FIRST_PROBLEMS_MS : PROBLEMS_MS)).filter((one) => (one.severity ?? 1) === 1)
+      if (!found.length) return ''
+      const name = relative(root, full) || full
+      const lines = found.slice(0, MAX_PROBLEMS).map((one) => `${name}:${one.range.start.line + 1}:${one.range.start.character + 1}: ${one.message.split('\n')[0]!.slice(0, 300)}`)
+      return `${lines.join('\n')}${found.length > MAX_PROBLEMS ? `\n…and ${found.length - MAX_PROBLEMS} more` : ''}`
+    } catch {
+      return ''
+    }
   }
 
   private sweep(): void {

@@ -24,11 +24,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function MemoryEditor() {
   const [notes, setNotes] = useState<MemoryNote[]>([])
   const [on, setOn] = useState(true)
+  const [suggest, setSuggest] = useState(true)
   const [draft, setDraft] = useState('')
   const load = () => void api().invoke('memory:list').then(setNotes)
   useEffect(() => {
     load()
-    void api().invoke('settings:get').then((settings) => setOn(settings.aiMemory))
+    void api().invoke('settings:get').then((settings) => {
+      setOn(settings.aiMemory)
+      setSuggest(settings.memorySuggestions)
+    })
   }, [])
   const add = () => {
     if (!draft.trim()) return
@@ -40,7 +44,7 @@ function MemoryEditor() {
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-medium">Memory</h2>
-          <p className="text-xs text-text-faint">Notes the assistant is told with every message. It never adds any itself. Type /remember in the assistant to add one.</p>
+          <p className="text-xs text-text-faint">Notes the assistant is told with every message. Type /remember in the assistant to add one. It never keeps anything without your click.</p>
         </div>
         <Switch
           label="Use memory"
@@ -51,6 +55,22 @@ function MemoryEditor() {
           }}
         />
       </div>
+      {on && (
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span className="min-w-0">
+            Suggest things to remember
+            <span className="block text-xs text-text-faint">When you mention a lasting preference, a reply may offer to remember it, with a Remember button.</span>
+          </span>
+          <Switch
+            label="Suggest things to remember"
+            checked={suggest}
+            onChange={(memorySuggestions) => {
+              setSuggest(memorySuggestions)
+              void api().invoke('settings:set', { memorySuggestions })
+            }}
+          />
+        </label>
+      )}
       <form
         className="flex gap-2"
         onSubmit={(e) => {

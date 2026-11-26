@@ -1,4 +1,4 @@
-import { Check, ChevronRight, CircleAlert, Cloud, ExternalLink, GitBranch, GitPullRequest, Download, X } from 'lucide-react'
+import { Check, ChevronRight, CircleAlert, Cloud, ExternalLink, GitBranch, GitPullRequest, Download, Server, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button, cx } from '@scbrowser/ui'
 import type { CoderCloudRun, CoderEvent } from '@scbrowser/shared'
@@ -15,6 +15,16 @@ const STATE_WORDS: Record<CoderCloudRun['state'], string> = {
   cancelled: 'Cancelled'
 }
 
+/** The same, for a run on the person's own server. */
+const SERVER_WORDS: Record<CoderCloudRun['state'], string> = {
+  starting: 'Sending it to your server',
+  queued: 'Starting on your server',
+  working: 'Working on your server',
+  done: 'Finished on your server',
+  failed: 'Stopped on your server',
+  cancelled: 'Cancelled'
+}
+
 export interface CloudCardProps {
   run: CoderCloudRun
   /** What it did, read back from its log once it's finished. Undefined until asked for. */
@@ -28,7 +38,7 @@ export interface CloudCardProps {
   onContinue: () => void
 }
 
-/** A task running on GitHub Actions: how it's going, then what it did and where its work is. */
+/** A task running on GitHub Actions or the person's server: how it's going, then what it did and where its work is. */
 export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onSteps, onContinue }: CloudCardProps) {
   const [open, setOpen] = useState(false)
   const finished = run.state === 'done' || run.state === 'failed' || run.state === 'cancelled'
@@ -40,19 +50,23 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
   }, [events])
   const repoUrl = `https://github.com/${run.repo}`
   const branchUrl = `${repoUrl}/tree/${run.branch.split('/').map(encodeURIComponent).join('/')}`
+  const onServer = run.where === 'server'
+  const words = onServer ? SERVER_WORDS : STATE_WORDS
+  // A server's branch is on GitHub only if it pushed it there.
+  const onGithub = !onServer || (!!run.pushed && run.repo.includes('/'))
   return (
-    <section aria-label="Cloud run" className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+    <section aria-label={onServer ? 'Run on your server' : 'Cloud run'} className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex min-w-0 items-start gap-2.5 px-2.5 py-2">
         <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-md', finished ? 'bg-surface-hover text-text-muted' : 'bg-accent-soft text-accent')}>
-          <Cloud aria-hidden size={12} strokeWidth={1.75} />
+          {onServer ? <Server aria-hidden size={12} strokeWidth={1.75} /> : <Cloud aria-hidden size={12} strokeWidth={1.75} />}
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
-            {!finished && <Spinner className="size-2.5 border-[1.5px]" label={STATE_WORDS[run.state]} />}
+            {!finished && <Spinner className="size-2.5 border-[1.5px]" label={words[run.state]} />}
             {run.state === 'done' && <Check aria-hidden size={12} strokeWidth={2} className="shrink-0 text-success" />}
             {run.state === 'failed' && <CircleAlert aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-danger" />}
             {run.state === 'cancelled' && <X aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />}
-            <span className="shrink-0 font-medium">{STATE_WORDS[run.state]}</span>
+            <span className="shrink-0 font-medium">{words[run.state]}</span>
             <span aria-hidden className="text-text-faint">·</span>
             <span className="shrink-0 text-text-faint tabular-nums">{shortDuration(elapsed)}</span>
           </span>
@@ -60,6 +74,7 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
             <GitBranch aria-hidden size={11} strokeWidth={1.75} className="shrink-0" />
             <span className="min-w-0 truncate font-mono">{run.branch}</span>
             <span className="shrink-0">from {run.base}</span>
+            {onServer && run.host && <span className="min-w-0 truncate">on {run.host}</span>}
           </span>
         </span>
         {run.runUrl && (
@@ -91,7 +106,7 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
           <ReplyMarkdown text={run.summary} onOpenLink={onOpen} />
         </div>
       )}
-      {finished && run.runId && (
+      {finished && (run.runId || onServer) && run.state !== 'cancelled' && (
         <div className="border-t border-border">
           <button
             type="button"
@@ -108,7 +123,7 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
           {open && (
             <div className="sc-scroll-quiet max-h-64 overflow-y-auto px-2.5 pb-2">
               {events === undefined || (events === null && !steps) ? (
-                <p className="text-2xs text-text-faint">{events === null ? 'GitHub didn’t give the log back.' : 'Reading the log…'}</p>
+                <p className="text-2xs text-text-faint">{events === null ? (onServer ? 'The server didn’t give the log back.' : 'GitHub didn’t give the log back.') : 'Reading the log…'}</p>
               ) : steps && steps.length > 0 ? (
                 <ul className="flex flex-col gap-0.5">
                   {steps.map((item) =>
@@ -135,20 +150,24 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
         )}
         {run.state === 'done' && (
           <>
-            <Button variant="ghost" onClick={() => onOpen(branchUrl)}>
-              View on GitHub
-            </Button>
-            <Button variant="ghost" onClick={onFetch} title={`git fetch origin ${run.branch}`}>
+            {onGithub && (
+              <Button variant="ghost" onClick={() => onOpen(branchUrl)}>
+                View on GitHub
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onFetch} title={onServer ? `Brings ${run.branch} here from ${run.host ?? 'the server'}` : `git fetch origin ${run.branch}`}>
               <Download aria-hidden size={12} strokeWidth={1.75} />
               Fetch the branch
             </Button>
             <Button variant="ghost" onClick={onContinue} title="Fetch its branch, and tell Terra Code here what it did">
               Continue here
             </Button>
-            <Button variant="primary" onClick={onPr}>
-              <GitPullRequest aria-hidden size={12} strokeWidth={1.75} />
-              {run.prUrl ? 'Open pull request' : 'Make a pull request'}
-            </Button>
+            {onGithub && (
+              <Button variant="primary" onClick={onPr}>
+                <GitPullRequest aria-hidden size={12} strokeWidth={1.75} />
+                {run.prUrl ? 'Open pull request' : 'Make a pull request'}
+              </Button>
+            )}
           </>
         )}
         {(run.state === 'failed' || run.state === 'cancelled') && run.runUrl && (

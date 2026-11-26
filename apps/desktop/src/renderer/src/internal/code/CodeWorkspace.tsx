@@ -26,6 +26,7 @@ import {
   KeyRound,
   ListChecks,
   Monitor,
+  Minus,
   MoreHorizontal,
   Move,
   PanelRight,
@@ -55,6 +56,11 @@ import {
   reviewTask,
   reviewPrTask,
   fixCiTask,
+  securityReviewTask,
+  prCommentsTask,
+  CODER_STYLES,
+  type CoderContextBreakdown,
+  type CoderDoctorItem,
   type CoderAgentRun,
   type CoderAnswer,
   type CoderChange,
@@ -78,8 +84,8 @@ import {
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
 import { AiNetworkHelp } from '../../shared/AiNetworkHelp'
-import { applyEvent, emptyState, savedItems, sessionMarkdown, shortDuration, type CodeState, type Item } from './codeState'
-import { AgentCard, Checklist, CopyButton, ReasoningBlock, useElapsed } from './CodeParts'
+import { applyEvent, emptyState, savedItems, sessionMarkdown, shortDuration, shortTokens, type CodeState, type Item } from './codeState'
+import { AgentCard, Checklist, CopyButton, ReasoningBlock, Spinner, useElapsed } from './CodeParts'
 import { Composer, effortLabel, type ModelPick, type SendPayload } from './Composer'
 import { SessionPanel, type CodeWhere, type PanelTab } from './SessionPanel'
 import { CloudCard } from './CloudCard'
@@ -916,19 +922,98 @@ const HELP = `Terra Code works on files in your project folder. It asks before c
 
 - **/** shows commands: ${CODER_BUILTIN_COMMANDS.map((command) => `/${command.name}`).join(', ')}, and any in the project’s .terra/commands.
 - **@** attaches a file from the project, or one of your open tabs.
+- **!** runs a command yourself (**!git status**), and Terra Code sees what it printed. **#** and a space adds a line to TERRA.md.
+- **/context** shows what fills the model’s memory, **/doctor** checks the setup, and **/style** makes it explain more as it goes, or leave small pieces for you to write.
 - Paste or drop pictures into the box for models that can see them.
 - **Shift+Tab** switches between Plan, Ask and Auto-edit. **Esc** stops it. **↑** brings back what you sent before.
 - The brain button sets how hard the model thinks (**/effort high**). Its reasoning shows folded above each step, if you turn that on in settings.
 - It can hand work to helpers: **explore** reads around, **general** takes on a piece of the change. Several run side by side, and the session panel lists them.
 - The checklist is yours too: tick steps off, rename or remove them, or add your own (**/todo** adds one). Terra Code hears about it at its next step.
 - It may ask you a question with choices when a decision is yours. Pick one, write your own, or let it decide.
-- **Runs on** in the session panel sends tasks to the **cloud** (GitHub Actions) instead, so they carry on with this computer off and push to a branch of their own (**/cloud <task>** for one task).
-- Connect **GitHub** in settings to let it read issues, pull requests and Actions runs, and with your yes, open them.
+- **Runs on** in the session panel sends tasks to **GitHub Actions** or **your own server** over SSH instead, so they carry on with this computer off and work on a branch of their own (**/cloud <task>** or **/server <task>** for one task).
+- Connect **GitHub** in settings to let it read issues, pull requests and Actions runs, and with your yes, open them. **/pr-comments #12** deals with a pull request’s review comments, and **/security-review** looks over your changes for security problems.
+- With a language server installed (such as typescript-language-server), it finds definitions and references, and hears about errors after each edit, as an editor shows them.
 - Hover a message you sent to rewind the files and conversation to before it.
-- Settings (the gear) has command permissions, MCP servers, agents, skills, hooks and the sandbox.`
+- The session panel’s Settings tab has command permissions, MCP servers, agents, skills, hooks and the sandbox.`
 
 /** Below this width the session panel floats over the conversation instead of sitting beside it. */
 const PANEL_BESIDE_WIDTH = 980
+
+/** /doctor's findings: a tick, a warning or a dash on each line, then what to do about it. */
+function DoctorCard({ items }: { items: CoderDoctorItem[] }) {
+  const problems = items.filter((item) => item.state === 'warn').length
+  return (
+    <section aria-label="Terra Code’s setup" className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="flex items-baseline justify-between gap-2 px-3 py-2 text-xs">
+        <span className="font-medium">Terra Code’s setup</span>
+        <span className={problems ? 'text-danger' : 'text-text-muted'}>{problems ? `${problems} ${problems === 1 ? 'thing needs' : 'things need'} a look` : 'All good'}</span>
+      </div>
+      <ul className="flex flex-col border-t border-border py-1">
+        {items.map((item) => (
+          <li key={item.label} className="flex gap-2.5 px-3 py-1 text-xs">
+            {item.state === 'ok' ? <Check aria-label="Fine" size={13} strokeWidth={2} className="mt-px shrink-0 text-success" /> : item.state === 'warn' ? <CircleAlert aria-label="Needs a look" size={13} strokeWidth={1.75} className="mt-px shrink-0 text-danger" /> : <Minus aria-label="Not set up" size={13} strokeWidth={1.75} className="mt-px shrink-0 text-text-faint" />}
+            <span className="w-28 shrink-0 font-medium">{item.label}</span>
+            <span className="min-w-0 flex-1 text-text-muted select-text [overflow-wrap:anywhere]">{item.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** A command the person ran with `!`, and what it printed. */
+function ShellCard({ item }: { item: Extract<Item, { kind: 'shell' }> }) {
+  const running = item.code === undefined
+  const [open, setOpen] = useState(true)
+  const failed = !running && item.code !== 0
+  return (
+    <section aria-label="Your command" className="overflow-hidden rounded-lg border border-border bg-surface">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-8 w-full min-w-0 items-center gap-2 px-2.5 text-left text-xs transition-colors hover:bg-surface-hover">
+        <SquareTerminal aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-faint" />
+        <span className="min-w-0 flex-1 truncate font-mono text-2xs">
+          <span className="text-text-faint select-none">$ </span>
+          {item.command}
+        </span>
+        {running ? <Spinner label="Running" /> : <span className={cx('shrink-0 text-2xs tabular-nums', failed ? 'text-danger' : 'text-text-faint')}>{failed ? `exit ${item.code ?? '?'}` : 'done'}{item.ms !== undefined ? ` · ${item.ms < 1000 ? 'under 1 s' : shortDuration(item.ms)}` : ''}</span>}
+      </button>
+      {open && !running && (
+        <pre className="sc-scroll-quiet max-h-64 overflow-auto border-t border-border px-2.5 py-2 font-mono text-2xs whitespace-pre-wrap text-text-muted select-text [overflow-wrap:anywhere]">{item.output || '(no output)'}</pre>
+      )}
+    </section>
+  )
+}
+
+/** /context: what fills the model's memory, as one bar in parts and a line for each. */
+function ContextCard({ breakdown }: { breakdown: CoderContextBreakdown }) {
+  const { parts, used, limit } = breakdown
+  const shades = ['bg-accent', 'bg-accent/70', 'bg-accent/45', 'bg-text-muted', 'bg-text-faint', 'bg-border-strong', 'bg-text-muted/60', 'bg-text-faint/60']
+  const share = (tokens: number) => Math.max(0, Math.min(100, (tokens / Math.max(1, limit)) * 100))
+  return (
+    <section aria-label="What fills the model’s memory" className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
+        <span className="font-medium">Memory in use</span>
+        <span className="text-text-muted tabular-nums">
+          about {shortTokens(used)} of {shortTokens(limit)} tokens · {Math.round(share(used))}%
+        </span>
+      </div>
+      <div role="img" aria-label={`${Math.round(share(used))}% full`} className="flex h-2 overflow-hidden rounded-full bg-surface-hover">
+        {parts.map((part, index) => (
+          <span key={part.label} className={shades[index % shades.length]} style={{ width: `${share(part.tokens)}%` }} />
+        ))}
+      </div>
+      <ul className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0.5 text-2xs">
+        {parts.map((part, index) => (
+          <li key={part.label} className="contents">
+            <span aria-hidden className={cx('size-2 rounded-sm', shades[index % shades.length])} />
+            <span className="text-text-muted">{part.label}</span>
+            <span className="text-right text-text-faint tabular-nums">{shortTokens(part.tokens)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-2xs text-text-faint">Past the limit, the oldest tool output is dropped first. /compact sums up the conversation to make room.</p>
+    </section>
+  )
+}
 
 /** Terra Code (beta): a model works on files in one folder, and asks before changing anything. */
 export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading }: CodeWorkspaceProps) {
@@ -1170,12 +1255,12 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const setCloud = (run: CoderCloudRun, events?: CoderEvent[] | null) =>
     setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === run.id ? { kind: 'cloud', run, ...(events !== undefined ? { events } : item.events !== undefined ? { events: item.events } : {}) } : item)) }))
 
-  /** A task for GitHub Actions: it shows as a card that follows the run, rather than steps here. */
-  const startCloud = (task: string, shown?: string) => {
-    const placeholder: CoderCloudRun = { id: `pending-${crypto.randomUUID()}`, repo: '', base: status?.branch ?? '', trigger: '', branch: 'Setting up…', task, pr: cloudPr, state: 'starting', runId: null, runUrl: null, prUrl: null, summary: null, startedAt: Date.now(), endedAt: null, error: null, warning: null }
+  /** A task for GitHub Actions or the person's server: it shows as a card that follows the run, rather than steps here. */
+  const startCloud = (task: string, shown?: string, on: 'github' | 'server' = where === 'server' ? 'server' : 'github') => {
+    const placeholder: CoderCloudRun = { id: `pending-${crypto.randomUUID()}`, where: on, ...(on === 'server' ? { host: prefs?.coderServer ?? '' } : {}), repo: '', base: status?.branch ?? '', trigger: '', branch: 'Setting up…', task, pr: cloudPr, state: 'starting', runId: null, runUrl: null, prUrl: null, summary: null, startedAt: Date.now(), endedAt: null, error: null, warning: null }
     setState((current) => ({ ...current, items: [...current.items, { kind: 'task', text: task, ...(shown ? { shown } : {}) }, { kind: 'cloud', run: placeholder }] }))
     void api()
-      .invoke('coder:cloud-start', session.current, task, { pr: cloudPr, model: model && { providerId: model.providerId, model: model.model }, effort })
+      .invoke('coder:cloud-start', session.current, task, { pr: cloudPr, model: model && { providerId: model.providerId, model: model.model }, effort, where: on })
       .then(
         (run) => setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === placeholder.id ? { kind: 'cloud', run } : item)) })),
         (error: Error) => setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'cloud' && item.run.id === placeholder.id ? { kind: 'cloud', run: { ...placeholder, state: 'failed', endedAt: Date.now(), branch: 'Not started', error: cleanError(error.message) } } : item)) }))
@@ -1193,11 +1278,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
           await api().invoke(
             'coder:note',
             id,
-            `Earlier, this task went to Terra Code in the cloud: “${run.task.slice(0, 500)}”. It worked from GitHub's copy of ${run.base} and pushed to the branch ${run.branch}${fetched ? `, which is now fetched here as origin/${run.branch} (switch with git switch ${run.branch} if the person wants to carry on there)` : ''}. What it said when it finished:\n${run.summary ?? '(nothing)'}${steps.length ? `\nIts steps: ${steps.join('; ')}.` : ''}`
+            run.where === 'server'
+              ? `Earlier, this task went to Terra Code on the person's server ${run.host ?? ''}: “${run.task.slice(0, 500)}”. It worked from this folder as it was then (${run.base}) and committed to the branch ${run.branch}${fetched ? `, which is now fetched here as the local branch ${run.branch} (switch with git switch ${run.branch} if the person wants to carry on there)` : ''}. What it said when it finished:\n${run.summary ?? '(nothing)'}${steps.length ? `\nIts steps: ${steps.join('; ')}.` : ''}`
+              : `Earlier, this task went to Terra Code in the cloud: “${run.task.slice(0, 500)}”. It worked from GitHub's copy of ${run.base} and pushed to the branch ${run.branch}${fetched ? `, which is now fetched here as origin/${run.branch} (switch with git switch ${run.branch} if the person wants to carry on there)` : ''}. What it said when it finished:\n${run.summary ?? '(nothing)'}${steps.length ? `\nIts steps: ${steps.join('; ')}.` : ''}`
           )
           setCloud(run, events)
           setWhere('local')
-          note(`Carrying on here. Terra Code will know what the cloud run did${fetched ? `, and its branch is fetched as origin/${run.branch}` : ''}.`)
+          note(`Carrying on here. Terra Code will know what the ${run.where === 'server' ? 'server' : 'cloud'} run did${fetched ? `, and its branch is fetched as ${run.where === 'server' ? '' : 'origin/'}${run.branch}` : ''}.`)
         } catch (error) {
           note(cleanError(error instanceof Error ? error.message : 'That didn’t work.'), true)
         }
@@ -1217,7 +1304,10 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   }
 
   // Unfinished cloud runs are looked at every 20 seconds while this is on screen, and on coming back to it.
-  const unfinished = items.some((item) => item.kind === 'cloud' && !item.run.id.startsWith('pending-') && ['starting', 'queued', 'working'].includes(item.run.state))
+  // A run on the person's own server is a quick look over SSH, so every 8.
+  const unfinishedRuns = items.filter((item) => item.kind === 'cloud' && !item.run.id.startsWith('pending-') && ['starting', 'queued', 'working'].includes(item.run.state))
+  const unfinished = unfinishedRuns.length > 0
+  const onServer = unfinishedRuns.some((item) => item.kind === 'cloud' && item.run.where === 'server')
   useEffect(() => {
     if (!unfinished) return
     const id = session.current
@@ -1231,13 +1321,13 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         .catch(() => undefined)
     }
     check()
-    const timer = setInterval(check, 20_000)
+    const timer = setInterval(check, onServer ? 8_000 : 20_000)
     document.addEventListener('visibilitychange', check)
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', check)
     }
-  }, [unfinished, chat])
+  }, [unfinished, onServer, chat])
 
   const rewind = (turnId: string, what: 'both' | 'code' | 'conversation' = 'both') => {
     void api()
@@ -1342,13 +1432,44 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
           note('Write the note after /remember, such as /remember tests need the database running.', true)
           return true
         }
+        remember(args)
+        return true
+      case 'context':
         void api()
-          .invoke('coder:remember', args)
+          .invoke('coder:context', session.current, mode)
           .then(
-            () => note(`Added to TERRA.md: ${args}`),
+            (breakdown) => setState((current) => ({ ...current, items: [...current.items, { kind: 'context', breakdown }] })),
             (error: Error) => note(cleanError(error.message), true)
           )
         return true
+      case 'doctor':
+        note('Checking Terra Code’s setup…')
+        void api()
+          .invoke('coder:doctor')
+          .then(
+            (list) => setState((current) => ({ ...current, items: [...current.items.filter((item) => !(item.kind === 'note' && item.text === 'Checking Terra Code’s setup…')), { kind: 'doctor', items: list }] })),
+            (error: Error) => note(cleanError(error.message), true)
+          )
+        return true
+      case 'style': {
+        const wanted = CODER_STYLES.find((option) => option.id === args.toLowerCase() || option.label.toLowerCase() === args.toLowerCase())
+        const current = CODER_STYLES.find((option) => option.id === (prefs?.coderStyle ?? 'default'))!
+        if (!args) note(`Style: ${current.label}. ${current.hint}. Choose with /style default, explanatory or learning.`)
+        else if (!wanted) note(`There’s no ${args} style. Try default, explanatory or learning.`, true)
+        else {
+          updatePrefs({ coderStyle: wanted.id })
+          note(`Style set to ${wanted.label}: ${wanted.hint.toLowerCase()}. It applies from the next message.`)
+        }
+        return true
+      }
+      case 'security-review':
+        start(securityReviewTask(args || null), { shown: text, runMode: 'review' })
+        return true
+      case 'pr-comments': {
+        const pull = /^#?(\d+)$/.exec(args)
+        start(prCommentsTask(pull ? Number(pull[1]) : null), { shown: text })
+        return true
+      }
       case 'model':
         setModelMenu((count) => count + 1)
         return true
@@ -1387,13 +1508,14 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         else changeTodo([...todo, { text: args.slice(0, 300), done: false }])
         return true
       case 'cloud':
+      case 'server':
         if (!args) {
-          setWhere('cloud')
+          setWhere(name)
           openSettings(null)
           setPanelTab('session')
-          note('New tasks in this session run in the cloud. Switch back under Runs on, in the session panel.')
+          note(name === 'server' ? (prefs?.coderServer ? `New tasks in this session run on ${prefs.coderServer}. Switch back under Runs on, in the session panel.` : 'Add your server under Runs on, in the session panel: user@host, or a name from ~/.ssh/config.') : 'New tasks in this session run on GitHub Actions. Switch back under Runs on, in the session panel.')
         } else if (working) note('Wait for Terra Code to finish here first.', true)
-        else startCloud(args, text)
+        else startCloud(args, text, name === 'server' ? 'server' : 'github')
         return true
       case 'help':
         setState((current) => ({ ...current, items: [...current.items, { kind: 'text', text: HELP }] }))
@@ -1403,12 +1525,40 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     }
   }
 
+  /** A line for TERRA.md, from /remember or `# ` at the start of the box. */
+  const remember = (line: string) =>
+    void api()
+      .invoke('coder:remember', line)
+      .then(
+        () => note(`Added to TERRA.md: ${line}`),
+        (error: Error) => note(cleanError(error.message), true)
+      )
+
+  /** A command the person runs themselves with `!`: it shows here, and the model hears what it printed. */
+  const runShell = (line: string) => {
+    if (!line) return note('Write a command after the !, such as !git status.', true)
+    const id = crypto.randomUUID()
+    const done = (patch: Partial<Extract<Item, { kind: 'shell' }>>) => setState((current) => ({ ...current, items: current.items.map((item) => (item.kind === 'shell' && item.id === id ? { ...item, ...patch } : item)) }))
+    setState((current) => ({ ...current, items: [...current.items, { kind: 'shell', id, command: line, output: '' }] }))
+    void api()
+      .invoke('coder:shell', session.current, line)
+      .then(
+        (result) => done({ output: result.output, code: result.code, ms: result.ms }),
+        (error: Error) => done({ output: cleanError(error.message), code: null })
+      )
+  }
+
   const send = ({ text, images, mentions }: SendPayload) => {
-    if (!status?.folder || !status.ready) return
+    if (!status?.folder) return
+    // A floating panel covers the conversation, and what's sent shows there.
+    if (narrow) setFloatOpen(false)
+    if (text.startsWith('!') && !images.length) return runShell(text.slice(1).trim())
+    if (text.startsWith('# ') && !images.length) return remember(text.slice(2).trim())
+    if (!status.ready) return
     if (text.startsWith('/') && !images.length && command(text)) return
     const task = text || 'What’s in this picture?'
-    if (where === 'cloud' && !working) {
-      if (images.length) return note('Pictures can’t go to the cloud yet. Send this one on this computer.', true)
+    if ((where === 'cloud' || where === 'server') && !working) {
+      if (images.length) return note(`Pictures can’t go to ${where === 'server' ? 'your server' : 'the cloud'} yet. Send this one on this computer.`, true)
       return startCloud(task)
     }
     if (!working) return start(task, { images, mentions })
@@ -1671,6 +1821,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       cloudPr={cloudPr}
       onCloudPr={setCloudPr}
       onOpenSettings={openSettings}
+      onOpenFile={(path) => void api().invoke('coder:open-file', session.current, path, null).catch((error: Error) => note(cleanError(error.message), true))}
     />
   )
 
@@ -1727,7 +1878,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                     <div className="flex flex-col gap-1.5">
                       <h2 className="text-xl font-semibold tracking-[-0.02em]">{status.folder ? `What should we do in ${folderName(status.folder)}?` : 'Pick a project to work on'}</h2>
                       <p className="max-w-130 text-sm text-text-muted">
-                        {status.folder ? 'Terra Code reads your files, edits them and runs commands such as tests. Type / for commands and @ to attach a file or tab.' : 'Terra Code can only reach files inside the folder you choose, and asks before running anything.'}
+                        {status.folder ? 'Terra Code reads your files, edits them and runs commands such as tests. Type / for commands, @ to attach a file or tab, and ! to run a command yourself.' : 'Terra Code can only reach files inside the folder you choose, and asks before running anything.'}
                       </p>
                     </div>
                     {!status.folder && (
@@ -1812,6 +1963,12 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                       return <ApprovalCard key={item.id} item={item} onAnswer={(choice) => answer(item.id, choice)} />
                     case 'question':
                       return <QuestionCard key={item.id} questions={item.questions} answers={item.answers} asker="Terra Code is asking" skipLabel="Let it decide" onAnswer={(answers) => answerQuestion(item.id, answers)} />
+                    case 'shell':
+                      return <ShellCard key={item.id} item={item} />
+                    case 'context':
+                      return <ContextCard key={i} breakdown={item.breakdown} />
+                    case 'doctor':
+                      return <DoctorCard key={i} items={item.items} />
                     case 'cloud':
                       return (
                         <CloudCard

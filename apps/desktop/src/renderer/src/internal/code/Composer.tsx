@@ -1,4 +1,4 @@
-import { ArrowUp, Brain, Check, ChevronDown, FileText, Globe, ImagePlus, Square, X, type LucideIcon } from 'lucide-react'
+import { ArrowUp, BookmarkPlus, Brain, Check, ChevronDown, FileText, Globe, ImagePlus, Square, SquareTerminal, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { CODER_BUILTIN_COMMANDS, CODER_EFFORTS, CODER_MAX_IMAGES, type CoderEffort, type CoderExtension, type CoderMention, type CoderMode, type CoderModelChoice } from '@scbrowser/shared'
@@ -321,9 +321,11 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
   const closeModel = useCallback(() => setModelOpen(false), [])
   const modeInfo = MODES.find((candidate) => candidate.id === mode) ?? MODES[1]!
   const canSend = (!!draft.trim() || images.length > 0) && enabled && ready
+  // `!` runs a command yourself and `# ` adds a line to TERRA.md, as in Claude Code.
+  const special = draft.startsWith('!') ? 'shell' : draft.startsWith('# ') ? 'memory' : null
 
   return (
-    <div className="@container relative flex flex-col rounded-lg border border-border bg-field focus-within:border-border-strong">
+    <div className={cx('@container relative flex flex-col rounded-lg border bg-field', special === 'shell' ? 'border-text-muted' : special === 'memory' ? 'border-accent' : 'border-border focus-within:border-border-strong')}>
       {rows.length > 0 && (
         <ul role="listbox" aria-label={slash !== null ? 'Commands' : 'Files and tabs'} className="sc-glass-strong absolute inset-x-0 bottom-full z-20 mb-1.5 max-h-72 overflow-y-auto rounded-lg p-1 text-text shadow-3">
           {rows.map((row, index) => (
@@ -358,6 +360,12 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
         </div>
       )}
       {warning && <p className="px-3 pt-2 text-2xs text-danger">{warning}</p>}
+      {special && (
+        <p role="status" className={cx('flex items-center gap-1.5 px-3 pt-2 text-2xs', special === 'shell' ? 'text-text-muted' : 'text-accent')}>
+          {special === 'shell' ? <SquareTerminal aria-hidden size={11} strokeWidth={1.75} /> : <BookmarkPlus aria-hidden size={11} strokeWidth={1.75} />}
+          {special === 'shell' ? 'Command: runs in your project folder now, and Terra Code sees what it printed' : 'Memory: Enter adds this line to TERRA.md, read at the start of every session'}
+        </p>
+      )}
       <textarea
         ref={box}
         aria-label="Describe a change"
@@ -430,7 +438,7 @@ export function Composer({ enabled, ready, working, placeholder, mode, onMode, c
           if (e.key === 'ArrowUp' && onFirstLine && (draft === '' || back > 0) && recall(1)) e.preventDefault()
           else if (e.key === 'ArrowDown' && onLastLine && back > 0 && recall(-1)) e.preventDefault()
         }}
-        className="max-h-48 min-h-11 resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm text-text outline-none [field-sizing:content] placeholder:text-text-faint"
+        className={cx('max-h-48 min-h-11 resize-none bg-transparent px-3 pt-2.5 pb-1 text-text outline-none [field-sizing:content] placeholder:text-text-faint', special === 'shell' ? 'font-mono text-xs leading-5' : 'text-sm')}
       />
       <div className="flex items-center gap-1.5 p-1.5">
         <div role="radiogroup" aria-label="Changes" className="flex shrink-0 items-center rounded-md bg-surface-hover p-0.5">

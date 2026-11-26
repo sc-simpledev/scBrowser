@@ -294,8 +294,35 @@ export function Omnibox() {
 
   useEffect(() => window.scb.on('omnibox:pick', (index) => run(suggestionsRef.current[index])), [run])
 
-  // Switching tabs discards an unsubmitted edit.
-  useEffect(reset, [tab?.id, reset])
+  // Switching tabs keeps an unsubmitted edit with the tab it was typed in, and brings back the
+  // one the next tab had, as other browsers do.
+  const keptDrafts = useRef(new Map<number, { draft: string; scope: OmniboxScope | null }>())
+  const draftNow = useRef({ draft, scope })
+  draftNow.current = { draft, scope }
+  const shownTab = useRef<number | null>(null)
+  useEffect(() => {
+    const kept = keptDrafts.current
+    const left = shownTab.current
+    if (left !== null && left !== tab?.id) {
+      const { draft: typed, scope: typedScope } = draftNow.current
+      if (typed !== null && (typed.trim() || typedScope)) kept.set(left, { draft: typed, scope: typedScope })
+      else kept.delete(left)
+    }
+    shownTab.current = tab?.id ?? null
+    reset()
+    const back = tab ? kept.get(tab.id) : undefined
+    if (back) {
+      kept.delete(tab!.id)
+      setScope(back.scope)
+      setDraft(back.draft)
+    }
+    // Only a change of tab moves drafts; `tab` itself changes with every title and load.
+  }, [tab?.id, reset])
+  // Tab ids are never reused, so an old entry is only memory: keep the newest few dozen.
+  useEffect(() => {
+    const kept = keptDrafts.current
+    while (kept.size > 40) kept.delete(kept.keys().next().value!)
+  }, [tab?.id])
   useEffect(closeAnswer, [tab?.id, tab?.url, closeAnswer])
 
   useEffect(() => {

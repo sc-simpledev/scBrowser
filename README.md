@@ -55,6 +55,8 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |
 | Ctrl Shift A | Assistant |
 | Ctrl K | Command palette |
+| Ctrl . | Link hints: type the letters on a link or button to click it |
+| Ctrl or Shift click on tabs | Pick several tabs, then right-click to act on them together |
 | Ctrl Shift E | Search tabs, and the words inside them |
 | Tab after a keyword (`yt`, `wiki`, `gh`) | Search that site from the address bar |
 | Ctrl Alt 1–9 | Switch workspace |

@@ -1,8 +1,9 @@
-import { Bot, Brain, Cloud, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, Monitor, PanelRightClose, Shield, Square, type LucideIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { Bot, Brain, Cloud, Compass, Cpu, FileMinus, FilePen, FilePlus, Folder, GitBranch, Layers, Monitor, PanelRightClose, Server, Shield, Square, SquareArrowOutUpRight, type LucideIcon } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
-import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderStatus, type CoderTodo, type CoderWorktree, type Settings } from '@scbrowser/shared'
+import { CODER_EFFORTS, type CoderAgentRun, type CoderChange, type CoderEffort, type CoderMode, type CoderServerCheck, type CoderStatus, type CoderTodo, type CoderWorktree, type Settings } from '@scbrowser/shared'
 import { Choices, EffortChoices, sandboxLabel, ModeChoices, ModelChoices, SandboxChoices, SettingRow, SettingsTab, SwitchRow } from './PanelSettings'
+import { api } from '../api'
 import { useGithubStatus } from './GithubSettings'
 import type { ModelPick } from './Composer'
 import { ChecklistItems, Spinner, useElapsed } from './CodeParts'
@@ -73,8 +74,59 @@ function AgentRow({ run }: { run: CoderAgentRun }) {
 
 export type PanelTab = 'session' | 'settings'
 
-/** Where a session's tasks run: here, or on GitHub Actions. */
-export type CodeWhere = 'local' | 'cloud'
+/** Where a session's tasks run: here, on GitHub Actions, or on the person's own server over SSH. */
+export type CodeWhere = 'local' | 'cloud' | 'server'
+
+const WHERE_LABEL: Record<CodeWhere, string> = { local: 'This computer', cloud: 'GitHub Actions', server: 'Your server' }
+
+/** The person's own server: its address, a check that scTerra can get in, and whether it pushes what it makes. */
+function ServerSetup({ prefs, onPrefs, cloudPr, onCloudPr, hosted }: { prefs: Settings | null; onPrefs: (patch: Partial<Settings>) => void; cloudPr: boolean; onCloudPr: (pr: boolean) => void; hosted: boolean }) {
+  const saved = prefs?.coderServer ?? ''
+  const [host, setHost] = useState(saved)
+  const [check, setCheck] = useState<CoderServerCheck | 'checking' | null>(null)
+  useEffect(() => setHost(saved), [saved])
+  const save = () => {
+    const next = host.trim()
+    if (next !== saved) {
+      onPrefs({ coderServer: next })
+      setCheck(null)
+    }
+  }
+  const test = () => {
+    save()
+    setCheck('checking')
+    void api()
+      .invoke('coder:server-check', host.trim())
+      .then(setCheck, (error: Error) => setCheck({ ok: false, message: error.message, node: null, git: null, system: null }))
+  }
+  return (
+    <div className="flex flex-col gap-1.5 pt-1">
+      <label className="flex flex-col gap-1 text-2xs text-text-muted">
+        Server
+        <span className="flex gap-1.5">
+          <input
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => e.key === 'Enter' && test()}
+            placeholder="user@host or a name from ~/.ssh/config"
+            spellCheck={false}
+            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 font-mono text-2xs text-text outline-none placeholder:font-sans placeholder:text-text-faint focus:border-accent"
+          />
+          <Button variant="ghost" className="h-7 px-2 text-xs" disabled={!host.trim() || check === 'checking'} onClick={test}>
+            {check === 'checking' ? 'Checking…' : 'Check'}
+          </Button>
+        </span>
+      </label>
+      {check && check !== 'checking' && <p role="status" className={cx('text-2xs', check.ok ? 'text-success' : 'text-danger')}>{check.message}</p>}
+      <SwitchRow label="Push its branch" hint="To this project’s remote, with the server’s own git sign-in" checked={prefs?.coderServerPush ?? false} onChange={(coderServerPush) => onPrefs({ coderServerPush })} />
+      {prefs?.coderServerPush && <SwitchRow label="Open a pull request" hint="On GitHub, when it’s done, if anything changed" checked={cloudPr} onChange={onCloudPr} />}
+      <p className="text-2xs text-text-faint">
+        Needs SSH with a key, plus git and Node 20 or newer there. Your folder goes as it is, uncommitted changes too; the work comes back as a branch you fetch. Every step is allowed there, so use an account set aside for it. It uses this session’s model{hosted ? ' (scTerra AI, with its shared limits)' : ''}.
+      </p>
+    </div>
+  )
+}
 
 /** Why the cloud can't be used yet, or null when it can. */
 export function cloudBlocker(status: CoderStatus, github: ReturnType<typeof useGithubStatus>['status'], access: Settings['coderGithub'] | undefined): string | null {
@@ -123,11 +175,13 @@ export interface SessionPanelProps {
   onCloudPr: (pr: boolean) => void
   /** The Settings tab, open at one setting. */
   onOpenSettings: (focus: string) => void
+  /** Opens a changed file in the person's editor. */
+  onOpenFile: (path: string) => void
 }
 
 /** Beside the conversation, as in Claude: where it's working, how full its memory is, and what it's doing. */
 export function SessionPanel(props: SessionPanelProps) {
-  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onTodo, onParallel, where, onWhere, cloudPr, onCloudPr, onOpenSettings } = props
+  const { status, worktree, mode, onMode, model, onModel, modelName, providerName, effort, onEffort, prefs, onPrefs, state, tab, onTab, settingsFocus, onSetupChanged, onClose, onOpenFolder, onReview, onCommit, onCompact, onStopJob, onTodo, onParallel, where, onWhere, cloudPr, onCloudPr, onOpenSettings, onOpenFile } = props
   const github = useGithubStatus()
   const blocker = cloudBlocker(status, github.status, prefs?.coderGithub)
   const { context, todo, agents, jobs, changes, items, working, runStartedAt, lastRunMs } = state
@@ -183,17 +237,19 @@ export function SessionPanel(props: SessionPanelProps) {
           <Section title="Environment">
             <div className="flex flex-col">
               <Row icon={Folder} label={folder ?? 'No folder chosen'} title={status.folder ?? undefined} onClick={status.folder ? onOpenFolder : undefined} />
-              <SettingRow icon={where === 'cloud' ? Cloud : Monitor} label="Runs on" value={where === 'cloud' ? 'Cloud' : 'This computer'} open={open === 'where'} onToggle={() => (toggle('where'), github.reload())}>
+              <SettingRow icon={where === 'cloud' ? Cloud : where === 'server' ? Server : Monitor} label="Runs on" value={where === 'server' && prefs?.coderServer ? prefs.coderServer : WHERE_LABEL[where]} open={open === 'where'} onToggle={() => (toggle('where'), github.reload())}>
                 <Choices<CodeWhere>
                   label="Runs on"
                   value={where}
                   onChange={onWhere}
                   options={[
                     { id: 'local', label: 'This computer', hint: 'Works in your folder, asking as it goes' },
-                    { id: 'cloud', label: 'Cloud', hint: 'On GitHub Actions, from GitHub’s copy of the branch. Carries on with this computer off, and pushes to a branch of its own', disabled: blocker !== null && where !== 'cloud' }
+                    { id: 'cloud', label: 'GitHub Actions', hint: 'From GitHub’s copy of the branch. Carries on with this computer off, and pushes to a branch of its own', disabled: blocker !== null && where !== 'cloud' },
+                    { id: 'server', label: 'Your server', hint: 'A computer of yours, over SSH. Carries on with this one off' }
                   ]}
                 />
-                {blocker && (
+                {where === 'server' && <ServerSetup prefs={prefs} onPrefs={onPrefs} cloudPr={cloudPr} onCloudPr={onCloudPr} hosted={status.hosted && !model} />}
+                {blocker && where !== 'server' && (
                   <p className="text-2xs text-text-muted">
                     {blocker}{' '}
                     {!blocker.startsWith('Checking') && (
@@ -324,8 +380,8 @@ export function SessionPanel(props: SessionPanelProps) {
                 {changes.slice(0, 12).map((file) => {
                   const Icon = STATUS_ICONS[file.status]
                   return (
-                    <li key={file.path}>
-                      <button type="button" onClick={() => onReview(file.path)} title={file.path} className="flex h-6.5 w-full min-w-0 items-center gap-2 rounded-md px-1 text-left text-xs transition-colors hover:bg-surface-hover">
+                    <li key={file.path} className="group flex min-w-0 items-center">
+                      <button type="button" onClick={() => onReview(file.path)} title={file.path} className="flex h-6.5 min-w-0 flex-1 items-center gap-2 rounded-md px-1 text-left text-xs transition-colors hover:bg-surface-hover">
                         <Icon aria-label={file.status} size={13} strokeWidth={1.75} className={cx('shrink-0', file.status === 'created' ? 'text-success' : file.status === 'deleted' ? 'text-danger' : 'text-text-faint')} />
                         <span dir="rtl" className="min-w-0 flex-1 truncate text-left font-mono text-2xs">
                           {file.path}
@@ -334,6 +390,11 @@ export function SessionPanel(props: SessionPanelProps) {
                           <span className="text-success">+{file.added}</span> <span className="text-danger">−{file.removed}</span>
                         </span>
                       </button>
+                      {file.status !== 'deleted' && (
+                        <IconButton size="sm" label={`Open ${file.path.split('/').at(-1)} in your editor`} className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onOpenFile(file.path)}>
+                          <SquareArrowOutUpRight size={12} strokeWidth={1.75} />
+                        </IconButton>
+                      )}
                     </li>
                   )
                 })}

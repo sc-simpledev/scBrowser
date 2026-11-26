@@ -1013,6 +1013,19 @@ function AiPage({ settings, update }: { settings: Settings; update: Update }) {
             ))}
           </RowSelect>
         </Row>
+        <Row setting="assistantStatusLine" label="Status line" hint="Under the assistant's box: this chat's tokens and cost, and how full the model's memory is. /compact sums up a long chat." keywords="tokens cost context usage meter">
+          <Switch label="Status line" checked={settings.assistantStatusLine} onChange={(assistantStatusLine) => update({ assistantStatusLine })} />
+        </Row>
+        <Row setting="notesFolder" label="Notes folder" hint={settings.notesFolder ? `“Save as a note” writes Markdown files to ${settings.notesFolder}` : '“Save as a note” asks where each time. Pick a folder, such as an Obsidian vault, to save straight there.'} keywords="obsidian markdown save answer note">
+          <div className="flex gap-1.5">
+            {settings.notesFolder && (
+              <Button variant="ghost" onClick={() => update({ notesFolder: '' })}>
+                Ask each time
+              </Button>
+            )}
+            <Button onClick={() => void api().invoke('settings:pick-download-dir').then((notesFolder) => notesFolder && update({ notesFolder }))}>{settings.notesFolder ? 'Change' : 'Choose'}</Button>
+          </div>
+        </Row>
         <Row setting="saveChats" label="Keep chats on this device" hint="Page text sent with a message isn't kept." keywords="history save">
           <Switch label="Keep chats on this device" checked={settings.saveChats} onChange={(saveChats) => update({ saveChats })} />
         </Row>

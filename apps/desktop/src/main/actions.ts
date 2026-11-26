@@ -94,4 +94,13 @@ export interface BrowserActions {
   showHiddenParts: () => void
   /** Asks first, then clears the site's cookies, storage, history and permissions. */
   forgetSite: () => void
+  /** The page's address as a QR code, under the padlock, to take it to a phone. */
+  showQr: () => void
+  /** Letters on every link and button in view; typing them clicks it. */
+  linkHints: () => void
+  /** Shorter tab titles from the AI, with the real ones on hover. */
+  tidyTitles: () => void
+  restoreTitles: () => void
+  /** Drag a box over the page, and it goes to the assistant as a picture. */
+  askAboutRegion: () => void
 }

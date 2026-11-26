@@ -59,3 +59,61 @@ export async function pictureAt(contents: WebContents, src: string, x: number, y
   const fetched = inline ?? (/^https?:/i.test(src) ? await fromAddress(contents.session, src) : null)
   return fetched ?? fromScreen(contents, x, y)
 }
+
+/**
+ * Lets the person drag a box over the page, in its isolated world, for "Ask AI about part of the
+ * page". The box's place in the page's own pixels, or null if they pressed Escape. The dimming
+ * is gone again before this returns, so a capture right after shows the page as it is.
+ */
+const PICK_SCRIPT = `new Promise((done) => {
+  const host = document.createElement('div')
+  host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;cursor:crosshair'
+  const shadow = host.attachShadow({ mode: 'closed' })
+  shadow.innerHTML = '<style>.dim{position:fixed;inset:0;background:rgba(0,0,0,.28)}.box{position:fixed;display:none;border:1.5px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.38);border-radius:3px}.tip{position:fixed;left:50%;top:16px;transform:translateX(-50%);padding:6px 10px;border-radius:6px;background:#171717;color:#fafafa;font:500 12px/1.3 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)}</style><div class="dim"></div><div class="box"></div><div class="tip">Drag over what to ask about · Esc to cancel</div>'
+  const dim = shadow.querySelector('.dim'), box = shadow.querySelector('.box'), tip = shadow.querySelector('.tip')
+  let start = null
+  const rect = (event) => ({ x: Math.min(start.x, event.clientX), y: Math.min(start.y, event.clientY), width: Math.abs(event.clientX - start.x), height: Math.abs(event.clientY - start.y) })
+  const finish = (value) => {
+    removeEventListener('keydown', onKey, true)
+    host.remove()
+    // Two frames, so the page is painted without the dimming before it's captured.
+    requestAnimationFrame(() => requestAnimationFrame(() => done(value)))
+  }
+  const onKey = (event) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    finish(null)
+  }
+  host.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return finish(null)
+    event.preventDefault()
+    start = { x: event.clientX, y: event.clientY }
+    dim.style.display = 'none'
+    tip.style.display = 'none'
+    box.style.display = 'block'
+    Object.assign(box.style, { left: start.x + 'px', top: start.y + 'px', width: '0px', height: '0px' })
+  })
+  host.addEventListener('mousemove', (event) => {
+    if (!start) return
+    const r = rect(event)
+    Object.assign(box.style, { left: r.x + 'px', top: r.y + 'px', width: r.width + 'px', height: r.height + 'px' })
+  })
+  host.addEventListener('mouseup', (event) => {
+    if (!start) return
+    const r = rect(event)
+    finish(r.width >= 8 && r.height >= 8 ? r : null)
+  })
+  addEventListener('keydown', onKey, true)
+  ;(document.documentElement || document.body).append(host)
+})`
+
+/** A part of the page the person drags out, as a picture for the assistant. Null when they cancelled. */
+export async function pictureOfRegion(contents: WebContents): Promise<string | null> {
+  contents.focus()
+  const rect = (await contents.executeJavaScriptInIsolatedWorld(WORLD, [{ code: PICK_SCRIPT }], true).catch(() => null)) as { x: number; y: number; width: number; height: number } | null
+  if (!rect || contents.isDestroyed()) return null
+  const zoom = contents.getZoomFactor() || 1
+  const image = await contents.capturePage({ x: Math.round(rect.x * zoom), y: Math.round(rect.y * zoom), width: Math.round(rect.width * zoom), height: Math.round(rect.height * zoom) }).catch(() => null)
+  return image ? encodePicture(image) : null
+}
