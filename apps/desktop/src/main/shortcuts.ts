@@ -1,88 +1,157 @@
 import type { Input, WebContents } from 'electron'
+import { buildKeymap, comboAccelerator, comboFromKey, shortcutKeys, SHORTCUTS, type ShortcutId } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
+
+let keymap = buildKeymap({})
+let overrides: Record<string, readonly string[]> = {}
+/** Pages where Settings is waiting for a key to give a shortcut, which mustn't run it meanwhile. */
+const recording = new WeakSet<WebContents>()
+
+/** Takes the person's own keys into use, from Settings. */
+export function setShortcutOverrides(next: Record<string, readonly string[]>): void {
+  overrides = next
+  keymap = buildKeymap(next)
+}
+
+/** A shortcut's first key, for a menu to show beside it, or nothing if the person took its keys away. */
+export function keyFor(id: ShortcutId): string | undefined {
+  const first = shortcutKeys(id, overrides)[0]
+  return first ? comboAccelerator(first) : undefined
+}
+
+/** The same as people read it, for the command palette. */
+export const shortcutKeysNow = (id: ShortcutId): readonly string[] => shortcutKeys(id, overrides)
+
+export function setRecordingShortcut(contents: WebContents, on: boolean): void {
+  if (on) recording.add(contents)
+  else recording.delete(contents)
+}
+
+/** The keys a press makes, as the shortcuts table writes them. */
+export const comboOf = (input: Input): string | null =>
+  comboFromKey({ key: input.key, code: input.code, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift, metaKey: input.meta }, process.platform)
 
 /**
  * Browser-wide keyboard shortcuts. They are handled in the main process so they work
  * whether focus is in the chrome UI or inside a web page.
  */
 export function handleShortcut(input: Input, actions: BrowserActions): boolean {
-  if (input.type !== 'keyDown') return false
   const { tabs } = actions
-  const key = input.key.toLowerCase()
-  // A Mac's Command does what Control does elsewhere; Ctrl Tab is Ctrl everywhere.
-  const mod = process.platform === 'darwin' ? input.meta : input.control
-  const active = tabs.active
+  // Letting go of Ctrl ends a round of Ctrl Tab in recently used order.
+  if (input.type === 'keyUp' && (input.key === 'Control' || (process.platform === 'darwin' && input.key === 'Meta'))) tabs.endRecentCycle()
+  if (input.type !== 'keyDown') return false
+  const combo = comboOf(input)
+  if (!combo) return false
 
-  const run = (action: () => void) => {
-    action()
+  // Fixed keys: a tab by its place, and a workspace by its place.
+  const place = /^Ctrl\+(Alt\+)?([1-9])$/.exec(combo)
+  if (place && !actions.appWindow) {
+    if (place[1]) {
+      const workspace = tabs.workspaceList()[Number(place[2]) - 1]
+      if (workspace) tabs.switchWorkspace(workspace.id)
+    } else tabs.activateIndex(Number(place[2]))
     return true
   }
-  const onActive = (action: (id: number) => void) => run(() => active && action(active.id))
 
+  // A function key works with Ctrl or Shift held too, as it always has, unless that combination has a shortcut of its own.
+  const id = keymap.get(combo) ?? (/(^|\+)F\d+$/.test(combo) ? keymap.get(combo.split('+').pop()!) : undefined)
+  if (!id) return false
   // An installed site's window has one page, so only what acts on that page applies.
-  if (actions.appWindow) {
-    if (mod && key === 'w') return onActive((id) => tabs.close(id))
-    if ((mod && key === 'r') || key === 'f5') return onActive((id) => tabs.reload(id, input.shift || (mod && key === 'f5')))
-    if (input.alt && key === 'arrowleft') return onActive((id) => tabs.back(id))
-    if (input.alt && key === 'arrowright') return onActive((id) => tabs.forward(id))
-    if (key === 'f12' || (mod && input.shift && key === 'i')) return onActive((id) => tabs.toggleDevTools(id))
-    if (key === 'f11') return run(actions.toggleFullscreen)
-    if (mod && !input.shift && key === 'f') return run(actions.openFind)
-    if (mod && !input.shift && key === 'p') return onActive((id) => tabs.print(id))
-    if (mod && (key === '=' || key === '+')) return onActive((id) => tabs.zoomBy(id, 1))
-    if (mod && key === '-') return onActive((id) => tabs.zoomBy(id, -1))
-    if (mod && key === '0') return onActive((id) => tabs.setZoom(id, 1))
-    if (mod && !input.shift && key === 'q') return run(actions.quit)
-    return false
-  }
+  if (actions.appWindow && !(SHORTCUTS.find((shortcut) => shortcut.id === id) as { app?: boolean }).app) return false
+  runShortcut(id, actions)
+  return true
+}
 
-  if (mod && !input.shift && key === 't') return run(() => tabs.create())
-  if (mod && !input.shift && key === 'n') return run(() => actions.openWindow())
-  if (input.shift && key === 'escape') return run(() => actions.openPage('tasks'))
-  if (mod && input.shift && key === 't') return run(() => tabs.reopenClosed())
-  if (mod && key === 'w') return onActive((id) => tabs.close(id))
-  if (mod && input.shift && key === 'l') return run(actions.passwordMenu)
-  if ((mod && key === 'l') || key === 'f6' || (input.alt && key === 'd')) return run(actions.focusOmnibox)
-  if ((mod && key === 'r') || key === 'f5') return onActive((id) => tabs.reload(id, input.shift || mod && key === 'f5'))
-  if (input.alt && key === 'arrowleft') return onActive((id) => tabs.back(id))
-  if (input.alt && key === 'arrowright') return onActive((id) => tabs.forward(id))
-  if (mod && key === '[') return onActive((id) => tabs.back(id))
-  if (mod && key === ']') return onActive((id) => tabs.forward(id))
-  if (input.control && key === 'tab') return run(() => tabs.activateRelative(input.shift ? -1 : 1))
-  if (mod && (key === 'pagedown' || key === 'pageup')) return run(() => tabs.activateRelative(key === 'pagedown' ? 1 : -1))
-  if (mod && input.alt && /^[1-9]$/.test(key)) {
-    const workspace = tabs.workspaceList()[Number(key) - 1]
-    return run(() => workspace && tabs.switchWorkspace(workspace.id))
+function runShortcut(id: ShortcutId, actions: BrowserActions): void {
+  const { tabs } = actions
+  const active = tabs.active
+  const onActive = (action: (id: number) => void) => void (active && action(active.id))
+  switch (id) {
+    case 'new-tab':
+      return void tabs.create()
+    case 'close-tab':
+      return onActive((tab) => tabs.close(tab))
+    case 'reopen-tab':
+      return tabs.reopenClosed()
+    case 'next-tab':
+    case 'previous-tab': {
+      const step = id === 'next-tab' ? 1 : -1
+      return actions.recentTabOrder() ? tabs.activateRecent(step) : tabs.activateRelative(step)
+    }
+    case 'search-tabs':
+      return actions.searchTabs()
+    case 'new-window':
+      return actions.openWindow()
+    case 'private-window':
+      return actions.openPrivateWindow()
+    case 'fullscreen':
+      return actions.toggleFullscreen()
+    case 'quit':
+      return actions.quit()
+    case 'reload':
+      return onActive((tab) => tabs.reload(tab, false))
+    case 'hard-reload':
+      return onActive((tab) => tabs.reload(tab, true))
+    case 'back':
+      return onActive((tab) => tabs.back(tab))
+    case 'forward':
+      return onActive((tab) => tabs.forward(tab))
+    case 'home':
+      return actions.goHome()
+    case 'zoom-in':
+      return onActive((tab) => tabs.zoomBy(tab, 1))
+    case 'zoom-out':
+      return onActive((tab) => tabs.zoomBy(tab, -1))
+    case 'zoom-reset':
+      return onActive((tab) => tabs.setZoom(tab, actions.defaultZoom()))
+    case 'print':
+      return onActive((tab) => tabs.print(tab))
+    case 'save-page':
+      return actions.savePage()
+    case 'reader':
+      return actions.toggleReader()
+    case 'screenshot':
+      return actions.screenshot()
+    case 'view-source':
+      return actions.viewSource()
+    case 'devtools':
+      return onActive((tab) => tabs.toggleDevTools(tab))
+    case 'address-bar':
+      return actions.focusOmnibox()
+    case 'find':
+      return actions.openFind()
+    case 'palette':
+      return actions.togglePalette()
+    case 'link-hints':
+      return actions.linkHints()
+    case 'open-file':
+      return actions.openFile()
+    case 'assistant':
+      return actions.toggleAssistant()
+    case 'bookmark':
+      return actions.toggleBookmark()
+    case 'bookmarks-bar':
+      return actions.toggleBookmarksBar()
+    case 'bookmarks':
+      return actions.openPage('bookmarks')
+    case 'history':
+      return actions.openPage('history')
+    case 'downloads':
+      return actions.openPage('downloads')
+    case 'settings':
+      return actions.openPage('settings')
+    case 'clear-data':
+      return actions.clearBrowsingData()
+    case 'passwords':
+      return actions.passwordMenu()
+    case 'task-manager':
+      return actions.openPage('tasks')
   }
-  if (mod && /^[1-9]$/.test(key)) return run(() => tabs.activateIndex(Number(key)))
-  if (key === 'f12' || (mod && input.shift && key === 'i')) return onActive((id) => tabs.toggleDevTools(id))
-  if (key === 'f11') return run(actions.toggleFullscreen)
-  if (mod && !input.shift && key === 'f') return run(actions.openFind)
-  if (mod && !input.shift && key === 'd') return run(actions.toggleBookmark)
-  if (mod && !input.shift && key === 'k') return run(actions.togglePalette)
-  if (mod && !input.shift && key === '.') return run(actions.linkHints)
-  if (mod && input.shift && key === 'e') return run(actions.searchTabs)
-  if (mod && !input.shift && key === 'o') return run(actions.openFile)
-  if (mod && !input.shift && key === 'u') return run(actions.viewSource)
-  if (key === 'f9') return run(actions.toggleReader)
-  if (mod && input.shift && key === 's') return run(actions.screenshot)
-  if (mod && input.shift && key === 'a') return run(actions.toggleAssistant)
-  if (mod && input.shift && key === 'b') return run(actions.toggleBookmarksBar)
-  if (mod && input.shift && key === 'o') return run(() => actions.openPage('bookmarks'))
-  if (mod && !input.shift && key === 'h') return run(() => actions.openPage('history'))
-  if (mod && !input.shift && key === ',') return run(() => actions.openPage('settings'))
-  if (mod && !input.shift && key === 'j') return run(() => actions.openPage('downloads'))
-  if (mod && !input.shift && key === 'p') return onActive((id) => tabs.print(id))
-  if (mod && (key === '=' || key === '+')) return onActive((id) => tabs.zoomBy(id, 1))
-  if (mod && key === '-') return onActive((id) => tabs.zoomBy(id, -1))
-  if (mod && key === '0') return onActive((id) => tabs.setZoom(id, 1))
-  if (mod && input.shift && key === 'n') return run(actions.openPrivateWindow)
-  if (mod && !input.shift && key === 'q') return run(actions.quit)
-  return false
 }
 
 export function attachShortcuts(contents: WebContents, actions: BrowserActions): void {
   contents.on('before-input-event', (event, input) => {
+    if (recording.has(contents)) return
     if (handleShortcut(input, actions)) event.preventDefault()
   })
 }

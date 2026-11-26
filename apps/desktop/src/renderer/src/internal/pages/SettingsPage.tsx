@@ -4,6 +4,7 @@ import { Button, cx, Input, Select, Switch } from '@scbrowser/ui'
 import {
   ACCENTS,
   ARCHIVE_CHOICES,
+  ZOOM_CHOICES,
   DEFAULT_SETTINGS,
   PERFORMANCE_SLEEP_MINUTES,
   PERMISSION_LABELS,
@@ -15,6 +16,7 @@ import {
   TOOLBAR_SLOTS,
   TRANSLATE_LANGUAGES,
   cleanRuleMatch,
+  fullToolbarOrder,
   isKeywordWord,
   isSearchKeyword,
   type CrashEntry,
@@ -37,6 +39,7 @@ import { VPN_INSTALLED_EVENT } from '../VpnInstall'
 import { announceSearching, openSettingsGroup, SETTINGS_GROUPS, useSettingsGroup, type SettingsGroupId } from '../settingsGroups'
 import { ChipToggles, Group, JUMP_TO_SETTING, Row, RowSelect, Searchable, SearchProvider, searchWords, Section, type SettingJump } from '../settingsParts'
 import { ForgetOnClose, MiniAppsSection, PageTweaks } from './SiteSettings'
+import { ClearDataPanel, GestureList, HomePageRow, KeyboardPage, SiteList, StartupPages } from './SettingsExtras'
 
 export { SETTINGS_GROUPS } from '../settingsGroups'
 
@@ -185,6 +188,28 @@ export function SettingsPage() {
   const filtering = words.length > 0 || changedOnly
 
   useEffect(() => void api().invoke('settings:get').then(setSettings), [])
+  // #privacy/clear-data and the like: the page opens at that part, which flashes so the eye lands on it.
+  const loaded = settings !== null
+  useEffect(() => {
+    if (!loaded) return
+    const show = () => {
+      const part = decodeURIComponent(location.hash.slice(1)).split('/')[1]
+      if (!part) return
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const target = document.getElementById(part)
+          if (!target) return
+          target.scrollIntoView({ block: 'start' })
+          target.classList.remove('sc-flash')
+          void target.offsetWidth
+          target.classList.add('sc-flash')
+        })
+      )
+    }
+    show()
+    addEventListener('hashchange', show)
+    return () => removeEventListener('hashchange', show)
+  }, [loaded])
   // Picking a page in the sidebar leaves the search.
   useEffect(() => {
     setQuery('')
@@ -313,6 +338,43 @@ function AppearancePage({ settings, update }: { settings: Settings; update: Upda
           />
         </Row>
       </Section>
+      <Section title="Page zoom and text" keywords="font size bigger smaller larger read">
+        <Row setting="defaultZoom" label="Page zoom" hint="For every site you haven’t zoomed yourself. Ctrl 0 comes back to this." keywords="scale magnify">
+          <RowSelect aria-label="Page zoom" value={settings.defaultZoom} onChange={(e) => update({ defaultZoom: Number(e.target.value) })}>
+            {ZOOM_CHOICES.map((zoom) => (
+              <option key={zoom} value={zoom}>
+                {zoom}%
+              </option>
+            ))}
+          </RowSelect>
+        </Row>
+        <Row setting="fontSize" label="Text size" hint="For text a site doesn’t size itself. Tabs take it as they open or wake." keywords="font">
+          <RowSelect aria-label="Text size" value={settings.fontSize} onChange={(e) => update({ fontSize: Number(e.target.value) })}>
+            {[
+              [12, 'Small'],
+              [14, 'A little small'],
+              [16, 'Medium'],
+              [18, 'A little large'],
+              [20, 'Large'],
+              [24, 'Very large']
+            ].map(([size, name]) => (
+              <option key={size} value={size}>
+                {name}
+              </option>
+            ))}
+          </RowSelect>
+        </Row>
+        <Row setting="minimumFontSize" label="Smallest text" hint="No text on a page is drawn smaller than this. Tabs take it as they open or wake." keywords="font minimum tiny">
+          <RowSelect aria-label="Smallest text" value={settings.minimumFontSize} onChange={(e) => update({ minimumFontSize: Number(e.target.value) })}>
+            <option value={0}>As the site sets it</option>
+            {[9, 10, 12, 14, 16, 18].map((size) => (
+              <option key={size} value={size}>
+                {size} pixels
+              </option>
+            ))}
+          </RowSelect>
+        </Row>
+      </Section>
       <Section title="Bookmarks">
         <Row setting="bookmarksBar" label="Show bookmarks" keywords="bar favourites favorites">
           <RowSelect aria-label="Show bookmarks bar" value={settings.bookmarksBar} onChange={(e) => update({ bookmarksBar: e.target.value as Settings['bookmarksBar'] })}>
@@ -379,6 +441,15 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
         <Row setting="autoPictureInPicture" label="Float videos when you switch tabs" hint="A playing video moves into picture in picture when you leave its tab, and back into the page when you return." keywords="picture in picture pip video float automatic">
           <Switch label="Float videos when you switch tabs" checked={settings.autoPictureInPicture} onChange={(autoPictureInPicture) => update({ autoPictureInPicture })} />
         </Row>
+        <Row setting="tabCycleOrder" label="Ctrl Tab goes through tabs" hint={settings.tabCycleOrder === 'recent' ? 'The tab you used last comes first, so Ctrl Tab flips between two. Keep Ctrl held and press Tab again to go further back.' : 'In the order they sit.'} keywords="switch cycle mru recent order">
+          <RowSelect aria-label="Ctrl Tab goes through tabs" value={settings.tabCycleOrder} onChange={(e) => update({ tabCycleOrder: e.target.value as Settings['tabCycleOrder'] })}>
+            <option value="strip">In order</option>
+            <option value="recent">Recently used first</option>
+          </RowSelect>
+        </Row>
+        <Row setting="tabPreviews" label="Page previews" hint="Resting the pointer on a tab shows a small picture of its page, taken when you last left it." keywords="hover card thumbnail picture image">
+          <Switch label="Page previews" checked={settings.tabPreviews} onChange={(tabPreviews) => update({ tabPreviews })} />
+        </Row>
         <Row setting="tabSleepButton" label="Sleep button on tabs" hint="A moon beside each tab's close button puts it to sleep, freeing its memory until you open it again.">
           <Switch label="Sleep button on tabs" checked={settings.tabSleepButton} onChange={(tabSleepButton) => update({ tabSleepButton })} />
         </Row>
@@ -399,13 +470,17 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
           />
         </Row>
         <Row label="Arrange the toolbar" hint="Drag any button in the toolbar to a new place." keywords="order move">
-          <Button variant="ghost" disabled={settings.toolbarOrder.join() === TOOLBAR_SLOTS.join()} onClick={() => update({ toolbarOrder: [...TOOLBAR_SLOTS] })}>
+          <Button variant="ghost" disabled={fullToolbarOrder(settings.toolbarOrder).join() === TOOLBAR_SLOTS.join()} onClick={() => update({ toolbarOrder: [...TOOLBAR_SLOTS] })}>
             Reset
           </Button>
         </Row>
         <Row setting="profilesButton" label="Profiles button" hint="Adds a button beside the assistant for switching profiles.">
           <Switch label="Show profiles in the toolbar" checked={settings.profilesButton} onChange={(profilesButton) => update({ profilesButton })} />
         </Row>
+        <Row setting="homeButton" label="Home button" hint="Beside Reload, to go to your home page." keywords="house start">
+          <Switch label="Home button" checked={settings.homeButton} onChange={(homeButton) => update({ homeButton })} />
+        </Row>
+
       </Section>
     </>
   )
@@ -579,7 +654,28 @@ function BrowsingPage({ settings, update }: { settings: Settings; update: Update
           <RowSelect aria-label="When scTerra starts" value={settings.startup} onChange={(e) => update({ startup: e.target.value as Settings['startup'] })}>
             <option value="restore">Reopen previous tabs</option>
             <option value="new-tab">Open a new tab</option>
+            <option value="pages">Open these pages</option>
           </RowSelect>
+        </Row>
+        {settings.startup === 'pages' && (
+          <Searchable text={`startup pages ${settings.startupPages.join(' ')}`}>
+            <StartupPages settings={settings} update={update} />
+          </Searchable>
+        )}
+        <HomePageRow settings={settings} update={update} />
+      </Section>
+      <Section title="Mouse" keywords="mouse buttons">
+        <Row setting="middleClickScroll" label="Scroll with the middle button" hint="Press the wheel on a page, then move the pointer to scroll that way, faster the further you go. Press again to stop." keywords="autoscroll auto scroll wheel click">
+          <Switch label="Scroll with the middle button" checked={settings.middleClickScroll} onChange={(middleClickScroll) => update({ middleClickScroll })} />
+        </Row>
+        <Row setting="mouseGestures" label="Mouse gestures" hint="Hold the right button and draw on a page. A right click without drawing still opens the menu, once you let go. Pages opened from now on take it." keywords="gesture right drag draw back forward close">
+          <Switch label="Mouse gestures" checked={settings.mouseGestures} onChange={(mouseGestures) => update({ mouseGestures })} />
+        </Row>
+        {settings.mouseGestures && <GestureList />}
+      </Section>
+      <Section title="Pages">
+        <Row setting="jsonViewer" label="JSON viewer" hint="Pages of JSON show folded and coloured, with Raw and Copy." keywords="developer api json pretty">
+          <Switch label="JSON viewer" checked={settings.jsonViewer} onChange={(jsonViewer) => update({ jsonViewer })} />
         </Row>
       </Section>
       <Section title="Downloads">
@@ -670,6 +766,11 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
   }, [])
   return (
     <>
+      <div id="clear-data" className="scroll-mt-4">
+        <Section title="Clear browsing data" description="Ctrl Shift Delete opens this." keywords="delete erase wipe history cookies cache">
+          <ClearDataPanel />
+        </Section>
+      </div>
       <Section title="Protection">
         <Row setting="trackingProtection" label="Tracking protection" hint="Blocks ads and trackers. Filter lists download once and refresh when needed." keywords="ad blocker adblock">
           <RowSelect aria-label="Tracking protection" value={settings.trackingProtection} onChange={(e) => update({ trackingProtection: e.target.value as Settings['trackingProtection'] })}>
@@ -693,6 +794,9 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
             ))}
           </Select>
         </Row>
+        <Row setting="globalPrivacyControl" label="Global Privacy Control" hint="Tells every site you don’t want your data sold or shared. Some places, such as California, make sites honour it." keywords="gpc do not track dnt sell share">
+          <Switch label="Global Privacy Control" checked={settings.globalPrivacyControl} onChange={(globalPrivacyControl) => update({ globalPrivacyControl })} />
+        </Row>
         <Row setting="rejectCookieBanners" label="Reject cookie banners" hint="Presses Reject or Only necessary on cookie banners for you. It never accepts. Sites with tracking protection off are left alone." keywords="consent gdpr">
           <Switch label="Reject cookie banners" checked={settings.rejectCookieBanners} onChange={(rejectCookieBanners) => update({ rejectCookieBanners })} />
         </Row>
@@ -715,6 +819,14 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
               </Button>
             </Row>
           ))}
+        </Section>
+      )}
+      <Section title="Pop-ups" description="Sites can open pop-ups when you click something on them. Ones that try without a click are stopped, and the address bar offers them. These sites may open them whenever they like." keywords="popup blocker windows new tabs">
+        <SiteList sites={settings.popupsAllowed} empty="No sites yet. Allow one from the pop-up button in the address bar." onRemove={(site) => update({ popupsAllowed: settings.popupsAllowed.filter((other) => other !== site) })} />
+      </Section>
+      {settings.mutedSites.length > 0 && (
+        <Section title="Muted sites" description="Every tab on these sites is muted. Mute or unmute a site from its tab’s menu." keywords="sound audio silence">
+          <SiteList sites={settings.mutedSites} empty="" removeLabel="Unmute" onRemove={(site) => update({ mutedSites: settings.mutedSites.filter((other) => other !== site) })} />
         </Section>
       )}
       <Section title="Forget when scTerra closes" description="Their cookies, site data and history are cleared each time scTerra closes." keywords="cookies clear data">
@@ -1209,6 +1321,7 @@ const GROUP_PAGES: Record<SettingsGroupId, (props: { settings: Settings; update:
   privacy: PrivacyPage,
   data: DataPage,
   ai: AiPage,
+  keyboard: KeyboardPage,
   about: AboutPage
 }
 

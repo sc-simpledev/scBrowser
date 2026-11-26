@@ -70,6 +70,10 @@ export class DownloadManager {
     this.repo.clearFinished()
   }
 
+  clearFinishedSince(since: number): void {
+    this.repo.clearFinishedSince(since)
+  }
+
   private track(item: DownloadItem, pageUrl: string): void {
     const { downloadDir, askWhereToSave, downloadRules } = this.settings.get()
     // A rule's folder wins, as long as it's still there.

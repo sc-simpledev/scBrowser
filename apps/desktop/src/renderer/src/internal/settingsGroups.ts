@@ -10,6 +10,7 @@ export const SETTINGS_GROUPS = [
   { id: 'privacy', title: 'Privacy and security' },
   { id: 'data', title: 'Your data' },
   { id: 'ai', title: 'AI and extensions' },
+  { id: 'keyboard', title: 'Keyboard shortcuts' },
   { id: 'about', title: 'About' }
 ] as const
 
@@ -19,7 +20,8 @@ const isGroup = (id: string): id is SettingsGroupId => SETTINGS_GROUPS.some((gro
 
 /** The open page of Settings, from the address's #fragment, like sc://settings/#privacy. */
 export function currentSettingsGroup(): SettingsGroupId {
-  const id = decodeURIComponent(location.hash.slice(1)).toLowerCase()
+  // A part of a page can follow, like #privacy/clear-data.
+  const id = decodeURIComponent(location.hash.slice(1)).toLowerCase().split('/')[0]!
   return isGroup(id) ? id : SETTINGS_GROUPS[0].id
 }
 

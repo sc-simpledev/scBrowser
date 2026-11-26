@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { IconButton, Input } from '@scbrowser/ui'
+import { cx, IconButton, Input } from '@scbrowser/ui'
 import { useActiveTab } from '../state/tabs'
 
 export function FindBar() {
@@ -10,6 +10,10 @@ export function FindBar() {
   const [text, setText] = useState('')
   const [focusRequest, setFocusRequest] = useState(0)
   const [result, setResult] = useState<{ active: number; total: number } | null>(null)
+  // Kept while scTerra is open, as Firefox does, so a second search works the same way.
+  const [matchCase, setMatchCase] = useState(false)
+  const matchCaseRef = useRef(matchCase)
+  matchCaseRef.current = matchCase
 
   const close = () => {
     setOpen(false)
@@ -19,7 +23,7 @@ export function FindBar() {
 
   const search = (value: string, forward: boolean, findNext: boolean) => {
     if (!value) setResult(null)
-    void window.scb.invoke('find:query', value, { forward, findNext })
+    void window.scb.invoke('find:query', value, { forward, findNext, matchCase: matchCaseRef.current })
   }
   const openWith = (words: string | null) => {
     setOpen(true)
@@ -76,6 +80,20 @@ export function FindBar() {
           if (e.key === 'Escape') close()
         }}
       />
+      <IconButton
+        size="sm"
+        label="Match case"
+        aria-pressed={matchCase}
+        className={cx('font-sans text-xs font-medium tracking-tight', matchCase ? 'bg-accent-soft text-accent hover:bg-accent-soft' : 'text-text-muted')}
+        onClick={() => {
+          matchCaseRef.current = !matchCase
+          setMatchCase(!matchCase)
+          search(text, true, false)
+          inputRef.current?.focus()
+        }}
+      >
+        Aa
+      </IconButton>
       <span aria-live="polite" className="w-20 text-center text-xs text-text-faint tabular-nums">
         {result ? (result.total === 0 ? 'No matches' : `${result.active} of ${result.total}`) : ''}
       </span>

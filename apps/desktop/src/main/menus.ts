@@ -1,3 +1,4 @@
+import { keyFor } from './shortcuts'
 import { clipboard, Menu, MenuItem, nativeImage, type NativeImage, type BaseWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { RewriteStyle } from '@scbrowser/ai'
 import { SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, appScheme, CONTAINERS, isVideoPage, MAX_MENTIONED_TABS, presetById, presetPrompt, videoReportPrompt, TRANSLATE_LANGUAGES, effectiveUrl, folderTree, isJavascriptUrl, summarisePromptFor, treeFolds, resolveOmniboxInput, DEFAULT_SEARCH_ENGINE, cleanUrl, highlightLink, type BarItem, type Bookmark, type BookmarkGroup, type TabId, type UpdateState } from '@scbrowser/shared'
@@ -168,12 +169,12 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
   if (groups.length === 0) {
     const { navigationHistory: history } = contents
     groups.push([
-      { label: 'Back', accelerator: 'Alt+Left', registerAccelerator: false, enabled: history.canGoBack(), click: () => history.goBack() },
-      { label: 'Forward', accelerator: 'Alt+Right', registerAccelerator: false, enabled: history.canGoForward(), click: () => history.goForward() },
+      { label: 'Back', accelerator: keyFor('back'), registerAccelerator: false, enabled: history.canGoBack(), click: () => history.goBack() },
+      { label: 'Forward', accelerator: keyFor('forward'), registerAccelerator: false, enabled: history.canGoForward(), click: () => history.goForward() },
       // Through the tab where there is one, as a failed page reloads the address that failed.
       {
         label: 'Reload',
-        accelerator: 'CmdOrCtrl+R',
+        accelerator: keyFor('reload'),
         registerAccelerator: false, 
         click: () => {
           const id = tabs.tabIdFor(contents)
@@ -183,10 +184,10 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
       }
     ])
     groups.push([
-      ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', click: () => contents.downloadURL(params.pageURL) }] : []),
+      ...(isWeb(params.pageURL) ? [{ label: 'Save page as…', accelerator: keyFor('save-page'), registerAccelerator: false, click: actions.savePage }] : []),
       {
         label: 'Print…',
-        accelerator: 'CmdOrCtrl+P',
+        accelerator: keyFor('print'),
         registerAccelerator: false, 
         click: () => {
           const id = tabs.tabIdFor(contents)
@@ -194,9 +195,9 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
           else tabs.print(id)
         }
       },
-      { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: actions.screenshot },
+      { label: 'Screenshot', accelerator: keyFor('screenshot'), registerAccelerator: false, click: actions.screenshot },
       ...(isWeb(params.pageURL) ? [{ label: 'Ask AI about part of the page…', click: actions.askAboutRegion }] : []),
-      { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', registerAccelerator: false, click: actions.toggleBookmark },
+      { label: 'Bookmark this page', accelerator: keyFor('bookmark'), registerAccelerator: false, click: actions.toggleBookmark },
       { label: 'Copy page address', click: () => clipboard.writeText(params.pageURL) },
       ...(cleanUrl(params.pageURL) !== params.pageURL ? [{ label: 'Copy clean page address', click: () => clipboard.writeText(cleanUrl(params.pageURL)) }] : []),
       ...(isWeb(params.pageURL) ? [{ label: 'QR code for this page', click: actions.showQr }] : [])
@@ -219,7 +220,7 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     }
     if (sourcePage) {
       groups.push([
-        { label: 'Reader view', accelerator: 'F9', registerAccelerator: false, click: actions.toggleReader },
+        { label: 'Reader view', accelerator: keyFor('reader'), registerAccelerator: false, click: actions.toggleReader },
         { label: 'Read aloud', click: actions.readAloud },
         {
           label: 'Summarise page',
@@ -242,8 +243,8 @@ function pageMenu(contents: WebContents, params: ContextMenuParams, actions: Bro
     }
   }
   groups.push([
-    ...(sourcePage ? [{ label: 'View page source', accelerator: 'CmdOrCtrl+U', click: () => tabs.create(`view-source:${params.pageURL}`, { afterId: tabs.tabIdFor(contents) ?? undefined, container: tabs.active?.container }) }] : []),
-    { label: 'Inspect', accelerator: 'CmdOrCtrl+Shift+I', registerAccelerator: false, click: () => tabs.inspect(contents, params.x, params.y) }
+    ...(sourcePage ? [{ label: 'View page source', accelerator: keyFor('view-source'), click: () => tabs.create(`view-source:${params.pageURL}`, { afterId: tabs.tabIdFor(contents) ?? undefined, container: tabs.active?.container }) }] : []),
+    { label: 'Inspect', accelerator: keyFor('devtools'), registerAccelerator: false, click: () => tabs.inspect(contents, params.x, params.y) }
   ])
 
   return groups.flatMap((group, i) => (i === 0 ? group : [{ type: 'separator' as const }, ...group]))
@@ -254,16 +255,24 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
   const { splitIds, activeId, tabs: open } = tabs.snapshot()
   const tab = open.find((other) => other.id === id)
   Menu.buildFromTemplate([
-    { label: 'New tab', accelerator: 'CmdOrCtrl+T', registerAccelerator: false, click: () => tabs.create() },
-    { label: 'Reload', accelerator: 'CmdOrCtrl+R', registerAccelerator: false, click: () => tabs.reload(id) },
+    { label: 'New tab', accelerator: keyFor('new-tab'), registerAccelerator: false, click: () => tabs.create() },
+    { label: 'Reload', accelerator: keyFor('reload'), registerAccelerator: false, click: () => tabs.reload(id) },
     { label: 'Duplicate', click: () => tabs.duplicate(id) },
     { label: tab?.pinned ? 'Unpin tab' : 'Pin tab', click: () => tabs.setPinned(id, !tab?.pinned) },
     { label: tab?.muted ? 'Unmute tab' : 'Mute tab', click: () => tabs.setMuted(id, !tab?.muted) },
+    ...(tab && /^https?:/i.test(tab.url) ? [{ label: actions.siteMuted(tab.url) ? 'Unmute site' : 'Mute site', click: () => actions.toggleSiteMute(id) }] : []),
     ...(treeFolds(open).parents.has(id) ? [{ label: tab?.collapsed ? 'Expand branch' : 'Collapse branch', click: () => tabs.toggleCollapsed(id) }] : []),
     { type: 'separator' },
     splitIds.length > 0
       ? { label: 'End split view', click: () => tabs.endSplit() }
       : { label: 'Open in split view', enabled: id !== activeId, click: () => tabs.startSplit(id) },
+    {
+      label: 'Move to window',
+      submenu: [
+        { label: 'New window', click: () => actions.moveTabToWindow(id, 'new') },
+        ...actions.otherWindows().map((other) => ({ label: other.title.length > 50 ? `${other.title.slice(0, 49)}…` : other.title, click: () => actions.moveTabToWindow(id, other.index) }))
+      ]
+    },
     {
       label: 'Open in container',
       submenu: [
@@ -302,12 +311,14 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
       ]
     },
     { type: 'separator' },
-    { label: 'Close', accelerator: 'CmdOrCtrl+W', registerAccelerator: false, click: () => tabs.close(id) },
+    { label: 'Close', accelerator: keyFor('close-tab'), registerAccelerator: false, click: () => tabs.close(id) },
     // Pinned tabs stay when the others close, so only unpinned ones count.
     { label: 'Close other tabs', enabled: open.some((other) => other.id !== id && !other.pinned), click: () => tabs.closeOthers(id) },
+    { label: 'Close duplicate tabs', click: actions.closeDuplicates },
+    { label: 'Copy links of all tabs', click: () => actions.copyTabLinks() },
     { type: 'separator' },
     ...closedTabRows(tabs),
-    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
+    { label: 'Search tabs', accelerator: keyFor('search-tabs'), click: actions.searchTabs },
     ...closedGroupRows(actions)
   ]).popup({ window })
 }
@@ -337,6 +348,7 @@ export function popupSelectionMenu(ids: TabId[], actions: BrowserActions, window
     { label: picked.every((tab) => tab.pinned) ? `Unpin ${count}` : `Pin ${count}`, click: then(() => all.forEach((id) => tabs.setPinned(id, !picked.every((tab) => tab.pinned)))) },
     { label: picked.every((tab) => tab.muted) ? `Unmute ${count}` : `Mute ${count}`, click: then(() => all.forEach((id) => tabs.setMuted(id, !picked.every((tab) => tab.muted)))) },
     { label: `Reload ${count}`, click: then(() => all.forEach((id) => tabs.reload(id))) },
+    { label: `Copy links of ${count}`, click: then(() => actions.copyTabLinks(all)) },
     { type: 'separator' },
     { label: `Close ${count}`, click: then(() => all.forEach((id) => tabs.close(id))) }
   ]).popup({ window })
@@ -366,7 +378,7 @@ function closedTabRows(tabs: BrowserActions['tabs']): MenuItemConstructorOptions
     return text.length > MENU_TITLE ? `${text.slice(0, MENU_TITLE - 1)}…` : text
   }
   return [
-    { label: 'Reopen closed tab', accelerator: 'CmdOrCtrl+Shift+T', enabled: closed.length > 0, click: () => tabs.reopenClosed() },
+    { label: 'Reopen closed tab', accelerator: keyFor('reopen-tab'), enabled: closed.length > 0, click: () => tabs.reopenClosed() },
     ...(closed.length > 1
       ? [{ label: 'Recently closed', submenu: closed.map((tab, index) => ({ label: name(tab), click: () => tabs.reopenClosed(index) })) }]
       : [])
@@ -514,8 +526,8 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
   // A narrow toolbar hides these buttons, so they're here instead of squashed.
   const spareRows: MenuItemConstructorOptions[] = compact
     ? [
-        { label: 'Bookmark this page', accelerator: 'CmdOrCtrl+D', click: actions.toggleBookmark },
-        { label: 'Passwords', accelerator: 'CmdOrCtrl+Shift+L', click: actions.passwordMenu },
+        { label: 'Bookmark this page', accelerator: keyFor('bookmark'), click: actions.toggleBookmark },
+        { label: 'Passwords', accelerator: keyFor('passwords'), click: actions.passwordMenu },
         { label: 'Extensions', submenu: actions.extensionMenu() },
         { label: 'Profiles', click: () => actions.openPage('settings', 'data') },
         { type: 'separator' }
@@ -525,21 +537,21 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
   Menu.buildFromTemplate([
     ...updateRow,
     ...spareRows,
-    { label: 'New tab', accelerator: 'CmdOrCtrl+T', click: () => tabs.create() },
-    { label: 'New window', accelerator: 'CmdOrCtrl+N', click: () => actions.openWindow() },
-    { label: 'New private window', accelerator: 'CmdOrCtrl+Shift+N', click: actions.openPrivateWindow },
+    { label: 'New tab', accelerator: keyFor('new-tab'), click: () => tabs.create() },
+    { label: 'New window', accelerator: keyFor('new-window'), click: () => actions.openWindow() },
+    { label: 'New private window', accelerator: keyFor('private-window'), click: actions.openPrivateWindow },
     { type: 'separator' },
     ...closedTabRows(tabs),
-    { label: 'Search tabs', accelerator: 'CmdOrCtrl+Shift+E', click: actions.searchTabs },
+    { label: 'Search tabs', accelerator: keyFor('search-tabs'), click: actions.searchTabs },
     { type: 'checkbox', label: 'Split view', checked: tabs.snapshot().splitIds.length > 0, enabled: tabs.snapshot().tabs.length > 1, click: () => tabs.toggleSplit() },
     { type: 'separator' },
-    { label: 'History', accelerator: 'CmdOrCtrl+H', click: () => actions.openPage('history') },
-    { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
+    { label: 'History', accelerator: keyFor('history'), click: () => actions.openPage('history') },
+    { label: 'Downloads', accelerator: keyFor('downloads'), click: () => actions.openPage('downloads') },
     {
       label: 'Bookmarks',
       submenu: [
-        { label: 'All bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
-        { type: 'checkbox', label: 'Bookmarks bar', accelerator: 'CmdOrCtrl+Shift+B', checked: bookmarksBarAlways, click: actions.toggleBookmarksBar }
+        { label: 'All bookmarks', accelerator: keyFor('bookmarks'), click: () => actions.openPage('bookmarks') },
+        { type: 'checkbox', label: 'Bookmarks bar', accelerator: keyFor('bookmarks-bar'), checked: bookmarksBarAlways, click: actions.toggleBookmarksBar }
       ]
     },
     {
@@ -555,7 +567,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     {
       label: 'AI',
       submenu: [
-        { label: 'Assistant', accelerator: 'CmdOrCtrl+Shift+A', click: actions.toggleAssistant },
+        { label: 'Assistant', accelerator: keyFor('assistant'), click: actions.toggleAssistant },
         { label: 'AI Briefs', click: () => actions.openPage('briefs') },
         { label: 'Terra Code (beta)', click: () => actions.openCode() },
         { label: 'Translate page', enabled: onPage, submenu: translateRows(actions) },
@@ -576,32 +588,32 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     {
       label: `Zoom (${active?.zoomPercent ?? 100}%)`,
       submenu: [
-        { label: 'Zoom in', accelerator: 'CmdOrCtrl+=', click: onActive((id) => tabs.zoomBy(id, 1)) },
-        { label: 'Zoom out', accelerator: 'CmdOrCtrl+-', click: onActive((id) => tabs.zoomBy(id, -1)) },
-        { label: 'Reset', accelerator: 'CmdOrCtrl+0', click: onActive((id) => tabs.setZoom(id, 1)) }
+        { label: 'Zoom in', accelerator: keyFor('zoom-in'), click: onActive((id) => tabs.zoomBy(id, 1)) },
+        { label: 'Zoom out', accelerator: keyFor('zoom-out'), click: onActive((id) => tabs.zoomBy(id, -1)) },
+        { label: 'Reset', accelerator: keyFor('zoom-reset'), click: onActive((id) => tabs.setZoom(id, 1)) }
       ]
     },
-    { label: 'Find in page…', accelerator: 'CmdOrCtrl+F', click: actions.openFind },
-    { label: 'Reader view', accelerator: 'F9', click: actions.toggleReader },
-    { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: onActive((id) => tabs.print(id)) },
-    { label: 'Screenshot', accelerator: 'CmdOrCtrl+Shift+S', click: actions.screenshot },
-    { label: 'Full screen', accelerator: 'F11', click: actions.toggleFullscreen },
+    { label: 'Find in page…', accelerator: keyFor('find'), click: actions.openFind },
+    { label: 'Reader view', accelerator: keyFor('reader'), click: actions.toggleReader },
+    { label: 'Print…', accelerator: keyFor('print'), click: onActive((id) => tabs.print(id)) },
+    { label: 'Screenshot', accelerator: keyFor('screenshot'), click: actions.screenshot },
+    { label: 'Full screen', accelerator: keyFor('fullscreen'), click: actions.toggleFullscreen },
     { type: 'separator' },
     {
       label: 'More tools',
       submenu: [
-        { label: 'Command palette', accelerator: 'CmdOrCtrl+K', click: actions.togglePalette },
-        { label: 'Open file…', accelerator: 'CmdOrCtrl+O', click: actions.openFile },
+        { label: 'Command palette', accelerator: keyFor('palette'), click: actions.togglePalette },
+        { label: 'Open file…', accelerator: keyFor('open-file'), click: actions.openFile },
         { label: 'Install this site as an app…', enabled: onPage, click: actions.installApp },
         { type: 'checkbox', label: 'Performance Mode', checked: actions.performanceMode.enabled(), click: actions.performanceMode.toggle },
         { type: 'separator' },
-        { label: 'Task Manager', accelerator: 'Shift+Esc', click: () => actions.openPage('tasks') },
-        { label: 'View page source', accelerator: 'CmdOrCtrl+U', enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
-        { label: 'Developer tools', accelerator: 'F12', click: onActive((id) => tabs.toggleDevTools(id)) }
+        { label: 'Task Manager', accelerator: keyFor('task-manager'), click: () => actions.openPage('tasks') },
+        { label: 'View page source', accelerator: keyFor('view-source'), enabled: !!active && /^(https?|file):/i.test(effectiveUrl(active.url)), click: actions.viewSource },
+        { label: 'Developer tools', accelerator: keyFor('devtools'), click: onActive((id) => tabs.toggleDevTools(id)) }
       ]
     },
     { type: 'separator' },
-    { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => actions.openPage('settings') },
-    { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: actions.quit }
+    { label: 'Settings', accelerator: keyFor('settings'), click: () => actions.openPage('settings') },
+    { label: 'Quit', accelerator: keyFor('quit'), click: actions.quit }
   ]).popup({ window, x: Math.round(x), y: Math.round(y) })
 }

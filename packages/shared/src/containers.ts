@@ -25,15 +25,23 @@ export const TOOLBAR_ITEMS = [
 export type ToolbarItemId = (typeof TOOLBAR_ITEMS)[number]['id']
 
 /** What can be dragged around the toolbar. Profiles, the assistant and More stay at its end. */
-export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'vpn', 'omnibox', 'split', 'downloads', 'passwords', 'extensions'] as const
+export const TOOLBAR_SLOTS = ['back', 'forward', 'reload', 'home', 'vpn', 'omnibox', 'split', 'downloads', 'passwords', 'extensions'] as const
 
 export type ToolbarSlot = (typeof TOOLBAR_SLOTS)[number]
 
 export const isToolbarOrder = (value: unknown): value is ToolbarSlot[] =>
   Array.isArray(value) && value.length === new Set(value).size && value.every((slot) => TOOLBAR_SLOTS.includes(slot))
 
-/** Slots added by a later version go at the end, so a saved order never hides one. */
-export const fullToolbarOrder = (order: readonly ToolbarSlot[]): ToolbarSlot[] => [...order, ...TOOLBAR_SLOTS.filter((slot) => !order.includes(slot))]
+/** Slots added by a later version go after the slot they follow in the usual order, so a saved order never hides one. */
+export function fullToolbarOrder(order: readonly ToolbarSlot[]): ToolbarSlot[] {
+  const full = [...order]
+  for (const slot of TOOLBAR_SLOTS) {
+    if (full.includes(slot)) continue
+    const before = TOOLBAR_SLOTS.slice(0, TOOLBAR_SLOTS.indexOf(slot)).findLast((other) => full.includes(other))
+    full.splice(before ? full.indexOf(before) + 1 : 0, 0, slot)
+  }
+  return full
+}
 
 export interface BrowserFlag {
   id: string

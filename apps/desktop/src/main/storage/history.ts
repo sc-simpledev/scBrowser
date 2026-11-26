@@ -161,6 +161,16 @@ export class HistoryRepo {
     this.deleteAll.run()
   }
 
+  /** Forgets pages last visited at or after this time. Returns how many went. */
+  clearSince(since: number): number {
+    if (since <= 0) {
+      const count = (this.db.prepare(`SELECT count(*) AS n FROM history`).get() as { n: number }).n
+      this.deleteAll.run()
+      return count
+    }
+    return Number(this.db.prepare(`DELETE FROM history WHERE last_visit >= ?`).run(since).changes)
+  }
+
   /** Removes every visit to a site and its subdomains. Returns the origins they were on. */
   forgetSite(base: string): string[] {
     const rows = this.db.prepare(`SELECT url FROM history WHERE url LIKE ? ESCAPE '\\'`).all(`%${escapeLike(base)}%`) as unknown as { url: string }[]

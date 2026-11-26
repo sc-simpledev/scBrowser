@@ -19,6 +19,9 @@ import {
   MAX_HIDDEN_PER_SITE,
   MAX_SIDEBAR_SITES,
   siteOf,
+  NEW_TAB_URL,
+  PALETTE_SHORTCUTS,
+  linksMarkdown,
   engineById,
   isJavascriptUrl,
   isTypedAppUrl,
@@ -79,7 +82,9 @@ import { storeArticle } from './internal/reader'
 import { currentProfile, DEFAULT_PROFILE } from './profiles'
 import { loadExtraSessions, loadSession } from './session'
 import { AppLinks } from './appLinks'
-import { attachShortcuts } from './shortcuts'
+import { attachShortcuts, shortcutKeysNow } from './shortcuts'
+import { savePageAs } from './savePage'
+import { showJsonViewer } from './jsonViewer'
 import { fetchIcon } from './siteIcons'
 import { isPrivate, openPrivateWindow } from './private'
 import { readFlags } from './flags'
@@ -89,7 +94,7 @@ import { applySiteTweaks, pickElement } from './siteTweaks'
 import { LinkPreview } from './linkPreview'
 import { SidebarSites } from './sidebarSites'
 import { copySecret, fillDetails, fillLogin, fillNewPassword, hasLoginForm, nextLoginField, watchForSignIn, type LoginFieldFocus } from './passwordFill'
-import { TabManager } from './tabs/TabManager'
+import { pagesUnloaded, TabManager } from './tabs/TabManager'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = Number(process.env.SCB_E2E && process.env.SCB_SLEEP_CHECK_MS) || 60_000
@@ -285,6 +290,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       void applySiteTweaks(contents, settings.get()).catch(() => undefined)
       void core.highlights?.paint(contents).catch(() => undefined)
       if (rejectsBanners(contents.getURL())) rejectCookieBanner(contents)
+      if (settings.get().jsonViewer) void showJsonViewer(contents)
     },
     onTitle: (url, title) => {
       if (!window.isDestroyed() && !isPrivate) history.updateTitle(url, title)
@@ -306,15 +312,26 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     engine: () => engineById(settings.get().searchEngine),
     keywords: () => settings.get().searchKeywords,
     autoPictureInPicture: () => settings.get().autoPictureInPicture,
+    tabPreviews: () => settings.get().tabPreviews,
     errorUrl: (url, reason) => errorPageUrl(url, reason, privacy.upgradedFrom(url)),
     prepareSession: (target) => core.prepareSession(target),
     onLogin: (contents, details, info, respond) => httpAuth.ask(contents, details, info, respond),
     // Pages can still report in during shutdown, after the database has closed.
-    zoomFor: (url) => (window.isDestroyed() ? 1 : ((kv.get(ZOOM_KEY) as Record<string, number> | undefined)?.[zoomSite(url)] ?? 1)),
+    zoomFor: (url) => (window.isDestroyed() ? 1 : ((kv.get(ZOOM_KEY) as Record<string, number> | undefined)?.[zoomSite(url)] ?? settings.get().defaultZoom / 100)),
     onZoom: (url, factor) => {
       if (window.isDestroyed()) return
       const { [zoomSite(url)]: _old, ...others } = (kv.get(ZOOM_KEY) as Record<string, number> | undefined) ?? {}
-      kv.set(ZOOM_KEY, factor === 1 ? others : { ...others, [zoomSite(url)]: factor })
+      // A site at the usual zoom needs nothing kept, so it follows the default if that changes.
+      kv.set(ZOOM_KEY, Math.abs(factor - settings.get().defaultZoom / 100) < 0.001 ? others : { ...others, [zoomSite(url)]: factor })
+    },
+    fontSizes: () => ({ defaultFontSize: settings.get().fontSize, minimumFontSize: settings.get().minimumFontSize }),
+    popupsAllowed: (url) => {
+      const host = siteOf(url)
+      return !!host && settings.get().popupsAllowed.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
+    },
+    siteMuted: (url) => {
+      const host = siteOf(url)
+      return !!host && settings.get().mutedSites.some((muted) => host === muted || host.endsWith(`.${muted}`))
     },
     onWorkspaceChange: (next, previous) => {
       if (next.focus !== previous?.focus) settings.set({ focusMode: next.focus })
@@ -422,7 +439,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     },
     togglePalette: () => {
       const recent = kv.get(PALETTE_RECENT_KEY)
-      overlay.togglePalette({ recent: Array.isArray(recent) ? recent.filter((id): id is string => typeof id === 'string') : [], skills: isPrivate ? [] : aiStore.skills().map(({ id, name }) => ({ id, name })), hidden: settings.get().vpnInstalled ? [] : VPN_PALETTE_IDS })
+      overlay.togglePalette({ recent: Array.isArray(recent) ? recent.filter((id): id is string => typeof id === 'string') : [], skills: isPrivate ? [] : aiStore.skills().map(({ id, name }) => ({ id, name })), hidden: settings.get().vpnInstalled ? [] : VPN_PALETTE_IDS, keys: Object.fromEntries(Object.entries(PALETTE_SHORTCUTS).map(([command, shortcut]) => [command, shortcutKeysNow(shortcut)[0] ?? ''])) })
       core.onboarding.mark('palette')
     },
     searchTabs: () => overlay.toggleTabSearch(searchRowsEverywhere()),
@@ -560,6 +577,80 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!contents || !/^(https?|file):/i.test(url)) return notify('This works on web pages')
       if (URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)) return notify('AI is off for this site')
       void pictureOfRegion(contents).then((image) => image && send('ui:assistant-prompt', { text: '', selection: null, includePage: false, image }))
+    },
+    savePage: () => {
+      const active = tabs.active
+      const contents = active && tabs.contentsFor(active.id)
+      if (!active || !contents || !/^(https?|file):/i.test(contents.getURL())) return notify('Only web pages can be saved')
+      void savePageAs(contents, active.title, settings.get().downloadDir).then((saved) => saved && notify(`Saved ${saved}`))
+    },
+    clearBrowsingData: () => actions.openPage('settings', 'privacy/clear-data'),
+    goHome: () => {
+      const home = settings.get().homePage
+      const active = tabs.active
+      if (!active) return void tabs.create(home || undefined)
+      tabs.navigate(active.id, home || NEW_TAB_URL)
+    },
+    recentTabOrder: () => settings.get().tabCycleOrder === 'recent',
+    copyTabLinks: (ids) => {
+      const links = tabs.linksOf(ids)
+      if (links.length === 0) return notify('No links to copy')
+      clipboard.writeText(linksMarkdown(links))
+      notify(links.length === 1 ? 'Link copied' : `${links.length} links copied as a list`)
+    },
+    closeDuplicates: () => {
+      const closed = tabs.closeDuplicates()
+      notify(closed === 0 ? 'No duplicate tabs' : closed === 1 ? 'Closed 1 duplicate tab' : `Closed ${closed} duplicate tabs`)
+    },
+    siteMuted: (url) => {
+      const host = siteOf(url)
+      return !!host && settings.get().mutedSites.includes(host)
+    },
+    toggleSiteMute: (id) => {
+      const state = tabs.snapshot().tabs.find((tab) => tab.id === id)
+      const host = state && siteOf(state.url)
+      if (!host) return notify('Only websites can be muted this way')
+      const muted = settings.get().mutedSites
+      const nowMuted = !muted.includes(host)
+      settings.set({ mutedSites: nowMuted ? [...muted, host] : muted.filter((other) => other !== host) })
+      notify(nowMuted ? `${host} is muted in every tab` : `${host} can play sound again`)
+    },
+    otherWindows: () =>
+      core.windows
+        .filter((other) => other.kind === 'browser' && other.window !== window && !other.window.isDestroyed())
+        .map((other) => ({ index: core.windows.indexOf(other), title: other.tabs.active?.title || 'New tab' })),
+    moveTabToWindow: (id, target) => {
+      const saved = tabs.detach(id)
+      if (!saved) return
+      if (target === 'new') return void core.openWindow({ restore: { tabs: [saved], activeIndex: 0 } })
+      const other = core.windows[target]
+      if (!other || other.window.isDestroyed()) return void core.openWindow({ restore: { tabs: [saved], activeIndex: 0 } })
+      other.tabs.adopt(saved)
+      other.window.focus()
+    },
+    defaultZoom: () => settings.get().defaultZoom / 100,
+    popupsMenu: (x, y) => {
+      const active = tabs.active
+      const blocked = active?.blockedPopups ?? []
+      const host = active ? siteOf(active.url) : null
+      if (!active || !host) return
+      const shorten = (url: string) => (url.length > 70 ? `${url.slice(0, 69)}…` : url)
+      Menu.buildFromTemplate([
+        { label: `Pop-ups blocked on ${host}`, enabled: false },
+        ...blocked.map((url) =>
+          url === 'about:blank' ? { label: 'A pop-up with no address yet', enabled: false } : { label: `Open ${shorten(url)}`, click: () => tabs.openBlockedPopup(active.id, url) }
+        ),
+        { type: 'separator' },
+        {
+          label: `Always allow pop-ups from ${host}`,
+          click: () => {
+            settings.set({ popupsAllowed: [...settings.get().popupsAllowed.filter((other) => other !== host), host] })
+            tabs.clearBlockedPopups(active.id)
+            notify(`${host} can open pop-ups. Reload the page to let it try again`)
+          }
+        },
+        { label: 'Pop-up settings', click: () => actions.openPage('settings', 'privacy') }
+      ]).popup({ window, x: Math.round(x), y: Math.round(y) })
     },
     mediaAction: (id, action) => {
       if (action === 'focus') return tabs.activate(id)
@@ -781,6 +872,13 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     for (const contents of tabs.allContents()) void applySiteTweaks(contents, next)
   })
   const stopSidebarPrune = settings.subscribe((next) => sidebarSites.prune(next.sidebarSites.map((site) => site.url)))
+  // A site muted or unmuted everywhere: open tabs of it follow at once.
+  let lastMuted = settings.get().mutedSites
+  const stopSiteMutes = settings.subscribe((next) => {
+    if (next.mutedSites === lastMuted) return
+    lastMuted = next.mutedSites
+    tabs.refreshSiteMutes()
+  })
   const coderHome = join(app.getPath('userData'), 'terra-code')
   const coderTrust = new KvCoderTrust(kv)
   const coderMcp = new CoderMcp(kv, coderTrust, (url) => void tabs.create(url, { afterId: tabs.active?.id }))
@@ -1258,6 +1356,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     passwords: () => actions.openPage('passwords'),
     'fill-password': () => openPasswordMenu(),
     print: onActive((id) => tabs.print(id)),
+    'save-page': actions.savePage,
+    'clear-data': actions.clearBrowsingData,
+    'go-home': actions.goHome,
+    'close-duplicates': actions.closeDuplicates,
+    'copy-tab-links': () => actions.copyTabLinks(),
+    'mute-site': onActive((id) => actions.toggleSiteMute(id)),
+    'move-tab-window': onActive((id) => actions.moveTabToWindow(id, 'new')),
+    'keyboard-shortcuts': () => actions.openPage('settings', 'keyboard'),
     fullscreen: actions.toggleFullscreen,
     devtools: onActive((id) => tabs.toggleDevTools(id))
   }
@@ -1772,14 +1878,29 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     if (savedWindow?.maximized && openBrowsers.length === 0) window.maximize()
     window.show()
   })
-  window.on('close', () => {
+  let pagesPutAway = false
+  window.on('close', (event) => {
+    if (pagesPutAway) return
+    pagesPutAway = true
     core.closing(handle)
     if (!isApp) kv.set(WINDOW_KEY, { bounds: window.getNormalBounds(), maximized: window.isMaximized() } satisfies SavedWindow)
+    // Pages run their unload handlers before the window goes, as they would in any browser: some
+    // sites only write a sign-in back to storage then. The window steps out of sight meanwhile.
+    sidebarSites.destroy()
+    const sessions = tabs.unloadPages()
+    if (sessions.length === 0) return
+    event.preventDefault()
+    window.hide()
+    void pagesUnloaded().then(() => {
+      for (const used of sessions) used.flushStorageData()
+      if (!window.isDestroyed()) window.close()
+    })
   })
   window.on('closed', () => {
     clearInterval(sleepTimer)
     stopTweaks()
     stopSidebarPrune()
+    stopSiteMutes()
     preview.close()
     sidebarSites.destroy()
     nativeTheme.off('updated', syncTheme)
@@ -1816,13 +1937,16 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     if (!isPrivate) void core.fillMissingIcons()
     const saved = settings.get().startup === 'restore' ? loadSession(kv) : null
     const previous = loadSession(kv)
+    // Startup pages open unless something else was asked for, like a link from another app.
+    const startupPages = settings.get().startup === 'pages' && urls.length === 0 ? settings.get().startupPages : []
     if (saved) tabs.restore(saved.tabs, saved.activeIndex, saved.split, saved.splitRatio)
     urls.forEach((url) => tabs.create(url))
+    startupPages.forEach((url, index) => tabs.create(url, { activate: index === 0 }))
     // Someone already using scTerra has no need of an introduction.
     const seen = kv.get(WELCOME_KEY) === true || !!previous || bookmarks.list().length > 0
     const eligible = !isPrivate && currentProfile() === DEFAULT_PROFILE && urls.length === 0 && (!process.env.SCB_E2E || !!process.env.SCB_WELCOME)
     if (!seen && eligible) setIntro(tabs.create(WELCOME_URL))
-    else if (!saved && urls.length === 0) tabs.create()
+    else if (!saved && urls.length === 0 && startupPages.length === 0) tabs.create()
     if (seen) kv.set(WELCOME_KEY, true)
     // A brief written since scTerra was last open is what the person sees first.
     if (urls.length === 0 && core.briefs?.takeStartupBriefs()) tabs.openInternal('sc://briefs')

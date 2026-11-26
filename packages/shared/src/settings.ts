@@ -10,7 +10,15 @@ import { isHiddenElements, isSiteCss, isSiteHost } from './siteTweaks'
 import { isSidebarSites, type SidebarSite } from './sidebarSites'
 import { isRoutine, MAX_ROUTINES, type Routine } from './tabs'
 import { ARCHIVE_CHOICES } from './archive'
+import { isShortcutOverrides } from './shortcuts'
+import { DEFAULT_READER_STYLE, isReaderStyle, type ReaderStyle } from './reader'
 import { isDownloadRules, type DownloadRule } from './downloadRules'
+
+/** Zoom levels offered for every site, in percent. */
+export const ZOOM_CHOICES = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const
+export const MAX_STARTUP_PAGES = 20
+/** An http or https address, as kept for startup pages and Home. */
+export const isWebAddress = (v: unknown): v is string => typeof v === 'string' && v.length <= 2048 && /^https?:\/\/[^\s]+$/i.test(v) && URL.canParse(v)
 
 const isWidth = (v: unknown) => Number.isInteger(v) && (v as number) >= 160 && (v as number) <= 2000
 
@@ -91,7 +99,39 @@ export interface Settings {
   sidebarColor: string
   /** Where the bookmarks bar appears. */
   bookmarksBar: 'always' | 'new-tab' | 'bookmarks-page'
-  startup: 'restore' | 'new-tab'
+  startup: 'restore' | 'new-tab' | 'pages'
+  /** What opens at start when `startup` is 'pages'. */
+  startupPages: string[]
+  /** Where Home goes: an address, or '' for the new tab page. */
+  homePage: string
+  /** The Home button in the toolbar. */
+  homeButton: boolean
+  /** Ctrl Tab goes through tabs in the order they sit, or the order they were last looked at. */
+  tabCycleOrder: 'strip' | 'recent'
+  /** Zoom for sites without one of their own, in percent. */
+  defaultZoom: number
+  /** The size pages' ordinary text is drawn at, in pixels, unless they say otherwise. */
+  fontSize: number
+  /** No text is drawn smaller than this, in pixels; 0 lets pages decide. */
+  minimumFontSize: number
+  /** Sends Global Privacy Control: the person doesn't want their data sold or shared. */
+  globalPrivacyControl: boolean
+  /** Sites allowed to open pop-ups without a click. */
+  popupsAllowed: string[]
+  /** Sites muted in every tab, now and later. */
+  mutedSites: string[]
+  /** JSON documents show folded and coloured. */
+  jsonViewer: boolean
+  /** Hover cards show a small picture of the tab's page. */
+  tabPreviews: boolean
+  /** The middle mouse button scrolls a page by moving the pointer. */
+  middleClickScroll: boolean
+  /** Drawing with the right mouse button held goes back, forward, closes tabs and so on. */
+  mouseGestures: boolean
+  /** Keys the person changed, by shortcut id. An empty list means none. */
+  shortcuts: Record<string, string[]>
+  /** Reader view's font, size, width and colours. */
+  readerStyle: ReaderStyle
   /** Background tabs are unloaded after this many minutes; 0 disables it. */
   sleepAfterMinutes: number
   /** Days a tab goes unused before it's closed into the archive, or 0 for never. Pinned and playing tabs stay. */
@@ -310,6 +350,22 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarColor: 'default',
   bookmarksBar: 'always',
   startup: 'restore',
+  startupPages: [],
+  homePage: '',
+  homeButton: false,
+  tabCycleOrder: 'strip',
+  defaultZoom: 100,
+  fontSize: 16,
+  minimumFontSize: 0,
+  globalPrivacyControl: true,
+  popupsAllowed: [],
+  mutedSites: [],
+  jsonViewer: true,
+  tabPreviews: true,
+  middleClickScroll: false,
+  mouseGestures: false,
+  shortcuts: {},
+  readerStyle: DEFAULT_READER_STYLE,
   sleepAfterMinutes: 30,
   performanceMode: false,
   archiveAfterDays: 0,
@@ -430,7 +486,23 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   addressCalculator: (v) => typeof v === 'boolean',
   searchKeywords: isSearchKeywords,
   suggestionSources: (v) => Array.isArray(v) && v.every((id) => SUGGESTION_SOURCES.some((source) => source.id === id)),
-  startup: (v) => oneOf(v, ['restore', 'new-tab']),
+  startup: (v) => oneOf(v, ['restore', 'new-tab', 'pages']),
+  startupPages: (v) => Array.isArray(v) && v.length <= MAX_STARTUP_PAGES && v.every(isWebAddress),
+  homePage: (v) => v === '' || isWebAddress(v),
+  homeButton: (v) => typeof v === 'boolean',
+  tabCycleOrder: (v) => v === 'strip' || v === 'recent',
+  defaultZoom: (v) => (ZOOM_CHOICES as readonly unknown[]).includes(v),
+  fontSize: (v) => Number.isInteger(v) && (v as number) >= 9 && (v as number) <= 32,
+  minimumFontSize: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 24,
+  globalPrivacyControl: (v) => typeof v === 'boolean',
+  popupsAllowed: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
+  mutedSites: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
+  jsonViewer: (v) => typeof v === 'boolean',
+  tabPreviews: (v) => typeof v === 'boolean',
+  middleClickScroll: (v) => typeof v === 'boolean',
+  mouseGestures: (v) => typeof v === 'boolean',
+  shortcuts: isShortcutOverrides,
+  readerStyle: isReaderStyle,
   sleepAfterMinutes: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1440,
   performanceMode: (v) => typeof v === 'boolean',
   archiveAfterDays: (v) => (ARCHIVE_CHOICES as readonly unknown[]).includes(v),

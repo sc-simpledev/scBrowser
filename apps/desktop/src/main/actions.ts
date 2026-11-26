@@ -103,4 +103,27 @@ export interface BrowserActions {
   restoreTitles: () => void
   /** Drag a box over the page, and it goes to the assistant as a picture. */
   askAboutRegion: () => void
+  /** Saves the open page to a file, whole with its pictures or as one .mhtml file. */
+  savePage: () => void
+  /** Opens Clear browsing data in Settings. */
+  clearBrowsingData: () => void
+  /** The home page, or the new tab page, in the open tab. */
+  goHome: () => void
+  /** Ctrl Tab goes by recently used rather than by place. */
+  recentTabOrder: () => boolean
+  /** The zoom sites without one of their own get, as a factor. */
+  defaultZoom: () => number
+  /** What the pop-up blocker stopped on the open page, and letting the site open them. */
+  popupsMenu: (x: number, y: number) => void
+  /** Copies these tabs' links (or every tab's here) as a Markdown list. */
+  copyTabLinks: (ids?: number[]) => void
+  closeDuplicates: () => void
+  /** Mutes a tab's site in every tab, now and later, or unmutes it. */
+  toggleSiteMute: (id: number) => void
+  /** Whether a tab's site is muted everywhere. */
+  siteMuted: (url: string) => boolean
+  /** Moves a tab to a new window, or to another open one. */
+  moveTabToWindow: (id: number, target: 'new' | number) => void
+  /** The other browser windows, by the index `moveTabToWindow` takes, named by their open tab. */
+  otherWindows: () => { index: number; title: string }[]
 }

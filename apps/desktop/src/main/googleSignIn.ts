@@ -20,13 +20,16 @@ export const rememberOwnUserAgent = (userAgent: string) => {
  * makes Chromium reload the page before and drop the navigation. Scripts on these pages get the
  * same answer from `preload/internal.ts`.
  */
-export function attachGoogleSignIn(target: Session): void {
+export function attachGoogleSignIn(target: Session, privacySignal: () => boolean = () => false): void {
   target.webRequest.onBeforeSendHeaders(({ url, resourceType, referrer, requestHeaders }, callback) => {
+    // Global Privacy Control goes with every request to a website while it's on, as in Brave and Firefox.
+    // It shares this listener because a session keeps only one.
+    const headers = privacySignal() && /^https?:/i.test(url) ? { ...requestHeaders, 'Sec-GPC': '1' } : requestHeaders
     // The referrer rather than the frame, as a frame can be gone by now and the request must always get an answer.
     const signingIn = isGoogleSignIn(url) || (resourceType !== 'mainFrame' && isGoogleSignIn(referrer))
-    if (signingIn) return callback({ requestHeaders: { ...requestHeaders, 'User-Agent': ownUserAgent } })
-    if (isWebStore(url) || isWebStore(referrer)) return callback({ requestHeaders: withChromeBrand(requestHeaders) })
-    callback({ requestHeaders })
+    if (signingIn) return callback({ requestHeaders: { ...headers, 'User-Agent': ownUserAgent } })
+    if (isWebStore(url) || isWebStore(referrer)) return callback({ requestHeaders: withChromeBrand(headers) })
+    callback({ requestHeaders: headers })
   })
 }
 

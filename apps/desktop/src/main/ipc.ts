@@ -1,6 +1,7 @@
 import { clipboard, Menu, type BaseWindow, type WebContents } from 'electron'
 import { tweakSite } from './ai/siteTweak'
-import { MAX_TWEAK_REQUEST, SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil } from '@scbrowser/shared'
+import { MAX_TWEAK_REQUEST, READER_CHOICES, SNOOZE_CHOICES, SNOOZE_LABELS, snoozeUntil, type ReaderStyle } from '@scbrowser/shared'
+import { keyFor } from './shortcuts'
 import {
   engineById,
   isCitationSource,
@@ -181,6 +182,10 @@ const validators: Validators = {
   'tabs:split-with': (args): args is [number, 'left' | 'right'] => args.length === 2 && isId(args[0]) && (args[1] === 'left' || args[1] === 'right'),
   'tabs:collapse': idArg,
   'tabs:memory': idArg,
+  'tabs:preview': idArg,
+  'popups:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
+  'tabs:home': noArgs,
+  'reader:menu': (args): args is [number, number] => args.length === 2 && Number.isFinite(args[0]) && Number.isFinite(args[1]),
   'tabs:capture': noArgs,
   'omnibox:context-menu': noArgs,
   'omnibox:refocus': noArgs,
@@ -227,12 +232,13 @@ const validators: Validators = {
   'bookmarks:edit-page': (args): args is [string, string] => args.length === 2 && isShortString(args[0]) && isShortString(args[1]),
   'settings:get': noArgs,
   'settings:set': (args): args is [Partial<Settings>] => args.length === 1 && record(args[0]),
-  'find:query': (args): args is [string, { forward: boolean; findNext: boolean }] =>
+  'find:query': (args): args is [string, { forward: boolean; findNext: boolean; matchCase?: boolean }] =>
     args.length === 2 &&
     isShortString(args[0], 1024) &&
     record(args[1]) &&
     typeof args[1].forward === 'boolean' &&
-    typeof args[1].findNext === 'boolean',
+    typeof args[1].findNext === 'boolean' &&
+    (args[1].matchCase === undefined || typeof args[1].matchCase === 'boolean'),
   'find:stop': noArgs,
   'zoom:reset': noArgs,
   'menu:open': (args): args is [number, number, boolean] =>
@@ -372,6 +378,29 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'tabs:split-with': (id, side) => tabs.splitWith(id, side),
     'tabs:collapse': (id) => tabs.toggleCollapsed(id),
     'tabs:memory': async (id) => tabs.memoryOf(id),
+    'tabs:preview': (id) => tabs.preview(id),
+    'popups:menu': (x, y) => actions.popupsMenu(x, y),
+    'tabs:home': () => actions.goHome(),
+    'reader:menu': (x, y) => {
+      const style = settings.get().readerStyle
+      const pick = <K extends keyof ReaderStyle>(key: K, title: string) => ({
+        label: title,
+        submenu: (READER_CHOICES[key] as unknown as readonly { id: ReaderStyle[K]; label: string }[]).map((option) => ({
+          label: option.label,
+          type: 'radio' as const,
+          checked: style[key] === option.id,
+          click: () => settings.set({ readerStyle: { ...settings.get().readerStyle, [key]: option.id } })
+        }))
+      })
+      Menu.buildFromTemplate([
+        pick('size', 'Text size'),
+        pick('font', 'Font'),
+        pick('width', 'Line width'),
+        pick('theme', 'Colours'),
+        { type: 'separator' },
+        { label: 'Leave reader view', accelerator: keyFor('reader'), registerAccelerator: false, click: actions.toggleReader }
+      ]).popup({ window, x: Math.round(x), y: Math.round(y) })
+    },
     'tabs:capture': () => tabs.capture(),
     'omnibox:context-menu': () => popupOmniboxMenu(actions, window),
     'omnibox:refocus': () => {
@@ -412,6 +441,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
             label: 'Snooze group',
             submenu: SNOOZE_CHOICES.filter((choice) => choice !== 'site' && snoozeUntil(choice, Date.now()) !== null).map((choice) => ({ label: SNOOZE_LABELS[choice], click: () => actions.snoozeGroup(name, choice) }))
           },
+          { label: 'Copy links', click: () => actions.copyTabLinks(tabs.snapshot().tabs.filter((tab) => tab.group === name).map((tab) => tab.id)) },
           { type: 'separator' },
           { label: 'Ungroup', click: () => tabs.ungroup(name) },
           { label: 'Close group', toolTip: 'Keeps it, to reopen from the tab menu or the archive page', click: () => actions.closeGroup(name, true) },
@@ -483,7 +513,7 @@ export function registerIpc(chromeUi: WebContents, services: IpcServices): () =>
     'find:query': (text, options) => tabs.find(text, options),
     'find:stop': () => tabs.stopFind(),
     'zoom:reset': () => {
-      if (tabs.active) tabs.setZoom(tabs.active.id, 1)
+      if (tabs.active) tabs.setZoom(tabs.active.id, actions.defaultZoom())
     },
     'menu:open': (x, y, compact) => popupAppMenu(actions, settings.get().bookmarksBar === 'always', updates.state(), compact, window, x, y),
     'downloads:open-page': () => actions.openPage('downloads'),

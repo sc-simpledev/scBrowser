@@ -40,7 +40,7 @@ function cardDetail(tab: TabState, memoryKb: number | null): string {
  * A small card beside a side tab after the pointer rests on it: the whole title, the site and how
  * much memory it uses. Drawn in the overlay like tooltips, so it clears the moment the pointer moves on.
  */
-function useHoverCard(tab: TabState, enabled: boolean) {
+function useHoverCard(tab: TabState, enabled: boolean, placement: 'right' | 'below', withPreview: boolean) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const shown = useRef(false)
   /** Still under the pointer, checked once the memory figure comes back. */
@@ -61,11 +61,14 @@ function useHoverCard(tab: TabState, enabled: boolean) {
     inside.current = true
     timer.current = setTimeout(async () => {
       const latest = current.current
-      const memory = latest.isSleeping ? null : await window.scb.invoke('tabs:memory', latest.id).catch(() => null)
+      const [memory, image] = await Promise.all([
+        latest.isSleeping ? null : window.scb.invoke('tabs:memory', latest.id).catch(() => null),
+        withPreview ? window.scb.invoke('tabs:preview', latest.id).catch(() => null) : null
+      ])
       if (!element.isConnected || !inside.current) return
       const { x, y, width, height } = element.getBoundingClientRect()
       shown.current = true
-      useOverlay.getState().setTooltip({ anchor: { x, y, width, height }, label: fullTitle(latest), detail: cardDetail(latest, memory), placement: 'right' })
+      useOverlay.getState().setTooltip({ anchor: { x, y, width, height }, label: fullTitle(latest), detail: cardDetail(latest, memory), placement, ...(image ? { image } : {}) })
     }, HOVER_CARD_DELAY_MS)
   }
   return { show, hide }
@@ -155,8 +158,9 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
   const sleepButton = useApp((s) => s.settings.tabSleepButton) && !iconOnly && !tab.isSleeping
   // The tab tree: branches step in under the tab they were opened from. Only where there's room for it.
   const depth = useApp((s) => s.settings.tabTree) && layout === 'vertical' && !tab.pinned ? (tab.depth ?? 0) : 0
-  // Side tabs get a hover card; across the top, the title is already most of what's there.
-  const card = useHoverCard(tab, side)
+  // Side tabs get a hover card; across the top, the title is already most of what's there, unless it brings a picture of the page.
+  const previews = useApp((s) => s.settings.tabPreviews)
+  const card = useHoverCard(tab, side || previews, side ? 'right' : 'below', previews)
   // Picked with Ctrl or Shift, along with others.
   const picked = useTabs((s) => s.selected.length > 1 && s.selected.includes(tab.id))
 
@@ -165,7 +169,7 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
       role="tab"
       aria-selected={active}
       tabIndex={active ? 0 : -1}
-      title={side ? undefined : fullTitle(tab)}
+      title={side || previews ? undefined : fullTitle(tab)}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -223,7 +227,8 @@ export function Tab({ tab, active, split, layout, index, draggingId, onDragState
         side && 'rounded-md',
         // Across the top, the open tab joins the toolbar under it, with curved feet (sc-htab in index.css).
         layout === 'horizontal' && 'sc-htab',
-        layout === 'horizontal' && !tab.pinned && 'min-w-10 flex-[0_1_224px] gap-2 pr-1.5 pl-3',
+        // A size container has no width of its own to offer the strip, so it says how wide it would like to be.
+        layout === 'horizontal' && !tab.pinned && 'min-w-10 flex-[0_1_224px] gap-2 pr-1.5 pl-3 [contain-intrinsic-inline-size:224px]',
         layout === 'horizontal' && tab.pinned && 'w-10 shrink-0 justify-center',
         layout === 'horizontal' && (active ? 'h-8.75 rounded-t-[10px]' : 'mb-1 h-7.5 rounded-md'),
         layout === 'vertical' && !tab.pinned && 'h-9 w-full shrink-0 gap-2 pr-1 pl-2',

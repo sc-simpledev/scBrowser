@@ -10,6 +10,7 @@ import {
   TOAST_POPUP,
   TOOLTIP_GAP,
   tooltipBox,
+  TAB_PREVIEW,
   type TooltipState,
   type OverlayEvents,
   type PermissionPopupState
@@ -74,7 +75,7 @@ export function OverlayApp() {
           )}
         </div>
       )}
-      {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} recent={palette.recent ?? []} skills={palette.skills ?? []} hidden={palette.hidden ?? []} />}
+      {palette && <CommandPalette x={palette.x - origin.x} y={palette.y - origin.y} recent={palette.recent ?? []} skills={palette.skills ?? []} hidden={palette.hidden ?? []} keys={palette.keys ?? {}} />}
       {tabSearch && <TabSearch rows={tabSearch.rows} x={tabSearch.x - origin.x} y={tabSearch.y - origin.y} />}
       {toast && (
         <div
@@ -171,6 +172,14 @@ function TooltipCard({ tooltip, origin }: { tooltip: TooltipState; origin: { x: 
       className="sc-tooltip absolute flex flex-col justify-center rounded-md border border-border bg-surface px-3 py-1.5 text-xs leading-4 text-text shadow-2"
       style={{ left: box.x - origin.x, top: box.y - origin.y, width: box.width, height: box.height }}
     >
+      {tooltip.image && (
+        <img
+          alt=""
+          src={tooltip.image}
+          className="mb-2 shrink-0 rounded-sm border border-border object-cover object-top"
+          style={{ width: TAB_PREVIEW.width, height: TAB_PREVIEW.height }}
+        />
+      )}
       <span className={cx(tooltip.wrap ? '[overflow-wrap:anywhere]' : 'line-clamp-2 font-medium')}>{tooltip.wrap ? breakAtSlashes(tooltip.label) : tooltip.label}</span>
       {tooltip.detail && <span className="mt-1 truncate text-text-muted">{tooltip.detail}</span>}
     </div>

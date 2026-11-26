@@ -42,6 +42,29 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.9.3',
+    date: '2026-11-27',
+    items: [
+      'Fixed: Discord asked you to sign in again after its tab slept, after closing and reopening it, and after restarting scTerra. Pages now get to save what they keep as they close, as in other browsers, which helps any site that holds its sign-in that way.',
+      'A pop-up blocker: sites can only open new windows when you click something. The address bar shows what was stopped, to open it or always allow that site.',
+      'Change any keyboard shortcut in Settings, under Keyboard shortcuts. Menus and the command palette show your keys.',
+      'Clear browsing data with Ctrl Shift Delete: pick how far back, and whether history, downloads, cookies or the cache go.',
+      'Ctrl S saves the whole page with its pictures, or as one .mhtml file.',
+      'A Home button and Alt Home, a home page of your choice, and startup pages that open each time.',
+      'One page zoom for every site, a text size and a smallest text size, in Appearance.',
+      'Ctrl Tab can go through tabs in the order you last used them (Tabs and toolbar).',
+      'Global Privacy Control tells sites not to sell or share your data. It’s on, under Privacy.',
+      'Find in page can match case, and pages of JSON show as a tree that folds, with Raw and Copy.',
+      'Resting on a tab shows a small picture of its page, with tabs down the side or across the top.',
+      'From the tab menu: close duplicate tabs, copy the links of your tabs, move a tab to another window, and mute a whole site.',
+      'Scroll with the middle mouse button, and mouse gestures with the right button. Both are off until you turn them on, in Browsing.',
+      'Reader view has text size, font, line width and light, sepia or dark colours, from the Aa button in the address bar.',
+      'Drag a finished download from Downloads into another app.',
+      'Terra Code: /memory opens TERRA.md, /resume picks a saved session, /cost shows usage, /release-notes shows this list.',
+      'Fixed: tabs across the top showed only their icons, whatever the room.'
+    ]
+  },
+  {
     version: '0.9.2',
     date: '2026-11-27',
     items: [

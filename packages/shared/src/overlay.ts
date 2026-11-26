@@ -39,14 +39,22 @@ export interface TooltipState {
   placement?: 'below' | 'right'
   /** Lets a long label wrap, for full addresses. */
   wrap?: boolean
+  /** A small picture of the tab's page, over the title (tab hover cards with previews on). */
+  image?: string
 }
 
 /** A card's width: a label over this many characters wraps. */
 export const TOOLTIP_CARD = { width: 300, wrapWidth: 480, lineHeight: 16, padding: 12 }
+/** The picture of a page in a hover card, inside the card's padding. */
+export const TAB_PREVIEW = { width: 276, height: 156, gap: 8 }
 
 /** How much room a tooltip or card takes, worked out from its text, since the overlay sizes to fit before drawing. */
-export function tooltipSize(tooltip: Pick<TooltipState, 'label' | 'shortcut' | 'detail' | 'wrap'>): { width: number; height: number } {
-  const { label, shortcut, detail, wrap } = tooltip
+export function tooltipSize(tooltip: Pick<TooltipState, 'label' | 'shortcut' | 'detail' | 'wrap' | 'image'>): { width: number; height: number } {
+  const { label, shortcut, detail, wrap, image } = tooltip
+  if (image) {
+    const size = tooltipSize({ label, detail })
+    return { width: TOOLTIP_CARD.width, height: size.height + TAB_PREVIEW.height + TAB_PREVIEW.gap }
+  }
   if (!detail && !wrap) {
     const text = label.length + (shortcut ? shortcut.length + 2 : 0)
     return { width: Math.min(TOOLTIP_REGION.maxWidth, text * TOOLTIP_REGION.charWidth + TOOLTIP_REGION.padding), height: TOOLTIP_REGION.height }
@@ -63,10 +71,12 @@ export function tooltipSize(tooltip: Pick<TooltipState, 'label' | 'shortcut' | '
 export function tooltipBox(tooltip: TooltipState): PageRect {
   const { anchor } = tooltip
   const { width, height } = tooltipSize(tooltip)
-  if (tooltip.placement === 'right') return { x: anchor.x + anchor.width + TOOLTIP_GAP, y: Math.round(anchor.y + anchor.height / 2 - height / 2), width, height }
+  // Centred on the tab beside it, but never above the window's top, where a tall card with a picture would start for the first tabs.
+  if (tooltip.placement === 'right') return { x: anchor.x + anchor.width + TOOLTIP_GAP, y: Math.max(TOOLTIP_GAP, Math.round(anchor.y + anchor.height / 2 - height / 2)), width, height }
   // A wrapped address starts where the text does; anything else centres under its anchor.
   const x = tooltip.wrap ? anchor.x - TOOLTIP_CARD.padding / 2 : anchor.x + anchor.width / 2 - width / 2
-  return { x, y: anchor.y + anchor.height + TOOLTIP_GAP, width, height }
+  // A card under the first tab across the top would start off the window's left edge.
+  return { x: Math.max(TOOLTIP_GAP, x), y: anchor.y + anchor.height + TOOLTIP_GAP, width, height }
 }
 
 export interface OverlayState {
@@ -244,6 +254,8 @@ export interface PaletteState {
   skills: { id: string; name: string }[]
   /** Commands not offered here, such as the VPN's once it's removed. */
   hidden?: string[]
+  /** Each command's key as it's set now, by command id ('' when the person took it away). */
+  keys?: Record<string, string>
 }
 
 export interface WorkspaceEdit {

@@ -28,6 +28,7 @@ import type { CardProgress, QuizProgress } from './quiz'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot, TabTextMatch } from './tabs'
 import type { UpdateState } from './updates'
+import type { ClearKind, ClearRange } from './clearData'
 
 /**
  * Commands the chrome UI sends to the main process. Every channel is listed here so the
@@ -56,6 +57,14 @@ export interface ChromeCommands {
   'history:forget': (url: string) => void
   /** Memory the tab's process uses, in KB, or null while it sleeps. */
   'tabs:memory': (id: TabId) => Promise<number | null>
+  /** A small picture of the tab's page for its hover card, if there is one. */
+  'tabs:preview': (id: TabId) => Promise<string | null>
+  /** The pop-ups the blocker stopped on the open page, as a menu at this point. */
+  'popups:menu': (x: number, y: number) => void
+  /** The home page, or a new tab page, in the open tab. */
+  'tabs:home': () => void
+  /** Reader view's font, size, width and colours, as a menu at this point. */
+  'reader:menu': (x: number, y: number) => void
   /** Folds or unfolds the branch under a tab in the tab tree. */
   'tabs:collapse': (id: TabId) => void
   /** Opens split view with this tab on the given side of the active one. */
@@ -102,7 +111,7 @@ export interface ChromeCommands {
   'bookmarks:edit-page': (url: string, title: string) => void
   'settings:get': () => Settings
   'settings:set': (patch: Partial<Settings>) => void
-  'find:query': (text: string, options: { forward: boolean; findNext: boolean }) => void
+  'find:query': (text: string, options: { forward: boolean; findNext: boolean; matchCase?: boolean }) => void
   'find:stop': () => void
   'zoom:reset': () => void
   /** `compact` adds what a narrow toolbar has no room for. */
@@ -299,6 +308,10 @@ export const COMMAND_CHANNELS = [
   'omnibox:refocus',
   'history:forget',
   'tabs:memory',
+  'tabs:preview',
+  'popups:menu',
+  'tabs:home',
+  'reader:menu',
   'tabs:collapse',
   'tabs:split-with',
   'tabs:capture',
@@ -461,6 +474,14 @@ export interface InternalCommands {
   'history:list': (query: string, limit: number, offset: number) => HistoryEntry[]
   'history:delete': (url: string) => void
   'history:clear': () => void
+  /** Clear browsing data: how far back, and which kinds. */
+  'data:clear': (range: ClearRange, kinds: ClearKind[]) => void
+  /** Settings is waiting for a key to give a shortcut, so the browser mustn't act on it meanwhile. */
+  'shortcuts:recording': (on: boolean) => void
+  /** The web addresses open in this window's tabs, to use as startup pages. */
+  'startup:open-tabs': () => string[]
+  /** Starts dragging a finished download's file, to drop into another app. */
+  'downloads:drag': (id: string) => void
   'bookmarks:list': () => Bookmark[]
   'bookmarks:rename': (id: number, title: string) => void
   'bookmarks:remove': (id: number) => void
@@ -905,6 +926,10 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'history:list',
   'history:delete',
   'history:clear',
+  'data:clear',
+  'shortcuts:recording',
+  'startup:open-tabs',
+  'downloads:drag',
   'bookmarks:list',
   'bookmarks:rename',
   'bookmarks:remove',

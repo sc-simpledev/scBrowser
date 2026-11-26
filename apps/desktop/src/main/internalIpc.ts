@@ -6,9 +6,10 @@ import type { CoderServer } from './ai/coderServer'
 import type { CoderGithub } from './ai/coderGithub'
 import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
-import { toReport } from '@scbrowser/shared'
+import { isClearKind, isClearRange, isWebAddress, MAX_STARTUP_PAGES, toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
-import { app, dialog, ipcMain, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, dialog, ipcMain, nativeImage, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { existsSync } from 'node:fs'
 import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
@@ -16,6 +17,8 @@ import type { BrowserActions } from './actions'
 import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
+import { clearBrowsingData } from './clearData'
+import { setRecordingShortcut } from './shortcuts'
 import type { ExtensionManager } from './extensions'
 import { readBackground, removeBackground, saveBackground } from './internal/background'
 import { isAssistantRequest, isTurns } from './ipc'
@@ -251,6 +254,15 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'history:list': (query, limit, offset) => history.list(text(query, 1024), Math.min(int(limit), 500), int(offset)),
     'history:delete': (url) => history.delete(text(url)),
     'history:clear': () => history.clear(),
+    'data:clear': async (range, kinds) => {
+      if (!isClearRange(range) || !Array.isArray(kinds) || kinds.length === 0 || !kinds.every(isClearKind)) throw new Error('Pick what to clear.')
+      await clearBrowsingData(range, kinds, { history, downloads })
+    },
+    'startup:open-tabs': () => tabs.linksOf().map((link) => link.url).filter((url) => isWebAddress(url)).slice(0, MAX_STARTUP_PAGES),
+    'shortcuts:recording': (on) => {
+      if (!caller || !/^sc:\/\/settings(\/|$|#|\?)/.test(caller.getURL())) throw new Error('Only Settings can change shortcuts.')
+      setRecordingShortcut(caller, on === true)
+    },
     'bookmarks:list': () => bookmarks.list(),
     'bookmarks:rename': (id, title) => {
       bookmarks.rename(int(id), text(title, 1024))
@@ -298,6 +310,13 @@ export function registerInternalIpc(services: InternalServices): () => void {
       downloads.act(text(id, 64), action as DownloadAction)
     },
     'downloads:clear': () => downloads.clearFinished(),
+    'downloads:drag': async (id) => {
+      const info = downloads.list().find((download) => download.id === text(id, 64))
+      const page = caller
+      if (!info || info.state !== 'completed' || !page || !existsSync(info.path)) return
+      const icon = await app.getFileIcon(info.path, { size: 'normal' }).catch(() => null)
+      if (!page.isDestroyed()) page.startDrag({ file: info.path, icon: icon && !icon.isEmpty() ? icon : nativeImage.createFromPath(iconPath) })
+    },
     'downloads:suggest-name': async (id) => {
       const info = downloads.list().find((download) => download.id === text(id, 64))
       if (!info) throw new Error("That download isn't on the list any more.")

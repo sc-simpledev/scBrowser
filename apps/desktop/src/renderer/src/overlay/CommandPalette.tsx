@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cx } from '@scbrowser/ui'
-import { matchPalette, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
+import { comboLabel, matchPalette, PALETTE_POPUP, shortcutLabel } from '@scbrowser/shared'
 
 const ROW_HEIGHT = 36
 
-export function CommandPalette({ x, y, recent, skills, hidden }: { x: number; y: number; recent: string[]; skills: { id: string; name: string }[]; hidden: string[] }) {
+export function CommandPalette({ x, y, recent, skills, hidden, keys }: { x: number; y: number; recent: string[]; skills: { id: string; name: string }[]; hidden: string[]; keys: Record<string, string> }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -78,7 +78,12 @@ export function CommandPalette({ x, y, recent, skills, hidden }: { x: number; y:
             className={cx('flex items-center justify-between rounded-lg px-2.5', index === selected && 'bg-accent-soft')}
           >
             <span className="min-w-0 truncate">{command.label}</span>
-            {command.shortcut && <kbd className="font-sans text-2xs text-text-faint">{shortcutLabel(command.shortcut, window.scbOverlay.platform)}</kbd>}
+            {(() => {
+              // The key as the person has it now, when it's one they can change.
+              const platform = window.scbOverlay.platform
+              const key = command.id in keys ? keys[command.id] && comboLabel(keys[command.id]!, platform) : command.shortcut && shortcutLabel(command.shortcut, platform)
+              return key ? <kbd className="font-sans text-2xs text-text-faint">{key}</kbd> : null
+            })()}
             {command.setting && <span className="text-2xs text-text-faint">Setting</span>}
             {command.ai && <span className="text-2xs text-text-faint">AI</span>}
           </li>

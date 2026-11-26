@@ -108,6 +108,9 @@ test('a sign-in popup keeps its link to the page, reports back, closes itself an
   const tabs = h.chrome.getByRole('tab')
   const before = await tabs.count()
 
+  // A sign-in starts from a click: without one, the pop-up blocker would stop these windows.
+  const press = () => app.mouse.click(5, 5)
+  await press()
   // Straight to the address, as some sign-in libraries do.
   expect(await app.evaluate((url) => (window as never as { signIn(u: string): boolean }).signIn(url), site.url('/signin-window'))).toBe(true)
   await expect(app).toHaveTitle('Signed in as sam')
@@ -115,6 +118,7 @@ test('a sign-in popup keeps its link to the page, reports back, closes itself an
   await expect(h.chrome.getByRole('tab', { selected: true })).toContainText('Signed in as sam')
 
   // Starting blank and moving on, as others do.
+  await press()
   await app.evaluate((url) => {
     document.title = 'App'
     const opened = window.open('', 'second', 'width=500,height=600')!
@@ -124,6 +128,7 @@ test('a sign-in popup keeps its link to the page, reports back, closes itself an
   await expect(tabs).toHaveCount(before)
 
   // A popup that stays open shows as an ordinary tab with its address, and the user can close it.
+  await press()
   await app.evaluate((url) => void window.open(url, 'third', 'width=500,height=600'), site.url('/stay'))
   await expect(h.chrome.getByRole('tab', { selected: true })).toContainText('Stays open')
   await expect(tabs).toHaveCount(before + 1)
@@ -136,9 +141,11 @@ test('a noopener link and a popup sent to an sc:// page stay safe', async () => 
   h = await launch()
   await go(h, site.url('/opener-page'))
   const app = await h.page('/opener-page')
+  await app.mouse.click(5, 5)
   await app.evaluate((url) => void window.open(url, '_blank', 'noopener'), site.url('/signin-window'))
   await expect(h.chrome.getByRole('tab', { selected: true })).toContainText('No opener')
   await h.chrome.getByRole('tab').first().click()
+  await app.mouse.click(5, 5)
   await app.evaluate(() => {
     const opened = window.open('', 'x', 'width=400,height=400')!
     opened.location.href = 'sc://settings'

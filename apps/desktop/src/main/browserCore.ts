@@ -2,7 +2,9 @@ import { keepSessionCookies } from './sessionCookies'
 import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
-import { app, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
+import { app, ipcMain, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
+import { isGestureAction, isReaderUrl, type PagePrefs } from '@scbrowser/shared'
+import { setReaderStyle } from './internal/reader'
 import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, routineDue, routineLabel, routineRan, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
 import { AI_PARTITION, AiService } from './ai/service'
@@ -18,7 +20,7 @@ import { isPrivate } from './private'
 import type { Reporter } from './reporter'
 import { SessionSaver, type SavedSession } from './session'
 import type { SettingsStore } from './settings'
-import { attachShortcuts } from './shortcuts'
+import { attachShortcuts, setShortcutOverrides } from './shortcuts'
 import { attachPageMenu } from './menus'
 import { fetchSiteIcon } from './siteIcons'
 import { clearSiteStorage, forgetSite, siteSessions } from './siteData'
@@ -395,6 +397,24 @@ export class BrowserCore {
       const url = SECURE_DNS[secureDns].url
       app.configureHostResolver(url ? { secureDnsMode: 'secure', secureDnsServers: [url] } : { secureDnsMode: 'automatic', secureDnsServers: [] })
     }
+    this.pageExtras()
+    // Reader view's text settings: pages drawn from now on take them, and open ones are drawn again.
+    setReaderStyle(settings.get().readerStyle)
+    let lastReader = settings.get().readerStyle
+    settings.subscribe((next) => {
+      if (next.readerStyle === lastReader) return
+      lastReader = next.readerStyle
+      setReaderStyle(next.readerStyle)
+      for (const handle of this.windows) for (const contents of handle.tabs.allContents()) if (isReaderUrl(contents.getURL())) contents.reload()
+    })
+    // The person's own keyboard shortcuts, kept for the whole process like the rest of the settings.
+    setShortcutOverrides(settings.get().shortcuts)
+    let lastShortcuts = settings.get().shortcuts
+    settings.subscribe((next) => {
+      if (next.shortcuts === lastShortcuts) return
+      lastShortcuts = next.shortcuts
+      setShortcutOverrides(next.shortcuts)
+    })
     let lastDns = settings.get().secureDns
     if (lastDns !== 'default') applyDns(settings.get())
     settings.subscribe((next) => {
@@ -498,7 +518,9 @@ export class BrowserCore {
     app.on('will-quit', stopFocus)
     const stopSchedules = this.startWorkspaceSchedules()
     const stopRoutines = this.startRoutines(settings)
-    app.on('will-quit', () => {
+    // On `quit`, not `will-quit`: app.exit (the smoke test's way out) skips will-quit but still
+    // closes the database on quit, and a check due a few seconds after start would then read it.
+    app.on('quit', () => {
       stopSchedules()
       stopRoutines()
     })
@@ -632,6 +654,41 @@ export class BrowserCore {
     }
     handle.window.on('focus', () => {
       if (handle.kind === 'browser') this.lastFocused = handle
+    })
+  }
+
+  /**
+   * What a website's preload asks as each page starts (Global Privacy Control, gestures, middle-click
+   * scrolling), and what a gesture asks for. Only tabs are answered, and only with switches.
+   */
+  private pageExtras(): void {
+    const { settings } = this.services
+    ipcMain.on('page:prefs', (event) => {
+      const prefs: PagePrefs | null = this.ownerOf(event.sender)
+        ? { globalPrivacyControl: settings.get().globalPrivacyControl, mouseGestures: settings.get().mouseGestures, middleClickScroll: settings.get().middleClickScroll }
+        : null
+      event.returnValue = prefs
+    })
+    ipcMain.on('page:gesture', (event, action: unknown) => {
+      const owner = this.ownerOf(event.sender)
+      const id = owner?.tabs.tabIdFor(event.sender)
+      if (!owner || id == null || !isGestureAction(action) || !settings.get().mouseGestures) return
+      const { tabs } = owner
+      if (action === 'back') tabs.back(id)
+      else if (action === 'forward') tabs.forward(id)
+      else if (action === 'reload') tabs.reload(id)
+      else if (action === 'close') tabs.close(id)
+      else if (action === 'new-tab') tabs.create()
+      else if (action === 'reopen') tabs.reopenClosed()
+    })
+    // A right click held back to see if it was a gesture: the page's menu opens where it was.
+    ipcMain.on('page:context-menu', (event, x: unknown, y: unknown) => {
+      const contents = event.sender
+      if (!this.ownerOf(contents) || typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return
+      const zoom = contents.getZoomFactor()
+      const at = { x: Math.round(x * zoom), y: Math.round(y * zoom) }
+      contents.sendInputEvent({ type: 'mouseDown', button: 'right', clickCount: 1, ...at })
+      contents.sendInputEvent({ type: 'mouseUp', button: 'right', clickCount: 1, ...at })
     })
   }
 
@@ -810,7 +867,7 @@ export class BrowserCore {
     if (this.prepared.has(target)) return
     this.prepared.add(target)
     if (!isPrivate) keepSessionCookies(target, () => this.services.settings.get().keepSignIns)
-    attachGoogleSignIn(target)
+    attachGoogleSignIn(target, () => this.services.settings.get().globalPrivacyControl)
     this.privacy.attach(target)
     this.permissionService.attach(target)
     this.downloads.attach(target)

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { INTERNAL_COMMAND_CHANNELS, SIGN_IN_HOSTS, type AssistantEvent, type CoderEvent, type InternalBridge } from '@scbrowser/shared'
+import { INTERNAL_COMMAND_CHANNELS, SIGN_IN_HOSTS, type AssistantEvent, type CoderEvent, type InternalBridge, type PagePrefs } from '@scbrowser/shared'
+import { middleClickScroll, mouseGestures } from './pageExtras'
 
 declare const location: { protocol: string; hostname: string }
 declare const navigator: { userAgent: string }
@@ -68,4 +69,29 @@ if (location.hostname === 'chromewebstore.google.com') {
     },
     args: [process.versions.chrome!.split('.')[0]!, process.versions.chrome!]
   })
+}
+
+// Websites: what the person turned on for them, asked once as the page starts, before its scripts.
+if (/^(https?|file):$/.test(location.protocol)) {
+  // Listening starts at once and acts once the answer says to, so nothing below can stop it.
+  const on = { mouseGestures: false, middleClickScroll: false }
+  mouseGestures(() => on.mouseGestures)
+  middleClickScroll(() => on.middleClickScroll)
+  let prefs: PagePrefs | null = null
+  try {
+    prefs = ipcRenderer.sendSync('page:prefs') as PagePrefs | null
+  } catch {
+    prefs = null
+  }
+  // Global Privacy Control, which the request headers already carry, for scripts that ask.
+  if (prefs?.globalPrivacyControl && location.protocol !== 'file:') {
+    contextBridge.executeInMainWorld({
+      // Returns nothing: handing Navigator.prototype back across worlds reads its getters, which throws.
+      func: () => {
+        Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true, configurable: true, enumerable: true })
+      }
+    })
+  }
+  on.mouseGestures = prefs?.mouseGestures === true
+  on.middleClickScroll = prefs?.middleClickScroll === true
 }

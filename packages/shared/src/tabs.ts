@@ -37,7 +37,14 @@ export interface TabState {
   depth?: number
   /** Its branch is folded away in the tab tree. */
   collapsed?: boolean
+  /** Pop-ups this page tried to open with no click or key press behind them, newest last. */
+  blockedPopups?: string[]
 }
+
+/** A page may open a pop-up this long after a click or key press in it, as in Chromium. */
+export const POPUP_GRACE_MS = 5000
+/** Blocked pop-ups kept per page, to offer from the address bar. */
+export const MAX_BLOCKED_POPUPS = 5
 
 export interface TreeFolds {
   /** Tabs inside a folded branch. */
@@ -314,3 +321,12 @@ export function nowPlayingTab<T extends Pick<TabState, 'id' | 'media' | 'mediaAt
 
 /** A paused player stays in Now playing this long, then leaves it until it plays again. */
 export const PAUSED_SHOWN_MS = 30 * 60_000
+
+/** Tabs' links to paste elsewhere: one address as it is, more as a Markdown list of titled links. */
+export function linksMarkdown(links: readonly { title: string; url: string }[]): string {
+  if (links.length === 1) return links[0]!.url
+  const title = (text: string) => text.replace(/\s+/g, ' ').trim().replace(/([\\[\]])/g, '\\$1')
+  // Brackets would end a Markdown link early, and encodeURIComponent leaves them be.
+  const address = (url: string) => url.replace(/[ ()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return links.map((link) => `- [${title(link.title)}](${address(link.url)})`).join('\n')
+}

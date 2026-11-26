@@ -24,7 +24,13 @@ const SWITCHES: [keyof Settings, string][] = [
   ['profilesButton', 'the profiles button'],
   ['mediaControls', 'Now playing controls'],
   ['autoPictureInPicture', 'floating videos when switching tabs'],
-  ['autoUpdate', 'automatic updates']
+  ['autoUpdate', 'automatic updates'],
+  ['homeButton', 'the Home button'],
+  ['globalPrivacyControl', 'Global Privacy Control'],
+  ['jsonViewer', 'the JSON viewer'],
+  ['tabPreviews', 'tab previews in hover cards'],
+  ['middleClickScroll', 'scrolling with the middle mouse button'],
+  ['mouseGestures', 'mouse gestures']
 ]
 
 const CHOICES: { key: keyof Settings; name: string; options: { value: string; label: string }[] }[] = [
@@ -33,7 +39,8 @@ const CHOICES: { key: keyof Settings; name: string; options: { value: string; la
   { key: 'bookmarksLayout', name: 'Bookmarks', options: [{ value: 'horizontal', label: 'along the top' }, { value: 'vertical', label: 'down the side' }] },
   { key: 'bookmarksBar', name: 'Show bookmarks', options: [{ value: 'always', label: 'always' }, { value: 'new-tab', label: 'on new tabs' }, { value: 'bookmarks-page', label: 'only on the bookmarks page' }] },
   { key: 'trackingProtection', name: 'Tracking protection', options: [{ value: 'off', label: 'off' }, { value: 'standard', label: 'standard' }, { value: 'strict', label: 'strict' }] },
-  { key: 'startup', name: 'On start', options: [{ value: 'restore', label: 'reopen previous tabs' }, { value: 'new-tab', label: 'open a new tab' }] },
+  { key: 'startup', name: 'On start', options: [{ value: 'restore', label: 'reopen previous tabs' }, { value: 'new-tab', label: 'open a new tab' }, { value: 'pages', label: 'open your startup pages' }] },
+  { key: 'tabCycleOrder', name: 'Ctrl Tab goes through tabs', options: [{ value: 'strip', label: 'in order' }, { value: 'recent', label: 'most recently used first' }] },
   { key: 'accent', name: 'Accent colour', options: ACCENTS.map((accent) => ({ value: accent.id, label: accent.name })) },
   { key: 'searchEngine', name: 'Search with', options: SEARCH_ENGINES.map((engine) => ({ value: engine.id, label: engine.name })) },
   { key: 'replyStyle', name: 'Assistant reply style', options: REPLY_STYLES.map((style) => ({ value: style.id, label: style.name.toLowerCase() })) }

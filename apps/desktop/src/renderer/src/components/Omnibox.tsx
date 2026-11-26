@@ -1,4 +1,4 @@
-import { BookOpen, Lock, Search, ShieldCheck, ShieldOff, Star, TriangleAlert } from 'lucide-react'
+import { AppWindow, BookOpen, Lock, Search, ShieldCheck, ShieldOff, Star, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import {
@@ -115,6 +115,7 @@ export function Omnibox() {
   const calculator = useApp((s) => s.settings.addressCalculator)
   const keywords = useApp((s) => s.settings.searchKeywords)
   const protection = useApp((s) => s.settings.trackingProtection)
+  const defaultZoom = useApp((s) => s.settings.defaultZoom)
   const hidden = useApp((s) => s.settings.hiddenToolbarItems)
   const compact = useApp((s) => s.compact)
   const privacyOffHosts = useApp((s) => s.privacyOffHosts)
@@ -516,6 +517,23 @@ export function Omnibox() {
           </div>
         )}
       </div>
+      {tab && (tab.blockedPopups?.length ?? 0) > 0 && (
+        <IconButton
+          size="sm"
+          label={tab.blockedPopups!.length === 1 ? 'Pop-up blocked' : `${tab.blockedPopups!.length} pop-ups blocked`}
+          className="w-auto min-w-6 gap-0.5 px-1 text-text-muted"
+          onClick={(e) => {
+            const { left, bottom } = e.currentTarget.getBoundingClientRect()
+            void window.scb.invoke('popups:menu', left, bottom + 4)
+          }}
+        >
+          <span className="relative mr-0.5 grid place-items-center">
+            <AppWindow size={14} strokeWidth={1.75} />
+            <span aria-hidden className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-danger ring-[1.5px] ring-surface" />
+          </span>
+          {tab.blockedPopups!.length > 1 && <span className="text-2xs font-medium">{tab.blockedPopups!.length}</span>}
+        </IconButton>
+      )}
       {tab && /^https?:/.test(tab.url) && protection !== 'off' && !hidden.includes('protection') && !compact && (
         <IconButton
           size="sm"
@@ -539,7 +557,20 @@ export function Omnibox() {
           <BookOpen size={14} strokeWidth={1.75} />
         </IconButton>
       )}
-      {tab && tab.zoomPercent !== 100 && (
+      {tab && isReaderUrl(tab.url) && (
+        <IconButton
+          size="sm"
+          label="Text size, font and colours"
+          className="font-sans text-xs font-medium tracking-tight text-text-muted"
+          onClick={(e) => {
+            const { left, bottom } = e.currentTarget.getBoundingClientRect()
+            void window.scb.invoke('reader:menu', left, bottom + 4)
+          }}
+        >
+          Aa
+        </IconButton>
+      )}
+      {tab && tab.zoomPercent !== (/^(https?|file):/.test(tab.url) ? defaultZoom : 100) && (
         <button
           type="button"
           aria-label={`Zoom ${tab.zoomPercent}%, reset`}

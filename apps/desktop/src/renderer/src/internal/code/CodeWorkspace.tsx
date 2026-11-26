@@ -79,7 +79,8 @@ import {
   type CoderTodo,
   type Settings,
   type CoderToolName,
-  type CoderWorktree
+  type CoderWorktree,
+  WHATS_NEW
 } from '@scbrowser/shared'
 import { api } from '../api'
 import { ReplyMarkdown, Thinking } from '../../shared/ReplyContent'
@@ -906,6 +907,8 @@ export interface CodeWorkspaceProps {
   onInitialTaskTaken?: () => void
   /** Drawn at the start of the bar, such as the assistant's Chat and Code switch. */
   leading?: ReactNode
+  /** Shows the list of saved sessions, for /resume. */
+  onShowSessions?: () => void
 }
 
 interface SavedData {
@@ -1016,7 +1019,7 @@ function ContextCard({ breakdown }: { breakdown: CoderContextBreakdown }) {
 }
 
 /** Terra Code (beta): a model works on files in one folder, and asks before changing anything. */
-export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading }: CodeWorkspaceProps) {
+export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading, onShowSessions }: CodeWorkspaceProps) {
   const [status, setStatus] = useState<CoderStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [mode, setMode] = useState<CoderMode>('ask')
@@ -1494,6 +1497,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         return true
       }
       case 'agents':
+      case 'cost':
       case 'stats':
         setPanelTab('session')
         togglePanel(true)
@@ -1520,6 +1524,23 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'help':
         setState((current) => ({ ...current, items: [...current.items, { kind: 'text', text: HELP }] }))
         return true
+      case 'memory':
+        void api()
+          .invoke('coder:open-file', session.current, 'TERRA.md', null)
+          .then(
+            () => note('Opened TERRA.md in your editor. Terra Code reads it at the start of each message.'),
+            () => note('There’s no TERRA.md here yet. /init writes one, and /remember or # adds a line.', true)
+          )
+        return true
+      case 'resume':
+        if (onShowSessions) onShowSessions()
+        else note('Saved sessions are listed in the assistant, at sc://assistant.', true)
+        return true
+      case 'release-notes': {
+        const latest = WHATS_NEW[0]
+        if (latest) setState((current) => ({ ...current, items: [...current.items, { kind: 'text', text: `**What’s new in scTerra ${latest.version}**\n\n${latest.items.map((line) => `- ${line}`).join('\n')}` }] }))
+        return true
+      }
       default:
         return false
     }

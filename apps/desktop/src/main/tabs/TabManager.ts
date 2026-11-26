@@ -25,7 +25,7 @@ import {
   type TabSearchRow,
   type TabState,
   type TabsSnapshot,
-  type Workspace, PDF_PAGE_URL, MAX_TREE_DEPTH } from '@scbrowser/shared'
+  type Workspace, PDF_PAGE_URL, MAX_TREE_DEPTH, MAX_BLOCKED_POPUPS, POPUP_GRACE_MS } from '@scbrowser/shared'
 import { guardPreviewFrames, isPreviewUrl } from '../filePreview'
 import { tabIcon } from '../siteIcons'
 import { runMedia, setMediaSpeed } from '../media'
@@ -59,6 +59,8 @@ interface Tab {
   view: WebContentsView | null
   saved: SavedTab | null
   lastActiveAt: number
+  /** Muted because its site is, not by hand, so leaving the site unmutes it. */
+  mutedBySite?: boolean
 }
 
 interface TabManagerOptions {
@@ -122,7 +124,22 @@ interface TabManagerOptions {
   keywords?: () => readonly SearchKeyword[]
   /** A playing video floats in picture in picture when its tab is left. */
   autoPictureInPicture?: () => boolean
+  /** Sites the person lets open pop-ups without a click. */
+  popupsAllowed?: (url: string) => boolean
+  /** Sites muted in every tab. */
+  siteMuted?: (url: string) => boolean
+  /** Hover cards show a picture of the page, taken as the tab is left. */
+  tabPreviews?: () => boolean
+  /** Text sizes for pages, from Settings. Taken when a page's view is made. */
+  fontSizes?: () => { defaultFontSize: number; minimumFontSize: number }
 }
+
+/** Hover card pictures: wide enough for the card at twice the pixels, and no more than this many kept. */
+const PREVIEW_WIDTH = 552
+const MAX_PREVIEWS = 150
+
+/** Input that counts as the person doing something on the page, as Chromium's user activation does. */
+const ACTIVATING_INPUT = new Set(['mouseDown', 'mouseUp', 'rawKeyDown', 'keyDown', 'char', 'touchStart', 'touchEnd', 'gestureTap', 'gestureTapDown'])
 
 const PAGE_RADIUS = 0
 /** Developer tools never squeeze the page below this, and have the same limit themselves. */
@@ -151,6 +168,41 @@ export function countSelfLoad(times: number[], now = Date.now()): { times: numbe
   return { times: recent, looping: recent.length > RELOAD_LOOP_LIMIT }
 }
 
+/** How long a page gets to run its own beforeunload and unload handlers when it's put away. */
+const UNLOAD_MS = 1500
+/** Pages running their unload handlers right now, across every window (they share sessions), with the session each writes to. */
+const unloading = new Map<Promise<void>, Session>()
+
+/**
+ * Closes a page the way a browser does: its beforeunload and unload handlers run first. Some sites
+ * keep a sign-in only in memory while they're open and write it back to storage then (Discord's
+ * token), so closing without them signs the person out of the next copy of the page. A "Leave
+ * site?" question is answered yes, as the page goes either way, and one that takes too long is
+ * closed regardless.
+ */
+export function unloadPage(contents: WebContents): void {
+  if (contents.isDestroyed()) return
+  const done = new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      if (!contents.isDestroyed()) contents.close()
+      resolve()
+    }, UNLOAD_MS)
+    contents.once('destroyed', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+  unloading.set(done, contents.session)
+  void done.then(() => unloading.delete(done))
+  contents.on('will-prevent-unload', (event) => event.preventDefault())
+  contents.close({ waitForBeforeUnload: true })
+}
+
+/** Resolves once every page being put away (in this session, if one is given) has run its unload handlers, or run out of time. */
+export function pagesUnloaded(target?: Session): Promise<void> {
+  return Promise.all([...unloading].filter(([, from]) => !target || from === target).map(([done]) => done)).then(() => undefined)
+}
+
 export class TabManager {
   private readonly blockedHosts = new Map<TabId, Map<string, number>>()
   private readonly tabs = new Map<TabId, Tab>()
@@ -177,6 +229,15 @@ export class TabManager {
   private readonly lastInWorkspace = new Map<string, TabId>()
   /** Page loads since the person last navigated the tab themselves, to catch pages that reload without end. */
   private readonly selfLoads = new WeakMap<WebContents, number[]>()
+  /** Pictures of pages for hover cards, by tab, oldest first. */
+  private readonly previews = new Map<TabId, string>()
+  /** A Ctrl Tab round in recently used order, while Ctrl is held. */
+  private cycle: { order: TabId[]; index: number; times: Map<TabId, number> } | null = null
+  private stepping = false
+  /** Whether each page's last search matched case, to know when it changed. */
+  private readonly findCase = new WeakMap<WebContents, boolean>()
+  /** When the person last clicked or pressed a key in each page, for the pop-up blocker. */
+  private readonly lastPress = new WeakMap<WebContents, number>()
 
   constructor(
     private readonly window: BaseWindow,
@@ -309,7 +370,7 @@ export class TabManager {
     if (other !== undefined && split!.some((index) => ids[index] === active) && this.visible.includes(other)) this.startSplit(other)
   }
 
-  close(id: TabId): void {
+  close(id: TabId, { remember = true }: { remember?: boolean } = {}): void {
     const tab = this.tabs.get(id)
     if (!tab) return
 
@@ -317,9 +378,10 @@ export class TabManager {
     const index = this.visible.indexOf(id)
     this.order.splice(this.order.indexOf(id), 1)
     this.tabs.delete(id)
+    this.previews.delete(id)
     // Its branches move up to where it hung, so the tree keeps its shape.
     for (const other of this.tabs.values()) if (other.state.parentId === id) other.state.parentId = tab.state.parentId ?? null
-    if (!isNewTabUrl(tab.state.url)) this.closed = [this.toSaved(tab), ...this.closed].slice(0, CLOSED_TABS_LIMIT)
+    if (remember && !isNewTabUrl(tab.state.url)) this.closed = [this.toSaved(tab), ...this.closed].slice(0, CLOSED_TABS_LIMIT)
 
     this.destroyView(tab)
     this.options.onTabClosed(id)
@@ -551,6 +613,7 @@ export class TabManager {
     const tab = this.tabs.get(id)
     if (!tab) return
     tab.state.muted = muted
+    tab.mutedBySite = false
     tab.view?.webContents.setAudioMuted(muted)
     this.emitChange()
   }
@@ -709,6 +772,8 @@ export class TabManager {
   activate(id: TabId): void {
     const next = this.tabs.get(id)
     if (!next) return
+    // Picking a tab any other way ends a Ctrl Tab round.
+    if (!this.stepping) this.cycle = null
     // A drag whose release got lost mustn't leave every tab unable to take its place.
     if (this.resizing) this.setResizing(false)
     this.workspaceId = next.state.workspace
@@ -730,6 +795,7 @@ export class TabManager {
       if (previous) {
         if (previous.state.media === 'playing' && previous.view && this.options.autoPictureInPicture?.()) void runMedia(previous.view.webContents, 'enterPip')
         this.leaveFullscreen(previous)
+        if (this.options.tabPreviews?.()) this.capturePreview(previous)
         previous.view?.setVisible(false)
         previous.lastActiveAt = Date.now()
         previous.view?.webContents.stopFindInPage('clearSelection')
@@ -865,6 +931,42 @@ export class TabManager {
     this.splitLinked = false
     this.applyBounds()
     this.emitChange()
+  }
+
+  /**
+   * Ctrl Tab in most-recently-used order. The order is fixed while Ctrl is held, so pressing Tab
+   * again goes further back, and settles when Ctrl is let go: the tabs passed over keep their place.
+   */
+  activateRecent(step: number): void {
+    if (!this.cycle) {
+      const order = this.visible.toSorted((a, b) => this.tabs.get(b)!.lastActiveAt - this.tabs.get(a)!.lastActiveAt)
+      if (this.activeId !== null && order.includes(this.activeId)) order.unshift(...order.splice(order.indexOf(this.activeId), 1))
+      if (order.length < 2) return
+      this.cycle = { order, index: 0, times: new Map(order.map((id) => [id, this.tabs.get(id)!.lastActiveAt])) }
+    }
+    const cycle = this.cycle
+    cycle.index = (cycle.index + step + cycle.order.length) % cycle.order.length
+    const id = cycle.order[cycle.index]!
+    if (!this.tabs.has(id)) return
+    this.stepping = true
+    try {
+      this.activate(id)
+    } finally {
+      this.stepping = false
+    }
+  }
+
+  /** Ctrl was let go after Ctrl Tab. */
+  endRecentCycle(): void {
+    const cycle = this.cycle
+    if (!cycle) return
+    this.cycle = null
+    const now = Date.now()
+    for (const id of cycle.order) {
+      const tab = this.tabs.get(id)
+      if (!tab || id === this.activeId) continue
+      tab.lastActiveAt = id === cycle.order[0] ? now - 1 : (cycle.times.get(id) ?? tab.lastActiveAt)
+    }
   }
 
   activateRelative(offset: number): void {
@@ -1069,11 +1171,17 @@ export class TabManager {
     this.emitChange()
   }
 
-  find(text: string, options: { forward: boolean; findNext: boolean }): void {
+  find(text: string, options: { forward: boolean; findNext: boolean; matchCase?: boolean }): void {
     if (this.activeId === null) return
     const contents = this.contents(this.activeId)
-    if (!text) contents?.stopFindInPage('clearSelection')
-    else contents?.findInPage(text, options)
+    if (!text) return contents?.stopFindInPage('clearSelection')
+    // Chromium carries on the last search when only Match case changed, so that starts afresh.
+    const matchCase = options.matchCase ?? false
+    if (contents && this.findCase.get(contents) !== matchCase) {
+      contents.stopFindInPage('keepSelection')
+      this.findCase.set(contents, matchCase)
+    }
+    contents?.findInPage(text, { ...options, matchCase })
   }
 
   stopFind(): void {
@@ -1446,6 +1554,7 @@ export class TabManager {
         webviewTag: false,
         // Enables Chromium's built-in PDF viewer.
         plugins: true,
+        ...(this.options.fontSizes?.() ?? {}),
         ...(this.options.quietMedia() ? { autoplayPolicy: 'document-user-activation-required' as const } : {})
       }
     })
@@ -1469,15 +1578,22 @@ export class TabManager {
     }
     // Chromium is already loading a window it made for a page.
     if (adopted) return
-    const page = this.pageFor(contents, tab.state.url)
-    if (saved && saved.entries.length > 0 && page === tab.state.url) {
-      contents.navigationHistory
-        .restore({ index: saved.entryIndex, entries: saved.entries })
-        // A tab closed while its history came back has nothing left to load into.
-        .catch(() => (contents.isDestroyed() ? undefined : contents.loadURL(saved.url).catch(() => undefined)))
-    } else {
-      contents.loadURL(page).catch(() => undefined)
+    const load = () => {
+      if (contents.isDestroyed()) return
+      const page = this.pageFor(contents, tab.state.url)
+      if (saved && saved.entries.length > 0 && page === tab.state.url) {
+        contents.navigationHistory
+          .restore({ index: saved.entryIndex, entries: saved.entries })
+          // A tab closed while its history came back has nothing left to load into.
+          .catch(() => (contents.isDestroyed() ? undefined : contents.loadURL(saved.url).catch(() => undefined)))
+      } else {
+        contents.loadURL(page).catch(() => undefined)
+      }
     }
+    // A page that was just put away may still be writing what it keeps (a sign-in token, say), which
+    // this one would otherwise start without. Only pages sharing its storage matter, and never for scTerra's own.
+    if (!isInternal(tab.state.url) && [...unloading.values()].includes(contents.session)) void pagesUnloaded(contents.session).then(load)
+    else load()
   }
 
   /**
@@ -1499,10 +1615,28 @@ export class TabManager {
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(tab.view)
     // A page that was a popup's own window can lose its contents before the view does, as the window closes.
     const contents = tab.view.webContents as WebContents | undefined
-    if (contents && !contents.isDestroyed()) contents.close()
+    if (contents && !contents.isDestroyed()) unloadPage(contents)
     tab.view = null
     tab.state.audible = false
     tab.state.media = null
+  }
+
+  /**
+   * Puts every page away before the window closes, so each runs its unload handlers while the app
+   * is still there to let them finish. Tabs keep what they need to come back. Returns the sessions
+   * they used, for writing storage to disk once they're done, or none if no page was open.
+   */
+  unloadPages(): Session[] {
+    const sessions = new Set<Session>()
+    for (const tab of this.tabs.values()) {
+      const contents = tab.view?.webContents
+      if (!contents || contents.isDestroyed()) continue
+      sessions.add(contents.session)
+      tab.saved = this.toSaved(tab)
+      this.destroyView(tab)
+      tab.state.isSleeping = true
+    }
+    return [...sessions]
   }
 
   private toSaved(tab: Tab): SavedTab {
@@ -1559,9 +1693,12 @@ export class TabManager {
       }
     })
     // Counted from the start: news of the page committing can arrive after its trackers were blocked.
+    contents.on('input-event', (_event, input) => {
+      if (ACTIVATING_INPUT.has(input.type)) this.lastPress.set(contents, Date.now())
+    })
     contents.on('did-start-navigation', ({ isMainFrame, isSameDocument, url }) => {
       if (!isMainFrame || isSameDocument) return
-      sync({ blockedCount: 0 })
+      sync({ blockedCount: 0, blockedPopups: undefined })
       this.blockedHosts.delete(tab.state.id)
       if (!/^https?:/i.test(url)) return
       // A page that keeps reloading itself (a sign-in or consent loop, or a script that never settles)
@@ -1580,6 +1717,7 @@ export class TabManager {
     let playingSilently = false
     contents.on('did-navigate', (_e, url) => {
       if (remembersZoom(url)) contents.setZoomFactor(this.options.zoomFor(url))
+      this.applySiteMute(tab, url)
       playingSilently = false
       sync({ url, faviconUrl: null, zoomPercent: Math.round(contents.getZoomFactor() * 100), media: null, mediaSpeed: undefined })
       this.options.onVisit(url)
@@ -1693,6 +1831,15 @@ export class TabManager {
       }
       // Sign-in popups often start blank, and are sent on their way once they're open.
       const blank = url === '' || url === 'about:blank'
+      // The pop-up blocker: a website opening windows with no click or key press behind it, as
+      // pop-under ads do. The address bar offers what was stopped. Extensions and sc:// pages are trusted.
+      if (/^https?:/i.test(opener) && !this.pressedRecently(contents) && !this.options.popupsAllowed?.(opener)) {
+        // A blank one is a script's window, given its address once open: there's nothing to offer but the site's permission.
+        const shown = blank ? 'about:blank' : url
+        state.blockedPopups = [...(state.blockedPopups ?? []).filter((other) => other !== shown), shown].slice(-MAX_BLOCKED_POPUPS)
+        this.emitChange()
+        return { action: 'deny' }
+      }
       // Chromium itself stops a site from opening extension pages that aren't meant for it.
       // An installed site's own popups stay with it, while links out go to the full browser.
       const leavesApp = !!this.options.appOrigin && !blank && !(URL.canParse(url) && new URL(url).origin === this.options.appOrigin)
@@ -1708,6 +1855,127 @@ export class TabManager {
       else if (appScheme(url)) this.options.onAppLink(contents, url, opener)
       return { action: 'deny' }
     })
+  }
+
+  /**
+   * A small picture of a tab's page for its hover card, taken as it's left so nothing is drawn
+   * in the background. The open tab's is taken fresh.
+   */
+  async preview(id: TabId): Promise<string | null> {
+    const tab = this.tabs.get(id)
+    if (!tab) return null
+    // The open tab's is taken fresh, and so is one whose picture didn't come out as it was left.
+    if (tab.view && (id === this.activeId || this.split?.includes(id) || !this.previews.has(id))) await this.capturePreview(tab)
+    return this.previews.get(id) ?? null
+  }
+
+  private async capturePreview(tab: Tab): Promise<void> {
+    const contents = tab.view?.webContents
+    if (!contents || contents.isDestroyed() || contents.isCrashed()) return
+    const id = tab.state.id
+    try {
+      const image = await contents.capturePage()
+      if (image.isEmpty() || !this.tabs.has(id)) return
+      const small = image.resize({ width: PREVIEW_WIDTH, quality: 'good' })
+      this.previews.delete(id)
+      this.previews.set(id, `data:image/jpeg;base64,${small.toJPEG(72).toString('base64')}`)
+      // The oldest go first once there are many.
+      for (const old of this.previews.keys()) {
+        if (this.previews.size <= MAX_PREVIEWS) break
+        this.previews.delete(old)
+      }
+    } catch {
+      // A page closing mid-capture has nothing to show.
+    }
+  }
+
+  /**
+   * Closes tabs showing a page another tab here already shows, keeping the open one, a pinned one,
+   * or else the one looked at last. New tab pages are left alone. Returns how many closed.
+   */
+  closeDuplicates(): number {
+    const rank = (tab: Tab) => (tab.state.id === this.activeId || this.split?.includes(tab.state.id) ? 3e15 : tab.state.pinned ? 2e15 : tab.lastActiveAt)
+    const kept = new Set<string>()
+    const extra: TabId[] = []
+    const tabs = this.visible.map((id) => this.tabs.get(id)!).toSorted((a, b) => rank(b) - rank(a))
+    for (const tab of tabs) {
+      if (isNewTabUrl(tab.state.url)) continue
+      const page = effectiveUrl(tab.state.url).replace(/#.*$/, '')
+      if (kept.has(page) && !tab.state.pinned) extra.push(tab.state.id)
+      else kept.add(page)
+    }
+    for (const id of extra) this.close(id)
+    return extra.length
+  }
+
+  /** Titles and addresses of these tabs, in their order, for copying as links. */
+  linksOf(ids: TabId[] = this.visible): { title: string; url: string }[] {
+    return this.visible
+      .filter((id) => ids.includes(id))
+      .flatMap((id) => {
+        const { title, url } = this.tabs.get(id)!.state
+        const address = effectiveUrl(url)
+        return /^(https?|file):/i.test(address) ? [{ title: title || address, url: address }] : []
+      })
+  }
+
+  /** Takes a tab out of this window, with its back and forward list, to go to another. */
+  detach(id: TabId): SavedTab | null {
+    const tab = this.tabs.get(id)
+    if (!tab) return null
+    const saved = { ...this.toSaved(tab), group: null, workspace: undefined, parent: undefined }
+    this.close(id, { remember: false })
+    return saved
+  }
+
+  /** A tab from another window, opened here and shown. */
+  adopt(saved: SavedTab): TabId {
+    const tab = this.addTab(saved.url, { ...saved, workspace: this.workspaceId, group: null })
+    this.activate(tab.state.id)
+    return tab.state.id
+  }
+
+  /** A muted site's tabs stay muted wherever they go on it, and come back when they leave it, unless muted by hand. */
+  private applySiteMute(tab: Tab, url: string): void {
+    const contents = tab.view?.webContents
+    if (!contents || contents.isDestroyed()) return
+    const muted = this.options.siteMuted?.(url) ?? false
+    if (muted && !tab.state.muted) {
+      tab.mutedBySite = true
+      tab.state.muted = true
+      contents.setAudioMuted(true)
+    } else if (!muted && tab.mutedBySite) {
+      tab.mutedBySite = false
+      tab.state.muted = false
+      contents.setAudioMuted(false)
+    }
+  }
+
+  /** After a site was muted or unmuted, its open tabs follow. */
+  refreshSiteMutes(): void {
+    for (const tab of this.tabs.values()) this.applySiteMute(tab, tab.state.url)
+    this.emitChange()
+  }
+
+  private pressedRecently(contents: WebContents): boolean {
+    return Date.now() - (this.lastPress.get(contents) ?? 0) < POPUP_GRACE_MS
+  }
+
+  /** Opens a pop-up the blocker stopped, as a tab beside the page that asked for it. */
+  openBlockedPopup(id: TabId, url: string): void {
+    const tab = this.tabs.get(id)
+    if (!tab || !/^https?:/i.test(url)) return
+    tab.state.blockedPopups = tab.state.blockedPopups?.filter((other) => other !== url)
+    if (tab.state.blockedPopups?.length === 0) tab.state.blockedPopups = undefined
+    this.create(url, { afterId: this.lastInBranch(id), container: tab.state.container, parentId: id })
+  }
+
+  /** Forgets what the blocker stopped on a page, as when its site is allowed from now on. */
+  clearBlockedPopups(id: TabId): void {
+    const tab = this.tabs.get(id)
+    if (!tab?.state.blockedPopups) return
+    tab.state.blockedPopups = undefined
+    this.emitChange()
   }
 
   private setFullscreen(fullscreen: boolean, id: TabId | null = null): void {

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, Newspaper, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, House, ArrowUpCircle, Bot, Coffee, Timer, CircleUserRound, Columns2, Download, EllipsisVertical, EyeOff, Globe, Newspaper, RotateCw, Sparkles, X, KeyRound, LockKeyhole, Puzzle } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState, type ReactNode, useRef, type CSSProperties } from 'react'
 import { cx, IconButton } from '@scbrowser/ui'
 import { stopwatch, containerPartition, fullToolbarOrder, type BriefSummary, type StudySummary, type ExtensionSummary, type ToolbarSlot, type UpdateState, type VpnSummary, type PasswordState } from '@scbrowser/shared'
@@ -234,7 +234,7 @@ function ExtensionsButtons({ container }: { container: string | null | undefined
   )
 }
 
-const SPARE_SLOTS: ToolbarSlot[] = ['split', 'vpn', 'downloads', 'passwords', 'extensions']
+const SPARE_SLOTS: ToolbarSlot[] = ['home', 'split', 'vpn', 'downloads', 'passwords', 'extensions']
 
 function SplitButton() {
   const splitOn = useTabs((s) => s.splitIds.length > 0)
@@ -403,6 +403,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
   const hideAssistant = useApp((s) => s.settings.hiddenToolbarItems.includes('assistant'))
   const order = useApp((s) => s.settings.toolbarOrder)
   const showProfiles = useApp((s) => s.settings.profilesButton)
+  const showHome = useApp((s) => s.settings.homeButton)
   const compact = useApp((s) => s.compact)
   const horizontal = useApp((s) => s.settings.tabLayout === 'horizontal')
   const [dragging, setDragging] = useState<ToolbarSlot | null>(null)
@@ -431,6 +432,11 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
         <RotateCw size={15} strokeWidth={1.75} />
       </IconButton>
     ),
+    home: (
+      <IconButton label="Home" shortcut="Alt Home" onClick={() => void window.scb.invoke('tabs:home')}>
+        <House size={15} strokeWidth={1.75} />
+      </IconButton>
+    ),
     split: <SplitButton />,
     vpn: <VpnButton />,
     omnibox: <Omnibox />,
@@ -452,7 +458,7 @@ export function Toolbar({ titleBar }: { titleBar: boolean }) {
   return (
     // With vertical tabs there's no tab strip, so the toolbar doubles as the title bar.
     <div className={cx('sc-site-tint relative flex h-(--sc-toolbar-height) shrink-0 items-center gap-1 px-1.5', titleBar && 'sc-drag sc-wco-inset')}>
-      {fullToolbarOrder(order).filter((slot) => !compact || !SPARE_SLOTS.includes(slot)).map((slot) => (
+      {fullToolbarOrder(order).filter((slot) => (!compact || !SPARE_SLOTS.includes(slot)) && (slot !== 'home' || showHome)).map((slot) => (
         <Slot
           key={slot}
           slot={slot}

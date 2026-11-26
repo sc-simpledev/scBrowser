@@ -1,6 +1,6 @@
 import { Download, FolderOpen, Pencil, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Button, IconButton, Input } from '@scbrowser/ui'
+import { Button, cx, IconButton, Input } from '@scbrowser/ui'
 import type { DownloadAction, DownloadInfo } from '@scbrowser/shared'
 import { api, formatBytes } from '../api'
 import { EmptyState } from '../EmptyState'
@@ -91,7 +91,17 @@ export function DownloadsPage() {
       </div>
       <ul className="flex flex-col gap-1">
         {downloads.map((d) => (
-          <li key={d.id} className="group flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-hover">
+          <li
+            key={d.id}
+            // A finished file can be dragged out into another app, as from Chrome's downloads.
+            draggable={d.state === 'completed' && renaming !== d.id}
+            onDragStart={(e) => {
+              e.preventDefault()
+              void api().invoke('downloads:drag', d.id)
+            }}
+            title={d.state === 'completed' ? 'Drag the file into another app' : undefined}
+            className={cx('group flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-hover', d.state === 'completed' && 'cursor-grab active:cursor-grabbing')}
+          >
             {renaming === d.id ? (
               <RenameForm
                 download={d}

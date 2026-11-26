@@ -54,4 +54,9 @@ export class DownloadsRepo {
   clearFinished(): void {
     this.deleteFinished.run()
   }
+
+  /** Forgets finished, failed and cancelled downloads started at or after this time. The files stay. */
+  clearFinishedSince(since: number): void {
+    for (const item of this.list()) if (item.state !== 'progressing' && item.state !== 'paused' && item.startedAt >= since) this.remove(item.id)
+  }
 }

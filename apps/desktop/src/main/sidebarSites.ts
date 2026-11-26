@@ -1,6 +1,7 @@
 import { session, WebContentsView, type BaseWindow, type WebContents } from 'electron'
 import type { PageRect, SidebarSiteState } from '@scbrowser/shared'
 import { isPreviewUrl } from './filePreview'
+import { unloadPage } from './tabs/TabManager'
 
 /** Sites kept loaded after switching away, so a chat stays connected. The oldest goes past this. */
 const KEEP_LOADED = 4
@@ -126,7 +127,8 @@ export class SidebarSites {
     this.loaded.delete(url)
     if (this.shown === url) this.shown = null
     if (!this.host.window.isDestroyed()) this.host.window.contentView.removeChildView(entry.view)
-    if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
+    // As a tab does, so a site that writes its sign-in back as it closes keeps it.
+    unloadPage(entry.view.webContents)
     this.publish()
   }
 

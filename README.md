@@ -38,6 +38,8 @@ pnpm dist         # build installers into apps/desktop/release
 
 ## Keyboard shortcuts
 
+Most of these can be changed in Settings, under Keyboard shortcuts.
+
 | Shortcut | Action |
 |---|---|
 | Ctrl T / Ctrl Shift T | New tab / reopen closed tab |
@@ -45,11 +47,14 @@ pnpm dist         # build installers into apps/desktop/release
 | Ctrl L, Alt D, F6 | Focus the address bar |
 | Ctrl R, F5 (Shift for hard reload) | Reload |
 | Alt ← / Alt → | Back / forward |
+| Alt Home | Home page |
 | Ctrl Tab, Ctrl PgUp/PgDn, Ctrl 1–9 | Switch tabs |
 | F12, Ctrl Shift I | Developer tools for the page |
 | Ctrl F | Find in page |
 | Ctrl D / Ctrl Shift B | Bookmark page / show bookmarks bar |
 | Ctrl H, Ctrl J, Ctrl Shift O | History, downloads, bookmarks |
+| Ctrl S | Save page |
+| Ctrl Shift Delete | Clear browsing data |
 | Ctrl , | Settings |
 | Ctrl Shift L | Fill a saved password |
 | Ctrl = / Ctrl - / Ctrl 0 | Zoom in / out / reset |

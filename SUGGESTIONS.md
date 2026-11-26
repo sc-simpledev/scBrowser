@@ -18,6 +18,12 @@ The last open refinements, 14, 16, 21, 28, 29, 34 and 35, are in 0.9.0, with ten
 
 From the new features below: 55, 61, 64, 65, 68, 72, 73, 74, 76, 77, 78 and 79 (see CONTEXT.md). Still open: 62 (hide the toolbar), 63 (a little window for links from other apps), 66 (edit keyboard shortcuts) and 75 (plan first for agent mode, which needs the owner's say).
 
+## Built in 0.9.3
+
+Twenty from the lists below: 66 (edit keyboard shortcuts), 80 to 96 (pop-up blocker, clear browsing data, Ctrl Tab by recent use, save page complete, Home and startup pages, default zoom and fonts, Global Privacy Control, match case, JSON viewer, tab previews, close duplicates, copy links, move a tab to a window, mute a site, middle-click scrolling, mouse gestures, dragging a download out), 100 (reader view settings) and part of 107 (`/memory`, `/resume`, `/cost`, `/release-notes`; `/rename` and `/permissions` weren't needed, as there's no session title to rename and `/permissions` was already there). See CONTEXT.md.
+
+62 (hide the toolbar) was started and taken out again: the window's own buttons are drawn over its top right corner, so with the toolbar hidden they'd sit over the page. It needs those buttons moved somewhere else first (into the sidebar, as Arc does, or shown only with the toolbar). Still open: 62, 63, 75, 97 to 99, 101 to 106, 108, 109.
+
 ## New tab and briefs
 
 14. **New tab search box parity.** It now autofills and answers sums, but has no open-tab rows or Ask rows. Bring its rows in line with the address bar's (same icons, Switch to tab).
@@ -129,3 +135,46 @@ Claude Code ideas for the whole browser:
 77. **Background tasks list.** Briefs being written, cloud runs, downloads with AI names, and agent runs in one place with their state, like Claude Code's tasks pane. sc://tasks has the start of it.
 78. **Output to a file from chat.** "Save this answer as a note" into a chosen folder or the reading list, for people who keep notes in Markdown (Obsidian).
 79. **Routines.** "Every weekday at 9, open my mail, calendar and the team board in Work": tab sets on a schedule, beside workspace hours.
+
+## Catching up (brainstormed after 0.9.2)
+
+What Chrome, Firefox, Edge, Brave, Vivaldi and Safari do that scTerra still doesn't, and what Claude Code does that Terra Code doesn't, checked against the code on 2026-11-27 (so tab search, containers, split view, reader view, translation, the vault, sync, profiles, link hints, QR codes, keywords and Terra Code's commands, agents, skills, hooks, MCP, language servers, rewind and background jobs are already in and not listed). Roughly in order of how much each would be missed.
+
+Everyday browsing:
+
+80. **Pop-up blocker.** A page can open new tabs and windows whenever it likes, with no click behind it, which pop-under ads on streaming and download sites rely on. Block `window.open` without a recent click or key press (Chromium's own rule), show "Pop-up blocked" in the address bar with Open and Always allow for the site, and list allowed sites in Settings. Every other browser has this. `TabManager`'s window-open handler, `input-event` for the last real press.
+81. **Clear browsing data.** Ctrl Shift Delete opens one dialog: the last hour, day, week, four weeks or all time, and history, downloads list, cookies and site data, cached files. Today history only clears in full from sc://history, and site data one site at a time. Chrome, Firefox, Edge, Safari. `session.clearData`, `HistoryRepo`.
+82. **Ctrl Tab in recently used order.** A setting to cycle tabs in the order they were looked at, as Firefox, Vivaldi and Edge offer, so Ctrl Tab flips between the last two.
+83. **Save page, complete.** Ctrl S saves the whole page with its pictures and styles, or as one `.mhtml` file. Today "Save page as…" downloads the address again, which loses anything the page built after loading. `webContents.savePage`.
+84. **Home button and startup pages.** A Home button for the toolbar, a home page (the new tab or an address), and "Open these pages" as a third startup choice beside restoring and a new tab. Every browser has these.
+85. **Default zoom and fonts.** One zoom for every site that hasn't got its own, a default text size and a smallest size, as in Chrome's Appearance settings and Firefox's Fonts. Helps on high-resolution screens and for anyone who finds pages small.
+86. **Global Privacy Control.** Sends `Sec-GPC: 1` and sets `navigator.globalPrivacyControl`, telling sites not to sell or share data, which is legally binding in California and some other places. Brave, Firefox and DuckDuckGo send it. On by default, a switch under Privacy.
+87. **Find: match case.** A toggle in the find bar, as in Firefox and Safari. Chromium's `findInPage` already supports it.
+88. **JSON viewer.** Pages that are JSON show folded, coloured and searchable, with Raw and Pretty and a Copy button, as in Firefox and Edge. Useful to developers every day. An isolated-world script on `application/json` documents.
+89. **Tab previews.** The hover card on a side tab or a tab across the top shows a small picture of the page, as in Chrome and Edge, taken when you leave the tab so it costs nothing in the background.
+90. **Close duplicate tabs.** One command closes tabs showing the same page twice, keeping the newest, from the tab menu and Ctrl K (Firefox 124, Arc).
+91. **Copy links of tabs.** "Copy links" on several picked tabs, a group or a workspace, as a Markdown list or plain addresses (Arc, Vivaldi).
+92. **Move a tab to another window.** "Move to new window" and "Move to <window>" in the tab menu, keeping its back and forward list (every browser, by dragging; a menu is the first step).
+93. **Mute a site.** "Mute site" mutes every tab of a site now and later, as Chrome does from the tab menu; a list under site permissions.
+94. **Middle-click scrolling.** Pressing the middle button on a page and moving scrolls smoothly in that direction, as on Windows and in Firefox. Off by default on Linux, where the middle button pastes.
+95. **Mouse gestures.** Hold the right button and draw: left for back, right for forward, down then right to close the tab, up to go to the top, as in Vivaldi and Opera. Off by default, with a list of gestures in Settings.
+96. **Drag a download out.** Drag a finished file from sc://downloads or the downloads list into another app, as in Chrome. `webContents.startDrag`.
+97. **Per-site JavaScript, images and pop-ups.** Block scripts, pictures or pop-ups for one site from its padlock, as in Chrome's site settings and Firefox's NoScript.
+98. **A notifications list.** Recent notifications from sites in one place, with "Don't disturb" during focus sessions and quiet hours (Vivaldi, Edge's notification controls). `Notification` permission and `session.setPermissionRequestHandler` are there already.
+99. **Screenshot markup.** Draw boxes, arrows and blur on a screenshot before copying or saving it (Edge's web capture, Firefox's screenshots).
+100. **Reader view settings.** Font, text size, line width and light, sepia or dark in reader view, kept between pages (Firefox, Safari).
+
+AI browsers (Dia, Comet, Atlas, Edge):
+
+101. **Summary in link previews.** Shift-click's preview card gets a Summarise button that reads the previewed page, so a link can be judged without opening it (Arc's Peek, Dia).
+102. **Voice to the assistant.** A microphone button in the side assistant that sends speech to the chosen model's transcription (OpenAI, Gemini) or a local Whisper, never to a service the person hasn't picked.
+103. **Ask about history.** The assistant can search browsing history by itself ("the article about rust I read last week"), with only titles and addresses going to the model, as natural-language history search already does.
+
+Terra Code, from Claude Code:
+
+104. **More folders in one session.** `/add-dir` lets the model read and edit a second folder (a shared library, a docs repo), with the same asking and boundary checks as the first.
+105. **Messages while it works.** Type the next instruction while Terra Code is busy; it goes in at the end of the current step instead of waiting for the whole run (Claude Code queues these).
+106. **Plugins.** Install a set of commands, agents, skills, hooks and MCP servers from a Git address in one go, as Claude Code plugins and marketplaces do, each piece listed before it's added.
+107. **Small commands Claude Code has:** `/rename` for the session's title, `/memory` to open TERRA.md in an editor, `/permissions` for the always-allow rules, `/resume` to pick a saved session, `/release-notes`.
+108. **A status line command.** A setting to run the person's own script for the session's status line, fed the session as JSON, as Claude Code's `statusLine` does.
+109. **Notify from hooks.** Show Notification hooks as desktop notifications even when the window is hidden, and let `Stop` hooks keep the run going (Claude Code's `decision: block`).

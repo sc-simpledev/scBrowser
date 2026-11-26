@@ -577,6 +577,7 @@ export function AssistantPage() {
       {codeOpened && (
         <div className={cx('min-w-72 flex-1 flex-col', view === 'code' ? 'flex' : 'hidden')}>
           <CodeWorkspace
+            onShowSessions={() => setListOpen(true)}
             chat={codeChat}
             onChat={onCodeChat}
             initialTask={codeTask}

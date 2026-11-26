@@ -352,6 +352,10 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'style', description: 'How Terra Code explains: default, explanatory or learning', args: '[style]' },
   { name: 'security-review', description: 'Look over the changes for security problems' },
   { name: 'pr-comments', description: 'Read a pull request’s review comments and deal with them', args: '[#PR]' },
+  { name: 'memory', description: 'Open TERRA.md, the project’s notes for Terra Code, in your editor' },
+  { name: 'resume', description: 'Pick a saved session to carry on with' },
+  { name: 'cost', description: 'Tokens and cost so far, in the session panel' },
+  { name: 'release-notes', description: 'What’s new in this version of scTerra' },
   { name: 'help', description: 'What Terra Code can do' }
 ]
 
