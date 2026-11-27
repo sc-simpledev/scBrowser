@@ -73,7 +73,6 @@ export const MAX_HIDDEN_SITES = 100
 export const DEFAULT_NEW_TAB: NewTabConfig = {
   widgets: [
     { id: 'clock', size: 'full' },
-    { id: 'greeting', size: 'full' },
     { id: 'search', size: 'full' },
     { id: 'ai', size: 'full' },
     { id: 'shortcuts', size: 'full' }

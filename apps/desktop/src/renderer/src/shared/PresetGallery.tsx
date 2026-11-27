@@ -60,7 +60,7 @@ function PresetButton({ preset, onPick, onDelete }: { preset: ReportPreset; onPi
         onClick={() => onPick(preset)}
         className="flex min-w-0 flex-1 flex-col items-start gap-1.5 rounded-md border border-border p-2.5 text-left transition-colors hover:border-border-strong hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-focus-ring"
       >
-        <span className="flex size-7 items-center justify-center rounded-md bg-accent-soft text-accent">
+        <span className="flex size-7 items-center justify-center rounded-md border border-border bg-surface text-text-muted">
           <Icon aria-hidden size={14} strokeWidth={1.75} />
         </span>
         <span className="w-full truncate pr-5 text-xs font-medium">{preset.name}</span>

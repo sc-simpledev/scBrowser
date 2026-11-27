@@ -211,7 +211,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
     closeWhenEmpty: () => isApp || core.otherBrowserWindowsOpen(),
     devToolsWidth: () => settings.get().devToolsWidth,
-    quietMedia: () => settings.get().performanceMode,
+    quietMedia: () => settings.get().performanceMode || settings.get().blockAutoplay,
     onDevToolsWidth: (devToolsWidth) => settings.set({ devToolsWidth }),
     onDevToolsCreated: (contents) => {
       attachShortcuts(contents, actions)
@@ -390,6 +390,24 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       if (!active || !/^(https?|file):/.test(effectiveUrl(active.url))) return
       bookmarks.toggle(effectiveUrl(active.url), active.title)
       publishBookmarks()
+    },
+    verticalTabs: () => settings.get().tabLayout === 'vertical',
+    bookmarkAllTabs: () => {
+      const open = tabs.snapshot().tabs.map((tab) => ({ url: effectiveUrl(tab.url), title: tab.title })).filter((tab) => /^https?:/i.test(tab.url))
+      const pages = [...new Map(open.map((tab) => [tab.url, tab])).values()]
+      if (pages.length === 0) return notify('No web pages are open to bookmark')
+      const day = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+      const taken = new Set(bookmarks.groups().map((group) => group.name))
+      let name = `Tabs, ${day}`
+      for (let n = 2; taken.has(name); n++) name = `Tabs, ${day} (${n})`
+      const before = new Set(bookmarks.list().map((bookmark) => bookmark.url))
+      const added = bookmarks.importMany(pages.map((page) => ({ url: page.url, title: page.title || page.url })))
+      if (added === 0) return notify('Every open page was already bookmarked')
+      const folder = bookmarks.addGroup(name, null)
+      for (const bookmark of bookmarks.list()) if (!before.has(bookmark.url) && pages.some((page) => page.url === bookmark.url)) bookmarks.setGroup(bookmark.id, folder)
+      publishBookmarks()
+      const already = pages.length - added
+      notify(`Bookmarked ${added} ${added === 1 ? 'tab' : 'tabs'} in “${name}”${already ? `; ${already} already were` : ''}`)
     },
     toggleBookmarksBar: () => settings.set({ bookmarksBar: settings.get().bookmarksBar === 'always' ? 'bookmarks-page' : 'always' }),
     toggleFullscreen: () => window.setFullScreen(!window.isFullScreen()),
@@ -1365,6 +1383,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'mute-tab': onActive((id) => tabs.setMuted(id, !tabs.active?.muted)),
     screenshot: actions.screenshot,
     'screenshot-markup': actions.screenshotMarkup,
+    'bookmark-all-tabs': actions.bookmarkAllTabs,
     notifications: () => Menu.buildFromTemplate(actions.notificationRows()).popup({ window, x: Math.round(window.getContentBounds().width / 2 - 140), y: 80 }),
     'hide-part': actions.hidePart,
     'tweak-site': () => actions.tweakSiteHelp(),

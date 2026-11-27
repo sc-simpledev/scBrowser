@@ -668,6 +668,9 @@ function BrowsingPage({ settings, update }: { settings: Settings; update: Update
         <HomePageRow settings={settings} update={update} />
       </Section>
       <Section title="Mouse" keywords="mouse buttons">
+        <Row setting="blockAutoplay" label="Block autoplay" hint="Sound and video wait until you press play or click the page, as in Safari and Firefox. Muted video still plays. Applies to pages as they load." keywords="autoplay video sound audio mute play">
+          <Switch label="Block autoplay" checked={settings.blockAutoplay} onChange={(blockAutoplay) => update({ blockAutoplay })} />
+        </Row>
         <Row setting="middleClickScroll" label="Scroll with the middle button" hint="Press the wheel on a page, then move the pointer to scroll that way, faster the further you go. Press again to stop." keywords="autoscroll auto scroll wheel click">
           <Switch label="Scroll with the middle button" checked={settings.middleClickScroll} onChange={(middleClickScroll) => update({ middleClickScroll })} />
         </Row>

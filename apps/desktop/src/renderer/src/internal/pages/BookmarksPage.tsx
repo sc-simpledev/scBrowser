@@ -1,4 +1,4 @@
-import { Bookmark as BookmarkIcon, FolderPlus, Globe, Pencil, Sparkles, X } from 'lucide-react'
+import { Bookmark as BookmarkIcon, FolderPlus, Globe, Pencil, Sparkles, X, FileDown, FileUp } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconButton, Input, Select } from '@scbrowser/ui'
 import { duplicateBookmarks, folderTree, type Bookmark, type BookmarkGroup, type LinkCheck } from '@scbrowser/shared'
@@ -182,6 +182,7 @@ export function BookmarksPage() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [groups, setGroups] = useState<BookmarkGroup[]>([])
   const [newFolder, setNewFolder] = useState('')
+  const [fileNote, setFileNote] = useState<{ text: string; error: boolean } | null>(null)
 
   const load = useCallback(() => {
     void api().invoke('bookmarks:list').then(setBookmarks)
@@ -190,6 +191,23 @@ export function BookmarksPage() {
   useEffect(load, [load])
 
   const loose = bookmarks.filter((bookmark) => bookmark.groupId === null)
+  const cleanError = (error: Error) => error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  // A bookmarks file is the HTML every browser saves and reads, so nothing is locked in here.
+  const importFile = () =>
+    void api()
+      .invoke('bookmarks:import-html')
+      .then(
+        (added) => {
+          if (added === null) return
+          setFileNote({ text: added === 0 ? 'Everything in that file was already bookmarked.' : `Imported ${added} ${added === 1 ? 'bookmark' : 'bookmarks'}, in their folders.`, error: false })
+          load()
+        },
+        (error: Error) => setFileNote({ text: cleanError(error), error: true })
+      )
+  const exportFile = () =>
+    void api()
+      .invoke('bookmarks:export-html')
+      .then((saved) => saved && setFileNote({ text: 'Saved. Any browser can import that file.', error: false }), (error: Error) => setFileNote({ text: cleanError(error), error: true }))
 
   return (
     <div className="flex flex-col gap-6">
@@ -212,8 +230,25 @@ export function BookmarksPage() {
         </Button>
       </form>}
       {bookmarks.length === 0 && <EmptyState icon={BookmarkIcon} title="No bookmarks yet">
-          Press <kbd className="sc-kbd">Ctrl</kbd> <kbd className="sc-kbd">D</kbd> on any page to add one, or import them from another browser in Settings.
+          Press <kbd className="sc-kbd">Ctrl</kbd> <kbd className="sc-kbd">D</kbd> on any page to add one, import them from another browser in Settings, or from a bookmarks file below.
         </EmptyState>}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+        <Button variant="ghost" onClick={importFile}>
+          <FileUp aria-hidden size={13} strokeWidth={1.75} />
+          Import a bookmarks file
+        </Button>
+        {bookmarks.length > 0 && (
+          <Button variant="ghost" onClick={exportFile}>
+            <FileDown aria-hidden size={13} strokeWidth={1.75} />
+            Export as a file
+          </Button>
+        )}
+        {fileNote && (
+          <p role="status" className={fileNote.error ? 'px-2 text-xs text-danger' : 'px-2 text-xs text-text-muted'}>
+            {fileNote.text}
+          </p>
+        )}
+      </div>
       {bookmarks.length > 1 && <TidyUp bookmarks={bookmarks} reload={load} />}
       {groups
         .filter((group) => group.parentId === null)

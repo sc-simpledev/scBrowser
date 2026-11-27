@@ -2,7 +2,7 @@ import { keepSessionCookies } from './sessionCookies'
 import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
-import { app, ipcMain, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
+import { app, ipcMain, nativeTheme, net, Notification, powerMonitor, safeStorage, session, webContents as allContents, type Session, type WebContents } from 'electron'
 import { holdNotification, isGestureAction, isReaderUrl, siteBlocks, type PagePrefs } from '@scbrowser/shared'
 import { SiteNotifications } from './siteNotifications'
 import { setReaderStyle } from './internal/reader'
@@ -682,13 +682,23 @@ export class BrowserCore {
    */
   private pageExtras(): void {
     const { settings } = this.services
+    // Light or dark for scTerra's own pages, which they set as data-theme (preload/theme.ts):
+    // pages don't see prefers-color-scheme follow the theme setting in Electron 45 on Linux.
+    ipcMain.on('ui:dark', (event) => {
+      event.returnValue = nativeTheme.shouldUseDarkColors
+    })
+    nativeTheme.on('updated', () => {
+      const dark = nativeTheme.shouldUseDarkColors
+      for (const contents of allContents.getAllWebContents()) if (!contents.isDestroyed()) contents.send('ui:dark', dark)
+    })
     ipcMain.on('page:prefs', (event) => {
       const prefs: PagePrefs | null = this.ownerOf(event.sender)
         ? {
             globalPrivacyControl: settings.get().globalPrivacyControl,
             mouseGestures: settings.get().mouseGestures,
             middleClickScroll: settings.get().middleClickScroll,
-            protectedContent: settings.get().protectedContent && !siteBlocks(settings.get().siteContent, event.sender.getURL(), 'drm')
+            protectedContent: settings.get().protectedContent && !siteBlocks(settings.get().siteContent, event.sender.getURL(), 'drm'),
+            blockAutoplay: settings.get().blockAutoplay
           }
         : null
       event.returnValue = prefs

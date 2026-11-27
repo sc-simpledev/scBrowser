@@ -6,10 +6,11 @@ import type { CoderServer } from './ai/coderServer'
 import type { CoderGithub } from './ai/coderGithub'
 import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
-import { isClearKind, isClearRange, isWebAddress, localDay, MAX_STARTUP_PAGES, toReport } from '@scbrowser/shared'
-import { readFile, writeFile } from 'node:fs/promises'
+import { bookmarksHtml, isClearKind, isClearRange, isWebAddress, localDay, MAX_BOOKMARK_FILE_BYTES, MAX_STARTUP_PAGES, parseBookmarksHtml, toReport } from '@scbrowser/shared'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { app, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
 import type { BrowserCore } from './browserCore'
@@ -526,6 +527,27 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'ai:save-skills': (skills) => aiStore.saveSkills(skillList(skills)),
     'profiles:list': () => listProfiles(),
     'profiles:open': (name) => openProfile(text(name, 40)),
+    'bookmarks:export-html': async () => {
+      const day = localDay(Date.now())
+      const result = await dialog.showSaveDialog(window as Electron.BrowserWindow, { title: 'Save bookmarks', defaultPath: join(app.getPath('documents'), `scTerra bookmarks ${day}.html`), filters: [{ name: 'Bookmarks file', extensions: ['html'] }] })
+      if (result.canceled || !result.filePath) return false
+      await writeFile(result.filePath, bookmarksHtml(bookmarks.list(), bookmarks.groups()))
+      return true
+    },
+    'bookmarks:import-html': async () => {
+      const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: 'Import a bookmarks file', properties: ['openFile'], filters: [{ name: 'Bookmarks file', extensions: ['html', 'htm'] }] })
+      const path = result.canceled ? undefined : result.filePaths[0]
+      if (!path) return null
+      const info = await stat(path)
+      if (info.size > MAX_BOOKMARK_FILE_BYTES) throw new Error('That file is too big to be a bookmarks file.')
+      const imported = parseBookmarksHtml(await readFile(path, 'utf8'))
+      if (imported.length === 0) throw new Error('There are no bookmarks in that file. Bookmarks files are HTML, saved from a browser’s bookmark manager.')
+      const before = new Set(bookmarks.list().map((bookmark) => bookmark.url))
+      const added = bookmarks.importMany(imported)
+      bookmarks.placeImported(imported, new Set(imported.map((bookmark) => bookmark.url).filter((url) => !before.has(url))))
+      onBookmarksChanged()
+      return added
+    },
     'import:sources': () => availableSources(),
     'import:run': (id) => {
       const { bookmarks: imported, history: visits } = readSource(text(id, 32))

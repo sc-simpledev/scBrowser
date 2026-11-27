@@ -115,6 +115,10 @@ export interface BrowserActions {
   recentTabOrder: () => boolean
   /** The zoom sites without one of their own get, as a factor. */
   defaultZoom: () => number
+  /** Tabs down the side, rather than across the top. */
+  verticalTabs: () => boolean
+  /** Bookmarks every web page open in this window, in a new folder. */
+  bookmarkAllTabs: () => void
   /** Recent notifications from sites, and Do not disturb, for the More menu. */
   notificationRows: () => MenuItemConstructorOptions[]
   /** What the pop-up blocker stopped on the open page, and letting the site open them. */

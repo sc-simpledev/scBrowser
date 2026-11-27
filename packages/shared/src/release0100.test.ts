@@ -170,8 +170,8 @@ describe('palette and notes', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('leads What’s New with this version', () => {
-    expect(WHATS_NEW[0]!.version).toBe('1.0.0')
-    expect(WHATS_NEW[0]!.items.some((item) => /Netflix/.test(item))).toBe(true)
+  it('has this version in What’s New', () => {
+    const release = WHATS_NEW.find((notes) => notes.version === '1.0.0')
+    expect(release?.items.some((item) => /Netflix/.test(item))).toBe(true)
   })
 })

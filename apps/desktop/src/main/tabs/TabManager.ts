@@ -591,6 +591,14 @@ export class TabManager {
     } else this.emitChange()
   }
 
+  /** Closes the unpinned tabs after this one: below it with tabs down the side, to its right across the top. */
+  closeAfter(id: TabId): void {
+    const visible = this.visible
+    const at = visible.indexOf(id)
+    if (at === -1) return
+    for (const other of visible.slice(at + 1)) if (!this.tabs.get(other)?.state.pinned) this.close(other)
+  }
+
   closeOthers(id: TabId): void {
     for (const other of this.visible) if (other !== id && !this.tabs.get(other)?.state.pinned) this.close(other)
   }

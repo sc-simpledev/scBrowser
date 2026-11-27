@@ -53,7 +53,7 @@ type Update = (patch: Partial<NewTabConfig>) => void
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="sc-glass flex flex-col gap-2 rounded-lg p-3.5 text-text shadow-1">
-      {title && <h2 className="text-xs font-medium text-text-muted">{title}</h2>}
+      {title && <h2 className="text-2xs font-semibold tracking-[0.06em] text-text-faint uppercase">{title}</h2>}
       {children}
     </section>
   )
@@ -362,7 +362,6 @@ const tileLetter = (link: NewTabLink) => {
   return (fromHost || link.title || host).match(/[\p{L}\p{N}]/u)?.[0] ?? '·'
 }
 /** The same eight hues as brief monograms, so the page's colours sit together. */
-const tileHue = (host: string) => [200, 155, 38, 285, 0, 240, 95, 330][[...host].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 8]!
 
 function SiteTile({ link, pinned, onMenu }: { link: NewTabLink; pinned?: boolean; onMenu?: (x: number, y: number) => void }) {
   const label = link.title || hostOf(link.url)
@@ -388,8 +387,8 @@ function SiteTile({ link, pinned, onMenu }: { link: NewTabLink; pinned?: boolean
       }}
     >
       {pinned && <Pin aria-label="Pinned" size={10} strokeWidth={2} className="absolute top-1.5 right-1.5 text-text-faint" />}
-      {/* A letter rather than a favicon, so that opening a new tab contacts no website. Each site keeps its own tint. */}
-      <span aria-hidden style={{ '--hue': tileHue(hostOf(link.url)) } as CSSProperties} className="sc-hued grid size-9 place-items-center rounded-md bg-[var(--hued-soft)] font-semibold text-[var(--hued)] uppercase">
+      {/* A letter rather than a favicon, so that opening a new tab contacts no website. */}
+      <span aria-hidden className="grid size-9 place-items-center rounded-md border border-border bg-surface text-sm font-medium text-text uppercase">
         {tileLetter(link)}
       </span>
       <span className="w-full truncate text-center text-xs text-text-muted">{label}</span>
@@ -665,7 +664,7 @@ function GetStarted({ onCustomise }: { onCustomise: () => void }) {
           return (
             <li key={step.id} className="min-w-0">
               <button type="button" onClick={run} className="group flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors hover:bg-surface-hover">
-                <span className={cx('mt-0.5 grid size-7 shrink-0 place-items-center rounded-md', done ? 'bg-accent text-on-accent' : 'bg-accent-soft text-accent')}>
+                <span className={cx('mt-0.5 grid size-7 shrink-0 place-items-center rounded-md', done ? 'bg-accent text-on-accent' : 'border border-border bg-surface text-text-muted')}>
                   {done ? <Check aria-hidden size={14} strokeWidth={2.25} /> : <Icon aria-hidden size={14} strokeWidth={1.75} />}
                 </span>
                 <span className="flex min-w-0 flex-col gap-0.5">
@@ -734,7 +733,7 @@ function BriefBanner({ issues }: { issues: BriefIssue[] }) {
   if (!latest || hidden) return null
   return (
     <section aria-label="New brief" className="sc-glass col-span-2 flex items-center gap-3 rounded-lg p-3 text-text shadow-1">
-      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-soft text-accent">
+      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-surface text-text-muted">
         <Newspaper size={15} strokeWidth={1.75} />
       </span>
       <button type="button" className="flex min-w-0 flex-1 flex-col text-left" onClick={() => openBrief(latest.id)}>

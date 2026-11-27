@@ -42,6 +42,19 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '1.0.1',
+    date: '2026-11-28',
+    items: [
+      'Fixed: choosing Dark in Settings did nothing on Linux. scTerra’s own pages and toolbar now follow the theme you pick, and switch at once.',
+      'Netflix, Spotify and other protected streaming now play on Windows and macOS too, not just Linux.',
+      'A quieter look throughout: popups are solid instead of see-through, selected rows are a neutral grey, and pages read at a slightly larger size.',
+      'Close tabs below (or to the right, with tabs across the top) from a tab’s menu.',
+      'Bookmark all tabs into a new folder, from the tab menu, More › Bookmarks or Ctrl K.',
+      'Export your bookmarks as a file any browser can import, and import one another browser saved, on the Bookmarks page.',
+      'Block autoplay, in Settings › Browsing: video and sound wait until you press play.'
+    ]
+  },
+  {
     version: '1.0.0',
     date: '2026-11-27',
     items: [

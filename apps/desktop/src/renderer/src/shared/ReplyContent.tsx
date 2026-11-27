@@ -476,7 +476,7 @@ function ReportCard({ report, active, onOpen }: { report: Report; active: boolea
         active ? 'border-border-strong bg-surface-hover' : 'border-border bg-surface hover:bg-surface-hover'
       )}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-text-muted">
         <FileText aria-hidden size={16} strokeWidth={1.75} />
       </span>
       <span className="min-w-0 flex-1">
@@ -508,7 +508,7 @@ function FileCard({ change, active, writing, lines, onOpen }: { change: FileChan
         active ? 'border-border-strong bg-surface-hover' : 'border-border bg-surface enabled:hover:bg-surface-hover'
       )}
     >
-      <span className={cx('flex size-9 shrink-0 items-center justify-center rounded-md', failed ? 'bg-surface-hover text-danger' : 'bg-accent-soft text-accent')}>
+      <span className={cx('flex size-9 shrink-0 items-center justify-center rounded-md', failed ? 'bg-surface-hover text-danger' : 'border border-border bg-surface text-text-muted')}>
         {failed ? <TriangleAlert aria-hidden size={16} strokeWidth={1.75} /> : <FileCode2 aria-hidden size={16} strokeWidth={1.75} />}
       </span>
       <span className="min-w-0 flex-1">

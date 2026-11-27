@@ -348,18 +348,15 @@ function Activities({ state, bySubjectToday, update }: { state: StudyState; bySu
   )
 }
 
-function Stat({ label, value, icon, hint }: { label: string; value: string; icon: ReactNode; hint?: string }) {
+/** A number with its label, as scSpace's stats are: no icon, the number does the talking. */
+function Stat({ label, value, hint }: { label: string; value: string; icon?: ReactNode; hint?: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-surface px-4 py-3.5 shadow-1">
-      <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-hover text-text-muted">
-        {icon}
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg bg-surface px-4 py-3.5 shadow-1">
+      <span className="text-xs text-text-muted">{label}</span>
+      <span className="truncate text-xl leading-tight font-semibold tracking-[-0.03em] tabular-nums" title={hint}>
+        {value}
       </span>
-      <div className="flex min-w-0 flex-col">
-        <span className="text-xs text-text-faint">{label}</span>
-        <span className="truncate text-lg leading-tight font-semibold tracking-[-0.03em] tabular-nums" title={hint}>
-          {value}
-        </span>
-      </div>
+      {hint && <span className="text-2xs text-text-faint">{hint}</span>}
     </div>
   )
 }
@@ -611,7 +608,7 @@ function Recap() {
   if (schedule === undefined) return null
   return (
     <section aria-label="Weekly recap" className="flex flex-1 flex-wrap items-center gap-3 rounded-lg bg-surface px-5 py-4 shadow-1">
-      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-soft text-accent">
+      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-surface text-text-muted">
         <Newspaper size={15} strokeWidth={1.75} />
       </span>
       <div className="flex min-w-60 flex-1 flex-col">
@@ -859,10 +856,7 @@ export function FocusPage() {
     <>
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
-            <Timer aria-hidden size={13} strokeWidth={2} />
-            Focus
-          </span>
+          <span className="text-xs text-text-muted">Focus</span>
           <h1 className="text-display leading-[1.1] font-semibold tracking-[-0.035em] max-[720px]:text-xl">Focus timer</h1>
           <p className="text-sm text-text-muted">Time what you focus on: work, study, writing or practice. It adds up the day and pauses itself when you step away.</p>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-text-faint">

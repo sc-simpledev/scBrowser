@@ -224,3 +224,32 @@ export function middleClickScroll(enabled: () => boolean): void {
   page.addEventListener('wheel', stop, true)
   page.addEventListener('blur', stop)
 }
+
+/**
+ * Block autoplay: sound or video that starts before the person has pressed anything on the page is
+ * paused, as Safari and Firefox do. Chromium's own autoplay policy can't do it here, as a page loaded
+ * from the address bar already counts as pressed. Muted video (backgrounds, GIF-like clips) plays on.
+ * Players inside frames are left to Chromium's policy, which the tab also gets.
+ */
+export function holdAutoplay(): void {
+  let pressed = false
+  for (const type of ['pointerdown', 'keydown', 'touchstart']) {
+    page.addEventListener(
+      type,
+      (event: any) => {
+        if (event.isTrusted) pressed = true
+      },
+      true
+    )
+  }
+  page.addEventListener(
+    'play',
+    (event: any) => {
+      const media = event.target
+      if (pressed || !media || typeof media.pause !== 'function' || media.muted || media.volume === 0) return
+      media.pause()
+    },
+    true
+  )
+}
+

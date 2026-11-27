@@ -16,7 +16,8 @@
     background: var(--sc-wash), var(--sc-surface);
     color: var(--sc-text);
     font-family: var(--sc-font-sans);
-    font-size: var(--sc-text-sm);
+    /* 14px for pages read at length, as in scSpace; the browser's own toolbar keeps 13px. */
+    font-size: 14px;
     font-weight: var(--sc-weight-regular);
     -webkit-font-smoothing: antialiased;
   }
@@ -117,11 +118,9 @@
   background: var(--sc-accent);
 }
 
-/* The timer's card takes a faint glow of the running subject's colour, or the accent at rest. */
+/* The timer's card: a plain surface, as scSpace's cards are. */
 .sc-focus-hero {
-  background:
-    radial-gradient(80% 70% at 50% -10%, color-mix(in oklab, var(--hued, var(--sc-accent)) 14%, transparent), transparent 70%),
-    var(--sc-surface);
+  background: var(--sc-surface);
 }
 
 /* AI Briefs: briefs set larger and looser than chat replies, for reading rather than skimming. */

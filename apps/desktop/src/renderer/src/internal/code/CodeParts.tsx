@@ -83,7 +83,7 @@ export function AgentCard({ run, children }: { run: CoderAgentRun; children?: Re
   return (
     <section aria-label={`${run.name} agent`} className="overflow-hidden rounded-lg border border-border bg-surface">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full min-w-0 items-start gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-surface-hover">
-        <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-md', running ? 'bg-accent-soft text-accent' : 'bg-surface-hover text-text-muted')}>
+        <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-md', running ? 'border border-border bg-surface text-text-muted' : 'bg-surface-hover text-text-muted')}>
           <Icon aria-hidden size={12} strokeWidth={1.75} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">

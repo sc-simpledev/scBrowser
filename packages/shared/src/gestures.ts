@@ -27,4 +27,6 @@ export interface PagePrefs {
   middleClickScroll: boolean
   /** The page may use Widevine. False when protected content is off, everywhere or for its site. */
   protectedContent: boolean
+  /** Sound and video wait for the person to press something on the page first. */
+  blockAutoplay: boolean
 }

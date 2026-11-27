@@ -160,7 +160,7 @@ function PageFrame() {
         {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg p-2.5 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
           {NAV.map(({ label, pages: section }) => (
             <div key={section[0]} className="flex shrink-0 flex-col gap-px">
-              {label && <h2 className="px-2 pt-3.5 pb-1 text-2xs font-medium text-text-faint max-[720px]:sr-only">{label}</h2>}
+              {label && <h2 className="px-2 pt-4 pb-1.5 text-2xs font-semibold tracking-[0.06em] text-text-faint uppercase max-[720px]:sr-only">{label}</h2>}
               {section.filter(shown).map((page) => (
                 <NavLink key={page} page={page} current={current} />
               ))}

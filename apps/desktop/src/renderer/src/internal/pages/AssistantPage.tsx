@@ -457,9 +457,6 @@ export function AssistantPage() {
       <div className="flex h-full">
         {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
         <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8 pb-16 text-center">
-          <span className="grid size-10 place-items-center rounded-lg bg-accent-soft text-accent">
-            <MessageSquare aria-hidden size={18} strokeWidth={1.75} />
-          </span>
           <div className="flex max-w-90 flex-col gap-1.5">
             <h1 className="text-lg font-semibold tracking-[-0.02em]">Set up AI to start chatting</h1>
             <p className="text-sm text-text-muted">Use your own key, a model running on this computer, or scTerra AI where it’s offered. It takes a minute.</p>

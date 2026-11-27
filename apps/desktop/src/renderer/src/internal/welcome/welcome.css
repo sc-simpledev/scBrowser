@@ -32,8 +32,20 @@
   display: none;
 }
 
+:root[data-theme='light'] .sc-welcome {
+  --sc-welcome-ink: oklch(0.2 0.01 230);
+  --sc-welcome-soft: oklch(0.2 0.01 230 / 0.68);
+  --sc-welcome-faint: oklch(0.2 0.01 230 / 0.5);
+  --sc-welcome-line: oklch(0.2 0.01 230 / 0.14);
+  --sc-welcome-fill: oklch(0.2 0.01 230 / 0.06);
+  --sc-welcome-panel: oklch(0.99 0.002 220 / 0.72);
+  --sc-welcome-sky: radial-gradient(120% 90% at 50% 120%, color-mix(in oklab, var(--sc-accent) 18%, white), oklch(0.975 0.003 220) 62%);
+  --sc-welcome-on-ink: white;
+  --sc-welcome-shadow: 0 0 40px oklch(1 0 0 / 0.7);
+}
+
 @media (prefers-color-scheme: light) {
-  .sc-welcome {
+  :root:not([data-theme]) .sc-welcome {
     --sc-welcome-ink: oklch(0.2 0.01 230);
     --sc-welcome-soft: oklch(0.2 0.01 230 / 0.68);
     --sc-welcome-faint: oklch(0.2 0.01 230 / 0.5);

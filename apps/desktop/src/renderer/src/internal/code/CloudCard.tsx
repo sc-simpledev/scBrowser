@@ -57,7 +57,7 @@ export function CloudCard({ run, events, onOpen, onCancel, onPr, onFetch, onStep
   return (
     <section aria-label={onServer ? 'Run on your server' : 'Cloud run'} className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex min-w-0 items-start gap-2.5 px-2.5 py-2">
-        <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-md', finished ? 'bg-surface-hover text-text-muted' : 'bg-accent-soft text-accent')}>
+        <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-md', finished ? 'bg-surface-hover text-text-muted' : 'border border-border bg-surface text-text-muted')}>
           {onServer ? <Server aria-hidden size={12} strokeWidth={1.75} /> : <Cloud aria-hidden size={12} strokeWidth={1.75} />}
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">

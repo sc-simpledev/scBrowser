@@ -274,7 +274,7 @@ function QuizMode({ cards, memory, progress, onClose }: { cards: QuizCard[]; mem
           </>
         ) : (
           <div className="flex flex-col items-center gap-3 text-center">
-            <div className="grid size-12 place-items-center rounded-full bg-accent-soft text-accent">
+            <div className="grid size-12 place-items-center rounded-full border border-border bg-surface text-text-muted">
               <Check aria-hidden size={22} strokeWidth={2} />
             </div>
             <p className="text-md font-medium">All {cards.length} done</p>

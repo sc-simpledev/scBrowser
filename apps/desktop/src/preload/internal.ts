@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { INTERNAL_COMMAND_CHANNELS, SIGN_IN_HOSTS, type AssistantEvent, type CoderEvent, type InternalBridge, type PagePrefs } from '@scbrowser/shared'
-import { middleClickScroll, mouseGestures } from './pageExtras'
+import { holdAutoplay, middleClickScroll, mouseGestures } from './pageExtras'
+import { followTheme } from './theme'
 
 declare const location: { protocol: string; hostname: string }
 declare const navigator: { userAgent: string }
@@ -27,6 +28,7 @@ if (location.protocol === 'sc:') {
     }
   }
   contextBridge.exposeInMainWorld('scbInternal', bridge)
+  followTheme()
 }
 
 // Google's sign-in pages check that what scripts read matches the request's header. This runs
@@ -94,6 +96,7 @@ if (/^(https?|file):$/.test(location.protocol)) {
   }
   on.mouseGestures = prefs?.mouseGestures === true
   on.middleClickScroll = prefs?.middleClickScroll === true
+  if (prefs?.blockAutoplay) holdAutoplay()
   // Protected content turned off, everywhere or for this site. Chromium doesn't ask a permission for
   // Widevine, so the page is told it isn't available, as a browser without it would say.
   if (prefs && !prefs.protectedContent) {

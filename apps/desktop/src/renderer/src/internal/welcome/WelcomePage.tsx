@@ -62,13 +62,19 @@ function prefersStill(): boolean {
   return !windows && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+/** Light or dark as scTerra set it on the page (see preload/theme.ts), else as the system says. */
+const isLight = () => {
+  const theme = document.documentElement.dataset.theme
+  return theme ? theme === 'light' : matchMedia('(prefers-color-scheme: light)').matches
+}
+
 export function WelcomePage() {
   const canvas = useRef<HTMLCanvasElement>(null)
   const trails = useRef<HTMLCanvasElement>(null)
   const globe = useRef<Globe | null>(null)
   const scene = useRef({ shot: OPENING[0]!.shot, from: OPENING[0]!.shot, to: null as Shot | null, moveStart: 0, seconds: 0 })
   const tint = useRef<[number, number, number]>([0.3, 0.7, 0.8])
-  const tone = useRef(matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0)
+  const tone = useRef(isLight() ? 1 : 0)
   const [stage, setStage] = useState<Stage>('opening')
   const [noGlobe, setNoGlobe] = useState(false)
   const [settled, setSettled] = useState(false)
@@ -100,7 +106,7 @@ export function WelcomePage() {
         state.shot = blendShots(state.from, state.to, ease(t))
       } else state.shot = openingShot(seconds)
       // Follows the system, and the theme picked during setup.
-      const wanted = matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0
+      const wanted = isLight() ? 1 : 0
       tone.current += Math.max(-TONE_STEP, Math.min(TONE_STEP, wanted - tone.current))
       globe.current?.draw(state.shot, seconds, tint.current, tone.current)
       frame = requestAnimationFrame(draw)

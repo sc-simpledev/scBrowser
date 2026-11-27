@@ -314,8 +314,10 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: 'Close', accelerator: keyFor('close-tab'), registerAccelerator: false, click: () => tabs.close(id) },
     // Pinned tabs stay when the others close, so only unpinned ones count.
     { label: 'Close other tabs', enabled: open.some((other) => other.id !== id && !other.pinned), click: () => tabs.closeOthers(id) },
+    { label: actions.verticalTabs() ? 'Close tabs below' : 'Close tabs to the right', enabled: open.slice(open.findIndex((other) => other.id === id) + 1).some((other) => !other.pinned), click: () => tabs.closeAfter(id) },
     { label: 'Close duplicate tabs', click: actions.closeDuplicates },
     { label: 'Copy links of all tabs', click: () => actions.copyTabLinks() },
+    { label: 'Bookmark all tabs…', click: actions.bookmarkAllTabs },
     { type: 'separator' },
     ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: keyFor('search-tabs'), click: actions.searchTabs },
@@ -552,7 +554,8 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
       label: 'Bookmarks',
       submenu: [
         { label: 'All bookmarks', accelerator: keyFor('bookmarks'), click: () => actions.openPage('bookmarks') },
-        { type: 'checkbox', label: 'Bookmarks bar', accelerator: keyFor('bookmarks-bar'), checked: bookmarksBarAlways, click: actions.toggleBookmarksBar }
+        { type: 'checkbox', label: 'Bookmarks bar', accelerator: keyFor('bookmarks-bar'), checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
+        { label: 'Bookmark all tabs…', click: actions.bookmarkAllTabs }
       ]
     },
     {

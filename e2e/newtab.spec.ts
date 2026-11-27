@@ -47,6 +47,8 @@ test('widgets can be added, removed, moved and resized, and stay after a restart
   await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toBeVisible()
   await panel.getByRole('button', { name: 'Add Calendar' }).click()
   await panel.getByRole('combobox', { name: 'Calendar width' }).selectOption('half')
+  // The greeting isn't on the page until it's added (since 1.0.1).
+  await panel.getByRole('button', { name: 'Add Greeting' }).click()
   await panel.getByRole('button', { name: 'Move Search up' }).click()
   await panel.getByRole('textbox', { name: 'Your name' }).fill('Sam')
   await panel.getByRole('switch', { name: '24-hour clock' }).click()
@@ -66,7 +68,8 @@ test('widgets can be added, removed, moved and resized, and stay after a restart
   await expect(again.getByRole('heading', { name: /, Sam$/ })).toBeVisible()
   await expect(again.getByRole('region', { name: 'Quick AI' })).toHaveCount(0)
   const order = await again.locator('main > div > div').evaluateAll((items) => items.map((item) => item.querySelector('[role=search]') !== null))
-  expect(order.indexOf(true)).toBe(1)
+  // Search was second, under the clock, and moved up to the top.
+  expect(order.indexOf(true)).toBe(0)
 })
 
 test('a chosen picture appears, and a fake one is refused', async () => {

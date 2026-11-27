@@ -139,11 +139,9 @@
   }
 }
 
-/* The sidebar timer takes a faint wash of its activity's colour while it runs. */
+/* The sidebar timer while it runs: a plain surface; its progress line says it's going. */
 .sc-sidebar-timer.is-live {
-  background:
-    radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--hued) 12%, transparent), transparent 70%),
-    var(--sc-surface);
+  background: var(--sc-surface);
 }
 
 /* The sidebar that hides itself slides out from the window's edge when it's revealed. */

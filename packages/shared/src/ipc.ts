@@ -494,6 +494,10 @@ export interface InternalCommands {
   'bookmarks:remove': (id: number) => void
   /** Asks each address whether it still answers, for the tidy-up. */
   'bookmarks:check-links': (urls: string[]) => LinkCheck[]
+  /** Saves every bookmark and folder as a bookmarks file (HTML, as every browser reads). False if cancelled. */
+  'bookmarks:export-html': () => boolean
+  /** Reads a bookmarks file another browser saved. How many were new, or null if cancelled. */
+  'bookmarks:import-html': () => number | null
   'bookmarks:edit': (id: number, title: string, url: string) => void
   'bookmarks:set-group': (id: number, groupId: number | null) => void
   'bookmarks:groups': () => BookmarkGroup[]
@@ -978,6 +982,8 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'bookmarks:rename',
   'bookmarks:remove',
   'bookmarks:check-links',
+  'bookmarks:export-html',
+  'bookmarks:import-html',
   'bookmarks:edit',
   'bookmarks:set-group',
   'bookmarks:groups',

@@ -119,6 +119,8 @@ export interface Settings {
   globalPrivacyControl: boolean
   /** Sites allowed to open pop-ups without a click. */
   popupsAllowed: string[]
+  /** Sound and video wait for a press on the page before playing, as in Safari and Firefox (preload/pageExtras.ts `holdAutoplay`). */
+  blockAutoplay: boolean
   /** Plays protected video and music (Netflix, Spotify) with Widevine. Sites can still be blocked one by one. */
   protectedContent: boolean
   /** What each site is stopped from doing, from the padlock: scripts, images, every pop-up, protected content. */
@@ -378,6 +380,7 @@ export const DEFAULT_SETTINGS: Settings = {
   minimumFontSize: 0,
   globalPrivacyControl: true,
   popupsAllowed: [],
+  blockAutoplay: false,
   protectedContent: true,
   siteContent: {},
   notificationQuiet: 'focus',
@@ -524,6 +527,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   minimumFontSize: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 24,
   globalPrivacyControl: (v) => typeof v === 'boolean',
   popupsAllowed: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
+  blockAutoplay: (v) => typeof v === 'boolean',
   protectedContent: (v) => typeof v === 'boolean',
   siteContent: isSiteContent,
   notificationQuiet: (v) => v === 'never' || v === 'focus' || v === 'always',

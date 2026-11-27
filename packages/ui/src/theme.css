@@ -71,12 +71,10 @@
 /* Frosted surfaces. The blur only reaches what's in the same page, such as a picture behind it. */
 @utility sc-glass {
   background: var(--sc-glass);
-  backdrop-filter: blur(20px) saturate(1.5);
 }
 
 @utility sc-glass-strong {
   background: var(--sc-glass-strong);
-  backdrop-filter: blur(20px) saturate(1.5);
 }
 
 @utility sc-rise {
@@ -143,14 +141,8 @@
  * A colour picked by hue, for study subjects and brief monograms. Set `--hue` on the element.
  * Lightness and chroma match the accent, so every hue sits at the same weight.
  */
+/* Letter tiles (shortcuts, briefs): neutral, like scSpace's marks, whatever hue they were given. */
 .sc-hued {
-  --hued: oklch(0.65 0.13 var(--hue, 200));
-  --hued-soft: oklch(0.65 0.13 var(--hue, 200) / 0.12);
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-hued {
-    --hued: oklch(0.74 0.13 var(--hue, 200));
-    --hued-soft: oklch(0.74 0.13 var(--hue, 200) / 0.16);
-  }
+  --hued: var(--sc-text-muted);
+  --hued-soft: var(--sc-surface-active);
 }

@@ -24,6 +24,10 @@ Twenty from the lists below: 66 (edit keyboard shortcuts), 80 to 96 (pop-up bloc
 
 62 (hide the toolbar) was started and taken out again: the window's own buttons are drawn over its top right corner, so with the toolbar hidden they'd sit over the page. It needs those buttons moved somewhere else first (into the sidebar, as Arc does, or shown only with the toolbar). Still open: 62, 63, 75, 97 to 99, 101 to 106, 108, 109.
 
+## Built in 1.0.1
+
+From the batch brainstormed after 1.0 (at the end of this file): 110 (close tabs below or to the right), 111 (bookmark all tabs), 112 (bookmarks as an HTML file, both ways) and 113 (block autoplay). Also a fix for the Dark theme doing nothing on Linux, and a polish pass towards theme.html's look. Still open: 62, 114 to 121.
+
 ## Built in 1.0.0
 
 Twelve from the lists below: 63 (a little window for links from other apps, Settings > Tabs, off by default), 75 (Act on page shows its plan first, Settings > AI, off by default), 97 (JavaScript, images, every pop-up and protected content per site, under the padlock's Site settings), 98 (notifications from sites listed under More > Notifications, held during focus sessions or always), 99 (screenshot markup on sc://markup), 101 (Summarise in link previews), 102 (the assistant's microphone, through the person's own OpenAI, Gemini, Groq or Whisper server), 103 (the assistant's `search_history` tool), 104 (`/add-dir`), 106 (plugins), 108 (a status line command) and 109 (Notification hooks on the desktop, Stop hooks that keep the run going, and UserPromptSubmit and SessionStart hooks). 105 was already in: a message typed while Terra Code works goes in at its next step (`coder:steer`). 107's `/rename` isn't needed, as sessions have no title of their own. See CONTEXT.md.
@@ -186,3 +190,21 @@ Terra Code, from Claude Code:
 107. **Small commands Claude Code has:** `/rename` for the session's title, `/memory` to open TERRA.md in an editor, `/permissions` for the always-allow rules, `/resume` to pick a saved session, `/release-notes`.
 108. **A status line command.** A setting to run the person's own script for the session's status line, fed the session as JSON, as Claude Code's `statusLine` does.
 109. **Notify from hooks.** Show Notification hooks as desktop notifications even when the window is hidden, and let `Stop` hooks keep the run going (Claude Code's `decision: block`).
+
+## After 1.0 (brainstormed for 1.0.1)
+
+Gaps found by checking the code on 2026-11-28 against what other browsers do as a matter of course (only 62 was left open from the earlier lists).
+
+110. **Close tabs below.** "Close tabs to the right" in Chrome and Firefox; with tabs down the side, below. In the tab menu beside Close other tabs. `TabManager.closeAfter`.
+111. **Bookmark all tabs.** Every open web page bookmarked into a new folder in one go (Chrome's Ctrl Shift D, Firefox's "Bookmark Tabs"). Tab menu, More › Bookmarks, Ctrl K.
+112. **Bookmarks as a file.** Export to, and import from, the Netscape bookmarks HTML that every browser reads and writes, so nothing is locked into scTerra and nothing else needs installing. `shared/bookmarksHtml.ts`, buttons on sc://bookmarks.
+113. **Block autoplay.** Video and sound wait for a press, as Safari and Firefox do by default. A switch under Browsing; it reuses Performance Mode's autoplay policy, so it applies to tabs as they open or wake.
+114. **Always show full addresses.** A setting to keep `https://` and `www.` in the address bar (Chrome's right-click option).
+115. **Certificate details under the padlock.** Who issued the site's certificate and until when, as Chrome and Firefox show.
+116. **Site storage under the padlock.** How much a site keeps (cookies, storage, cache) with a Clear button, as Chrome's "Cookies and site data".
+117. **Bookmark all tabs shortcut.** Ctrl Shift D for 111, through the shortcut table.
+118. **Autoplay per site.** Allow or block autoplay for one site from the padlock's Site settings, beside the global switch.
+119. **Terra Code session names.** A short name for each session from the quick model, shown in the list, with /rename.
+120. **Terra Code side-by-side diffs.** A two-column view in Review for wide windows.
+121. **Undo close as a toast.** A brief "Tab closed · Reopen" note after closing a tab with the mouse.
+
