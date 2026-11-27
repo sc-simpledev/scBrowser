@@ -111,6 +111,16 @@ export interface BrowserWindowHandle {
   coderBusy?: () => { working: number; waiting: number }
 }
 
+/**
+ * Timers that only need stopping. On `quit` as well as `will-quit`: app.exit (the smoke test's way
+ * out) skips will-quit but still closes the database on quit, and a timer firing after that would
+ * read a closed database (the 0.9.2 and 1.0.0 release runs both stopped on this).
+ */
+function onQuitting(stop: () => void): void {
+  app.on('will-quit', stop)
+  app.on('quit', stop)
+}
+
 export interface WindowOptions {
   kind?: WindowKind
   urls?: string[]
@@ -449,7 +459,7 @@ export class BrowserCore {
             window.focus()
           }
         })
-    app.on('will-quit', () => this.watcher?.destroy())
+    onQuitting(() => this.watcher?.destroy())
     this.onboarding = new Onboarding(kv)
     this.briefs = isPrivate
       ? null
@@ -471,7 +481,7 @@ export class BrowserCore {
           onChange: (summary) => this.broadcast('briefs:changed', summary),
           onReady: (issue, startup) => this.briefReady(issue.id, issue.title, startup)
         })
-    app.on('will-quit', () => this.briefs?.destroy())
+    onQuitting(() => this.briefs?.destroy())
     this.snoozed = isPrivate
       ? null
       : new SnoozeService({
@@ -485,7 +495,7 @@ export class BrowserCore {
             return true
           }
         })
-    app.on('will-quit', () => this.snoozed?.destroy())
+    onQuitting(() => this.snoozed?.destroy())
     this.study = isPrivate
       ? null
       : new StudyService({
@@ -497,7 +507,7 @@ export class BrowserCore {
           notify: (text) => this.focused()?.actions.notify(text),
           sound: (sound, volume) => this.focused()?.send('study:sound', { sound, volume })
         })
-    app.on('will-quit', () => this.study?.destroy())
+    onQuitting(() => this.study?.destroy())
     const stopSaver = startMemorySaver({
       enabled: () => settings.get().memorySaver,
       // On Linux `free` leaves out memory the system can hand back at once (disk cache), so it reads as
@@ -539,7 +549,7 @@ export class BrowserCore {
       void this.readingList.noteProgress(this.windows.flatMap((handle) => (handle.kind === 'browser' ? handle.tabs.allContents() : [])))
     }, READING_PROGRESS_MS)
     readingTimer.unref?.()
-    app.on('will-quit', () => clearInterval(readingTimer))
+    onQuitting(() => clearInterval(readingTimer))
   }
 
   /**

@@ -49,7 +49,13 @@ let reporter: Reporter | null = null
 // One failed callback shouldn't put a blocking error dialog in front of the whole browser.
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error)
-  reporter?.record('exception', error.name, error.stack)
+  // Recording it can fail too, as when the database has just closed on the way out; a throw here
+  // would end the process with an error of its own.
+  try {
+    reporter?.record('exception', error.name, error.stack)
+  } catch (failure) {
+    console.error('Couldn’t record that exception:', failure)
+  }
 })
 
 // Tests can collect errors from the browser's own pages (its interface, popups and sc:// pages), which
