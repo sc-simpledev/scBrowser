@@ -171,7 +171,7 @@ describe('palette and notes', () => {
   })
 
   it('leads What’s New with this version', () => {
-    expect(WHATS_NEW[0]!.version).toBe('0.10.0')
+    expect(WHATS_NEW[0]!.version).toBe('1.0.0')
     expect(WHATS_NEW[0]!.items.some((item) => /Netflix/.test(item))).toBe(true)
   })
 })

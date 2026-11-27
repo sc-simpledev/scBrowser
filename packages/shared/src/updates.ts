@@ -42,7 +42,7 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
-    version: '0.10.0',
+    version: '1.0.0',
     date: '2026-11-27',
     items: [
       'Netflix, Spotify, Disney+ and other services that protect their video and music now play. scTerra downloads Google’s Widevine the first time it starts; Settings, Privacy shows how it stands.',

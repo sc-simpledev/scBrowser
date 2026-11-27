@@ -578,6 +578,7 @@ describe('packaging castLabs’ Electron', () => {
     const tag = /#v(.+\+wvcus)$/.exec(pkg.devDependencies.electron!)?.[1]
     expect(tag).toMatch(/^\d+\.\d+\.\d+\+wvcus$/)
     expect(builder).toContain(`electronVersion: ${tag}`)
-    expect(builder).toContain('mirror: https://github.com/castlabs/electron-releases/releases/download/\n')
+    // Windows checks files out with \r\n line endings.
+    expect(builder).toMatch(/^ {2}mirror: https:\/\/github\.com\/castlabs\/electron-releases\/releases\/download\/\r?$/m)
   })
 })

@@ -24,11 +24,11 @@ Twenty from the lists below: 66 (edit keyboard shortcuts), 80 to 96 (pop-up bloc
 
 62 (hide the toolbar) was started and taken out again: the window's own buttons are drawn over its top right corner, so with the toolbar hidden they'd sit over the page. It needs those buttons moved somewhere else first (into the sidebar, as Arc does, or shown only with the toolbar). Still open: 62, 63, 75, 97 to 99, 101 to 106, 108, 109.
 
-## Built in 0.10.0
+## Built in 1.0.0
 
 Twelve from the lists below: 63 (a little window for links from other apps, Settings > Tabs, off by default), 75 (Act on page shows its plan first, Settings > AI, off by default), 97 (JavaScript, images, every pop-up and protected content per site, under the padlock's Site settings), 98 (notifications from sites listed under More > Notifications, held during focus sessions or always), 99 (screenshot markup on sc://markup), 101 (Summarise in link previews), 102 (the assistant's microphone, through the person's own OpenAI, Gemini, Groq or Whisper server), 103 (the assistant's `search_history` tool), 104 (`/add-dir`), 106 (plugins), 108 (a status line command) and 109 (Notification hooks on the desktop, Stop hooks that keep the run going, and UserPromptSubmit and SessionStart hooks). 105 was already in: a message typed while Terra Code works goes in at its next step (`coder:steer`). 107's `/rename` isn't needed, as sessions have no title of their own. See CONTEXT.md.
 
-Also in 0.10.0, asked for by the owner rather than from this list: DRM (Widevine, through castLabs' Electron), git push, pull, branches, pull requests and merging from Terra Code's branch button, Terra Code's Auto mode, and memory files like Claude Code's (your own TERRA.md and ~/.claude/CLAUDE.md, CLAUDE.local.md, `@imports`).
+Also in 1.0.0, asked for by the owner rather than from this list: DRM (Widevine, through castLabs' Electron), git push, pull, branches, pull requests and merging from Terra Code's branch button, Terra Code's Auto mode, and memory files like Claude Code's (your own TERRA.md and ~/.claude/CLAUDE.md, CLAUDE.local.md, `@imports`).
 
 Still open: 62 (hide the toolbar), which needs the window's buttons moved first.
 
