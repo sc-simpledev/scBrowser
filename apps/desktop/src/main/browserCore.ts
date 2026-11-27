@@ -3,7 +3,8 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, ipcMain, net, Notification, powerMonitor, safeStorage, session, type Session, type WebContents } from 'electron'
-import { isGestureAction, isReaderUrl, type PagePrefs } from '@scbrowser/shared'
+import { holdNotification, isGestureAction, isReaderUrl, siteBlocks, type PagePrefs } from '@scbrowser/shared'
+import { SiteNotifications } from './siteNotifications'
 import { setReaderStyle } from './internal/reader'
 import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, routineDue, routineLabel, routineRan, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
 import type { BrowserActions } from './actions'
@@ -118,6 +119,8 @@ export interface WindowOptions {
   restore?: SavedSession | null
   /** Set by the core on the first browser window of a run, which decides on the intro and the rest of the last session. */
   first?: boolean
+  /** A small window for a link from another app, with "Open in scTerra" to move it into the browser. */
+  little?: boolean
 }
 
 /**
@@ -169,6 +172,10 @@ export class BrowserCore {
   readonly snoozed: SnoozeService | null
   /** The study timer. Private windows have none. */
   readonly study: StudyService | null
+  /** What sites have notified lately, for the More menu, and which were held for Do not disturb. */
+  readonly notifications = new SiteNotifications()
+  /** The screenshot waiting on sc://markup, kept in memory only. */
+  markupShot: { png: Buffer; title: string } | null = null
   /** Counts of what was blocked, for the new tab. Private windows count nothing. */
   readonly privacyStats: PrivacyStats | null
   readonly onboarding: Onboarding
@@ -187,7 +194,9 @@ export class BrowserCore {
     this.permissionService = new PermissionService(services.permissions, {
       tabIdFor: (contents) => this.tabIdFor(contents),
       windows: () => this.windows.map((handle) => ({ activeTabId: handle.tabs.active?.id ?? null, show: handle.showPermission })),
-      onExternal: (contents, url, requester) => this.ownerOf(contents)?.actions.openAppLink(url, requester, contents)
+      onExternal: (contents, url, requester) => this.ownerOf(contents)?.actions.openAppLink(url, requester, contents),
+      protectedContent: (url) => settings.get().protectedContent && !siteBlocks(settings.get().siteContent, url, 'drm'),
+      isOwnUi: (contents) => this.windows.some((handle) => !handle.window.isDestroyed() && handle.window.webContents === contents)
     })
     this.extensions = new ExtensionManager(kv, {
       window: () => this.focused()?.window ?? this.browser().window,
@@ -665,9 +674,23 @@ export class BrowserCore {
     const { settings } = this.services
     ipcMain.on('page:prefs', (event) => {
       const prefs: PagePrefs | null = this.ownerOf(event.sender)
-        ? { globalPrivacyControl: settings.get().globalPrivacyControl, mouseGestures: settings.get().mouseGestures, middleClickScroll: settings.get().middleClickScroll }
+        ? {
+            globalPrivacyControl: settings.get().globalPrivacyControl,
+            mouseGestures: settings.get().mouseGestures,
+            middleClickScroll: settings.get().middleClickScroll,
+            protectedContent: settings.get().protectedContent && !siteBlocks(settings.get().siteContent, event.sender.getURL(), 'drm')
+          }
         : null
       event.returnValue = prefs
+    })
+    // A site making a notification, which it has the permission for: listed, and held back during
+    // Do not disturb (the page gets a stand-in that never shows).
+    ipcMain.on('page:notification', (event, title: unknown, body: unknown) => {
+      const owner = this.ownerOf(event.sender)
+      if (!owner) return void (event.returnValue = false)
+      const { notificationQuiet, focusMode, focusUntil } = settings.get()
+      const hold = holdNotification(notificationQuiet, focusMode || focusUntil > Date.now())
+      event.returnValue = this.notifications.record({ url: event.sender.getURL(), title, body, tabId: owner.tabs.tabIdFor(event.sender) ?? null, hold })
     })
     ipcMain.on('page:gesture', (event, action: unknown) => {
       const owner = this.ownerOf(event.sender)

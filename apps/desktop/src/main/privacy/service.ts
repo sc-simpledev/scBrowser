@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { FiltersEngine, Request } from '@ghostery/adblocker'
 import { app, type OnBeforeRequestListenerDetails, type Session, type WebContents } from 'electron'
-import { cleanUrl, httpsUpgrade, type Settings } from '@scbrowser/shared'
+import { cleanUrl, httpsUpgrade, siteBlocks, withScriptsBlocked, type Settings } from '@scbrowser/shared'
 import { isBasicPdf, isPdfResponse } from '../internal/pdf'
 import type { SettingsStore } from '../settings'
 import type { KeyValueRepo } from '../storage/kv'
@@ -105,6 +105,9 @@ export class PrivacyService {
       if (resourceType === 'mainFrame' && contents && this.options.isTab(contents) && isPdfResponse(url, responseHeaders)) {
         respond({ cancel: true })
         this.options.onPdf(url, contents)
+      } else if ((resourceType === 'mainFrame' || resourceType === 'subFrame') && siteBlocks(this.settings.get().siteContent, url, 'scripts')) {
+        // A policy on top of the site's own: no script of any kind runs in the page or its workers.
+        respond({ responseHeaders: withScriptsBlocked(responseHeaders) })
       } else respond({})
     })
   }
@@ -184,7 +187,16 @@ export class PrivacyService {
       }
       return {}
     }
+    if (details.resourceType === 'image' && this.imagesBlocked(details)) return { cancel: true }
     return this.isBlocked(details) ? { cancel: true } : {}
+  }
+
+  /** Pictures on a page whose site the person stopped showing them, from the padlock. */
+  private imagesBlocked({ webContents, frame }: OnBeforeRequestListenerDetails): boolean {
+    const rules = this.settings.get().siteContent
+    if (Object.keys(rules).length === 0) return false
+    const page = webContents?.getURL() || frame?.url || ''
+    return siteBlocks(rules, page, 'images')
   }
 
   private isBlocked({ url, resourceType, webContents, webContentsId, frame }: OnBeforeRequestListenerDetails): boolean {

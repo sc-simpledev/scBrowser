@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { readFile, writeFile } from 'node:fs/promises'
 import { READ_ALOUD, READ_ALOUD_WORLD } from './readAloud'
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, safeStorage, shell, type Rectangle } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, Menu, nativeTheme, Notification, safeStorage, screen, shell, type Rectangle } from 'electron'
 import { NATIVE_THEME } from '@scbrowser/ui/native-theme'
 import iconPath from '../../build/icon.png?asset'
 import {
@@ -19,6 +19,9 @@ import {
   MAX_HIDDEN_PER_SITE,
   MAX_SIDEBAR_SITES,
   siteOf,
+  siteBlocks,
+  withSiteBlock,
+  SITE_CONTENT_BLOCKS,
   NEW_TAB_URL,
   PALETTE_SHORTCUTS,
   linksMarkdown,
@@ -44,6 +47,7 @@ import {
   PERMISSION_LABELS,
   type SiteAction,
   type SiteControlsState,
+  type SiteContentBlock,
   type SitePermission,
   byPing,
   errorPageUrl,
@@ -95,6 +99,9 @@ import { LinkPreview } from './linkPreview'
 import { SidebarSites } from './sidebarSites'
 import { copySecret, fillDetails, fillLogin, fillNewPassword, hasLoginForm, nextLoginField, watchForSignIn, type LoginFieldFocus } from './passwordFill'
 import { pagesUnloaded, TabManager } from './tabs/TabManager'
+import { notificationLabel } from './siteNotifications'
+import { pluginServers } from './ai/coderPlugins'
+import { extraDirsFor } from './ai/coderDirs'
 
 const TABSTRIP_HEIGHT = 40 // keep in sync with --sc-tabstrip-height
 const SLEEP_CHECK_MS = Number(process.env.SCB_E2E && process.env.SCB_SLEEP_CHECK_MS) || 60_000
@@ -115,6 +122,14 @@ const CAPTURE_ATTEMPTS = 15
 const APP_TITLE = isPrivate ? 'scTerra (Private)' : currentProfile() === DEFAULT_PROFILE ? 'scTerra' : `scTerra (${currentProfile()})`
 
 const APP_WINDOW_SIZE = { width: 1100, height: 760 }
+
+/** A little window for a link from another app: small, near the middle of the screen the pointer is on. */
+function littleWindowBounds(): { x: number; y: number; width: number; height: number } {
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const width = Math.min(860, workArea.width - 80)
+  const height = Math.min(680, workArea.height - 80)
+  return { x: Math.round(workArea.x + (workArea.width - width) / 2), y: Math.round(workArea.y + (workArea.height - height) / 3), width, height }
+}
 const CASCADE = 32
 /** A new window opens a little down and across, so both can be seen. */
 const cascaded = ({ x, y, width, height }: Rectangle): Rectangle => ({ x: x + CASCADE, y: y + CASCADE, width, height })
@@ -148,7 +163,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   const savedWindow = isApp ? undefined : (kv.get(WINDOW_KEY) as SavedWindow | undefined)
   const openBrowsers = core.windows.filter((handle) => handle.kind === 'browser')
   const window = new BrowserWindow({
-    ...(options.restore?.bounds ?? (isApp ? APP_WINDOW_SIZE : openBrowsers.length > 0 ? cascaded(openBrowsers.at(-1)!.window.getNormalBounds()) : (savedWindow?.bounds ?? { width: 1320, height: 860 }))),
+    ...(options.restore?.bounds ?? (options.little ? littleWindowBounds() : isApp ? APP_WINDOW_SIZE : openBrowsers.length > 0 ? cascaded(openBrowsers.at(-1)!.window.getNormalBounds()) : (savedWindow?.bounds ?? { width: 1320, height: 860 }))),
     minWidth: 520,
     minHeight: 360,
     show: false,
@@ -329,6 +344,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       const host = siteOf(url)
       return !!host && settings.get().popupsAllowed.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
     },
+    popupsBlocked: (url) => siteBlocks(settings.get().siteContent, url, 'popups'),
     siteMuted: (url) => {
       const host = siteOf(url)
       return !!host && settings.get().mutedSites.some((muted) => host === muted || host.endsWith(`.${muted}`))
@@ -562,6 +578,16 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       const contents = tabs.active && tabs.contentsFor(tabs.active.id)
       if (contents) void takeScreenshot(contents).catch(() => notify("Couldn't save the screenshot"))
     },
+    screenshotMarkup: () => {
+      const active = tabs.active
+      const contents = active && tabs.contentsFor(active.id)
+      if (!active || !contents) return
+      void capturePage(contents).then((image) => {
+        if (!image) return notify("Couldn't take a screenshot")
+        core.markupShot = { png: image.toPNG(), title: active.title || 'Screenshot' }
+        tabs.create('sc://markup/', { afterId: active.id })
+      })
+    },
     askAssistant: (prompt) => send('ui:assistant-prompt', prompt),
     askAboutImage: (contents, src, x, y) => {
       const url = contents.getURL()
@@ -629,6 +655,30 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       other.window.focus()
     },
     defaultZoom: () => settings.get().defaultZoom / 100,
+    notificationRows: () => {
+      const list = core.notifications.all()
+      core.notifications.markRead()
+      const quiet = settings.get().notificationQuiet
+      const goTo = (tabId: number | null, origin: string) => {
+        for (const handle of core.windows) {
+          if (tabId !== null && handle.tabs.snapshot().tabs.some((tab) => tab.id === tabId)) {
+            handle.tabs.activate(tabId)
+            return handle.window.focus()
+          }
+        }
+        tabs.create(origin)
+      }
+      return [
+        ...(list.length === 0 ? [{ label: 'No notifications from sites yet', enabled: false }] : list.slice(0, 15).map((one) => ({ label: notificationLabel(one), click: () => goTo(one.tabId, one.origin) }))),
+        { type: 'separator' as const },
+        { label: 'Show notifications', type: 'radio' as const, checked: quiet === 'never', click: () => settings.set({ notificationQuiet: 'never' }) },
+        { label: 'Hold them during focus sessions', type: 'radio' as const, checked: quiet === 'focus', click: () => settings.set({ notificationQuiet: 'focus' }) },
+        { label: 'Do not disturb: hold them all', type: 'radio' as const, checked: quiet === 'always', click: () => settings.set({ notificationQuiet: 'always' }) },
+        { type: 'separator' as const },
+        { label: 'Clear the list', enabled: list.length > 0, click: () => core.notifications.clear() },
+        { label: 'Notification settings', click: () => actions.openPage('settings', 'privacy') }
+      ]
+    },
     popupsMenu: (x, y) => {
       const active = tabs.active
       const blocked = active?.blockedPopups ?? []
@@ -644,7 +694,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
         {
           label: `Always allow pop-ups from ${host}`,
           click: () => {
-            settings.set({ popupsAllowed: [...settings.get().popupsAllowed.filter((other) => other !== host), host] })
+            settings.set({ popupsAllowed: [...settings.get().popupsAllowed.filter((other) => other !== host), host], siteContent: withSiteBlock(settings.get().siteContent, host, 'popups', false) })
             tabs.clearBlockedPopups(active.id)
             notify(`${host} can open pop-ups. Reload the page to let it try again`)
           }
@@ -881,7 +931,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
   })
   const coderHome = join(app.getPath('userData'), 'terra-code')
   const coderTrust = new KvCoderTrust(kv)
-  const coderMcp = new CoderMcp(kv, coderTrust, (url) => void tabs.create(url, { afterId: tabs.active?.id }))
+  const coderMcp = new CoderMcp(kv, coderTrust, (url) => void tabs.create(url, { afterId: tabs.active?.id }), () => pluginServers(coderHome))
   const coderGithub = new CoderGithub({
     kv,
     access: () => settings.get().coderGithub,
@@ -918,7 +968,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       folder: () => settings.get().coderFolder,
       budget: () => settings.get().coderBudget,
       style: () => settings.get().coderStyle,
-      lspProblems: () => settings.get().coderLspProblems
+      lspProblems: () => settings.get().coderLspProblems,
+      notify: (text) => {
+        if (Notification.isSupported()) new Notification({ title: 'Terra Code', body: text.slice(0, 200) }).show()
+      },
+      extraDirs: (folder) => extraDirsFor(kv, folder),
+      // Pages on sites the person keeps away from AI aren't listed.
+      history: (words, days) => history.searchTerms(words, days > 0 ? Date.now() - days * 86_400_000 : null, null, 40).filter((entry) => !(URL.canParse(entry.url) && aiStore.disabledHosts().includes(new URL(entry.url).host))).slice(0, 25),
+      historyAllowed: () => settings.get().assistantHistory && !isPrivate,
+      agentPlanFirst: () => settings.get().agentPlanFirst
     },
     () => (settings.get().aiMemory ? (settings.get().memorySuggestions ? 'suggest' : true) : false),
     () => settings.get().replyStyle
@@ -1026,7 +1084,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       },
       onPopupClosed: () => tabs.focusActive(),
       onTooltipCleared: () => send('overlay:clear-tooltip'),
-      onPreviewAction: (action) => (action === 'close' ? preview.close() : preview.promote(action))
+      onPreviewAction: (action) => (action === 'close' ? preview.close() : action === 'summarise' ? summarisePreview() : preview.promote(action))
     }
   )
   let previewContainer: string | null = null
@@ -1173,6 +1231,12 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       qrOpen: siteQrOpen,
       workspaces: tabs.workspaceList().length > 1 ? tabs.workspaceList().map(({ id, name }) => ({ id, name })) : [],
       workspace: current.siteWorkspaces[site] ?? null,
+      content: SITE_CONTENT_BLOCKS.map(({ id, label, blocked, allowed }) => {
+        const locked = id === 'drm' && !current.protectedContent
+        const isBlocked = locked || siteBlocks(current.siteContent, url, id)
+        return { id, label, blocked: isBlocked, locked, hint: locked ? 'Off everywhere, in Settings' : isBlocked ? blocked : allowed }
+      }),
+      contentOpen: siteContentOpen,
       permissions: core.services.permissions
         .list()
         .filter((decision) => decision.origin === origin)
@@ -1194,8 +1258,25 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       y: Math.round(Math.max(8, Math.min(height - siteControlsHeight(state) - 8, y)))
     })
   }
+  /**
+   * Summarise in a link preview: the previewed page's text goes to the side assistant with a request
+   * for a short summary, so a link can be judged without opening it as a tab.
+   */
+  const summarisePreview = () => {
+    const contents = preview.contents()
+    const url = contents?.getURL() ?? ''
+    if (!contents || !/^https?:/i.test(url)) return
+    if (URL.canParse(url) && aiStore.disabledHosts().includes(new URL(url).host)) return notify('AI is off for this site')
+    void extractContext(contents)
+      .then((page) => {
+        if (!page?.text.trim()) return notify('There’s no text on that page to summarise')
+        actions.askAssistant({ text: `Summarise the page I’m previewing, ${page.title ? `“${page.title}” ` : ''}(${url}), in three or four sentences, so I can decide whether to open it. Say what kind of page it is and anything to watch for.`, selection: page.text.slice(0, 24_000), includePage: false })
+      })
+      .catch(() => notify('That page couldn’t be read'))
+  }
   let siteBlockedOpen = false
   let siteQrOpen = false
+  let siteContentOpen = false
   const siteAction = (action: SiteAction) => {
     const state = siteControls()
     const active = tabs.active
@@ -1211,6 +1292,20 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     } else if (action === 'zoom-in' || action === 'zoom-out') tabs.zoomBy(active.id, action === 'zoom-in' ? 1 : -1)
     else if (action === 'zoom-reset') tabs.setZoom(active.id, 1)
     else if (action === 'blocked-toggle') siteBlockedOpen = !siteBlockedOpen
+    else if (action === 'content-toggle') {
+      siteContentOpen = !siteContentOpen
+      const bounds = overlay.siteControlsAt()
+      if (bounds) return openSiteControls(bounds.x, bounds.y, siteQrOpen)
+    }
+    else if (action.startsWith('content:')) {
+      const kind = action.slice('content:'.length) as SiteContentBlock
+      const row = state.content.find((one) => one.id === kind)
+      if (row && !row.locked) {
+        settings.set({ siteContent: withSiteBlock(settings.get().siteContent, state.site, kind, !row.blocked) })
+        // Scripts, pictures and protected content are decided as the page loads, so it loads again; pop-ups apply at once.
+        if (kind !== 'popups') reload()
+      }
+    }
     else if (action === 'qr-toggle') {
       siteQrOpen = !siteQrOpen
       // The panel changes height, so it's placed again.
@@ -1269,6 +1364,8 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     'pin-tab': onActive((id) => tabs.setPinned(id, !tabs.active?.pinned)),
     'mute-tab': onActive((id) => tabs.setMuted(id, !tabs.active?.muted)),
     screenshot: actions.screenshot,
+    'screenshot-markup': actions.screenshotMarkup,
+    notifications: () => Menu.buildFromTemplate(actions.notificationRows()).popup({ window, x: Math.round(window.getContentBounds().width / 2 - 140), y: 80 }),
     'hide-part': actions.hidePart,
     'tweak-site': () => actions.tweakSiteHelp(),
     recap: () => {

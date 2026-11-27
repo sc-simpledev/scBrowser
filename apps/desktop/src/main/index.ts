@@ -26,6 +26,8 @@ import { BrowserCore } from './browserCore'
 import { webAppUrlFromArgv } from './webApps'
 import { createBrowserWindow } from './window'
 import { isSmokeTest, prepareSmokeTest, runSmokeTest } from './smokeTest'
+import { drmStartup } from './drm'
+import { dropDesktopNameAtExit } from './selfLaunch'
 
 /** The app used to be called scDelta, and scBrowser before that. Copy that profile on first launch, leaving the original. */
 function moveLegacyProfile(): void {
@@ -105,13 +107,27 @@ async function openCode({ folder, task }: { folder: string; task: string }): Pro
 
 /** On a Mac, links from other apps arrive as events, and can come before the window exists. */
 const earlyUrls: string[] = []
+
+/**
+ * A link from another app while scTerra is open: a tab in the browser, or with "Little window" on,
+ * a small window of its own with "Open in scTerra", so a quick look doesn't add a tab.
+ */
+function openLink(url: string): void {
+  if (!core) return void earlyUrls.push(url)
+  if (core.services.settings.get().littleWindow && /^https?:/i.test(url)) {
+    const little = core.openWindow({ kind: 'app', urls: [url], little: true })
+    little.window.focus()
+    return
+  }
+  const { tabs, window } = core.browser()
+  tabs.create(url)
+  if (window.isMinimized()) window.restore()
+  window.focus()
+}
+
 const openFromSystem = (event: Electron.Event, url: string) => {
   event.preventDefault()
-  if (core) {
-    const { tabs, window } = core.browser()
-    tabs.create(url)
-    window.focus()
-  } else earlyUrls.push(url)
+  openLink(url)
 }
 app.on('open-url', openFromSystem)
 app.on('open-file', (event, path) => openFromSystem(event, pathToFileURL(path).toString()))
@@ -161,13 +177,16 @@ if (headless) {
       core.openWindow({ kind: 'app', urls: [webApp] })
       return
     }
-    const { tabs, window } = core.browser()
-    urlsFromArgv(argv).forEach((url) => tabs.create(url))
+    const urls = urlsFromArgv(argv)
+    if (urls.length > 0) return urls.forEach(openLink)
+    const { window } = core.browser()
     if (window.isMinimized()) window.restore()
     window.focus()
   })
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    // Widevine for protected video and music, before any tab could ask for it.
+    const drm = drmStartup()
     applyMenu()
     handleInternalPages()
     // Started from a menu, scTerra lacks the PATH a terminal has; Terra Code and MCP servers need it.
@@ -216,10 +235,13 @@ if (headless) {
     const webApp = webAppUrlFromArgv(process.argv)
     const code = codeFromArgv(process.argv, process.cwd(), app.isPackaged ? 1 : 2)
     if (code) setTimeout(() => void openCode(code), 1500)
+    await drm
     const first = webApp ? core.openWindow({ kind: 'app', urls: [webApp] }) : core.openWindow({ urls: [...urlsFromArgv(process.argv), ...earlyUrls] })
     if (smokeTest) runSmokeTest(first)
     if (process.env.SCB_E2E) Object.assign(globalThis, { scbTabs: first.tabs, scbActions: first.actions, scbExtensions: core.extensions, scbSync: core.sync, scbVpn: core.vpn, scbReporter: reporter, scbUpdates: core.updates, scbCore: core })
   })
 
   app.on('window-all-closed', () => app.quit())
+  // A restart after an update or a settings change starts the new copy as this one exits.
+  dropDesktopNameAtExit((event, listener) => app.on(event, listener))
 }

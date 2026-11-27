@@ -60,8 +60,8 @@ importers:
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0))
       electron:
-        specifier: 45.1.0
-        version: 45.1.0
+        specifier: github:castlabs/electron-releases#v45.2.1+wvcus
+        version: https://codeload.github.com/castlabs/electron-releases/tar.gz/ab2120c6a5d49d412bcb2b7e3f9c9c3e74cb0243
       electron-builder:
         specifier: ^26.0.0
         version: 26.18.0(electron-builder-squirrel-windows@26.18.0)
@@ -1407,8 +1407,9 @@ packages:
     resolution: {integrity: sha512-bO3y10YikuUwUuDUQRM4KfwNkKhnpVO7IPdbsrejwN9/AABJzzTQ4GeHwyzNSrVO+tEH3/Np255a3sVZpZDjvg==}
     engines: {node: '>=8.0.0'}
 
-  electron@45.1.0:
-    resolution: {integrity: sha512-i7qKVAh/KR5v1pf56NhGGX2QYHcdjvLgS7koL6ui50c+zUDGLRunR95nXcTpHPURKOQ4GDBG8BmXiDgOQ8DD0A==}
+  electron@https://codeload.github.com/castlabs/electron-releases/tar.gz/ab2120c6a5d49d412bcb2b7e3f9c9c3e74cb0243:
+    resolution: {gitHosted: true, integrity: sha512-DE1clTW3UgwrGn4Sj4c006K6jTwdFklEqIDbneXXS6J6aKx2ceGjta8TU2O2/ViNDvC7O6WJ0av+nT7G5AqJUQ==, tarball: https://codeload.github.com/castlabs/electron-releases/tar.gz/ab2120c6a5d49d412bcb2b7e3f9c9c3e74cb0243}
+    version: 45.2.1
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -4272,7 +4273,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@45.1.0:
+  electron@https://codeload.github.com/castlabs/electron-releases/tar.gz/ab2120c6a5d49d412bcb2b7e3f9c9c3e74cb0243:
     dependencies:
       '@electron-internal/extract-zip': 1.0.8
       '@electron/get': 5.1.0

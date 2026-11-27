@@ -48,7 +48,7 @@ test('Terra Code runs tools however the model writes them, and keeps them out of
   try {
     h = await launch()
     await addProvider()
-    await setSetting(h, { coderFolder: folder, coderMode: 'edits' })
+    await setSetting(h, { coderFolder: folder, coderMode: 'edits', coderNotify: false })
     mock!.queue.push(
       // Two json fences, where only the first used to run and the second landed in the chat.
       'Looking first.\n```json\n{"tool":"read_file","file_path":"a.txt"}\n```\n```json\n{"tool":"write","path":"b.txt","content":"one\ntwo"}\n```',

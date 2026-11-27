@@ -25,4 +25,6 @@ export interface PagePrefs {
   globalPrivacyControl: boolean
   mouseGestures: boolean
   middleClickScroll: boolean
+  /** The page may use Widevine. False when protected content is off, everywhere or for its site. */
+  protectedContent: boolean
 }

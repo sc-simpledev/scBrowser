@@ -547,6 +547,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { type: 'separator' },
     { label: 'History', accelerator: keyFor('history'), click: () => actions.openPage('history') },
     { label: 'Downloads', accelerator: keyFor('downloads'), click: () => actions.openPage('downloads') },
+    { label: 'Notifications', submenu: actions.notificationRows() },
     {
       label: 'Bookmarks',
       submenu: [
@@ -597,6 +598,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
     { label: 'Reader view', accelerator: keyFor('reader'), click: actions.toggleReader },
     { label: 'Print…', accelerator: keyFor('print'), click: onActive((id) => tabs.print(id)) },
     { label: 'Screenshot', accelerator: keyFor('screenshot'), click: actions.screenshot },
+    { label: 'Screenshot and mark up…', click: actions.screenshotMarkup },
     { label: 'Full screen', accelerator: keyFor('fullscreen'), click: actions.toggleFullscreen },
     { type: 'separator' },
     {

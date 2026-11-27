@@ -30,6 +30,8 @@ export interface BrowserActions {
   toggleReader: () => void
   readAloud: () => void
   screenshot: () => void
+  /** Takes a screenshot and opens it on sc://markup to draw on, blur and copy or save. */
+  screenshotMarkup: () => void
   organiseTabs: () => void
   cleanupTabs: () => void
   translatePage: (language?: TranslateLanguage) => void
@@ -113,6 +115,8 @@ export interface BrowserActions {
   recentTabOrder: () => boolean
   /** The zoom sites without one of their own get, as a factor. */
   defaultZoom: () => number
+  /** Recent notifications from sites, and Do not disturb, for the More menu. */
+  notificationRows: () => MenuItemConstructorOptions[]
   /** What the pop-up blocker stopped on the open page, and letting the site open them. */
   popupsMenu: (x: number, y: number) => void
   /** Copies these tabs' links (or every tab's here) as a Markdown list. */

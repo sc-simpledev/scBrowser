@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from 'node:fs/promises'
-import { dirname, extname, join, sep } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
 import {
   agentToolSpec,
   AiError,
@@ -49,6 +50,7 @@ import {
   acceptHunk,
   CODER_MAX_STEPS,
   fileHunks,
+  isRiskyCommand,
   isSafeCommand,
   rejectHunk,
   ruleCovers,
@@ -79,7 +81,7 @@ import {
 import { CoderJobs } from './coderJobs'
 import { detectDiagnostics, formatterFor, loadDefs, type Formatter, loadHooks, loadSkills, projectSettings, type HookSet, type MarkdownDef } from './coderProject'
 import { asText, MAX_COMMAND_FILES, type CoderCheckpoints, type CoderMark, type CoderSnapshots } from './coderStorage'
-import { applyEdits, clip, commandEnv, deleteFile, globFiles, inside, lineDiff, listFiles, moveFile, readLines, readText, runCommand, searchFiles, shown, ToolError, writeText, type SandboxMode } from './coderTools'
+import { applyEdits, clip, commandEnv, deleteFile, globFiles, inside, lineDiff, listFiles, moveFile, readLines, readText, runCommand, searchFiles, setExtraRoots, shown, ToolError, writeText, type SandboxMode } from './coderTools'
 import { MemoryCoderTrust, type CoderTrust } from './coderTrust'
 
 /** Older tool output is emptied once the conversation grows past this, keeping recent work whole. */
@@ -89,7 +91,12 @@ const COMPACT_AT = 240_000
 /** Messages at the end that a summary never replaces. */
 const KEEP_AFTER_COMPACT = 10
 /** Files the model is shown at the start, so it knows the project's own rules without asking. */
-const INSTRUCTION_FILES = ['TERRA.md', 'AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', '.cursorrules', 'README.md']
+const INSTRUCTION_FILES = ['TERRA.md', 'AGENTS.md', 'CLAUDE.md', 'TERRA.local.md', 'CLAUDE.local.md', '.claude/CLAUDE.md', '.github/copilot-instructions.md', '.cursorrules', 'README.md']
+/** The person's own notes for every project: Terra Code's, and Claude Code's, so one written for it works here. */
+const USER_INSTRUCTION_FILES = (home: string) => [join(home, 'TERRA.md'), join(homedir(), '.claude', 'CLAUDE.md')]
+/** `@path` imports in notes files, as Claude Code reads them: this deep, and this much in all. */
+const IMPORT_DEPTH = 3
+const IMPORT_CHARS = 12_000
 const INSTRUCTION_CHARS = 6000
 const STREAM_EVERY_MS = 80
 const OUTPUT_EVERY_MS = 150
@@ -103,6 +110,8 @@ const RETRY_SECONDS = [1, 3, 8]
 const MAX_REPEATS = 3
 /** Refused repeats in one run before it's clear the model is going round in circles. */
 const MAX_REFUSED_REPEATS = 6
+/** How many times Stop hooks may keep one message's run going, so a hook that always blocks can't loop for ever. */
+const MAX_STOP_BLOCKS = 3
 const EXPLORE_STEPS = 15
 /** Helpers that may run side by side when one reply sends several. */
 const HELPERS = new Set<CoderCall['tool']>(['explore', 'agent'])
@@ -177,6 +186,10 @@ interface Session {
   todoNote: string | null
   /** Other things to tell the model with its next message, such as what a cloud run did. */
   notes: string[]
+  /** The project as of the last message, for hooks that run outside a step (Notification). */
+  project?: Project | null
+  /** The extra folders the model was last told about, so it hears again only when they change. */
+  toldDirs?: string
 }
 
 /** One step's files, as they were before it and after it (null: missing). */
@@ -292,6 +305,10 @@ export interface CoderDependencies {
   style?: () => CoderStyle
   /** Tokens a session may use before it stops; 0 or absent for no limit. */
   budget?: () => number
+  /** Shows a desktop notification, for what Notification hooks print. */
+  notify?: (text: string) => void
+  /** Folders besides the project this one may also read and edit, added with /add-dir. */
+  extraDirs?: (folder: string) => string[]
   /** Nobody is watching, as in a cloud run: questions get no answer, and approvals are settled by `approveAll`. */
   unattended?: boolean
 }
@@ -759,7 +776,7 @@ export class Coder {
     // Without tool calling, the tools are described inside the instructions instead.
     const toolChars = native ? JSON.stringify(specs.filter((tool) => !mcpNames.has(tool.name))).length : 0
     const mcpChars = native && mcpNames.size ? JSON.stringify(specs.filter((tool) => mcpNames.has(tool.name))).length : 0
-    const notes = session?.messages.length ? (await projectContext(session.folder)).length : 0
+    const notes = session?.messages.length ? (await projectContext(session.folder, this.deps.home)).length : 0
     let yours = 0
     let replies = 0
     let output = 0
@@ -849,19 +866,36 @@ export class Coder {
     const { signal } = controller
     const info = await stat(folder).catch(() => null)
     let project: Project | null = null
+    // Stop hooks run as the model finishes, where they can keep it going; otherwise once at the end.
+    let stopHooksRan = false
+    let stopBlocks = 0
     try {
       if (!info?.isDirectory()) throw new ToolError("The project folder can't be found. Choose it again.")
       project = await this.project(folder)
+      session.project = project
       task = expandCommand(task, project.commands)
       await this.checkHooks(sessionId, session, project, signal, emit)
       if (options.turnId) await this.mark(session, options.turnId, task)
       const first = !session.introduced
+      // UserPromptSubmit hooks can stop a message, or add to it; SessionStart ones add to the first.
+      const prompted = await this.runHooks('beforePrompt', session, project, { prompt: task }, signal, emit, sessionId)
+      if (prompted.block) {
+        stopHooksRan = true
+        emit({ sessionId, type: 'error', message: `A hook stopped this message: ${prompted.block}` })
+        return
+      }
+      const started = first ? await this.runHooks('sessionStart', session, project, {}, signal, emit, sessionId) : null
       session.introduced = true
+      const hookNote = [...(started?.context ?? []), ...prompted.context].map((text) => `\n\n(From the project's hooks:)\n${text}`).join('')
+      const extra = this.deps.extraDirs?.(folder) ?? []
+      setExtraRoots(folder, extra)
+      const dirsNote = extra.join('\n') !== (session.toldDirs ?? '') ? (extra.length ? `\n\n(Besides the project, you may read and edit these folders, by their full paths: ${extra.join(', ')}. Commands still start in the project folder.)` : session.toldDirs ? '\n\n(The extra folders were taken away: work only in the project folder now.)' : '') : ''
+      session.toldDirs = extra.join('\n')
       const modeNote = runMode === 'plan' ? '\n\n(Plan mode: look and plan only.)' : runMode === 'review' ? '\n\n(Review: look only, and report what you find.)' : ''
       const attached = await this.attachments(folder, options.mentions ?? [])
       const todoNote = [session.todoNote, ...session.notes.splice(0)].filter(Boolean).map((note) => `\n\n(${note})`).join('')
       session.todoNote = null
-      const content = first ? `${await projectContext(folder)}\n\nTask:\n${task}${attached}${modeNote}${todoNote}` : `${task}${attached}${modeNote}${todoNote}`
+      const content = first ? `${await projectContext(folder, this.deps.home)}\n\nTask:\n${task}${attached}${modeNote}${todoNote}${hookNote}${dirsNote}` : `${task}${attached}${modeNote}${todoNote}${hookNote}${dirsNote}`
       session.messages.push(options.images?.length ? { role: 'user', content, images: options.images } : { role: 'user', content })
       session.messages = closeToolTurns(session.messages)
       let nudges = 0
@@ -936,6 +970,16 @@ export class Coder {
             continue
           }
           if (!promised) {
+            // Stop hooks get their say: one can keep the run going, with its reason as the next instruction.
+            const stopped = await this.runHooks('afterTurn', session, project, { again: stopBlocks > 0 }, signal, emit, sessionId)
+            stopHooksRan = true
+            for (const line of stopped.said) emit({ sessionId, type: 'note', text: line })
+            if (stopped.block && stopBlocks < MAX_STOP_BLOCKS && !signal.aborted) {
+              stopBlocks++
+              stopHooksRan = false
+              session.messages.push({ role: 'user', content: `(A Stop hook asked you to keep going:)\n${stopped.block}` })
+              continue
+            }
             await this.persist(sessionId, session)
             return emit({ sessionId, type: 'done', reason: 'finished' })
           }
@@ -1025,7 +1069,7 @@ export class Coder {
       emit({ sessionId, type: 'error', message: error instanceof Error ? error.message : 'Something went wrong.', ...(network ? { network: true } : {}) })
     } finally {
       session.controller = null
-      if (project && !signal.aborted) await this.runHooks('afterTurn', session, project, {}, new AbortController().signal, emit, sessionId).catch(() => undefined)
+      if (project && !signal.aborted && !stopHooksRan) await this.runHooks('afterTurn', session, project, {}, new AbortController().signal, emit, sessionId).catch(() => undefined)
       await this.persist(sessionId, session)
     }
   }
@@ -1087,7 +1131,7 @@ export class Coder {
     ).trim()
     if (!summary || signal.aborted) return false
     const kept = session.messages.slice(cut)
-    const head: ChatMessage[] = [{ role: 'user', content: `${await projectContext(session.folder)}\n\n(This session was summarised to make room. The summary replaces everything before it; read files again before changing them.)\n\n${summary}` }]
+    const head: ChatMessage[] = [{ role: 'user', content: `${await projectContext(session.folder, this.deps.home)}\n\n(This session was summarised to make room. The summary replaces everything before it; read files again before changing them.)\n\n${summary}` }]
     if (kept[0]?.role === 'user') head.push({ role: 'assistant', content: 'Understood. Carrying on from the summary.' })
     session.messages = [...head, ...kept]
     for (const mark of session.marks.values()) mark.at = mark.at >= cut ? mark.at - cut + head.length : -1
@@ -1319,35 +1363,75 @@ export class Coder {
     if (answer === 'always') this.trust.trust(session.folder, 'hooks', set.hash)
   }
 
-  /** Runs the hooks for an event. A `beforeCommand` hook that fails blocks the command. */
-  private async runHooks(event: CoderHookEvent, session: Session, project: Project, vars: { file?: string; command?: string }, signal: AbortSignal, emit: Emit, sessionId: string): Promise<{ blocked: boolean; notes: string[] }> {
+  /**
+   * Runs the hooks for an event. A `beforeCommand` hook that fails blocks the command. As in Claude
+   * Code, a hook can also answer with exit code 2, or `{"decision": "block", "reason": "…"}`: a Stop
+   * hook then keeps the run going with that reason, and a prompt hook stops the message. What a
+   * prompt or session-start hook prints is added for the model to read.
+   */
+  private async runHooks(event: CoderHookEvent, session: Session, project: Project, vars: { file?: string; command?: string; prompt?: string; message?: string; again?: boolean }, signal: AbortSignal, emit: Emit, sessionId: string): Promise<{ blocked: boolean; notes: string[]; block: string | null; context: string[]; said: string[] }> {
     const notes: string[] = []
+    const context: string[] = []
+    const said: string[] = []
     let blocked = false
+    let block: string | null = null
+    const quiet = event === 'notification'
     for (const set of project.hooks) {
       if (set.source === 'project' && !(session.hooksAllowed || this.trust.trusted(session.folder, 'hooks') === set.hash)) continue
       for (const hook of set.hooks) {
         if (hook.event !== event) continue
         if (vars.file && hook.match && !globToRegExp(hook.match).test(vars.file)) continue
         const id = randomUUID()
-        emit({ sessionId, type: 'tool', id, tool: 'hook', summary: `Hook ${hook.command}` })
-        const env: Record<string, string> = { TERRA_EVENT: event, TERRA_PROJECT: session.folder, TERRA_FILE: vars.file ?? '', TERRA_COMMAND: vars.command ?? '', FILE: vars.file ?? '' }
+        if (!quiet) emit({ sessionId, type: 'tool', id, tool: 'hook', summary: `Hook ${hook.command}` })
+        const env: Record<string, string> = { TERRA_EVENT: event, TERRA_PROJECT: session.folder, TERRA_FILE: vars.file ?? '', TERRA_COMMAND: vars.command ?? '', TERRA_PROMPT: (vars.prompt ?? '').slice(0, 20_000), TERRA_MESSAGE: vars.message ?? '', FILE: vars.file ?? '' }
         let command = hook.command
         if (hook.claude) {
           // Claude Code hooks read what happened as JSON on their input.
           const tool = event === 'beforeCommand' ? { tool_name: 'Bash', tool_input: { command: vars.command ?? '' } } : event === 'afterEdit' ? { tool_name: 'Edit', tool_input: { file_path: vars.file ? join(session.folder, vars.file) : '' } } : {}
+          const extra = event === 'beforePrompt' ? { prompt: vars.prompt ?? '' } : event === 'notification' ? { message: vars.message ?? '' } : event === 'afterTurn' ? { stop_hook_active: vars.again === true } : event === 'sessionStart' ? { source: 'startup' } : {}
           env.CLAUDE_PROJECT_DIR = session.folder
-          env.TERRA_HOOK_INPUT = JSON.stringify({ hook_event_name: event === 'beforeCommand' ? 'PreToolUse' : event === 'afterEdit' ? 'PostToolUse' : 'Stop', cwd: session.folder, ...tool })
+          env.TERRA_HOOK_INPUT = JSON.stringify({ hook_event_name: CLAUDE_HOOK_NAMES[event], session_id: sessionId, cwd: session.folder, ...tool, ...extra })
           command = `printf '%s' "$TERRA_HOOK_INPUT" | (${hook.command})`
         }
         const result = await runCommand(session.folder, command, signal, HOOK_TIMEOUT_MS, { sandbox: this.deps.sandbox?.() ?? 'off', env })
-        emit({ sessionId, type: 'tool-result', id, ok: result.ok, output: result.output })
-        if (event === 'beforeCommand' && !result.ok) {
+        if (!quiet) emit({ sessionId, type: 'tool-result', id, ok: result.ok, output: result.output })
+        const printed = result.output.replace(/\n?\((exit code [^)]*|couldn't start[^)]*)\)$/, '').trim()
+        const answer = hookAnswer(printed)
+        if (answer.message) said.push(answer.message)
+        if (result.code === 2 || answer.block) {
+          const reason = answer.block ?? (printed || 'A hook said no.')
+          if (event === 'afterTurn' || event === 'beforePrompt') {
+            block ??= reason
+            continue
+          }
+        }
+        if (event === 'beforePrompt' || event === 'sessionStart') {
+          if (result.ok && answer.context) context.push(clip(answer.context, 8000))
+          continue
+        }
+        if (event === 'notification') {
+          if (result.ok && printed) said.push(printed.split('\n')[0]!.slice(0, 200))
+          continue
+        }
+        if (event === 'beforeCommand' && (!result.ok || answer.block)) {
           blocked = true
-          notes.push(`A hook stopped this command:\n${clip(result.output, 4000)}`)
+          notes.push(`A hook stopped this command:\n${clip(answer.block ?? result.output, 4000)}`)
         } else if (!result.ok || (event === 'afterEdit' && result.output.replace(/\n?\(exit code 0\)$/, '').trim())) notes.push(`Hook \`${hook.command}\`:\n${clip(result.output, 4000)}`)
       }
     }
-    return { blocked, notes }
+    return { blocked, notes, block, context, said }
+  }
+
+  /** Runs Notification hooks when the session needs the person, and shows what they print. Never waits on them. */
+  private notifyHooks(sessionId: string, message: string): void {
+    const session = this.sessions.get(sessionId)
+    const project = session?.project
+    if (!session || !project?.hooks.some((set) => set.hooks.some((hook) => hook.event === 'notification'))) return
+    void this.runHooks('notification', session, project, { message }, new AbortController().signal, session.emit ?? (() => undefined), sessionId)
+      .then(({ said }) => {
+        for (const line of said) this.deps.notify?.(line)
+      })
+      .catch(() => undefined)
   }
 
   /** After a file changes: the project's formatter and hooks, and the model told if they changed it again. */
@@ -1406,7 +1490,9 @@ export class Coder {
     const noteSeen = async (full: string) => session.seen.set(full, (await stat(full)).mtimeMs)
     const announce = (summary: string) => emit({ sessionId, type: 'tool', id, tool: call.tool, summary, ...(by ? { agent: by.run } : {}) })
     const approve = async (kind: CoderApprovalKind, summary: string, detail: string, rule?: string, toolKey?: string) => {
-      if (kind === 'change' && mode === 'edits') return true
+      if (kind === 'change' && (mode === 'edits' || mode === 'auto')) return true
+      // Auto mode runs commands too, apart from risky ones, which still ask (as the gate said).
+      if (kind === 'command' && mode === 'auto' && !isRiskyCommand(detail)) return true
       if (toolKey && session.allowedTools.has(toolKey)) return true
       const answer = await this.ask(sessionId, kind, by ? `${summary} · ${by.name} agent` : summary, detail, signal, emit, { rule, always: !rule && toolKey ? 'Allow for this session' : undefined })
       if (answer === 'always') {
@@ -1760,6 +1846,7 @@ export class Coder {
         }
       })
       emit({ sessionId, type: 'question', id, questions })
+      this.notifyHooks(sessionId, 'Terra Code has a question for you')
     })
   }
 
@@ -1780,6 +1867,7 @@ export class Coder {
         }
       })
       emit({ sessionId, type: 'approval', id, kind, summary, detail, ...(rule ? { rule } : {}), ...(always ? { always } : {}) })
+      this.notifyHooks(sessionId, `Terra Code needs your permission: ${summary}`)
     })
   }
 }
@@ -1788,6 +1876,35 @@ export class Coder {
  * The person's MCP servers for the model: which are connected with how many tools, and which
  * aren't working and why, so it can say so rather than act as if they don't exist.
  */
+/** Claude Code's name for each of Terra Code's hook events, given to Claude-style hooks. */
+const CLAUDE_HOOK_NAMES: Record<CoderHookEvent, string> = { afterEdit: 'PostToolUse', beforeCommand: 'PreToolUse', afterTurn: 'Stop', notification: 'Notification', beforePrompt: 'UserPromptSubmit', sessionStart: 'SessionStart' }
+
+/**
+ * What a hook said back, the way Claude Code reads it: JSON with `decision: "block"` and a `reason`
+ * (or `continue: false` with a `stopReason`, or a PreToolUse `permissionDecision: "deny"`), a
+ * `systemMessage` for the person, and `additionalContext` for the model. Plain text is context.
+ */
+export function hookAnswer(printed: string): { block: string | null; message: string | null; context: string } {
+  const text = printed.trim()
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    try {
+      const data = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
+      const specific = (data.hookSpecificOutput && typeof data.hookSpecificOutput === 'object' ? data.hookSpecificOutput : {}) as Record<string, unknown>
+      const said = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, 4000) : null)
+      const block =
+        data.decision === 'block' ? (said(data.reason) ?? 'A hook asked to carry on.') :
+        data.continue === false ? (said(data.stopReason) ?? said(data.reason) ?? 'A hook said to stop.') :
+        specific.permissionDecision === 'deny' ? (said(specific.permissionDecisionReason) ?? 'A hook refused this.') : null
+      return { block, message: said(data.systemMessage), context: said(specific.additionalContext) ?? '' }
+    } catch {
+      // Not JSON: plain text below.
+    }
+  }
+  return { block: null, message: null, context: text }
+}
+
 export function mcpNote(servers: { name: string; state: string; error: string | null; enabled: boolean; trusted: boolean; tools: string[] }[]): string {
   const on = servers.filter((server) => server.enabled)
   if (on.length === 0) return ''
@@ -1943,7 +2060,7 @@ export function countLines(before: string, after: string): { added: number; remo
 }
 
 /** The file list and any instruction files, so the first step can start on the task. */
-export async function projectContext(folder: string): Promise<string> {
+export async function projectContext(folder: string, home = ''): Promise<string> {
   const parts = [`Project folder: ${folder}`]
   const listing = await listFiles(folder, '.').catch(() => null)
   if (listing) parts.push(`Files:\n${clip(listing, 8000)}`)
@@ -1952,11 +2069,48 @@ export async function projectContext(folder: string): Promise<string> {
     const changed = await git(folder, ['status', '--short'])
     parts.push(`Git branch: ${branch || '(detached)'}\nUncommitted changes:\n${clip(changed || '(none)', 3000)}`)
   }
+  const cut = (text: string) => (text.length > INSTRUCTION_CHARS ? `${text.slice(0, INSTRUCTION_CHARS)}\n… (cut; read the file for the rest)` : text)
+  // The person's own notes first, as the project's can say more specific things after them.
+  if (home) {
+    const seen = new Set<string>()
+    for (const path of USER_INSTRUCTION_FILES(home)) {
+      const text = await readText(path).catch(() => null)
+      if (text?.trim()) parts.push(toolResult(`your own notes (${path})`, cut(text) + (await noteImports(text, dirname(path), homedir(), seen))))
+    }
+  }
+  const seen = new Set<string>()
   for (const name of INSTRUCTION_FILES) {
     const text = await readText(join(folder, name)).catch(() => null)
-    if (text?.trim()) parts.push(toolResult(`file ${name}`, text.length > INSTRUCTION_CHARS ? `${text.slice(0, INSTRUCTION_CHARS)}\n… (cut; read the file for the rest)` : text))
+    // A project's imports stay inside the project, so a cloned repository can't pull in the person's keys.
+    if (text?.trim()) parts.push(toolResult(`file ${name}`, cut(text) + (name === 'README.md' ? '' : await noteImports(text, dirname(join(folder, name)), folder, seen))))
   }
   return parts.join('\n\n')
+}
+
+/**
+ * Files a notes file brings in with `@path` (as `@docs/style.md` or `@~/notes.md`), as Claude Code's
+ * CLAUDE.md does, a few levels deep. Only files inside `root` are read; code spans and blocks are skipped.
+ */
+export async function noteImports(text: string, dir: string, root: string, seen: Set<string>, depth = 1, budget = { left: IMPORT_CHARS }): Promise<string> {
+  if (depth > IMPORT_DEPTH || budget.left <= 0) return ''
+  const prose = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
+  const wanted = [...prose.matchAll(/(?:^|\s)@((?:~\/|\.{1,2}\/|\/)?[\w.-]+(?:\/[\w.-]+)*\.[A-Za-z0-9]{1,8})\b/g)].map((match) => match[1]!).slice(0, 20)
+  let out = ''
+  for (const ref of wanted) {
+    const full = ref.startsWith('~/') ? join(homedir(), ref.slice(2)) : resolve(dir, ref)
+    const real = await realpath(full).catch(() => null)
+    const rootReal = await realpath(root).catch(() => root)
+    if (!real || seen.has(real) || !(real === rootReal || real.startsWith(`${rootReal}${sep}`))) continue
+    seen.add(real)
+    const body = await readText(real).catch(() => null)
+    if (!body?.trim()) continue
+    const piece = body.slice(0, Math.min(INSTRUCTION_CHARS, budget.left))
+    budget.left -= piece.length
+    out += `\n\n(Imported with @${ref}:)\n${piece}${body.length > piece.length ? '\n… (cut)' : ''}`
+    out += await noteImports(piece, dirname(real), root, seen, depth + 1, budget)
+    if (budget.left <= 0) break
+  }
+  return out
 }
 
 const sizeOf = (message: ChatMessage) =>

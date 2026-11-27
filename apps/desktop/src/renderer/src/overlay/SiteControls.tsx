@@ -1,7 +1,7 @@
 import { ArrowLeft, Check, ChevronRight, Copy, Lock, Minus, Plus, QrCode, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Select, Switch } from '@scbrowser/ui'
-import { encodeQr, qrPath, SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState, type SiteFont } from '@scbrowser/shared'
+import { encodeQr, qrPath, siteBlockWord, SITE_POPUP, siteControlsHeight, type SiteAction, type SiteControlsState, type SiteFont } from '@scbrowser/shared'
 
 const act = (action: SiteAction) => void window.scbOverlay.invoke('overlay:site-action', action)
 const close = () => void window.scbOverlay.invoke('overlay:site-close')
@@ -156,6 +156,36 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
               ))}
             </Select>
           </Line>
+        )}
+      </div>
+      <div className="flex flex-col border-t border-border">
+        <button
+          type="button"
+          aria-expanded={state.contentOpen}
+          onClick={() => act('content-toggle')}
+          className="flex items-center justify-between gap-3 px-3 text-left hover:bg-surface-hover"
+          style={{ height: SITE_POPUP.permissionRow }}
+        >
+          <span className="min-w-0 truncate">
+            Site settings
+            {!state.contentOpen && state.content.some((row) => row.blocked && !row.locked) && (
+              <span className="text-text-faint"> · {state.content.filter((row) => row.blocked && !row.locked).map((row) => siteBlockWord(row.label)).join(', ')} blocked</span>
+            )}
+          </span>
+          <ChevronRight aria-hidden size={13} strokeWidth={2} className={state.contentOpen ? 'shrink-0 rotate-90 text-text-faint' : 'shrink-0 text-text-faint'} />
+        </button>
+        {state.contentOpen && (
+          <div className="flex flex-col pb-1">
+            {state.content.map((row) => (
+              <div key={row.id} className="flex items-center justify-between gap-3 px-3" style={{ height: SITE_POPUP.permissionRow }}>
+                <div className="min-w-0">
+                  <div className="truncate text-sm">{row.label}</div>
+                  <div className={row.blocked && !row.locked ? 'truncate text-2xs text-danger' : 'truncate text-2xs text-text-faint'}>{row.hint}</div>
+                </div>
+                {!row.locked && <Switch label={`${row.label} on ${state.site}`} checked={!row.blocked} onChange={() => act(`content:${row.id}`)} />}
+              </div>
+            ))}
+          </div>
         )}
       </div>
       {state.permissions.length > 0 && (

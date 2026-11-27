@@ -8,7 +8,8 @@ import { shortTokens, type ContextUse } from './codeState'
 export const MODES: { id: CoderMode; label: string; hint: string }[] = [
   { id: 'plan', label: 'Plan', hint: 'It looks around and writes a plan. Nothing changes.' },
   { id: 'ask', label: 'Ask', hint: 'It asks before every change and command.' },
-  { id: 'edits', label: 'Auto-edit', hint: 'It changes files without asking, and asks before every command.' }
+  { id: 'edits', label: 'Auto-edit', hint: 'It changes files without asking, and asks before every command.' },
+  { id: 'auto', label: 'Auto', hint: 'It changes files and runs commands without asking. Risky commands (sudo, pushing, deleting outside the project, publishing) still ask.' }
 ]
 
 export interface ModelPick {

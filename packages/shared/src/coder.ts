@@ -6,9 +6,11 @@ export const isCodeChat = (id: string) => id.startsWith(CODE_CHAT_PREFIX)
 
 /**
  * `plan` only looks and plans; `ask` asks before every change and command; `edits` changes files
- * without asking, and still asks before commands. `review` is plan mode with a reviewer's brief.
+ * without asking, and still asks before commands; `auto` changes files and runs commands without
+ * asking, apart from risky ones (`isRiskyCommand`) and other tools. `review` is plan mode with a
+ * reviewer's brief.
  */
-export type CoderMode = 'plan' | 'ask' | 'edits'
+export type CoderMode = 'plan' | 'ask' | 'edits' | 'auto'
 export type CoderRunMode = CoderMode | 'review'
 
 export type CoderToolName =
@@ -274,7 +276,52 @@ export interface CoderHooksView {
   hooks: { event: CoderHookEvent; command: string }[]
 }
 
-export type CoderHookEvent = 'afterEdit' | 'beforeCommand' | 'afterTurn'
+/**
+ * When hooks run: after an edit, before a command, when a turn ends (Claude Code's Stop, which can
+ * keep the run going), when Terra Code needs the person (Notification), before a message is sent on
+ * (UserPromptSubmit) and as a session starts (SessionStart).
+ */
+export type CoderHookEvent = 'afterEdit' | 'beforeCommand' | 'afterTurn' | 'notification' | 'beforePrompt' | 'sessionStart'
+
+/** A plugin: commands, agents, skills, hooks and MCP servers that come together, in Claude Code's layout. */
+export interface CoderPlugin {
+  name: string
+  description: string
+  version: string
+  /** Where it came from: owner/name, a Git address or a folder. */
+  source: string
+  enabled: boolean
+  commands: string[]
+  agents: string[]
+  skills: string[]
+  /** Each as "Event (matcher): command", so the person sees what would run. */
+  hooks: string[]
+  /** Each as "name: command or address". */
+  mcp: string[]
+  /** In a preview: one of this name is installed already, and would be replaced. */
+  installed?: boolean
+}
+
+/** What a Git address or folder holds, fetched but not added yet. */
+export interface CoderPluginPreview {
+  id: string
+  source: string
+  plugins: CoderPlugin[]
+}
+
+/** What the status line command is told about the session, as Claude Code's statusLine is. */
+export interface CoderStatusLineInput {
+  model: string
+  contextUsed: number
+  contextLimit: number
+  inputTokens: number
+  outputTokens: number
+  /** In US dollars, where the model's price is known. */
+  cost: number | null
+  mode: CoderMode
+}
+
+export const isCoderPluginName = (value: unknown): value is string => typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,39}$/.test(value)
 
 /** Everything the settings panel shows for the open folder. */
 export interface CoderSetup {
@@ -356,6 +403,17 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'resume', description: 'Pick a saved session to carry on with' },
   { name: 'cost', description: 'Tokens and cost so far, in the session panel' },
   { name: 'release-notes', description: 'What’s new in this version of scTerra' },
+  { name: 'commit', description: 'Commit the changes, with a message written for you' },
+  { name: 'push', description: 'Send your commits to GitHub' },
+  { name: 'pull', description: 'Get new commits from GitHub' },
+  { name: 'sync', description: 'Pull, then push' },
+  { name: 'pr', description: 'Open a pull request, with a description written for you' },
+  { name: 'merge', description: 'Merge this branch’s pull request, or a branch into this one', args: '[branch or #PR]' },
+  { name: 'branch', description: 'Switch to a branch, or make a new one', args: '[name]' },
+  { name: 'add-dir', description: 'Let Terra Code read and edit another folder too', args: '[folder]' },
+  { name: 'plugin', description: 'Add plugins: commands, agents, skills, hooks and MCP servers from Git' },
+  { name: 'hooks', description: 'The hooks that run around Terra Code’s steps' },
+  { name: 'statusline', description: 'Your own command for the status line under the box' },
   { name: 'help', description: 'What Terra Code can do' }
 ]
 
@@ -399,6 +457,62 @@ export interface CoderDoctorItem {
   state: 'ok' | 'warn' | 'off'
   detail: string
 }
+
+/** A pull request on GitHub for the branch Terra Code is on. */
+export interface CoderPullRequest {
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'closed' | 'merged'
+  draft: boolean
+  base: string
+  /** The checks on its last commit, together. */
+  checks: 'passing' | 'failing' | 'pending' | 'none'
+  /** Whether GitHub says it can merge cleanly; null while GitHub is still working it out. */
+  mergeable: boolean | null
+}
+
+/** Where the project's git stands, for the bar above Terra Code's box: branch, sync and pull request. */
+export interface CoderGitState {
+  /** Null when no commit is checked out by name (a detached HEAD). */
+  branch: string | null
+  /** The branch it pushes to and pulls from, such as origin/main. */
+  upstream: string | null
+  /** Commits here that the remote hasn't got, and the other way round, as of the last fetch. */
+  ahead: number
+  behind: number
+  /** Files with changes not committed yet. */
+  dirty: number
+  /** Files left in conflict by a merge or pull. */
+  conflicts: string[]
+  /** A merge or rebase stopped part-way, waiting to be finished or given up. */
+  midway: 'merge' | 'rebase' | null
+  /** The project has a remote called origin. */
+  remote: boolean
+  /** The project's repository on GitHub, as owner/name. */
+  repo: string | null
+  /** The branch pull requests go into: the repository's default. */
+  defaultBranch: string | null
+  /** Local branches, the current one first, then most recently used. */
+  branches: string[]
+  /** GitHub is connected, so pushing and pull requests can use it. */
+  github: boolean
+  pr: CoderPullRequest | null
+}
+
+export type CoderMergeMethod = 'squash' | 'merge' | 'rebase'
+
+/** What a model wrote for a pull request, for the person to change before it's opened. */
+export interface CoderPrDraft {
+  title: string
+  body: string
+}
+
+/** What Terra Code asks for when a merge or pull leaves conflicts: each file put right, then the merge finished. */
+export const resolveConflictsTask = (files: string[], midway: 'merge' | 'rebase' | null) => `${midway === 'rebase' ? 'A rebase' : 'A merge'} stopped with conflicts in ${files.length === 1 ? 'this file' : 'these files'}:
+${files.map((file) => `- ${file}`).join('\n')}
+
+Resolve each one: read the file, understand what both sides meant (git log and git diff help), and write the version that keeps both intentions, with no conflict markers (<<<<<<<, =======, >>>>>>>) left. Run the project's checks. Then stage the files with git add and finish with ${midway === 'rebase' ? 'git rebase --continue' : 'git commit --no-edit'}. If a conflict needs a decision only I can make, ask me first.`
 
 /** A command the person ran themselves from the message box with `!`. */
 export interface CoderShellResult {
@@ -617,6 +731,32 @@ export function isSafeCommand(command: string): boolean {
   const text = command.trim()
   if (!text || OPERATORS.test(text) || UNSAFE_ARGUMENTS.test(text)) return false
   return SAFE_COMMANDS.some((pattern) => pattern.test(text))
+}
+
+/**
+ * Commands auto mode still asks about: ones that reach outside the project or this computer, can't be
+ * undone, or need more rights. Like Claude Code's auto mode, everything else runs without asking.
+ */
+const RISKY_COMMANDS: RegExp[] = [
+  /(^|[\s;&|(])sudo\s|(^|[\s;&|(])(su|doas|pkexec)(\s|$)/,
+  /\brm\s+(-[a-z]*\s+)*(-[a-z]*[rf][a-z]*\s+)+(\/|~|\$HOME|\.\.|\*)/i,
+  /\brm\s+.*(\s|^)(\/|~\/?|\$HOME\/?)(\s|$)/,
+  /\bgit\s+push\b/,
+  /\bgit\s+(reset\s+--hard\b|clean\s+-[a-z]*f[a-z]*|checkout\s+(--\s+)?\.(\s|$)|restore\s+(--staged\s+)?\.(\s|$)|branch\s+-D\b|stash\s+(drop|clear)\b|filter-branch\b|rebase\b)/,
+  /\b(curl|wget|fetch)\b[^|]*\|\s*(ba|z|da|fi|k)?sh\b/,
+  /\b(npm|pnpm|yarn|bun|cargo|twine|gem|poetry|uv)\s+publish\b|\bdocker\s+push\b|\bgh\s+(release|repo\s+delete|pr\s+merge)\b/,
+  /\b(mkfs|dd|fdisk|parted|shutdown|reboot|poweroff|halt|systemctl|launchctl|crontab)\b/,
+  /\bchmod\s+(-R\s+)?[0-7]*7[0-7]{0,2}\s+\/|\bchown\s+-R\b/,
+  /\b(drop\s+(database|table|schema)|truncate\s+table)\b/i,
+  /\b(kubectl|terraform|pulumi|helm|aws|gcloud|az|flyctl|vercel|netlify|wrangler)\s+(delete|destroy|apply|deploy|up|rm|publish)\b/,
+  /(>|>>)\s*(\/etc|\/usr|\/bin|\/boot|~\/\.|\$HOME\/\.)/,
+  /:\(\)\s*\{/
+]
+
+/** Whether auto mode should still ask before running this command. */
+export function isRiskyCommand(command: string): boolean {
+  const text = command.trim()
+  return RISKY_COMMANDS.some((pattern) => pattern.test(text))
 }
 
 /**

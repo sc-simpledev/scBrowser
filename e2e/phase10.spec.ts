@@ -597,9 +597,11 @@ test.describe('windows and tools', () => {
     await h.close()
     const executablePath = process.env.SCB_E2E_EXECUTABLE
     const args = ['--no-proxy-server', `--sc-app=${site.url('/beta')}`]
+    // Without CHROME_DESKTOP, as in app.ts: castLabs' Electron can't start with it.
+    const { CHROME_DESKTOP: _desktop, ...inherited } = process.env
     const app = await electron.launch({
       ...(executablePath ? { executablePath, args } : { args: [...args, resolve(__dirname, '../apps/desktop')] }),
-      env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js', SCTERRA_AI_URL: 'off' } as Record<string, string>
+      env: { ...inherited, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js', SCTERRA_AI_URL: 'off' } as Record<string, string>
     })
     h = { ...h, app, close: () => app.close() }
     await expect.poll(() => main((g) => g.scbCore?.windows.map((w: any) => w.kind))).toEqual(['app'])

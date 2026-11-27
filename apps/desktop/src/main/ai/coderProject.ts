@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, extname, join, relative, sep } from 'node:path'
 import { isMcpServerName, type CoderHookEvent, type CoderSource, type McpServerConfig } from '@scbrowser/shared'
+import { pluginDirs } from './coderPlugins'
 
 /**
  * What a project (in `.terra/`, or `.claude/` as other agents keep it) and the person (in their own
@@ -95,7 +96,8 @@ function merged(groups: MarkdownDef[][]): MarkdownDef[] {
 
 export async function loadDefs(folder: string | null, home: string, kind: 'commands' | 'agents'): Promise<MarkdownDef[]> {
   const project = folder ? await Promise.all(PROJECT_DIRS.map((dir) => markdownIn(join(folder, dir, kind), 'project'))) : []
-  return merged([...project, await markdownIn(join(home, kind), 'global')])
+  const plugins = await Promise.all((await pluginDirs(home)).map(({ dir }) => markdownIn(join(dir, kind), 'global')))
+  return merged([...project, await markdownIn(join(home, kind), 'global'), ...plugins])
 }
 
 /** Skills are folders holding a SKILL.md. */
@@ -113,7 +115,8 @@ async function skillsIn(dir: string, source: CoderSource): Promise<MarkdownDef[]
 
 export async function loadSkills(folder: string | null, home: string): Promise<MarkdownDef[]> {
   const project = folder ? await Promise.all(PROJECT_DIRS.map((dir) => skillsIn(join(folder, dir, 'skills'), 'project'))) : []
-  return merged([...project, await skillsIn(join(home, 'skills'), 'global')])
+  const plugins = await Promise.all((await pluginDirs(home)).map(({ dir }) => skillsIn(join(dir, 'skills'), 'global')))
+  return merged([...project, await skillsIn(join(home, 'skills'), 'global'), ...plugins])
 }
 
 export async function projectSettings(folder: string): Promise<ProjectSettings> {
@@ -144,23 +147,34 @@ export async function claudeSettings(folder: string): Promise<{ allow: string[];
   const settings = isRecord(data) ? data : {}
   const permissions = isRecord(settings.permissions) ? settings.permissions : {}
   const rules = (value: unknown) => strings(value).map(claudeRule).filter((rule): rule is string => rule !== null)
+  return { allow: rules(permissions.allow), deny: rules(permissions.deny), hooks: claudeHooks(settings.hooks) }
+}
+
+/** Claude Code's hook events, and which of Terra Code's each becomes. */
+const CLAUDE_EVENTS: [string, CoderHookEvent, (matcher: string) => boolean][] = [
+  ['PostToolUse', 'afterEdit', (matcher) => !matcher || matcher === '*' || /Edit|Write/.test(matcher)],
+  ['PreToolUse', 'beforeCommand', (matcher) => !matcher || matcher === '*' || /\bBash\b/.test(matcher)],
+  ['Stop', 'afterTurn', () => true],
+  ['Notification', 'notification', () => true],
+  ['UserPromptSubmit', 'beforePrompt', () => true],
+  ['SessionStart', 'sessionStart', () => true]
+]
+
+/** Hooks in Claude Code's shape (`{"Stop": [{"hooks": [{"type": "command", ...}]}]}`), with `root` for ${CLAUDE_PLUGIN_ROOT}. */
+export function claudeHooks(groups: unknown, root: string | null = null): HookSet['hooks'] {
   const hooks: HookSet['hooks'] = []
-  const groups = isRecord(settings.hooks) ? settings.hooks : {}
-  const events: [string, CoderHookEvent, (matcher: string) => boolean][] = [
-    ['PostToolUse', 'afterEdit', (matcher) => !matcher || matcher === '*' || /Edit|Write/.test(matcher)],
-    ['PreToolUse', 'beforeCommand', (matcher) => !matcher || matcher === '*' || /\bBash\b/.test(matcher)],
-    ['Stop', 'afterTurn', () => true]
-  ]
-  for (const [name, event, fits] of events) {
-    const list = Array.isArray(groups[name]) ? groups[name] : []
+  const all = isRecord(groups) ? groups : {}
+  for (const [name, event, fits] of CLAUDE_EVENTS) {
+    const list = Array.isArray(all[name]) ? all[name] : []
     for (const group of list.slice(0, 10)) {
       if (!isRecord(group) || !fits(typeof group.matcher === 'string' ? group.matcher : '')) continue
       for (const hook of (Array.isArray(group.hooks) ? group.hooks : []).slice(0, 10)) {
-        if (isRecord(hook) && hook.type === 'command' && typeof hook.command === 'string' && hook.command.length <= 2000) hooks.push({ event, command: hook.command, match: null, claude: true })
+        if (isRecord(hook) && hook.type === 'command' && typeof hook.command === 'string' && hook.command.length <= 2000)
+          hooks.push({ event, command: root ? hook.command.replaceAll('${CLAUDE_PLUGIN_ROOT}', root) : hook.command, match: null, claude: true })
       }
     }
   }
-  return { allow: rules(permissions.allow), deny: rules(permissions.deny), hooks }
+  return hooks
 }
 
 export interface HookSet {
@@ -171,7 +185,7 @@ export interface HookSet {
   hooks: { event: CoderHookEvent; command: string; match: string | null; claude?: boolean }[]
 }
 
-const HOOK_EVENTS: CoderHookEvent[] = ['afterEdit', 'beforeCommand', 'afterTurn']
+const HOOK_EVENTS: CoderHookEvent[] = ['afterEdit', 'beforeCommand', 'afterTurn', 'notification', 'beforePrompt', 'sessionStart']
 
 function hookSet(data: unknown, source: CoderSource): HookSet | null {
   if (!isRecord(data)) return null
@@ -195,7 +209,14 @@ export async function loadHooks(folder: string | null, home: string): Promise<Ho
     const hooks = [...(project?.hooks ?? []), ...claude]
     project = { source: 'project', hooks, hash: createHash('sha256').update(JSON.stringify(hooks)).digest('hex').slice(0, 32) }
   }
-  const sets = [project, hookSet(await readJson(join(home, 'hooks.json')), 'global')]
+  // Plugins the person installed are theirs, like their own hooks: they saw every hook before adding it.
+  const fromPlugins: HookSet['hooks'] = []
+  for (const { dir } of await pluginDirs(home)) {
+    const data = await readJson(join(dir, 'hooks', 'hooks.json'))
+    fromPlugins.push(...claudeHooks(isRecord(data) ? data.hooks : null, dir))
+  }
+  const plugins: HookSet | null = fromPlugins.length ? { source: 'global', hooks: fromPlugins, hash: createHash('sha256').update(JSON.stringify(fromPlugins)).digest('hex').slice(0, 32) } : null
+  const sets = [project, hookSet(await readJson(join(home, 'hooks.json')), 'global'), plugins]
   return sets.filter((set): set is HookSet => set !== null)
 }
 

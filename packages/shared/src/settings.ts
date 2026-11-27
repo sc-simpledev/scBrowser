@@ -13,6 +13,7 @@ import { ARCHIVE_CHOICES } from './archive'
 import { isShortcutOverrides } from './shortcuts'
 import { DEFAULT_READER_STYLE, isReaderStyle, type ReaderStyle } from './reader'
 import { isDownloadRules, type DownloadRule } from './downloadRules'
+import { isSiteContent, type NotificationQuiet, type SiteContentBlock } from './siteContent'
 
 /** Zoom levels offered for every site, in percent. */
 export const ZOOM_CHOICES = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const
@@ -118,6 +119,14 @@ export interface Settings {
   globalPrivacyControl: boolean
   /** Sites allowed to open pop-ups without a click. */
   popupsAllowed: string[]
+  /** Plays protected video and music (Netflix, Spotify) with Widevine. Sites can still be blocked one by one. */
+  protectedContent: boolean
+  /** What each site is stopped from doing, from the padlock: scripts, images, every pop-up, protected content. */
+  siteContent: Record<string, SiteContentBlock[]>
+  /** When sites' notifications are held in the list under the bell instead of shown. */
+  notificationQuiet: NotificationQuiet
+  /** Links opened from other apps (chat, mail) open in a little window first, with a button to move them into scTerra. */
+  littleWindow: boolean
   /** Sites muted in every tab, now and later. */
   mutedSites: string[]
   /** JSON documents show folded and coloured. */
@@ -218,6 +227,12 @@ export interface Settings {
   notesFolder: string
   /** With memory on, the assistant may offer one thing to remember, kept only if the person clicks Remember. */
   memorySuggestions: boolean
+  /** The assistant may look through browsing history by itself (titles and addresses only) when a question is about it. */
+  assistantHistory: boolean
+  /** A microphone button in the assistant, sending speech to the chosen model's transcription. */
+  voiceInput: boolean
+  /** Agent mode shows its plan first; once it's approved, steps that only read run without asking. */
+  agentPlanFirst: boolean
   /** Turning the VPN on first picks the fastest working connection in the same group. */
   vpnAutoFastest: boolean
   /** Sites that go direct instead of through the VPN, like example.com. */
@@ -248,7 +263,7 @@ export interface Settings {
   memorySaver: boolean
   /** The project folder agentic coding (beta) works in, on this computer only. */
   coderFolder: string
-  coderMode: 'plan' | 'ask' | 'edits'
+  coderMode: 'plan' | 'ask' | 'edits' | 'auto'
   /** Fences Terra Code's commands in (Linux, with bubblewrap): project-only writes, and optionally no network. */
   coderSandbox: 'off' | 'project' | 'offline' | 'container'
   /** Summarise the start of a long Terra Code session by itself, rather than dropping old output. */
@@ -279,6 +294,10 @@ export interface Settings {
   coderServerPush: boolean
   /** A system notification when Terra Code finishes or needs an answer while scTerra is in the background. */
   coderNotify: boolean
+  /** The person's own command for Terra Code's status line, fed the session as JSON, like Claude Code's statusLine. Empty: the built-in line. */
+  coderStatusLine: string
+  /** After Terra Code commits, push the branch and offer a pull request without asking each time. */
+  coderShipAfterCommit: boolean
   blocker: BlockerConfig
   /** Also called Study Mode: turns on Focus Mode rules and categories. */
   focusMode: boolean
@@ -359,6 +378,10 @@ export const DEFAULT_SETTINGS: Settings = {
   minimumFontSize: 0,
   globalPrivacyControl: true,
   popupsAllowed: [],
+  protectedContent: true,
+  siteContent: {},
+  notificationQuiet: 'focus',
+  littleWindow: false,
   mutedSites: [],
   jsonViewer: true,
   tabPreviews: true,
@@ -414,6 +437,9 @@ export const DEFAULT_SETTINGS: Settings = {
   routines: [],
   notesFolder: '',
   memorySuggestions: true,
+  assistantHistory: true,
+  voiceInput: true,
+  agentPlanFirst: false,
   vpnAutoFastest: false,
   vpnBypass: [],
   vpnDirectContainers: [],
@@ -438,6 +464,8 @@ export const DEFAULT_SETTINGS: Settings = {
   coderAutoCheck: true,
   coderFormat: true,
   coderNotify: true,
+  coderStatusLine: '',
+  coderShipAfterCommit: false,
   coderShowReasoning: true,
   coderEffort: null,
   coderAgentModel: 'session',
@@ -496,6 +524,10 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   minimumFontSize: (v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 24,
   globalPrivacyControl: (v) => typeof v === 'boolean',
   popupsAllowed: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
+  protectedContent: (v) => typeof v === 'boolean',
+  siteContent: isSiteContent,
+  notificationQuiet: (v) => v === 'never' || v === 'focus' || v === 'always',
+  littleWindow: (v) => typeof v === 'boolean',
   mutedSites: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
   jsonViewer: (v) => typeof v === 'boolean',
   tabPreviews: (v) => typeof v === 'boolean',
@@ -551,6 +583,9 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   siteWorkspaces: (v) => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length <= 500 && Object.entries(v).every(([site, id]) => site.length <= 255 && typeof id === 'string' && /^[\w-]{1,64}$/.test(id)),
   notesFolder: (v) => typeof v === 'string' && v.length <= 4096,
   memorySuggestions: (v) => typeof v === 'boolean',
+  assistantHistory: (v) => typeof v === 'boolean',
+  voiceInput: (v) => typeof v === 'boolean',
+  agentPlanFirst: (v) => typeof v === 'boolean',
   vpnAutoFastest: (v) => typeof v === 'boolean',
   vpnBypass: (v) => Array.isArray(v) && v.length <= 500 && v.every(isBypassHost),
   vpnDirectContainers: (v) => Array.isArray(v) && v.every((id) => CONTAINERS.some((container) => container.id === id)),
@@ -569,12 +604,14 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   keepSignIns: (v) => typeof v === 'boolean',
   memorySaver: (v) => typeof v === 'boolean',
   coderFolder: (v) => typeof v === 'string' && v.length <= 4096,
-  coderMode: (v) => v === 'plan' || v === 'ask' || v === 'edits',
+  coderMode: (v) => v === 'plan' || v === 'ask' || v === 'edits' || v === 'auto',
   coderSandbox: (v) => v === 'off' || v === 'project' || v === 'offline' || v === 'container',
   coderAutoCompact: (v) => typeof v === 'boolean',
   coderAutoCheck: (v) => typeof v === 'boolean',
   coderFormat: (v) => typeof v === 'boolean',
   coderNotify: (v) => typeof v === 'boolean',
+  coderStatusLine: (v) => typeof v === 'string' && v.length <= 1000 && !/[\r\n\0]/.test(v),
+  coderShipAfterCommit: (v) => typeof v === 'boolean',
   coderShowReasoning: (v) => typeof v === 'boolean',
   coderEffort: (v) => v === null || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh' || v === 'max',
   coderAgentModel: (v) => v === 'session' || v === 'quick',

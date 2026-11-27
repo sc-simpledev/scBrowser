@@ -12,6 +12,7 @@ import { pictureData, pictureFile } from '../shared/pastedPicture'
 import { ResizeHandle } from '../shared/ResizeHandle'
 import { useApp } from '../state/app'
 import { AiNetworkHelp } from '../shared/AiNetworkHelp'
+import { VoiceButton } from '../shared/VoiceButton'
 
 const openSource: OpenSource = (source, target) => void window.scb.invoke('ai:open-source', { tabId: source.tabId, url: source.url }, target)
 
@@ -250,6 +251,8 @@ export function AssistantPanel() {
   const { close, reset, send, stop, setIncludePage, clearSelection, clearImage, toggleChats, mention, unmention, setAgentMode, answerApproval, setWebSearch } = useAssistant.getState()
   const replyStyle = useApp((s) => s.settings.replyStyle)
   const statusLine = useApp((s) => s.settings.assistantStatusLine)
+  const voiceInput = useApp((s) => s.settings.voiceInput)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const summary = useAssistant((s) => s.summary)
   const style = REPLY_STYLES.find((option) => option.id === replyStyle)
   const allTabs = useTabs((s) => s.tabs)
@@ -560,6 +563,16 @@ export function AssistantPanel() {
                     </button>
                   )}
                   <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-1">
+                    {voiceInput && !agentMode && (
+                      <VoiceButton
+                        onError={setVoiceError}
+                        onText={(words) => {
+                          setVoiceError(null)
+                          setDraft((current) => (current.trim() ? `${current.trimEnd()} ${words}` : words))
+                          inputRef.current?.focus()
+                        }}
+                      />
+                    )}
                     {!agentMode && (
                       <IconButton
                         size="sm"
@@ -585,6 +598,11 @@ export function AssistantPanel() {
                   </div>
                 </div>
               </div>
+              {voiceError && (
+                <p role="alert" className="px-1 text-2xs text-danger">
+                  {voiceError}
+                </p>
+              )}
               {(host || statusLine) && (
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   {statusLine ? <StatusLine /> : <span />}

@@ -6,6 +6,7 @@ import type { HeadlessCode } from './codeArgs'
 import { AiService } from './ai/service'
 import { AiStore } from './ai/store'
 import { KvCoderTrust } from './ai/coderTrust'
+import { pluginServers } from './ai/coderPlugins'
 import { CoderMcp } from './ai/coderMcp'
 import { primeLoginPath } from './ai/coderTools'
 import { SettingsStore } from './settings'
@@ -24,7 +25,7 @@ export async function runHeadless(job: HeadlessCode): Promise<number> {
   const kv = new KeyValueRepo(db)
   const settings = new SettingsStore(kv)
   const trust = new KvCoderTrust(kv)
-  const mcp = new CoderMcp(kv, trust)
+  const mcp = new CoderMcp(kv, trust, () => undefined, () => pluginServers(join(app.getPath('userData'), 'terra-code')))
   const ai = new AiService(new AiStore(kv), () => undefined, () => null, {
     dir: join(app.getPath('userData'), 'terra-code'),
     keep: () => false,

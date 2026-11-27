@@ -223,7 +223,7 @@ test('the coding agent works only in its folder and asks before changing a file'
   try {
     h = await launch()
     await addProvider()
-    await setSetting(h, { coderFolder: folder, coderMode: 'ask' })
+    await setSetting(h, { coderFolder: folder, coderMode: 'ask', coderNotify: false })
     mock!.queue.push(
       'Reading it.\n```tool\n{"tool":"read","path":"greeting.txt"}\n```',
       'Changing it.\n```tool\n{"tool":"edit","path":"greeting.txt","find":"hello","replace":"goodbye"}\n```',

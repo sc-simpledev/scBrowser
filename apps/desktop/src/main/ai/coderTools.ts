@@ -26,9 +26,21 @@ export function clip(text: string, max = MAX_OUTPUT): string {
  * A path inside the project folder, or an error. Links are followed before checking, so a symbolic
  * link inside the folder can't lead outside it. Missing files are checked by their nearest existing folder.
  */
+/** Folders besides a project that it may also read and edit (/add-dir), by the project's real path. */
+const extraRoots = new Map<string, string[]>()
+
+/** Sets the extra folders for a project, as Terra Code starts a message there. */
+export function setExtraRoots(root: string, dirs: string[]): void {
+  if (dirs.length) extraRoots.set(resolve(root), dirs.map((dir) => resolve(dir)))
+  else extraRoots.delete(resolve(root))
+}
+
 export async function inside(root: string, path: string): Promise<string> {
   if (path.includes('\0')) throw new ToolError('That path is not allowed.')
   const target = resolve(root, path)
+  // A path in one of the project's extra folders is checked against that folder instead.
+  const extra = (extraRoots.get(resolve(root)) ?? []).find((dir) => target === dir || target.startsWith(`${dir}${sep}`))
+  if (extra) root = extra
   const realRoot = await realpath(root)
   let existing = target
   const rest: string[] = []

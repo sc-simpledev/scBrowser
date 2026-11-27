@@ -1,11 +1,12 @@
 import { Check, ChevronRight, LogIn, LogOut, Pencil, Plus, RotateCw, Trash2, X, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, cx, IconButton, Input, Segmented, Switch } from '@scbrowser/ui'
-import { CODER_BUDGETS, CODER_EFFORTS, CODER_STYLES, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
+import { CODER_BUDGETS, CODER_EFFORTS, CODER_STYLES, MCP_DIRECTORY, type CoderEffort, type McpDirectoryEntry, type CoderExtension, type CoderMode, type CoderModelChoice, type CoderSetup, type CoderHookEvent, type McpServerConfig, type McpServerView, type Settings } from '@scbrowser/shared'
 import { api } from '../api'
 import { MODES, type ModelPick } from './Composer'
 import { GithubSettings, githubLabel, type useGithubStatus } from './GithubSettings'
 import { AutomationsSettings, type AutomationsState } from './AutomationsSettings'
+import { DirsSettings, PluginsSettings, StatusLineSettings } from './PanelExtras'
 
 export const budgetLabel = (budget: number) => (budget === 0 ? 'No limit' : budget >= 1_000_000 ? `${budget / 1_000_000}M tokens` : `${budget / 1000}k tokens`)
 
@@ -341,7 +342,7 @@ function Extensions({ items, empty }: { items: CoderExtension[]; empty: ReactNod
   )
 }
 
-const HOOK_WORDS = { afterEdit: 'After an edit', beforeCommand: 'Before a command', afterTurn: 'After each reply' }
+const HOOK_WORDS: Record<CoderHookEvent, string> = { afterEdit: 'After an edit', beforeCommand: 'Before a command', afterTurn: 'After each reply (Stop)', notification: 'When it needs you (Notification)', beforePrompt: 'Before each message (UserPromptSubmit)', sessionStart: 'As a session starts' }
 
 /** A short heading over a few rows, as in a settings sidebar. */
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -511,6 +512,10 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
           <SwitchRow label="Errors after edits" hint="From the project’s language server" checked={prefs.coderLspProblems} onChange={(coderLspProblems) => onPrefs({ coderLspProblems })} />
           <SwitchRow label="Summarise long sessions" hint="Instead of forgetting earlier steps" checked={prefs.coderAutoCompact} onChange={(coderAutoCompact) => onPrefs({ coderAutoCompact })} />
           <SwitchRow label="Notify me" hint="When it finishes or needs you" checked={prefs.coderNotify} onChange={(coderNotify) => onPrefs({ coderNotify })} />
+          <SwitchRow label="Push after committing" hint="Commit sends the commits to GitHub too" checked={prefs.coderShipAfterCommit} onChange={(coderShipAfterCommit) => onPrefs({ coderShipAfterCommit })} />
+          <SettingRow label="Status line" value={prefs.coderStatusLine ? 'Your command' : 'Built in'} open={open === 'statusline'} onToggle={() => toggle('statusline')}>
+            <StatusLineSettings value={prefs.coderStatusLine} onChange={(coderStatusLine) => onPrefs({ coderStatusLine })} />
+          </SettingRow>
         </Group>
       )}
 
@@ -528,6 +533,17 @@ export function SettingsTab({ prefs, onPrefs, mode, onMode, effort, onEffort, sa
       )}
 
       <Group title="Extensions">
+        <SettingRow label="Plugins" open={open === 'plugins'} onToggle={() => toggle('plugins')}>
+          <PluginsSettings
+            onChanged={() => {
+              load()
+              onSetupChanged()
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="More folders" open={open === 'dirs'} onToggle={() => toggle('dirs')}>
+          <DirsSettings />
+        </SettingRow>
         <SettingRow
           label="MCP servers"
           value={setup?.mcp.length ? `${mcpReady ? `${mcpReady} running · ` : ''}${setup.mcp.length}` : 'None'}

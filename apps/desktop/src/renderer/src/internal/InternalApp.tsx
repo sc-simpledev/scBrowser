@@ -26,6 +26,7 @@ const ReadingPage = lazy(() => import('./pages/ReadingPage').then((m) => ({ defa
 const BriefsPage = lazy(() => import('./pages/BriefsPage').then((m) => ({ default: m.BriefsPage })))
 const FocusPage = lazy(() => import('./pages/FocusPage').then((m) => ({ default: m.FocusPage })))
 const WelcomePage = lazy(() => import('./welcome/WelcomePage').then((m) => ({ default: m.WelcomePage })))
+const MarkupPage = lazy(() => import('./pages/MarkupPage').then((m) => ({ default: m.MarkupPage })))
 
 /** `bare` pages draw their own heading; `wide` ones use more of the window. */
 const pages: Record<InternalPage, { title: string; icon: LucideIcon; component: ComponentType; bare?: boolean; wide?: boolean }> = {
@@ -98,6 +99,7 @@ function InternalPage() {
   if (location.host === 'blocked') return <BlockedPage />
   if (location.host === 'pdf') return <PdfPage />
   if (location.host === 'welcome') return <WelcomePage />
+  if (location.host === 'markup') return <MarkupPage />
   return location.host === 'newtab' ? (
     <TooltipProvider>
       <NewTabPage />

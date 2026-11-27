@@ -37,7 +37,7 @@ test('sc://code leads to the assistant, and Terra Code chats are saved in its li
   try {
     h = await launch()
     await addProvider()
-    await setSetting(h, { coderFolder: folder, coderMode: 'edits', saveChats: true })
+    await setSetting(h, { coderFolder: folder, coderMode: 'edits', saveChats: true, coderNotify: false })
     mock!.queue.push('Reading.\n```tool\n{"tool":"read","path":"a.txt"}\n```', 'It says hello.')
     await go(h, 'sc://code')
     const page = await h.page('sc://assistant')
@@ -74,7 +74,7 @@ test('a run keeps going while looking at Chat', async () => {
   try {
     h = await launch()
     await addProvider()
-    await setSetting(h, { coderFolder: folder, coderMode: 'ask' })
+    await setSetting(h, { coderFolder: folder, coderMode: 'ask', coderNotify: false })
     mock!.queue.push('```tool\n{"tool":"read","path":"a.txt"}\n```\n', '```tool\n{"tool":"write","path":"b.txt","content":"new"}\n```', 'Finished the work.')
     await go(h, 'sc://assistant/?mode=code')
     const page = await h.page('sc://assistant')

@@ -96,7 +96,7 @@ export class Overlay {
       onSiteAction: (action: SiteAction) => void
       onPopupClosed: () => void
       onTooltipCleared: () => void
-      onPreviewAction: (action: 'open' | 'background' | 'split' | 'close') => void
+      onPreviewAction: (action: 'open' | 'background' | 'split' | 'close' | 'summarise') => void
     }
   ) {
     this.view = new WebContentsView({
@@ -211,7 +211,7 @@ export class Overlay {
     handle('overlay:site-close', () => this.closeSiteControls())
     handle('overlay:tooltip-clear', () => this.clearTooltip())
     handle('overlay:preview-action', (action) => {
-      if (action !== 'open' && action !== 'background' && action !== 'split' && action !== 'close') throw new Error('Invalid arguments')
+      if (action !== 'open' && action !== 'background' && action !== 'split' && action !== 'close' && action !== 'summarise') throw new Error('Invalid arguments')
       this.hooks.onPreviewAction(action)
     })
     handle('overlay:app-link-answer', (choice) => {

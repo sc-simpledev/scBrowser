@@ -71,7 +71,7 @@ test('Terra Code works inside the assistant, shows its plan and changes, and und
   try {
     h = await launch()
     await addProvider()
-    await setSetting(h, { coderFolder: folder, coderMode: 'edits' })
+    await setSetting(h, { coderFolder: folder, coderMode: 'edits', coderNotify: false })
     mock!.queue.push(
       [
         'Planning and changing both files.',

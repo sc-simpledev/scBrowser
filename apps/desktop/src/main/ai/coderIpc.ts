@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { dialog, Notification, shell, type BaseWindow, type WebContents } from 'electron'
+import { stat, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve } from 'node:path'
+import { app, dialog, Notification, shell, type BaseWindow, type WebContents } from 'electron'
 import {
   CODE_CHAT_PREFIX,
   CODER_MAX_IMAGE_CHARS,
@@ -19,6 +20,7 @@ import {
   type CoderEvent,
   type CoderHooksView,
   type CoderRunOptions,
+  type CoderStatusLineInput,
   type CoderWorktree,
   type InternalCommands,
   type McpServerConfig
@@ -29,11 +31,15 @@ import type { SettingsStore } from '../settings'
 import type { TabManager } from '../tabs/TabManager'
 import { rememberNote, transcriptOf } from './coder'
 import type { CoderBrowserHost } from './coder'
-import { changeSummary, commit, COMMIT_MESSAGE_PROMPT, createWorktree, mergeWorktree, removeWorktree } from './coderGit'
+import { changeSummary, commit, COMMIT_MESSAGE_PROMPT, createWorktree, isBranchName, mergeWorktree, removeWorktree, runGit } from './coderGit'
+import { extraDirsFor, setExtraDirs } from './coderDirs'
+import { runStatusLine } from './coderStatusLine'
+import { installPlugin, listPlugins, previewPlugins, removePlugin, setPluginEnabled } from './coderPlugins'
+import { abortMidway, createPullRequest, gitState, mergeBranch, mergePullRequest, parsePrDraft, PR_DRAFT_PROMPT, prMaterial, pull, push, switchBranch } from './coderShip'
 import type { CoderMcp } from './coderMcp'
 import type { CoderCloud } from './coderCloud'
 import type { CoderServer } from './coderServer'
-import { githubClientId, type CoderGithub } from './coderGithub'
+import { gitIsRepo, githubClientId, type CoderGithub } from './coderGithub'
 import { installAutomations } from './coderAutomations'
 import { cloneRepo, deviceStart, deviceWait, hasCommits, linkRepo, projectSetup, pushBranch, type DeviceCode } from './coderSetup'
 import { loadDefs, loadHooks, loadSkills, projectSettings, detectDiagnostics } from './coderProject'
@@ -114,7 +120,7 @@ function runOptions(value: unknown): CoderRunOptions {
     options.effort = value.effort
   }
   if (value.mode !== undefined) {
-    if (!['plan', 'ask', 'edits', 'review'].includes(value.mode as string)) throw new Error('Invalid mode')
+    if (!['plan', 'ask', 'edits', 'auto', 'review'].includes(value.mode as string)) throw new Error('Invalid mode')
     options.mode = value.mode as CoderRunOptions['mode']
   }
   return options
@@ -184,6 +190,15 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
   }
 
   const changedPaths = async (id: string) => (await ai.coder.changes(id)).map((change) => change.path)
+  /** The folder git works in for a session: its separate copy, or the project. */
+  const gitFolder = (sessionId: unknown) => {
+    const folder = folderFor(text(sessionId, 64))
+    if (!folder) throw new Error('Choose a project folder first.')
+    return folder
+  }
+  const notRunning = (sessionId: unknown, what: string) => {
+    if (ai.coder.runningSessions().includes(text(sessionId, 64))) throw new Error(`Stop Terra Code before ${what}.`)
+  }
 
   return {
     'coder:status': () => {
@@ -377,7 +392,7 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
     'coder:context': async (sessionId, mode) => {
       coderOnly()
       const id = text(sessionId, 64)
-      if (mode !== 'plan' && mode !== 'ask' && mode !== 'edits') throw new Error('Invalid mode')
+      if (mode !== 'plan' && mode !== 'ask' && mode !== 'edits' && mode !== 'auto') throw new Error('Invalid mode')
       return ai.coder.contextBreakdown(id, folderFor(id) || projectFolder(), mode)
     },
     'coder:doctor': async () => {
@@ -690,6 +705,137 @@ export function coderHandlers(services: CoderIpcServices): CoderHandlers {
       const done = await commit(folderFor(id), text(message, 10_000), paths, branch === null ? null : text(branch, 100).trim() || null, force === true)
       await ai.coder.keepAll(id)
       return done
+    },
+    'coder:git-state': async (sessionId, withPr) => {
+      coderOnly()
+      const folder = folderFor(text(sessionId, 64))
+      if (!folder || !(await gitIsRepo(folder))) return null
+      return gitState(folder, github, withPr === true)
+    },
+    'coder:git-push': async (sessionId, force) => {
+      coderOnly()
+      return push(gitFolder(sessionId), github, force === true)
+    },
+    'coder:git-pull': async (sessionId) => {
+      coderOnly()
+      notRunning(sessionId, 'pulling')
+      return pull(gitFolder(sessionId), github)
+    },
+    'coder:git-switch': async (sessionId, branch, create) => {
+      coderOnly()
+      notRunning(sessionId, 'switching branches')
+      return switchBranch(gitFolder(sessionId), text(branch, 100), create === true, github)
+    },
+    'coder:git-merge': async (sessionId, branch) => {
+      coderOnly()
+      notRunning(sessionId, 'merging')
+      return mergeBranch(gitFolder(sessionId), text(branch, 120))
+    },
+    'coder:git-abort': async (sessionId) => {
+      coderOnly()
+      notRunning(sessionId, 'giving up the merge')
+      return abortMidway(gitFolder(sessionId))
+    },
+    'coder:pr-draft': async (sessionId, base) => {
+      coderOnly()
+      const folder = gitFolder(sessionId)
+      const into = text(base, 100).trim()
+      if (!isBranchName(into)) throw new Error('Pick the branch it should merge into.')
+      const branch = (await runGit(folder, ['branch', '--show-current'])).out.trim()
+      const fallback = branch.replace(/^[\w-]+\//, '').replace(/[-_]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) || 'Changes'
+      const written = await ai.complete(PR_DRAFT_PROMPT, await prMaterial(folder, into)).catch(() => '')
+      return parsePrDraft(written, fallback)
+    },
+    'coder:pr-create': async (sessionId, input) => {
+      coderOnly()
+      const value = (input ?? {}) as Record<string, unknown>
+      return createPullRequest(gitFolder(sessionId), github, { title: text(value.title, 300), body: text(value.body, 60_000), base: text(value.base, 100), draft: value.draft === true })
+    },
+    'coder:pr-merge': async (sessionId, number, method, removeBranch) => {
+      coderOnly()
+      notRunning(sessionId, 'merging')
+      if (!Number.isSafeInteger(number) || (number as number) < 1) throw new Error('Invalid pull request')
+      if (method !== 'squash' && method !== 'merge' && method !== 'rebase') throw new Error('Invalid merge method')
+      return mergePullRequest(gitFolder(sessionId), github, number as number, method, removeBranch === true)
+    },
+    'coder:dirs': () => {
+      coderOnly()
+      return extraDirsFor(kv, settings.get().coderFolder)
+    },
+    'coder:add-dir': async (path) => {
+      coderOnly()
+      const project = projectFolder()
+      let chosen = typeof path === 'string' ? text(path, 2000).trim() : null
+      if (chosen === null) {
+        const result = await dialog.showOpenDialog(window as Electron.BrowserWindow, { title: 'A folder Terra Code may also read and edit', properties: ['openDirectory'] })
+        chosen = result.canceled ? null : (result.filePaths[0] ?? null)
+        if (!chosen) return null
+      }
+      if (chosen.startsWith('~')) chosen = join(homedir(), chosen.slice(1))
+      if (!isAbsolute(chosen)) chosen = resolve(project, chosen)
+      const info = await stat(chosen).catch(() => null)
+      if (!info?.isDirectory()) throw new Error('That folder can’t be found.')
+      const rel = relative(resolve(project), resolve(chosen))
+      if (!rel || (!rel.startsWith('..') && !isAbsolute(rel))) throw new Error('That folder is inside the project already.')
+      if (resolve(chosen) === homedir() || resolve(chosen) === resolve('/')) throw new Error('Pick a project’s folder, not your whole home folder or the whole computer.')
+      return setExtraDirs(kv, project, [...extraDirsFor(kv, project), chosen])
+    },
+    'coder:remove-dir': (path) => {
+      coderOnly()
+      const project = projectFolder()
+      const gone = text(path, 2000)
+      return setExtraDirs(kv, project, extraDirsFor(kv, project).filter((dir) => dir !== gone))
+    },
+    'coder:plugins': async () => {
+      coderOnly()
+      return listPlugins(home)
+    },
+    'coder:plugin-preview': async (source) => {
+      coderOnly()
+      return previewPlugins(home, text(source, 500))
+    },
+    'coder:plugin-install': async (previewId, name) => {
+      coderOnly()
+      await installPlugin(home, text(previewId, 64), text(name, 40))
+      await mcp?.closePlugins()
+      return listPlugins(home)
+    },
+    'coder:plugin-toggle': async (name, enabled) => {
+      coderOnly()
+      await setPluginEnabled(home, text(name, 40), enabled === true)
+      await mcp?.closePlugins()
+      return listPlugins(home)
+    },
+    'coder:plugin-remove': async (name) => {
+      coderOnly()
+      await removePlugin(home, text(name, 40))
+      await mcp?.closePlugins()
+      return listPlugins(home)
+    },
+    'coder:status-line': async (sessionId, input) => {
+      coderOnly()
+      const command = settings.get().coderStatusLine.trim()
+      if (!command) return null
+      const id = text(sessionId, 64)
+      const folder = folderFor(id) || settings.get().coderFolder
+      const value = (input ?? {}) as Partial<CoderStatusLineInput>
+      const number = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : 0)
+      const branch = folder ? (await runGit(folder, ['branch', '--show-current'])).out.trim() : ''
+      // The same fields Claude Code gives its statusLine command, so scripts written for it work.
+      const json = JSON.stringify({
+        hook_event_name: 'Status',
+        session_id: id,
+        cwd: folder,
+        model: { id: text(value.model ?? '', 200), display_name: text(value.model ?? '', 200) },
+        workspace: { current_dir: folder, project_dir: settings.get().coderFolder },
+        version: app.getVersion(),
+        output_style: { name: settings.get().coderStyle },
+        cost: { total_cost_usd: typeof value.cost === 'number' ? value.cost : null },
+        context_window: { used_tokens: number(value.contextUsed), limit_tokens: number(value.contextLimit) },
+        tokens: { input: number(value.inputTokens), output: number(value.outputTokens) },
+        terra: { mode: typeof value.mode === 'string' ? value.mode : 'ask', branch }
+      })
+      return runStatusLine(command, folder || homedir(), json)
     },
     'coder:pending': () => {
       coderOnly()

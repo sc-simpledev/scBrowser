@@ -53,7 +53,9 @@ export class CoderMcp implements CoderMcpHost {
     private readonly kv: KeyValueRepo,
     private readonly trust: CoderTrust,
     /** Opens a sign-in page for the person, in a tab. */
-    private readonly openUrl: (url: string) => void = () => undefined
+    private readonly openUrl: (url: string) => void = () => undefined,
+    /** Servers from installed plugins that are on. */
+    private readonly plugins: () => Promise<McpServerConfig[]> = async () => []
   ) {
     this.auth = new McpAuthStore(kv)
   }
@@ -127,6 +129,11 @@ export class CoderMcp implements CoderMcpHost {
     await this.close(`global:${server.name}`)
   }
 
+  /** Stops servers that came from plugins, after one is added, turned off or removed; they start again when needed. */
+  async closePlugins(): Promise<void> {
+    await Promise.all([...this.connections.keys()].filter((key) => key.startsWith('plugin:')).map((key) => this.close(key)))
+  }
+
   async remove(name: string): Promise<void> {
     await this.auth.update(name, null).catch(() => undefined)
     await this.store((await this.own()).filter((server) => server.name !== name))
@@ -135,7 +142,11 @@ export class CoderMcp implements CoderMcpHost {
 
   /** Every server for a folder: the person's own, then the project's, which can't take a name already in use. */
   private async servers(folder: string | null): Promise<{ server: McpServerConfig; source: CoderSource; key: string; trusted: boolean; hash: string }[]> {
-    const own = (await this.own()).map((server) => ({ server, source: 'global' as const, key: `global:${server.name}`, trusted: true, hash: configHash(server) }))
+    const mine = (await this.own()).map((server) => ({ server, source: 'global' as const, key: `global:${server.name}`, trusted: true, hash: configHash(server) }))
+    const fromPlugins = (await this.plugins().catch(() => []))
+      .filter((server) => !mine.some((other) => other.server.name === server.name))
+      .map((server) => ({ server, source: 'global' as const, key: `plugin:${server.name}`, trusted: true, hash: configHash(server) }))
+    const own = [...mine, ...fromPlugins]
     const project = folder
       ? (await projectMcp(folder))
           .filter((server) => !own.some((other) => other.server.name === server.name))

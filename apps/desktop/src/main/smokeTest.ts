@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserWindowHandle } from './browserCore'
+import { drmStatus } from './drm'
 
 /** Started with this, scTerra opens one window, checks that it drew, and quits: for testing a built installer. */
 export const SMOKE_TEST_FLAG = '--smoke-test'
@@ -39,7 +40,10 @@ export function runSmokeTest(handle: BrowserWindowHandle): void {
     if (failure) return finish(1, `scTerra ${app.getVersion()} smoke test failed: ${failure}`)
     const ui = webContents.getAllWebContents().find((contents) => /\/index\.html($|[?#])/.test(contents.getURL()))
     const tab = handle.tabs.active ? handle.tabs.contentsFor(handle.tabs.active.id) : undefined
-    if (loaded(ui) && loaded(tab)) return finish(0, `scTerra ${app.getVersion()} smoke test passed in ${Date.now() - started} ms: ${tab!.getURL()}`)
+    // Widevine is reported, not required: a first run downloads it, and a runner may be offline.
+    const drm = drmStatus()
+    const widevine = `Widevine ${drm.state}${drm.version ? ` ${drm.version}` : ''}`
+    if (loaded(ui) && loaded(tab)) return finish(0, `scTerra ${app.getVersion()} smoke test passed in ${Date.now() - started} ms: ${tab!.getURL()} (${widevine})`)
     if (Date.now() - started > LIMIT_MS) return finish(1, `scTerra ${app.getVersion()} smoke test failed: ${loaded(ui) ? 'the first tab' : "the browser's interface"} didn't finish loading within a minute`)
     setTimeout(check, 500)
   }

@@ -4,7 +4,8 @@ name: Release
 # which holds installers only. Browsers find new versions there, with no token.
 #
 # Needs one secret: RELEASE_TOKEN, a fine-grained token limited to sc-simpledev/scTerra with
-# Contents read and write. It must never go into the app.
+# Contents read and write. It must never go into the app. EVS_ACCOUNT_NAME and EVS_PASSWD (a free
+# castLabs EVS account) give Windows and Mac builds the VMP signature streaming services want.
 on:
   push:
     tags: ['v*']
@@ -41,9 +42,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # Widevine: Netflix, Spotify and the like only play in a Windows or Mac app with a production VMP
+      # signature, which castLabs' free EVS service adds as the app is packaged (scripts/vmp-sign.cjs).
+      # Needs two secrets, EVS_ACCOUNT_NAME and EVS_PASSWD; without them the build carries on with the
+      # development signature and a warning. Linux has no VMP and needs nothing.
+      - uses: actions/setup-python@v5
+        if: runner.os != 'Linux'
+        with:
+          python-version: '3.12'
+      - name: VMP signing tool
+        if: runner.os != 'Linux'
+        shell: bash
+        run: python -m pip install --upgrade castlabs-evs
       - run: pnpm release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          EVS_ACCOUNT_NAME: ${{ secrets.EVS_ACCOUNT_NAME }}
+          EVS_PASSWD: ${{ secrets.EVS_PASSWD }}
       # The packaged app must open a window and load a tab. If it can't, this fails, the draft is
       # never published, and nobody is offered a broken build. It runs on a throwaway profile.
       - name: Start the packaged app once

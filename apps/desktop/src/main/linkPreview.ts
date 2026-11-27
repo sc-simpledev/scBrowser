@@ -106,6 +106,12 @@ export class LinkPreview {
     this.view?.setVisible(!hidden)
   }
 
+  /** The previewed page, for reading its text, while one is open. */
+  contents(): WebContents | null {
+    const contents = this.view?.webContents
+    return contents && !contents.isDestroyed() ? contents : null
+  }
+
   /** Turns it into a real tab at the address it's on now, and closes the preview. */
   promote(how: 'open' | 'background' | 'split', address?: string): void {
     const url = address ?? (this.view?.webContents.getURL() || this.state?.url)

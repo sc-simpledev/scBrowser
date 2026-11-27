@@ -58,7 +58,9 @@ import {
   fixCiTask,
   securityReviewTask,
   prCommentsTask,
+  resolveConflictsTask,
   CODER_STYLES,
+  estimateCost,
   type CoderContextBreakdown,
   type CoderDoctorItem,
   type CoderAgentRun,
@@ -80,6 +82,7 @@ import {
   type Settings,
   type CoderToolName,
   type CoderWorktree,
+  type CoderGitState,
   WHATS_NEW
 } from '@scbrowser/shared'
 import { api } from '../api'
@@ -93,6 +96,7 @@ import { CloudCard } from './CloudCard'
 import { CloneCard, CloneIcon, SetupCard } from './ProjectStart'
 import { GithubStartLine } from './GithubSettings'
 import { QuestionCard } from '../../shared/QuestionCard'
+import { BranchCard, ConflictBar, GitMenu, MergeCard, PullRequestCard, useGitState, type GitAction } from './GitBar'
 
 const TOOL_ICONS: Record<CoderToolName, LucideIcon> = {
   list: FolderTree,
@@ -434,8 +438,11 @@ function ChangesBar({ files, git, busy, onReview, onCommit }: { files: CoderChan
   )
 }
 
-/** Commits the session's changes with a message the quick model writes first, which the person can change. */
-function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (note: string) => void; onCancel: () => void }) {
+/**
+ * Commits the session's changes with a message the quick model writes first, which the person can
+ * change, and can go straight on to push them or open a pull request.
+ */
+function CommitCard({ session, git, pushByDefault, onDone, onCancel }: { session: string; git: CoderGitState | null; pushByDefault: boolean; onDone: (note: string, next: 'push' | 'pr' | null) => void; onCancel: () => void }) {
   const [message, setMessage] = useState('')
   const [writing, setWriting] = useState(true)
   const [branch, setBranch] = useState('')
@@ -452,13 +459,15 @@ function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (n
       )
       .finally(() => setWriting(false))
   }, [session])
-  const submit = (force = false) => {
+  const canPush = !!git?.remote
+  const canPr = !!git?.repo && git.github && git.pr?.state !== 'open'
+  const submit = (force = false, next: 'push' | 'pr' | null = null) => {
     setBusy(true)
     setError(null)
     void api()
       .invoke('coder:commit', session, message, onBranch ? branch : null, all, force)
       .then(
-        (head) => onDone(`Committed ${head}.`),
+        (head) => onDone(`Committed ${head}.`, next),
         (failure: Error) => {
           setError(cleanError(failure.message))
           setBusy(false)
@@ -500,8 +509,18 @@ function CommitCard({ session, onDone, onCancel }: { session: string; onDone: (n
             Commit anyway
           </Button>
         )}
-        <Button variant="primary" disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={() => submit()}>
-          Commit
+        {canPr && (
+          <Button disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={() => submit(false, 'pr')} title="Commit, push, and open a pull request with a description written for you">
+            Commit and open a pull request
+          </Button>
+        )}
+        {canPush && !pushByDefault && (
+          <Button disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={() => submit(false, 'push')}>
+            Commit and push
+          </Button>
+        )}
+        <Button variant="primary" disabled={busy || !message.trim() || (onBranch && !branch.trim())} onClick={() => submit(false, canPush && pushByDefault ? 'push' : null)}>
+          {canPush && pushByDefault ? 'Commit and push' : 'Commit'}
         </Button>
       </div>
     </section>
@@ -921,14 +940,16 @@ interface SavedData {
   effort?: CoderEffort | null
 }
 
-const HELP = `Terra Code works on files in your project folder. It asks before changing anything or running commands, unless you let edits through (Auto-edit) or allow a command for this project.
+const HELP = `Terra Code works on files in your project folder. It asks before changing anything or running commands, unless you let edits through (Auto-edit), let it work on its own (Auto, which still asks before risky commands), or allow a command for this project.
 
 - **/** shows commands: ${CODER_BUILTIN_COMMANDS.map((command) => `/${command.name}`).join(', ')}, and any in the project’s .terra/commands.
 - **@** attaches a file from the project, or one of your open tabs.
 - **!** runs a command yourself (**!git status**), and Terra Code sees what it printed. **#** and a space adds a line to TERRA.md.
 - **/context** shows what fills the model’s memory, **/doctor** checks the setup, and **/style** makes it explain more as it goes, or leave small pieces for you to write.
 - Paste or drop pictures into the box for models that can see them.
-- **Shift+Tab** switches between Plan, Ask and Auto-edit. **Esc** stops it. **↑** brings back what you sent before.
+- **Git without a terminal:** the branch button in the bar pushes, pulls, opens and merges pull requests (with a description written for you), and switches or makes branches. **/commit**, **/push**, **/pull**, **/sync**, **/pr**, **/merge** and **/branch** do the same. If a merge stops on conflicts, Terra Code can resolve them.
+- **/add-dir** lets it read and edit another folder too, **/plugin** adds Claude Code plugins from Git, and **/statusline** puts your own command’s line under the box. Hooks from Claude Code work, including Stop hooks that keep it going and Notification hooks.
+- **Shift+Tab** switches between Plan, Ask, Auto-edit and Auto. **Esc** stops it. **↑** brings back what you sent before.
 - The brain button sets how hard the model thinks (**/effort high**). Its reasoning shows folded above each step, if you turn that on in settings.
 - It can hand work to helpers: **explore** reads around, **general** takes on a piece of the change. Several run side by side, and the session panel lists them.
 - The checklist is yours too: tick steps off, rename or remove them, or add your own (**/todo** adds one). Terra Code hears about it at its next step.
@@ -1036,6 +1057,10 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   }
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
+  /** A git card open above the box: a pull request, merging one, or a branch. */
+  const [gitCard, setGitCard] = useState<'pr' | 'merge-pr' | 'new-branch' | 'merge-branch' | null>(null)
+  const [gitBusy, setGitBusy] = useState(false)
+  const [gitTick, setGitTick] = useState(0)
   const [cloning, setCloning] = useState(false)
   const [hostedNoteClosed, setHostedNoteClosed] = useState(noteClosed)
   const [model, setModel] = useState<ModelPick | null>(null)
@@ -1071,6 +1096,22 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
   const { items, todo, changes, jobs, context, streaming, reasoning, step, working, retrySeconds, runStartedAt } = state
   const showReasoning = prefs?.coderShowReasoning ?? true
   const note = (text: string, error = false) => setState((current) => ({ ...current, items: [...current.items, { kind: 'note', text, error }] }))
+  // The person's own status line, run again a moment after the session moves on.
+  const [statusLine, setStatusLine] = useState<string | null>(null)
+  const statusCommand = prefs?.coderStatusLine ?? ''
+  const usedModel = model?.model ?? status?.model ?? ''
+  useEffect(() => {
+    if (!statusCommand) return setStatusLine(null)
+    const timer = setTimeout(() => {
+      const cost = context ? estimateCost(usedModel, context.inputTokens, context.outputTokens) : null
+      void api()
+        .invoke('coder:status-line', session.current, { model: usedModel, contextUsed: context?.used ?? 0, contextLimit: context?.limit ?? 0, inputTokens: context?.inputTokens ?? 0, outputTokens: context?.outputTokens ?? 0, cost, mode })
+        .then(setStatusLine, () => setStatusLine(null))
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [statusCommand, usedModel, context, mode, working, gitTick])
+  // Git's state is read again whenever a run ends, as Terra Code may have committed or switched branches.
+  const { git, refresh: refreshGit } = useGitState(session.current, !!status?.git || !!worktree, `${gitTick}:${working}:${status?.folder ?? ''}:${worktree?.path ?? ''}`)
 
   const refresh = useCallback(
     () =>
@@ -1228,6 +1269,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     setState(emptyState())
     setScreen('log')
     setCommitting(false)
+    setGitCard(null)
     setWorktree(null)
     setWhere('local')
   }, [])
@@ -1391,6 +1433,52 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       )
   }
 
+  /** One git step from the branch menu, a card or a command, with what it did as a note. */
+  const gitRun = (call: () => Promise<string>, after?: (said: string) => void) => {
+    setGitBusy(true)
+    void call()
+      .then(
+        (said) => {
+          note(said)
+          after?.(said)
+        },
+        (error: Error) => {
+          const message = cleanError(error.message)
+          // A merge or pull that stopped on conflicts: the bar above the box offers what to do.
+          if (message.startsWith('CONFLICTS: ')) note(message.slice('CONFLICTS: '.length), true)
+          else if (/^Possible secret/i.test(message)) {
+            note(`${message} Push anyway with /push --force-secrets if you’re sure it isn’t one.`, true)
+          } else note(message, true)
+        }
+      )
+      .finally(() => {
+        setGitBusy(false)
+        setGitTick((count) => count + 1)
+      })
+  }
+  const resolveConflicts = () => {
+    if (!git?.conflicts.length) return
+    start(resolveConflictsTask(git.conflicts, git.midway), { shown: 'Resolve the merge conflicts' })
+  }
+  const gitAction = (action: GitAction) => {
+    const id = session.current
+    if (action === 'refresh') return void refreshGit(true)
+    if (action === 'push') return gitRun(() => api().invoke('coder:git-push', id))
+    if (action === 'pull') return gitRun(() => api().invoke('coder:git-pull', id))
+    if (action === 'sync') return gitRun(async () => `${await api().invoke('coder:git-pull', id)} ${await api().invoke('coder:git-push', id)}`)
+    if (action === 'abort') return gitRun(() => api().invoke('coder:git-abort', id))
+    if (action === 'resolve') return resolveConflicts()
+    if (action.startsWith('switch:')) return gitRun(() => api().invoke('coder:git-switch', id, action.slice('switch:'.length), false), () => void refresh())
+    setCommitting(false)
+    setGitCard(action as 'pr' | 'merge-pr' | 'new-branch' | 'merge-branch')
+  }
+  const gitCardDone = (said: string) => {
+    setGitCard(null)
+    note(said)
+    setGitTick((count) => count + 1)
+    refresh()
+  }
+
   /** Slash commands the page handles itself, or turns into a task. False when it's a task as typed. */
   const command = (text: string): boolean => {
     const match = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(text)
@@ -1468,6 +1556,41 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'security-review':
         start(securityReviewTask(args || null), { shown: text, runMode: 'review' })
         return true
+      case 'commit':
+        if (!status?.git && !worktree) note('This folder isn’t a git repository yet. Link it to GitHub in Terra Code settings, or ask Terra Code to run git init.', true)
+        else {
+          setGitCard(null)
+          setCommitting(true)
+        }
+        return true
+      case 'push':
+      case 'pull':
+      case 'sync':
+        if (!git?.remote) note('This project has no remote yet. Link it to GitHub in Terra Code settings.', true)
+        else if (name === 'push' && args === '--force-secrets') gitRun(() => api().invoke('coder:git-push', session.current, true))
+        else gitAction(name as 'push' | 'pull' | 'sync')
+        return true
+      case 'pr':
+        if (!git?.repo) note('This project isn’t on GitHub yet. Link it in Terra Code settings.', true)
+        else if (git.pr?.state === 'open') note(`This branch already has pull request #${git.pr.number} (${git.pr.title}). /merge merges it.`)
+        else gitAction('pr')
+        return true
+      case 'merge': {
+        const target = args.replace(/^#/, '')
+        if (!git) note('This folder isn’t a git repository.', true)
+        else if (!target && git.pr?.state === 'open') gitAction('merge-pr')
+        else if (!target) gitAction('merge-branch')
+        else if (/^\d+$/.test(target)) {
+          if (git.pr?.number === Number(target)) gitAction('merge-pr')
+          else note(`Switch to #${target}’s branch first; /merge then merges it.`, true)
+        } else gitRun(() => api().invoke('coder:git-merge', session.current, target))
+        return true
+      }
+      case 'branch':
+        if (!git) note('This folder isn’t a git repository.', true)
+        else if (!args) gitAction('new-branch')
+        else gitRun(() => api().invoke('coder:git-switch', session.current, args, !git.branches.includes(args)), () => void refresh())
+        return true
       case 'pr-comments': {
         const pull = /^#?(\d+)$/.exec(args)
         start(prCommentsTask(pull ? Number(pull[1]) : null), { shown: text })
@@ -1505,7 +1628,21 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
       case 'settings':
       case 'permissions':
       case 'mcp':
-        openSettings(name === 'mcp' ? 'mcp' : name === 'permissions' ? 'mode' : null)
+      case 'plugin':
+      case 'plugins':
+      case 'hooks':
+      case 'statusline':
+        openSettings(name === 'mcp' ? 'mcp' : name === 'permissions' ? 'mode' : name.startsWith('plugin') ? 'plugins' : name === 'hooks' ? 'hooks' : name === 'statusline' ? 'statusline' : null)
+        return true
+      case 'add-dir':
+        void api()
+          .invoke('coder:add-dir', args || null)
+          .then(
+            (dirs) => {
+              if (dirs) note(`Terra Code may also read and edit ${dirs.length === 1 ? dirs[0] : `${dirs.length} folders: ${dirs.join(', ')}`}, from the next message. Change this under More folders in settings.`)
+            },
+            (error: Error) => note(cleanError(error.message), true)
+          )
         return true
       case 'todo':
         if (!args) note('Write the step after /todo, such as /todo add tests for the parser.', true)
@@ -1754,7 +1891,12 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
         <FolderOpen aria-hidden size={13} strokeWidth={1.75} className="shrink-0" />
         <span className="max-w-48 truncate @max-[400px]:hidden">{status.folder ? folderName(status.folder) : 'Choose a project folder'}</span>
       </Button>
-      {(worktree || status.branch) && !worktree && (
+      {git && !worktree && (
+        <div className="min-w-0 shrink @max-[520px]:hidden">
+          <GitMenu git={git} busy={gitBusy} working={working} onAction={gitAction} />
+        </div>
+      )}
+      {!git && status.branch && !worktree && (
         <span title={`On branch ${status.branch}`} className="flex h-6 min-w-0 shrink items-center gap-1 rounded-md px-1.5 font-mono text-2xs text-text-faint @max-[640px]:hidden">
           <GitBranch aria-hidden size={12} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">{status.branch}</span>
@@ -2050,14 +2192,26 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
           </div>
 
           <div className={cx('mx-auto w-full max-w-200 shrink-0 flex-col gap-1.5 px-6 pt-1 pb-3 max-[760px]:px-3', screen === 'log' ? 'flex' : 'hidden')}>
-            {committing ? (
+            {git && !committing && !gitCard && <ConflictBar git={git} working={working} onResolve={resolveConflicts} onAbort={() => gitAction('abort')} />}
+            {gitCard && git ? (
+              <div className="sc-scroll-quiet max-h-[60vh] overflow-y-auto">
+                {gitCard === 'pr' && <PullRequestCard session={session.current} git={git} onCancel={() => setGitCard(null)} onDone={(said) => gitCardDone(said)} />}
+                {gitCard === 'merge-pr' && git.pr && <MergeCard session={session.current} pr={git.pr} onCancel={() => setGitCard(null)} onDone={gitCardDone} />}
+                {(gitCard === 'new-branch' || gitCard === 'merge-branch') && <BranchCard session={session.current} git={git} kind={gitCard === 'new-branch' ? 'new' : 'merge'} onCancel={() => setGitCard(null)} onDone={gitCardDone} />}
+              </div>
+            ) : committing ? (
               <div className="sc-scroll-quiet max-h-[60vh] overflow-y-auto">
                 <CommitCard
                   session={session.current}
+                  git={git}
+                  pushByDefault={prefs?.coderShipAfterCommit ?? false}
                   onCancel={() => setCommitting(false)}
-                  onDone={(said) => {
+                  onDone={(said, next) => {
                     setCommitting(false)
                     setState((current) => ({ ...current, changes: [], items: [...current.items, { kind: 'note', text: said, error: false }] }))
+                    setGitTick((count) => count + 1)
+                    if (next === 'push') gitRun(() => api().invoke('coder:git-push', session.current))
+                    else if (next === 'pr') setGitCard('pr')
                   }}
                 />
               </div>
@@ -2100,6 +2254,11 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
               onSend={send}
               onStop={() => void api().invoke('coder:stop', session.current)}
             />
+            {statusLine && (
+              <p aria-label="Status line" title={statusLine} className="truncate px-1 font-mono text-2xs text-text-faint">
+                {statusLine}
+              </p>
+            )}
           </div>
         </div>
 

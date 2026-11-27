@@ -1,3 +1,4 @@
+import { selfEnv } from './selfLaunch'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -64,7 +65,7 @@ export function openPrivateWindow(settings: Settings, bookmarks: Bookmark[]): vo
   const seed: Seed = { settings, bookmarks: bookmarks.map(({ url, title, icon }) => ({ url, title, icon })) }
   writeFileSync(join(dir, SEED), JSON.stringify(seed), { mode: 0o600 })
   const args = [...(app.isPackaged ? [] : [app.getAppPath()]), `${FLAG}${dir}`]
-  spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
+  spawn(process.execPath, args, { detached: true, stdio: 'ignore', env: selfEnv() }).unref()
 }
 
 function privateNewTab(saved: NewTabConfig): NewTabConfig {

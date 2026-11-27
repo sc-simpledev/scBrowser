@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
-import { Columns2, ExternalLink, Loader2, PanelTopOpen, X } from 'lucide-react'
+import { Columns2, ExternalLink, Loader2, PanelTopOpen, Sparkles, X } from 'lucide-react'
 import { LINK_PREVIEW, type LinkPreviewState } from '@scbrowser/shared'
 
 const hostOf = (url: string) => (URL.canParse(url) ? new URL(url).host.replace(/^www\./, '') : url)
-const act = (action: 'open' | 'background' | 'split' | 'close') => void window.scbOverlay.invoke('overlay:preview-action', action)
+const act = (action: 'open' | 'background' | 'split' | 'close' | 'summarise') => void window.scbOverlay.invoke('overlay:preview-action', action)
 
 function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
@@ -59,6 +59,16 @@ export function LinkPreviewCard({ preview, origin }: { preview: LinkPreviewState
           >
             <ExternalLink aria-hidden size={12} strokeWidth={2} />
             Open as tab
+          </button>
+          <button
+            type="button"
+            disabled={preview.loading}
+            title="A short summary in the assistant, without opening it"
+            onClick={() => act('summarise')}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-muted transition-colors enabled:hover:bg-surface-hover enabled:hover:text-text disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-focus-ring"
+          >
+            <Sparkles aria-hidden size={12} strokeWidth={1.75} />
+            Summarise
           </button>
           <HeaderButton label="Open in split view" onClick={() => act('split')}>
             <Columns2 size={14} strokeWidth={1.75} />

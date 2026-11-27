@@ -23,9 +23,12 @@ export async function launch(profile = newProfile(), switches: string[] = [], ex
   const executablePath = process.env.SCB_E2E_EXECUTABLE
   // Tests stay off any system proxy on this computer, such as the owner's own VPN.
   const args = ['--no-proxy-server', ...switches]
+  // castLabs' Electron can't start with CHROME_DESKTOP set, as it is when these run from inside another
+  // Electron app (an editor or a desktop assistant); the packaged app's launcher drops it the same way.
+  const { CHROME_DESKTOP: _desktop, ...inherited } = process.env
   const app = await electron.launch({
     ...(executablePath ? { executablePath, args } : { args: [...args, resolve(__dirname, '../apps/desktop')] }),
-    env: { ...process.env, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js\n##.ad-slot', SCTERRA_AI_URL: process.env.SCTERRA_AI_URL ?? 'off', ...extraEnv }
+    env: { ...inherited, SCB_USER_DATA_DIR: profile, SCB_E2E: '1', SCB_FILTERS: '/tracker.js\n##.ad-slot', SCTERRA_AI_URL: process.env.SCTERRA_AI_URL ?? 'off', ...extraEnv }
   })
   const where = (() => {
     try {

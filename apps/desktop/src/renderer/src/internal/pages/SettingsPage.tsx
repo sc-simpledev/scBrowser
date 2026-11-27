@@ -32,7 +32,7 @@ import {
   type UpdateState,
   type WebApp
 } from '@scbrowser/shared'
-import { SIDEBAR_COLORS, sidebarBackground, WHATS_NEW } from '@scbrowser/shared'
+import { drmStatusText, SIDEBAR_COLORS, SITE_CONTENT_BLOCKS, siteBlockWord, sidebarBackground, WHATS_NEW, type DrmStatus } from '@scbrowser/shared'
 import { api, applyPerformance, applyTint } from '../api'
 import { ConfirmButton } from '../ConfirmButton'
 import { VPN_INSTALLED_EVENT } from '../VpnInstall'
@@ -456,6 +456,9 @@ function TabsPage({ settings, update }: { settings: Settings; update: Update }) 
         <Row setting="linkPreview" label="Preview links with Shift-click" hint="Opens the link over the page, to read without making a tab. Open it as a tab from there if you want to keep it." keywords="peek">
           <Switch label="Preview links with Shift-click" checked={settings.linkPreview} onChange={(linkPreview) => update({ linkPreview })} />
         </Row>
+        <Row setting="littleWindow" label="Little window for links from other apps" hint="A link from chat or mail opens in a small window of its own, so a quick look doesn’t add a tab. “Open in scTerra” moves it into the browser." keywords="little arc quick look external default browser">
+          <Switch label="Little window for links from other apps" checked={settings.littleWindow} onChange={(littleWindow) => update({ littleWindow })} />
+        </Row>
       </Section>
       <Section title="Toolbar">
         <Row setting="hiddenToolbarItems" label="Buttons" hint="Choose which to show." keywords={TOOLBAR_ITEMS.map((item) => item.name).join(' ')}>
@@ -759,6 +762,13 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
   const [permissions, setPermissions] = useState<PermissionDecision[]>([])
   const [offHosts, setOffHosts] = useState<string[]>([])
   const [crashes, setCrashes] = useState<CrashEntry[]>([])
+  const [drm, setDrm] = useState<DrmStatus | null>(null)
+  useEffect(() => {
+    void api().invoke('drm:status').then(setDrm)
+    // A first download finishes while Settings is open.
+    const timer = setInterval(() => void api().invoke('drm:status').then(setDrm), 4000)
+    return () => clearInterval(timer)
+  }, [])
   useEffect(() => {
     void api().invoke('permissions:list').then(setPermissions)
     void api().invoke('privacy:off-hosts').then(setOffHosts)
@@ -819,6 +829,39 @@ function PrivacyPage({ settings, update }: { settings: Settings; update: Update 
               </Button>
             </Row>
           ))}
+        </Section>
+      )}
+      <Section title="Protected content" description="Netflix, Spotify, Disney+ and other services encrypt their video and music (DRM). scTerra plays it with Google’s Widevine, downloaded the first time it starts." keywords="drm widevine netflix spotify disney prime video eme encrypted media">
+        <Row setting="protectedContent" label="Play protected content" hint={drmStatusText(drm ?? { state: 'off', version: null, error: null }, settings.protectedContent)} keywords="drm widevine">
+          <Switch label="Play protected content" checked={settings.protectedContent} onChange={(protectedContent) => update({ protectedContent })} />
+        </Row>
+      </Section>
+      <Section title="Notifications" description="Notifications from sites you allowed are listed under More, Notifications, shown or not. Held ones wait there." keywords="do not disturb dnd quiet focus alerts">
+        <Row setting="notificationQuiet" label="Hold notifications" hint="Held notifications never pop up; the site still thinks they were shown.">
+          <RowSelect aria-label="Hold notifications" value={settings.notificationQuiet} onChange={(e) => update({ notificationQuiet: e.target.value as Settings['notificationQuiet'] })}>
+            <option value="never">Never, show them</option>
+            <option value="focus">During focus sessions</option>
+            <option value="always">Always: do not disturb</option>
+          </RowSelect>
+        </Row>
+      </Section>
+      {Object.keys(settings.siteContent).length > 0 && (
+        <Section title="Site settings" description="What these sites can’t do. Change one from the padlock in the address bar." keywords="javascript scripts images pictures pop-ups drm block noscript">
+          {Object.entries(settings.siteContent)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([site, blocks]) => (
+              <Row key={site} label={site} hint={`Blocked: ${SITE_CONTENT_BLOCKS.filter((one) => blocks.includes(one.id)).map((one) => siteBlockWord(one.label)).join(', ')}`}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const { [site]: _old, ...rest } = settings.siteContent
+                    update({ siteContent: rest })
+                  }}
+                >
+                  Allow all
+                </Button>
+              </Row>
+            ))}
         </Section>
       )}
       <Section title="Pop-ups" description="Sites can open pop-ups when you click something on them. Ones that try without a click are stopped, and the address bar offers them. These sites may open them whenever they like." keywords="popup blocker windows new tabs">
@@ -1127,6 +1170,15 @@ function AiPage({ settings, update }: { settings: Settings; update: Update }) {
         </Row>
         <Row setting="assistantStatusLine" label="Status line" hint="Under the assistant's box: this chat's tokens and cost, and how full the model's memory is. /compact sums up a long chat." keywords="tokens cost context usage meter">
           <Switch label="Status line" checked={settings.assistantStatusLine} onChange={(assistantStatusLine) => update({ assistantStatusLine })} />
+        </Row>
+        <Row setting="assistantHistory" label="Let it look through my history" hint="When you ask about something you read before, the assistant can search your history by itself. Only page titles and addresses go to the model, never the pages, and sites with AI off are left out." keywords="browsing history search remember article">
+          <Switch label="Let it look through my history" checked={settings.assistantHistory} onChange={(assistantHistory) => update({ assistantHistory })} />
+        </Row>
+        <Row setting="voiceInput" label="Microphone button" hint="Speak instead of typing. The recording goes only to an AI service you set up here (OpenAI, Gemini, Groq or a Whisper server of your own), and only while you hold it on." keywords="voice speech dictation whisper transcribe talk">
+          <Switch label="Microphone button" checked={settings.voiceInput} onChange={(voiceInput) => update({ voiceInput })} />
+        </Row>
+        <Row setting="agentPlanFirst" label="Act on page: plan first" hint="The assistant shows its plan before acting on a page. Once you approve it, steps that only read the page run without asking; clicks and typing still ask." keywords="agent mode approve steps">
+          <Switch label="Act on page: plan first" checked={settings.agentPlanFirst} onChange={(agentPlanFirst) => update({ agentPlanFirst })} />
         </Row>
         <Row setting="notesFolder" label="Notes folder" hint={settings.notesFolder ? `“Save as a note” writes Markdown files to ${settings.notesFolder}` : '“Save as a note” asks where each time. Pick a folder, such as an Obsidian vault, to save straight there.'} keywords="obsidian markdown save answer note">
           <div className="flex gap-1.5">

@@ -6,9 +6,9 @@ import type { CoderServer } from './ai/coderServer'
 import type { CoderGithub } from './ai/coderGithub'
 import type { CoderTrust } from './ai/coderTrust'
 import { speakerNotes } from './reportNotes'
-import { isClearKind, isClearRange, isWebAddress, MAX_STARTUP_PAGES, toReport } from '@scbrowser/shared'
+import { isClearKind, isClearRange, isWebAddress, localDay, MAX_STARTUP_PAGES, toReport } from '@scbrowser/shared'
 import { readFile, writeFile } from 'node:fs/promises'
-import { app, dialog, ipcMain, nativeImage, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, session, shell, type BaseWindow, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { existsSync } from 'node:fs'
 import { highlightNoteLines, highlightsBriefTopic, readingMinutes, briefPlainText, MAX_NOTES_LENGTH, isStudySubjectInput, isWatchTarget, MAX_BRIEF_QUESTION, isBriefInput, isGettingStartedId, MAX_MEMORY_CHARS, DOWNLOAD_NAME_PROMPT, safeSuggestedName, highlightsMarkdown, readingDigestPrompt, settingsFile, settingsFromFile, buildSuggestions, isNewTabUrl, DEFAULT_SETTINGS, highlightsReportPrompt, isCitationSource, isCitationTarget, isWatchInterval, MAX_HIGHLIGHTS, MAX_NOTE_CHARS, READING_SUMMARY_PROMPT, engineById, IDENTITY_FIELDS, isHttpUrl, isPrintChoice, type Identity, type DownloadAction, type InternalCommands, type PermissionDecision, type Skill } from '@scbrowser/shared'
 import type { AiService } from './ai/service'
@@ -18,6 +18,15 @@ import type { SiteBlocker } from './blocker'
 import type { AiStore, ProviderInput } from './ai/store'
 import type { DownloadManager } from './downloads'
 import { clearBrowsingData } from './clearData'
+import { drmStatus } from './drm'
+import { uniquePath } from './downloads'
+
+/** A picture sent back from sc://markup: a PNG data address of a sensible size, or null. */
+function pngFromDataUrl(data: unknown): Electron.NativeImage | null {
+  if (typeof data !== 'string' || !data.startsWith('data:image/png;base64,') || data.length > 60_000_000) return null
+  const image = nativeImage.createFromDataURL(data)
+  return image.isEmpty() ? null : image
+}
 import { setRecordingShortcut } from './shortcuts'
 import type { ExtensionManager } from './extensions'
 import { readBackground, removeBackground, saveBackground } from './internal/background'
@@ -356,6 +365,28 @@ export function registerInternalIpc(services: InternalServices): () => void {
       if (/^(https?|sc):/i.test(target)) tabs.create(target, { afterId: tabs.active?.id })
     },
     'browser:is-private': () => isPrivate,
+    'drm:status': () => drmStatus(),
+    'markup:image': () => (core.markupShot ? { dataUrl: `data:image/png;base64,${core.markupShot.png.toString('base64')}`, title: core.markupShot.title } : null),
+    'markup:copy': async (data) => {
+      const image = pngFromDataUrl(data)
+      if (!image) throw new Error('Invalid picture')
+      // With a limit: a busy system clipboard can leave this waiting for good.
+      return Promise.race([
+        clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }) })]).then(() => true, () => false),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000))
+      ])
+    },
+    'markup:save': async (data, title) => {
+      const image = pngFromDataUrl(data)
+      if (!image) throw new Error('Invalid picture')
+      const taken = new Date()
+      const stamp = `${localDay(taken.getTime())} ${[taken.getHours(), taken.getMinutes(), taken.getSeconds()].map((part) => String(part).padStart(2, '0')).join('-')}`
+      const name = `${text(title, 80).replace(/[\\/:*?"<>|\n\r]+/g, ' ').trim() || 'Screenshot'} ${stamp}.png`
+      const path = uniquePath(settings.get().downloadDir || app.getPath('downloads'), name, existsSync)
+      await writeFile(path, image.toPNG())
+      return path
+    },
+    'notifications:list': () => core.notifications.all(),
     'browser:version': () => ({
       app: app.getVersion(),
       chromium: process.versions.chrome ?? '',

@@ -126,6 +126,8 @@ interface TabManagerOptions {
   autoPictureInPicture?: () => boolean
   /** Sites the person lets open pop-ups without a click. */
   popupsAllowed?: (url: string) => boolean
+  /** Sites whose every pop-up and new window is stopped, even after a click (ctrl- and middle-clicked links still open). */
+  popupsBlocked?: (url: string) => boolean
   /** Sites muted in every tab. */
   siteMuted?: (url: string) => boolean
   /** Hover cards show a picture of the page, taken as the tab is left. */
@@ -1833,7 +1835,8 @@ export class TabManager {
       const blank = url === '' || url === 'about:blank'
       // The pop-up blocker: a website opening windows with no click or key press behind it, as
       // pop-under ads do. The address bar offers what was stopped. Extensions and sc:// pages are trusted.
-      if (/^https?:/i.test(opener) && !this.pressedRecently(contents) && !this.options.popupsAllowed?.(opener)) {
+      const blockedSite = /^https?:/i.test(opener) && disposition !== 'background-tab' && !!this.options.popupsBlocked?.(opener)
+      if (blockedSite || (/^https?:/i.test(opener) && !this.pressedRecently(contents) && !this.options.popupsAllowed?.(opener))) {
         // A blank one is a script's window, given its address once open: there's nothing to offer but the site's permission.
         const shown = blank ? 'about:blank' : url
         state.blockedPopups = [...(state.blockedPopups ?? []).filter((other) => other !== shown), shown].slice(-MAX_BLOCKED_POPUPS)

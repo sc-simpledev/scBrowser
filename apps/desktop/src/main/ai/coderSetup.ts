@@ -94,10 +94,12 @@ export function cloneRepo(fullName: string, into: string, token: string | null):
 }
 
 /** Git in a folder, with the token (if any) only on this one command, and its error in words. */
-function git(folder: string, args: string[], token: string | null = null, base = 'https://github.com'): Promise<string> {
+export function git(folder: string, args: string[], token: string | null = null, base = 'https://github.com'): Promise<string> {
   const auth = token ? ['-c', `http.${base}/.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`] : []
   return new Promise((resolve, reject) => {
-    execFile('git', [...auth, ...args], { cwd: folder, env: { ...commandEnv(), GIT_TERMINAL_PROMPT: '0' }, timeout: 10 * 60_000, windowsHide: true, maxBuffer: 10_000_000 }, (error, stdout, stderr) => {
+    // ssh never asks for a password either: with no key, it fails at once rather than waiting unseen.
+    const ssh = process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new'
+    execFile('git', [...auth, ...args], { cwd: folder, env: { ...commandEnv(), GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: ssh }, timeout: 10 * 60_000, windowsHide: true, maxBuffer: 10_000_000 }, (error, stdout, stderr) => {
       if (!error) return resolve(String(stdout))
       const said = String(stderr).split('\n').filter((line) => /fatal|error|rejected|hint: Updates/i.test(line)).join(' ').replace(/x-access-token:[^@\s]+/g, '…').slice(0, 300)
       reject(new Error(said || `git ${args[0]} failed.`))

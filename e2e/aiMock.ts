@@ -28,6 +28,9 @@ export interface AiMock {
   finish: string[]
   /** Stop after the first chunk and hold the connection open. */
   hang: boolean
+  /** Recordings sent to /v1/audio/transcriptions, by size, answered with `transcript`. */
+  audio: number[]
+  transcript: string
   server: Server
 }
 
@@ -37,7 +40,7 @@ const anthropicEvent = (type: string, data: object) => `event: ${type}\ndata: ${
 
 /** Speaks both the OpenAI and Anthropic streaming formats. */
 export async function startAiMock(): Promise<AiMock> {
-  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], thinking: [], toolQueue: [], toolNames: [], rejectTools: false, finish: [], status: 200, hang: false, server: null! }
+  const mock: AiMock = { url: '', requests: [], strayHits: [], reply: ['Hello ', 'there'], queue: [], thinking: [], toolQueue: [], toolNames: [], rejectTools: false, finish: [], status: 200, hang: false, audio: [], transcript: 'hello from the microphone', server: null! }
 
   mock.server = createServer((req, res) => {
     const chunks: Buffer[] = []
@@ -48,6 +51,12 @@ export async function startAiMock(): Promise<AiMock> {
       if (path.endsWith('/models')) {
         res.writeHead(mock.status === 200 ? 200 : mock.status, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ data: [{ id: 'mock-model', type: 'model', display_name: 'Mock', created_at: '2026-01-01T00:00:00Z' }], has_more: false }))
+        return
+      }
+      // A Whisper-style server, for the assistant's microphone.
+      if (path === '/v1/audio/transcriptions') {
+        mock.audio.push(Buffer.concat(chunks).length)
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ text: mock.transcript }))
         return
       }
       if (path !== '/v1/chat/completions' && path !== '/v1/messages') {

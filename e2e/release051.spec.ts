@@ -50,7 +50,7 @@ const runCode = async (reply: string, done: string) => {
 test('a change can be put back while another is kept', async () => {
   h = await launch()
   await addProvider()
-  await setSetting(h, { coderFolder: folder, coderMode: 'edits' })
+  await setSetting(h, { coderFolder: folder, coderMode: 'edits', coderNotify: false })
   const page = await runCode('```tool\n{"tool":"write","path":"a.txt","content":"ONE\\ntwo\\nthree\\nfour\\nfive\\nsix\\nSEVEN\\n"}\n```', 'Wrote it.')
   await page.getByRole('region', { name: 'Changed files' }).getByRole('button', { name: 'Review' }).click()
   const review = page.getByRole('region', { name: 'Review changes' })
@@ -67,7 +67,7 @@ test('a reopened chat still has its changes after a restart, and undo works', as
   const profile = newProfile()
   h = await launch(profile)
   await addProvider()
-  await setSetting(h, { coderFolder: folder, coderMode: 'edits' })
+  await setSetting(h, { coderFolder: folder, coderMode: 'edits', coderNotify: false })
   await runCode('```tool\n{"tool":"write","path":"made.txt","content":"x\\n"}\n```', 'Made it.')
   const page = await h.page('sc://assistant')
   await expect.poll(() => page.evaluate(() => new URL(location.href).searchParams.get('chat')), { timeout: 5000 }).toBeTruthy()

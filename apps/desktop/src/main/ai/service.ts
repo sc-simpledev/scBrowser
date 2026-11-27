@@ -14,6 +14,7 @@ import { CoderLsp } from './coderLsp'
 import { CoderCheckpoints, CoderSnapshots } from './coderStorage'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { transcribe, voiceRoute } from './voice'
 import type { AiStore } from './store'
 
 /**
@@ -47,9 +48,12 @@ export class AiService {
   private readonly running = new Map<string, AbortController>()
   /** Models that turned down a request carrying tools, which then go without for the session. */
   private readonly noReportTool = new Set<string>()
+  /** Agent mode shows its plan first (Settings > AI). */
+  private agentPlanFirst: () => boolean = () => false
   private readonly agent = new Agent({
     chat: (messages, system, signal) => this.collect(this.chatRef(), system, messages, signal),
-    isSiteOff: (url) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
+    isSiteOff: (url) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host),
+    planFirst: () => this.agentPlanFirst()
   })
 
   constructor(
@@ -63,6 +67,7 @@ export class AiService {
     /** How replies in Chat are written: see `REPLY_STYLES`. */
     private readonly replyStyle: () => ReplyStyle = () => 'normal'
   ) {
+    if (coderHome?.agentPlanFirst) this.agentPlanFirst = coderHome.agentPlanFirst
     const checkpoints = coderHome && new CoderCheckpoints(join(coderHome.dir, 'checkpoints'))
     const snapshots = coderHome && new CoderSnapshots(join(coderHome.dir, 'snapshots'))
     void checkpoints?.prune()
@@ -77,7 +82,7 @@ export class AiService {
       const page = await readResult({ url, title: url })
       return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
     }
-    this.chatTools = coderHome ? new ChatTools({ mcp: coderHome.mcp, folder: () => coderHome.folder?.() || homedir(), webSearch: searchWeb, readUrl, screenshot: (tabId) => this.screenshot(tabId) }) : null
+    this.chatTools = coderHome ? new ChatTools({ mcp: coderHome.mcp, folder: () => coderHome.folder?.() || homedir(), webSearch: searchWeb, readUrl, screenshot: (tabId) => this.screenshot(tabId), ...(coderHome.history ? { history: coderHome.history, historyAllowed: coderHome.historyAllowed } : {}) }) : null
     this.coder = new Coder({
       chat: (messages, system, signal, options) => this.collect(this.coderRef(options?.model), system, messages, signal, MAX_OUTPUT_TOKENS, options?.onText, undefined, options),
       native: {
@@ -116,7 +121,7 @@ export class AiService {
         return page ? `${page.title}\n${page.url}\n\n${page.text}` : "That page couldn't be read as text."
       },
       readPdf: async (bytes) => (await parsePdf(bytes))?.text ?? null,
-      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, budget: coderHome.budget, style: coderHome.style, lspProblems: coderHome.lspProblems, lsp: new CoderLsp(), ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
+      ...(coderHome ? { trust: coderHome.trust, home: coderHome.dir, sandbox: coderHome.sandbox, autoCompact: coderHome.autoCompact, autoCheck: coderHome.autoCheck, autoFormat: coderHome.autoFormat, mcp: coderHome.mcp, browser: coderHome.browser, showReasoning: coderHome.showReasoning, budget: coderHome.budget, style: coderHome.style, lspProblems: coderHome.lspProblems, lsp: new CoderLsp(), ...(coderHome.notify ? { notify: coderHome.notify } : {}), ...(coderHome.extraDirs ? { extraDirs: coderHome.extraDirs } : {}), ...(coderHome.github ? { github: coderHome.github } : {}) } : {}),
       agentModel: () => (coderHome?.agentModel?.() === 'quick' ? (this.store.roles().fast ?? null) : null),
       webSearch: async (query) => {
         const isSiteOff = (url: string) => URL.canParse(url) && this.store.disabledHosts().includes(new URL(url).host)
@@ -207,6 +212,19 @@ export class AiService {
   }
 
   /** A chat's messages summed up by its own model, for /compact. Only the words go: no page, no pictures. */
+  /** Whether the microphone button can work, and whose service would hear the recording. */
+  voiceStatus(): { available: boolean; service: string | null } {
+    const route = voiceRoute(this.store)
+    return { available: !!route, service: route?.label ?? null }
+  }
+
+  /** A recording (WAV, base64) as text, through the provider `voiceStatus` named. */
+  async transcribe(wavBase64: string): Promise<string> {
+    const route = voiceRoute(this.store)
+    if (!route) throw new Error('Speech needs an OpenAI, Gemini or Groq key, or a local Whisper server, in AI settings.')
+    return transcribe(route, wavBase64, await this.store.secret(route.provider.id), aiFetch as typeof fetch)
+  }
+
   async compactChat(messages: AssistantMessage[]): Promise<string> {
     const ref = this.chatRef()
     const transcript = messages
@@ -501,4 +519,13 @@ export interface CoderHome {
   lspProblems?: () => boolean
   /** Terra Code's chosen folder, for project MCP servers the chat may use too. */
   folder?: () => string
+  /** A desktop notification, for what Terra Code's Notification hooks print. */
+  notify?: (text: string) => void
+  /** Folders a project may also read and edit, from /add-dir. */
+  extraDirs?: (folder: string) => string[]
+  /** Agent mode shows its plan before acting. */
+  agentPlanFirst?: () => boolean
+  /** Browsing history for the chat's search_history tool (titles and addresses only). */
+  history?: (words: string[], days: number) => { title: string; url: string; lastVisit: number; visitCount: number }[]
+  historyAllowed?: () => boolean
 }

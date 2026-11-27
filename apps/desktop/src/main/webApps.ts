@@ -1,3 +1,4 @@
+import { selfLauncher } from './selfLaunch'
 import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -24,7 +25,7 @@ export function webAppUrlFromArgv(argv: string[]): string | null {
 /** What starts this copy of the browser. An AppImage's real path is outside its temporary mount. */
 function launchCommand(url: string): string[] {
   return [
-    process.env.APPIMAGE ?? process.execPath,
+    selfLauncher(),
     ...(app.isPackaged ? [] : [app.getAppPath()]),
     ...(currentProfile() === DEFAULT_PROFILE ? [] : [`--profile=${currentProfile()}`]),
     `${WEB_APP_FLAG}${url}`

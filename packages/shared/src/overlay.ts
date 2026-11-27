@@ -4,6 +4,7 @@ import type { BookmarkGroup, PermissionPrompt } from './library'
 import type { Suggestion } from './omnibox'
 import type { AccentId } from './privacy'
 import type { CleanupRow, PageRect, TabSearchRow } from './tabs'
+import type { SiteContentBlock } from './siteContent'
 
 /**
  * The overlay is a transparent view stacked above web pages so popups drawn by the chrome
@@ -226,23 +227,27 @@ export interface SiteControlsState {
   /** Every workspace, when there's more than one, and the one this site always opens in (null: wherever you are). */
   workspaces: { id: string; name: string }[]
   workspace: string | null
+  /** What the site may do (scripts, images, pop-ups, protected content), folded under "Site settings". */
+  content: { id: SiteContentBlock; label: string; hint: string; blocked: boolean; locked: boolean }[]
+  contentOpen: boolean
   x: number
   y: number
 }
 
-export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | 'blocked-toggle' | 'qr-toggle' | 'copy-link' | `font:${SiteFont}` | `permission:${string}` | `workspace:${string}`
+export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | 'blocked-toggle' | 'qr-toggle' | 'copy-link' | `font:${SiteFont}` | `permission:${string}` | `workspace:${string}` | 'content-toggle' | `content:${SiteContentBlock}`
 
 export const isSiteAction = (value: unknown): value is SiteAction =>
-  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings|blocked-toggle|qr-toggle|copy-link|font:(?:default|sans|serif|mono))$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value) || /^workspace:[\w-]{0,64}$/.test(value))
+  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings|blocked-toggle|qr-toggle|copy-link|content-toggle|content:(?:scripts|images|popups|drm)|font:(?:default|sans|serif|mono))$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value) || /^workspace:[\w-]{0,64}$/.test(value))
 
 export const SITE_POPUP = { width: 320, header: 58, row: 44, permissionRow: 36, footer: 48, blockedRow: 24, maxBlockedRows: 6, qr: 280 }
 
-export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'> & Partial<Pick<SiteControlsState, 'blockedOpen' | 'blockedHosts' | 'qrOpen' | 'workspaces'>>): number {
+export function siteControlsHeight(state: Pick<SiteControlsState, 'permissions'> & Partial<Pick<SiteControlsState, 'blockedOpen' | 'blockedHosts' | 'qrOpen' | 'workspaces' | 'content' | 'contentOpen'>>): number {
   if (state.qrOpen) return SITE_POPUP.header + SITE_POPUP.qr + SITE_POPUP.footer
   const permissions = state.permissions.length > 0 ? 28 + state.permissions.length * SITE_POPUP.permissionRow : 0
   const blocked = state.blockedOpen ? Math.min(state.blockedHosts?.length ?? 0, SITE_POPUP.maxBlockedRows) * SITE_POPUP.blockedRow + 8 : 0
   const rows = 5 + ((state.workspaces?.length ?? 0) > 1 ? 1 : 0)
-  return SITE_POPUP.header + rows * SITE_POPUP.row + blocked + permissions + SITE_POPUP.footer + 10
+  const content = state.content ? SITE_POPUP.permissionRow + (state.contentOpen ? state.content.length * SITE_POPUP.permissionRow + 4 : 0) : 0
+  return SITE_POPUP.header + rows * SITE_POPUP.row + blocked + content + permissions + SITE_POPUP.footer + 10
 }
 
 /** The palette's place, with what it shows before anything is typed and the skills it can run. */

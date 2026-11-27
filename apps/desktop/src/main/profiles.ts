@@ -1,3 +1,4 @@
+import { selfEnv } from './selfLaunch'
 import { spawn } from 'node:child_process'
 import { mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -37,5 +38,5 @@ export function listProfiles(): { current: string; names: string[] } {
 export function openProfile(name: string): void {
   if (!VALID_NAME.test(name)) throw new Error('Profile names can use letters, numbers, spaces and dashes.')
   const args = [...(app.isPackaged ? [] : [app.getAppPath()]), ...(name === DEFAULT_PROFILE ? [] : [`${FLAG}${name}`])]
-  spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
+  spawn(process.execPath, args, { detached: true, stdio: 'ignore', env: selfEnv() }).unref()
 }

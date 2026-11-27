@@ -17,7 +17,7 @@ import type { PrivacyWeek } from './privacy'
 import type { RecapSpan } from './recap'
 import type { GettingStartedId, OnboardingState } from './onboarding'
 import type { ArchivedTab, ClosedGroup } from './archive'
-import type { CoderAnswer, CoderAutomations, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderProjectSetup, GithubRepo, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderServerCheck, CoderShellResult, CoderContextBreakdown, CoderDoctorItem, CoderMode, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig } from './coder'
+import type { CoderAnswer, CoderAutomations, CoderChange, CoderCloudRun, CoderDecision, CoderEffort, CoderProjectSetup, GithubRepo, CoderEvent, CoderGithubStatus, CoderModelChoice, CoderQuestionAnswer, CoderReview, CoderRunOptions, CoderServerCheck, CoderShellResult, CoderContextBreakdown, CoderDoctorItem, CoderMode, CoderSetup, CoderStatus, CoderTodo, CoderWorktree, McpServerConfig, CoderGitState, CoderMergeMethod, CoderPrDraft, CoderPullRequest, CoderPlugin, CoderPluginPreview, CoderStatusLineInput } from './coder'
 import type { Highlight } from './highlights'
 import type { ReadingItem } from './readingList'
 import type { LeakCheck, PasswordEntry, PasswordState, PasswordSummary, Identity, TotpCode } from './passwords'
@@ -28,6 +28,7 @@ import type { CardProgress, QuizProgress } from './quiz'
 import type { VpnAddResult, VpnMethod, VpnPingProgress, VpnScope, VpnState, VpnSummary } from './vpn'
 import type { PageRect, TabId, TabsSnapshot, TabTextMatch } from './tabs'
 import type { UpdateState } from './updates'
+import type { DrmStatus, SiteNotification } from './siteContent'
 import type { ClearKind, ClearRange } from './clearData'
 
 /**
@@ -199,6 +200,10 @@ export interface ChromeCommands {
   'notes:save': (markdown: string, title: string) => string | null
   /** How the assistant writes replies, as a menu at this point. */
   'ai:style-menu': (x: number, y: number) => void
+  /** Whether speech to text is set up, and whose service hears it. */
+  'ai:voice': () => { available: boolean; service: string | null }
+  /** A recording from the microphone button, as WAV in base64, turned into text. */
+  'ai:transcribe': (wavBase64: string) => string
   /** Now playing: play or pause, picture in picture, or go to the tab. */
   'media:action': (tabId: TabId, action: 'toggle' | 'pip' | 'focus') => void
   /** Now playing's menu: speed, mute and the rest. */
@@ -278,7 +283,7 @@ export interface OverlayCommands {
   'overlay:site-close': () => void
   'overlay:tooltip-clear': () => void
   /** The buttons on a link preview, or a click on the page behind it. */
-  'overlay:preview-action': (action: 'open' | 'background' | 'split' | 'close') => void
+  'overlay:preview-action': (action: 'open' | 'background' | 'split' | 'close' | 'summarise') => void
 }
 
 /** Events the main process pushes to the overlay view. */
@@ -414,6 +419,8 @@ export const COMMAND_CHANNELS = [
   'ai:compact',
   'notes:save',
   'ai:style-menu',
+  'ai:voice',
+  'ai:transcribe',
   'media:action',
   'media:menu'
 ] as const satisfies readonly CommandChannel[]
@@ -513,6 +520,16 @@ export interface InternalCommands {
   'browser:set-default': () => void
   'browser:open': (url: string) => void
   'browser:version': () => { app: string; chromium: string; electron: string }
+  /** Widevine, for protected video and music. */
+  'drm:status': () => DrmStatus
+  /** Notifications sites sent lately, newest first. */
+  'notifications:list': () => SiteNotification[]
+  /** The screenshot waiting to be marked up on sc://markup, as a PNG data address. */
+  'markup:image': () => { dataUrl: string; title: string } | null
+  /** Copies the marked-up picture. False if the clipboard was busy. */
+  'markup:copy': (pngDataUrl: string) => boolean
+  /** Saves it as a PNG in the downloads folder. Its path. */
+  'markup:save': (pngDataUrl: string, title: string) => string | null
   'ai:state': () => AiState
   'ai:save-provider': (input: {
     id: string | null
@@ -764,6 +781,33 @@ export interface InternalCommands {
   'coder:commit-message': (sessionId: string) => string
   /** Commits the session's changes (or everything, with `all`), on a new branch if one is named. */
   'coder:commit': (sessionId: string, message: string, branch: string | null, all: boolean, force?: boolean) => string
+  /** Where the session's git stands: branch, ahead and behind, conflicts, and its pull request when `withPr`. Null outside git. */
+  'coder:git-state': (sessionId: string, withPr: boolean) => CoderGitState | null
+  /** Pushes the branch to origin (tracking it the first time). `force` only skips the secret scan, never git's own checks. */
+  'coder:git-push': (sessionId: string, force?: boolean) => string
+  'coder:git-pull': (sessionId: string) => string
+  'coder:git-switch': (sessionId: string, branch: string, create: boolean) => string
+  /** Merges another branch into the one checked out, here. */
+  'coder:git-merge': (sessionId: string, branch: string) => string
+  /** Gives up a merge or rebase that stopped on conflicts. */
+  'coder:git-abort': (sessionId: string) => string
+  /** A title and description for a pull request, written by the quick model from the commits. */
+  'coder:pr-draft': (sessionId: string, base: string) => CoderPrDraft
+  'coder:pr-create': (sessionId: string, input: { title: string; body: string; base: string; draft: boolean }) => CoderPullRequest
+  'coder:pr-merge': (sessionId: string, number: number, method: CoderMergeMethod, removeBranch: boolean) => string
+  /** Folders besides the project Terra Code may read and edit there (/add-dir). */
+  'coder:dirs': () => string[]
+  /** Adds a folder (null: ask with a dialog). Returns the list, or null if the dialog was cancelled. */
+  'coder:add-dir': (path: string | null) => string[] | null
+  'coder:remove-dir': (path: string) => string[]
+  'coder:plugins': () => CoderPlugin[]
+  /** Fetches a plugin or marketplace from a Git address or folder and lists what it holds. Adds nothing. */
+  'coder:plugin-preview': (source: string) => CoderPluginPreview
+  'coder:plugin-install': (previewId: string, name: string) => CoderPlugin[]
+  'coder:plugin-toggle': (name: string, enabled: boolean) => CoderPlugin[]
+  'coder:plugin-remove': (name: string) => CoderPlugin[]
+  /** Runs the person's own status line command with the session as JSON; its first line, or null. */
+  'coder:status-line': (sessionId: string, input: CoderStatusLineInput) => string | null
   /** A task handed over from the command line (`scterra code …`), taken once. */
   'coder:pending': () => { task: string } | null
   /** A message for a run already under way, read at its next step. False if nothing is running. */
@@ -958,6 +1002,11 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'browser:set-default',
   'browser:open',
   'browser:version',
+  'drm:status',
+  'notifications:list',
+  'markup:image',
+  'markup:copy',
+  'markup:save',
   'ai:state',
   'ai:save-provider',
   'ai:remove-provider',
@@ -1105,6 +1154,24 @@ export const INTERNAL_COMMAND_CHANNELS = [
   'groups:reopen',
   'groups:forget',
   'coder:status',
+  'coder:git-state',
+  'coder:git-push',
+  'coder:git-pull',
+  'coder:git-switch',
+  'coder:git-merge',
+  'coder:git-abort',
+  'coder:pr-draft',
+  'coder:pr-create',
+  'coder:pr-merge',
+  'coder:dirs',
+  'coder:add-dir',
+  'coder:remove-dir',
+  'coder:plugins',
+  'coder:plugin-preview',
+  'coder:plugin-install',
+  'coder:plugin-toggle',
+  'coder:plugin-remove',
+  'coder:status-line',
   'coder:pick-folder',
   'coder:open-folder',
   'coder:run',

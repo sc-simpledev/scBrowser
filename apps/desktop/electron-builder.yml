@@ -9,6 +9,15 @@ files:
   - package.json
 asar: true
 beforePack: scripts/require-xray.cjs
+# The Linux launcher, and Widevine's VMP signatures for Windows and macOS (scripts/after-pack.cjs, vmp-sign.cjs).
+afterPack: scripts/after-pack.cjs
+afterSign: scripts/after-sign.cjs
+# castLabs' Electron for Content Security, which plays protected video and music with Widevine.
+# Each platform's build downloads castLabs' own Electron for that platform.
+electronDownload:
+  mirror: https://github.com/castlabs/electron-releases/releases/download/
+# The same release as package.json's electron, which electron-builder can't read from a Git address.
+electronVersion: 45.2.1+wvcus
 extraResources:
   - from: resources/xray
     to: xray
@@ -30,6 +39,8 @@ linux:
       StartupWMClass: scTerra
 deb:
   packageName: scterra
+  # Covers scterra-bin as well as the launcher: see scripts/after-pack.cjs.
+  appArmorProfile: build/apparmor-profile.tpl
   artifactName: scterra_${version}_${arch}.${ext}
 win:
   target: [nsis]

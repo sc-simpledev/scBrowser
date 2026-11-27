@@ -42,6 +42,26 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '0.10.0',
+    date: '2026-11-27',
+    items: [
+      'Netflix, Spotify, Disney+ and other services that protect their video and music now play. scTerra downloads Google’s Widevine the first time it starts; Settings, Privacy shows how it stands.',
+      'Terra Code does git for you: the branch button pushes, pulls, opens a pull request with a description written for you, and merges it, then switches back and tidies up. Commit and push, or commit and open a pull request, in one click. /push, /pull, /sync, /pr, /merge and /branch do the same.',
+      'When a merge or pull stops on conflicts, Terra Code can resolve them for you, or give the merge up.',
+      'Terra Code’s new Auto mode changes files and runs commands without asking, and still asks before risky ones such as sudo, pushing or deleting outside the project.',
+      'Terra Code plugins: add Claude Code plugins (commands, agents, skills, hooks and MCP servers) from a Git address, after seeing everything in them.',
+      'Terra Code can read and edit another folder too (/add-dir), shows your own status line command, reads your own CLAUDE.md and TERRA.md for every project, and follows @imports in them.',
+      'Terra Code hooks: Stop hooks can keep it going, Notification hooks show on your desktop, and prompt and session-start hooks can add to what it reads.',
+      'Block JavaScript, images, every pop-up or protected content for one site, from the padlock’s Site settings.',
+      'Notifications from sites are listed under More, Notifications, and can be held during focus sessions or always (Do not disturb).',
+      'Mark up a screenshot: boxes, arrows, highlights and blur, then copy or save it (More, Screenshot and mark up).',
+      'Summarise a link from its Shift-click preview, without opening it.',
+      'Speak to the assistant with the microphone button, through the AI service you set up.',
+      'The assistant can look through your history when you ask about something you read before (titles and addresses only).',
+      'Links from other apps can open in a little window of their own (Settings, Tabs), and Act on page can show its plan first (Settings, AI).'
+    ]
+  },
+  {
     version: '0.9.3',
     date: '2026-11-27',
     items: [

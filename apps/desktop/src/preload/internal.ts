@@ -94,4 +94,60 @@ if (/^(https?|file):$/.test(location.protocol)) {
   }
   on.mouseGestures = prefs?.mouseGestures === true
   on.middleClickScroll = prefs?.middleClickScroll === true
+  // Protected content turned off, everywhere or for this site. Chromium doesn't ask a permission for
+  // Widevine, so the page is told it isn't available, as a browser without it would say.
+  if (prefs && !prefs.protectedContent) {
+    contextBridge.executeInMainWorld({
+      func: () => {
+        const refuse = () => Promise.reject(new DOMException('Protected content is turned off for this site in scTerra.', 'NotSupportedError'))
+        Object.defineProperty(Navigator.prototype, 'requestMediaKeySystemAccess', { value: refuse, writable: true, configurable: true })
+      }
+    })
+  }
+}
+
+// Sites' notifications: each one a site with the permission makes is listed under More > Notifications,
+// and during Do not disturb the page gets a stand-in that never shows. Asked synchronously, as the
+// page expects its notification at once. Pages on this computer are secure contexts too.
+if (location.protocol === 'https:' || (location.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname))) {
+  contextBridge.executeInMainWorld({
+    // This build has no DOM types, so the page's objects are typed loosely.
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    func: (report: (title: string, body: string) => boolean) => {
+      const page = globalThis as any
+      const Real = page.Notification
+      if (typeof Real !== 'function') return
+      const text = (value: unknown) => (typeof value === 'string' ? value : value == null ? '' : String(value)).slice(0, 500)
+      // What the page gets while a notification is held: it never shows, and behaves as one that's closed.
+      const held = (title: string, options: any) => {
+        const stand = new page.EventTarget()
+        Object.assign(stand, { title, body: options?.body ?? '', tag: options?.tag ?? '', data: options?.data ?? null, icon: options?.icon ?? '', onclick: null, onclose: null, onerror: null, onshow: null, close: () => undefined })
+        return stand
+      }
+      const Wrapped: any = function (this: unknown, title: unknown, options?: any) {
+        if (!new.target) throw new TypeError("Failed to construct 'Notification': Please use the 'new' operator.")
+        if (Real.permission === 'granted' && report(text(title), text(options?.body))) return held(text(title), options)
+        return Reflect.construct(Real, [title, options])
+      }
+      Object.setPrototypeOf(Wrapped, Real)
+      Wrapped.prototype = Real.prototype
+      Object.defineProperty(page, 'Notification', { value: Wrapped, writable: true, configurable: true })
+      const show = page.ServiceWorkerRegistration?.prototype?.showNotification
+      if (typeof show === 'function') {
+        page.ServiceWorkerRegistration.prototype.showNotification = function (this: unknown, title: unknown, options?: any) {
+          if (Real.permission === 'granted' && report(text(title), text(options?.body))) return Promise.resolve()
+          return show.call(this, title, options)
+        }
+      }
+    },
+    args: [
+      (title: string, body: string) => {
+        try {
+          return ipcRenderer.sendSync('page:notification', title, body) === true
+        } catch {
+          return false
+        }
+      }
+    ]
+  })
 }

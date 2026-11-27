@@ -48,6 +48,10 @@ interface PermissionServiceOptions {
   windows: () => { activeTabId: TabId | null; show: (prompt: PermissionPrompt | null) => void }[]
   /** A page tried to open another app. Refused here, then asked about and opened separately. */
   onExternal: (contents: WebContents, url: string, requester: string) => void
+  /** Whether a page may play protected (DRM) video and music: on unless turned off, everywhere or for its site. */
+  protectedContent?: (url: string) => boolean
+  /** scTerra's own interface, whose microphone button records only when pressed. */
+  isOwnUi?: (contents: WebContents) => boolean
 }
 
 export class PermissionService {
@@ -64,6 +68,11 @@ export class PermissionService {
     const { repo, options } = this
     session.setPermissionRequestHandler((contents, permission, respond, details) => {
       if (ALWAYS_ALLOWED.has(permission)) return respond(true)
+      // The assistant's microphone button, in scTerra's own interface: sound only, never the camera.
+      const media = (details as PermissionRequest & { mediaTypes?: string[] }).mediaTypes ?? []
+      if (permission === 'media' && options.isOwnUi?.(contents) && media.length > 0 && media.every((type) => type === 'audio')) return respond(true)
+      // Like Chrome, protected content plays without asking, unless the person turned it off.
+      if (permission === 'mediaKeySystem') return respond(/^https:/i.test(details.requestingUrl) && (options.protectedContent?.(details.requestingUrl) ?? false))
       if (permission === 'openExternal') {
         respond(false)
         const { externalURL } = details as PermissionRequest & { externalURL?: string }
@@ -89,7 +98,9 @@ export class PermissionService {
       this.refresh()
     })
 
-    session.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) => {
+    session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+      if (permission === 'mediaKeySystem') return options.protectedContent?.(requestingOrigin) ?? false
+      if (permission === 'media' && contents && options.isOwnUi?.(contents) && details.mediaType !== 'video') return true
       const wanted = toSitePermissions(permission, details.mediaType ? [details.mediaType] : [])
       const origin = originOf(requestingOrigin)
       if (!wanted || !origin) return true

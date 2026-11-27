@@ -86,6 +86,8 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'settings', label: 'Settings', shortcut: 'Ctrl ,' },
   { id: 'ai-settings', label: 'AI settings' },
   { id: 'screenshot', label: 'Take a screenshot of this page', shortcut: 'Ctrl Shift S' },
+  { id: 'screenshot-markup', label: 'Screenshot and mark up: boxes, arrows, blur' },
+  { id: 'notifications', label: 'Notifications from sites, and Do not disturb' },
   { id: 'ask-region', label: 'Ask AI about part of the page' },
   { id: 'hide-part', label: 'Hide part of this page' },
   { id: 'tweak-site', label: 'Change how this site looks with AI' },
