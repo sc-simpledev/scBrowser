@@ -136,7 +136,7 @@ export function PresentMode({ report, loadNotes, onClose }: { report: Report; lo
         </span>
         {loadNotes && (
           <Button className="shrink-0 px-2.5 text-xs" aria-pressed={showNotes} title="What to say for each slide, written by your AI" onClick={toggleNotes}>
-            <NotebookPen aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+            <NotebookPen aria-hidden size={14} strokeWidth={1.75} />
             Speaker notes
           </Button>
         )}

@@ -38,8 +38,8 @@ export function SettingRow({ icon: Icon, label, value, open, onToggle, children,
 /** A switch on one line, with a word on what it does underneath. */
 export function SwitchRow({ label, hint, checked, onChange, disabled }: { label: string; hint?: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="flex min-h-7 items-center gap-2">
-      <span className="flex min-w-0 flex-1 flex-col">
+    <div className={cx('flex min-h-7 items-center gap-2', hint && 'py-1')}>
+      <span className="flex min-w-0 flex-1 flex-col gap-px">
         <span className="text-xs">{label}</span>
         {hint && <span className="text-2xs text-text-faint">{hint}</span>}
       </span>

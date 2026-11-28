@@ -3,7 +3,7 @@ import { ClosedGroups } from './closedGroups'
 import { startMemorySaver } from './memorySaver'
 import { startFocusTimer, STUDY_BREAK_MINUTES, STUDY_FOCUS_MINUTES } from './focusTimer'
 import { app, ipcMain, nativeTheme, net, Notification, powerMonitor, safeStorage, session, webContents as allContents, type Session, type WebContents } from 'electron'
-import { holdNotification, isGestureAction, isReaderUrl, siteBlocks, type PagePrefs } from '@scbrowser/shared'
+import { autoplayBlocked, holdNotification, isGestureAction, isReaderUrl, siteBlocks, type PagePrefs } from '@scbrowser/shared'
 import { SiteNotifications } from './siteNotifications'
 import { setReaderStyle } from './internal/reader'
 import { WATCH_SUMMARY_PROMPT, watchSummaryMessage, IP_TRACE_URL, parseTraceIp, SECURE_DNS, type Settings as AppSettings, readTunToggle, TUN_TOGGLE_URL, belongsToSite, bypassRules, containerPartition, DEFAULT_WORKSPACE, isWorkspaceSchedule, routineDue, routineLabel, routineRan, workspaceScheduledNow, workspaceScheduleLabel, textFragmentUrl, videoTimeUrl, type CitationTarget, type Workspace } from '@scbrowser/shared'
@@ -691,14 +691,17 @@ export class BrowserCore {
       const dark = nativeTheme.shouldUseDarkColors
       for (const contents of allContents.getAllWebContents()) if (!contents.isDestroyed()) contents.send('ui:dark', dark)
     })
-    ipcMain.on('page:prefs', (event) => {
+    ipcMain.on('page:prefs', (event, address: unknown) => {
+      // As a page starts, the tab can still report the page it's leaving, so the page's own address is
+      // used for per-site choices (from its main frame, the one the preload runs in).
+      const url = typeof address === 'string' && address.length < 8192 && /^(https?|file):/i.test(address) && event.senderFrame === event.sender.mainFrame ? address : event.sender.getURL()
       const prefs: PagePrefs | null = this.ownerOf(event.sender)
         ? {
             globalPrivacyControl: settings.get().globalPrivacyControl,
             mouseGestures: settings.get().mouseGestures,
             middleClickScroll: settings.get().middleClickScroll,
-            protectedContent: settings.get().protectedContent && !siteBlocks(settings.get().siteContent, event.sender.getURL(), 'drm'),
-            blockAutoplay: settings.get().blockAutoplay
+            protectedContent: settings.get().protectedContent && !siteBlocks(settings.get().siteContent, url, 'drm'),
+            blockAutoplay: autoplayBlocked(settings.get().siteAutoplay, url, settings.get().blockAutoplay)
           }
         : null
       event.returnValue = prefs

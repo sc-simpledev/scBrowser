@@ -1,4 +1,4 @@
-import { KeyRound, LockKeyhole, Settings, Sparkles, UserRound } from 'lucide-react'
+import { KeyRound, LockKeyhole, Settings, UserRound } from 'lucide-react'
 import { PASSWORD_SUGGEST, passwordSuggestHeight, type PasswordSuggestState } from '@scbrowser/shared'
 
 const pick = (choice: string) => void window.scbOverlay.invoke('overlay:password-suggest', choice)
@@ -21,7 +21,7 @@ export function PasswordSuggest({ suggest, x, y }: { suggest: PasswordSuggestSta
     >
       {suggest.locked ? (
         <button type="button" role="option" aria-selected={false} style={row} className={ROW} onClick={() => pick('unlock')}>
-          <LockKeyhole aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-accent" />
+          <LockKeyhole aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-muted" />
           <span className="truncate">Unlock passwords to fill</span>
         </button>
       ) : (
@@ -35,7 +35,7 @@ export function PasswordSuggest({ suggest, x, y }: { suggest: PasswordSuggestSta
           ))}
           {suggest.generate && (
             <button type="button" role="option" aria-selected={false} style={row} className={ROW} onClick={() => pick('generate')}>
-              <Sparkles aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-accent" />
+              <KeyRound aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-muted" />
               <span className="truncate">Use a strong password</span>
             </button>
           )}

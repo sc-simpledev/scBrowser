@@ -187,7 +187,7 @@ export function SetupCard({ folder, onStart }: { folder: string; onStart: (task:
   return (
     <section aria-label="Set up this project" className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-start gap-2">
-        <Sparkles aria-hidden size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+        <Sparkles aria-hidden size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-muted" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h3 className="text-sm font-medium">Set up this project</h3>
           {setup.stack.length > 0 && (

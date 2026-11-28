@@ -130,6 +130,8 @@ function runShortcut(id: ShortcutId, actions: BrowserActions): void {
       return actions.toggleAssistant()
     case 'bookmark':
       return actions.toggleBookmark()
+    case 'bookmark-all-tabs':
+      return actions.bookmarkAllTabs()
     case 'bookmarks-bar':
       return actions.toggleBookmarksBar()
     case 'bookmarks':

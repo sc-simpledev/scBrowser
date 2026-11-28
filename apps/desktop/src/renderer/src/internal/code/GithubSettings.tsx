@@ -243,7 +243,7 @@ function ProjectStep({ status, onStatus }: { status: CoderGithubStatus; onStatus
       {status.project === 'no-folder' && <p className="text-2xs text-text-muted">Choose a project folder first. If it’s only on GitHub, use Clone from GitHub on Terra Code’s start screen.</p>}
       {linked && (
         <p className="flex min-w-0 items-center gap-1.5 text-2xs text-text-muted">
-          <FolderGit2 aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-accent" />
+          <FolderGit2 aria-hidden size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />
           <span className="min-w-0 truncate">
             This project is <span className="font-mono text-text">{status.repo}</span> on GitHub.
           </span>

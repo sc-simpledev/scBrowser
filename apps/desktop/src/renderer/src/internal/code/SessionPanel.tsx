@@ -355,7 +355,7 @@ export function SessionPanel(props: SessionPanelProps) {
               <ul className="flex flex-col gap-1">
                 {running.map((job) => (
                   <li key={job.id} className="group flex h-6.5 min-w-0 items-center gap-2 text-xs">
-                    <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-success" />
+                    <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
                     <code className="min-w-0 flex-1 truncate font-mono text-2xs">{job.command}</code>
                     <IconButton size="sm" label={`Stop ${job.command}`} onClick={() => onStopJob(job.id)}>
                       <Square size={10} strokeWidth={2} />

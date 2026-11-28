@@ -50,6 +50,8 @@ describe('coder tools', () => {
 
   it('shows only the changed lines with a little around them', () => {
     expect(lineDiff('1\n2\n3\n4\n5\n6\n7\n8', '1\n2\n3\n4\nfive\n6\n7\n8')).toBe('@@ line 2 @@\n  2\n  3\n  4\n- 5\n+ five\n  6\n  7\n  8')
+    // The empty piece after a file's last newline isn't shown as a line.
+    expect(lineDiff('hello\nworld\n', 'hello\nthere\n')).toBe('@@ line 1 @@\n  hello\n- world\n+ there')
   })
 
   it('keeps the end of long output', () => {

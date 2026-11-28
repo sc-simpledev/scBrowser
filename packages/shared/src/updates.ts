@@ -42,6 +42,18 @@ export interface ReleaseNotes {
  */
 export const WHATS_NEW: ReleaseNotes[] = [
   {
+    version: '1.0.2',
+    date: '2026-11-28',
+    items: [
+      'Autoplay can be allowed or blocked for one site, from the padlock’s Site settings, whatever Settings says for the rest. Block autoplay also holds sound a page starts muted and then unmutes by itself.',
+      'Ctrl Shift D bookmarks all your tabs into a new folder.',
+      'Name a Terra Code session with /rename, or rename any chat from its list.',
+      'Fixed: Terra Code’s review numbered a change’s lines one off, and showed an empty line after the end of a file.',
+      'Fixed: the menus in Terra Code’s bar opened behind the session panel in narrow windows, and trying a pull request again after it failed couldn’t make its branch.',
+      'A tidier look, closer to scSpace: teal only marks focus, progress and what’s on, sidebars are a little smaller and set apart from the page, and addresses scTerra doesn’t have get a proper page.'
+    ]
+  },
+  {
     version: '1.0.1',
     date: '2026-11-28',
     items: [

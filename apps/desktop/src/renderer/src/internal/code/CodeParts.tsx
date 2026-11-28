@@ -128,7 +128,7 @@ export function AgentCard({ run, children }: { run: CoderAgentRun; children?: Re
 export function StepMark({ item, working }: { item: CoderTodo; working: boolean }) {
   if (item.done)
     return (
-      <span aria-hidden className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success text-surface">
+      <span aria-hidden className="grid size-3.5 shrink-0 place-items-center rounded-full bg-accent text-on-accent">
         <Check size={9} strokeWidth={3} />
       </span>
     )
@@ -279,8 +279,8 @@ export function Checklist({ items, working, bare = false, onChange, onParallel }
         <span className="shrink-0 text-text-faint tabular-nums">
           {done} of {items.length}
         </span>
-        <span aria-hidden className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-surface-hover">
-          <span className="block h-full rounded-full bg-success transition-[width]" style={{ width: `${(done / Math.max(1, items.length)) * 100}%` }} />
+        <span aria-hidden className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-surface-active">
+          <span className="block h-full rounded-full bg-accent transition-[width]" style={{ width: `${(done / Math.max(1, items.length)) * 100}%` }} />
         </span>
         <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && '-rotate-90')} />
       </button>

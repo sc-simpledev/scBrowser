@@ -136,7 +136,7 @@ describe('/doctor', () => {
     const byLabel = Object.fromEntries(items.map((item) => [item.label, item]))
     expect(byLabel.Model).toMatchObject({ state: 'ok' })
     expect(byLabel.Project).toMatchObject({ state: 'ok' })
-    expect(byLabel['Project notes']).toMatchObject({ state: 'warn', detail: expect.stringContaining('/init') })
+    expect(byLabel['Project notes']).toMatchObject({ state: 'off', detail: expect.stringContaining('/init') })
     expect(byLabel.GitHub).toMatchObject({ state: 'off' })
     expect(byLabel['MCP servers']).toMatchObject({ state: 'warn', detail: 'linear: It answered 500.' })
     expect(byLabel['Your server']).toBeUndefined()

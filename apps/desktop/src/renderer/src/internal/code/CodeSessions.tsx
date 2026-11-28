@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, ChevronRight, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, cx, IconButton } from '@scbrowser/ui'
 import { isCodeChat, type ChatSummary } from '@scbrowser/shared'
@@ -41,7 +41,33 @@ function useActivity(): { running: Set<string>; waiting: Set<string> } {
   return activity
 }
 
-function SessionRow({ chat, current, running, waiting, onFlag, onDelete }: { chat: ChatSummary; current: boolean; running: boolean; waiting: boolean; onFlag: (flags: { pinned?: boolean; archived?: boolean }) => void; onDelete: () => void }) {
+function SessionRow({ chat, current, running, waiting, onFlag, onDelete }: { chat: ChatSummary; current: boolean; running: boolean; waiting: boolean; onFlag: (flags: { pinned?: boolean; archived?: boolean; name?: string | null }) => void; onDelete: () => void }) {
+  const [renaming, setRenaming] = useState(false)
+  if (renaming)
+    return (
+      <li className="flex items-center rounded-md bg-surface-active px-1 py-0.5">
+        <input
+          aria-label="Session name"
+          autoFocus
+          defaultValue={chat.name ?? chat.title}
+          maxLength={80}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => {
+            setRenaming(false)
+            const next = e.currentTarget.value.trim()
+            if (next !== (chat.name ?? chat.title)) onFlag({ name: next || null })
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') {
+              e.currentTarget.value = chat.name ?? chat.title
+              e.currentTarget.blur()
+            }
+          }}
+          className="h-6.5 min-w-0 flex-1 rounded-sm border border-border-strong bg-field px-1.5 text-sm outline-none"
+        />
+      </li>
+    )
   return (
     <li className={cx('group relative flex items-center rounded-md transition-colors', current ? 'bg-surface-active' : 'hover:bg-surface-hover')}>
       <a
@@ -65,6 +91,9 @@ function SessionRow({ chat, current, running, waiting, onFlag, onDelete }: { cha
         <span className={cx('shrink-0 text-2xs tabular-nums group-hover:invisible group-focus-within:invisible', waiting ? 'font-medium text-accent' : 'text-text-faint')}>{waiting ? 'Needs you' : ago(chat.updatedAt)}</span>
       </a>
       <span className="absolute right-1 flex items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <IconButton size="sm" label="Rename" className="size-5!" onClick={() => setRenaming(true)}>
+          <Pencil size={11} strokeWidth={1.75} />
+        </IconButton>
         <IconButton size="sm" label={chat.pinned ? 'Unpin' : 'Pin'} className="size-5!" onClick={() => onFlag({ pinned: !chat.pinned })}>
           {chat.pinned ? <PinOff size={11} strokeWidth={1.75} /> : <Pin size={11} strokeWidth={1.75} />}
         </IconButton>
@@ -88,7 +117,7 @@ export function CodeSessions({ chats, current, onDelete, onChanged }: { chats: C
   const [query, setQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [folded, setFolded] = useState<Set<string>>(new Set())
-  const flag = (id: string, flags: { pinned?: boolean; archived?: boolean }) => void api().invoke('chats:flag', id, flags).then(onChanged)
+  const flag = (id: string, flags: { pinned?: boolean; archived?: boolean; name?: string | null }) => void api().invoke('chats:flag', id, flags).then(onChanged)
 
   const sessions = useMemo(() => {
     const wanted = query.trim().toLowerCase()
@@ -114,7 +143,7 @@ export function CodeSessions({ chats, current, onDelete, onChanged }: { chats: C
     })
 
   return (
-    <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border p-3">
+    <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border bg-bg p-3 text-sm">
       <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-2">
         <Button onClick={() => (location.href = 'sc://assistant/?mode=code')}>
           <Plus aria-hidden size={14} strokeWidth={1.75} />

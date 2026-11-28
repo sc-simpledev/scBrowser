@@ -53,6 +53,7 @@ export const SHORTCUTS = [
 
   { id: 'assistant', label: 'Assistant', group: 'scTerra', keys: ['Ctrl+Shift+A'] },
   { id: 'bookmark', label: 'Bookmark this page', group: 'scTerra', keys: ['Ctrl+D'] },
+  { id: 'bookmark-all-tabs', label: 'Bookmark all tabs', group: 'scTerra', keys: ['Ctrl+Shift+D'] },
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', group: 'scTerra', keys: ['Ctrl+Shift+B'] },
   { id: 'bookmarks', label: 'Bookmarks', group: 'scTerra', keys: ['Ctrl+Shift+O'] },
   { id: 'history', label: 'History', group: 'scTerra', keys: ['Ctrl+H'] },
@@ -197,6 +198,7 @@ export const PALETTE_SHORTCUTS: Record<string, ShortcutId> = {
   'reopen-tab': 'reopen-tab',
   find: 'find',
   bookmark: 'bookmark',
+  'bookmark-all-tabs': 'bookmark-all-tabs',
   'bookmarks-bar': 'bookmarks-bar',
   reader: 'reader',
   'fill-password': 'passwords',

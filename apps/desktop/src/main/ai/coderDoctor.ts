@@ -35,7 +35,7 @@ export async function runDoctor({ settings, status, github, mcp, server }: Docto
     items.push(status.git ? { label: 'Project', state: 'ok', detail: `${folder}, a git repository${status.branch ? ` on ${status.branch}` : ''}.` } : { label: 'Project', state: 'warn', detail: `${folder} isn’t a git repository, so commits, worktrees and cloud runs aren’t possible. Run git init there.` })
     const notes = await Promise.all(['TERRA.md', 'AGENTS.md', 'CLAUDE.md'].map(async (name) => ((await exists(join(folder, name))) ? name : null)))
     const found = notes.filter(Boolean)
-    items.push(found.length ? { label: 'Project notes', state: 'ok', detail: `${found.join(' and ')}, read at the start of every session.` } : { label: 'Project notes', state: 'warn', detail: 'No TERRA.md, AGENTS.md or CLAUDE.md. Run /init to write one, so every session starts knowing the project.' })
+    items.push(found.length ? { label: 'Project notes', state: 'ok', detail: `${found.join(' and ')}, read at the start of every session.` } : { label: 'Project notes', state: 'off', detail: 'No TERRA.md, AGENTS.md or CLAUDE.md. Run /init to write one, so every session starts knowing the project.' })
     const checks = await detectDiagnostics(folder).catch(() => null)
     items.push(checks ? { label: 'Checks', state: 'ok', detail: `${checks} runs after edits${settings.coderAutoCheck ? '' : ' when asked (running it by itself is off)'}.` } : { label: 'Checks', state: 'off', detail: 'No test, type check or lint script found, so Terra Code can’t check its own work. Add one, or name it in .terra/settings.json as "diagnostics".' })
     const servers = installedServers(folder)

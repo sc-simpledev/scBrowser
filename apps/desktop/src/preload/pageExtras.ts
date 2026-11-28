@@ -242,14 +242,13 @@ export function holdAutoplay(): void {
       true
     )
   }
-  page.addEventListener(
-    'play',
-    (event: any) => {
-      const media = event.target
-      if (pressed || !media || typeof media.pause !== 'function' || media.muted || media.volume === 0) return
-      media.pause()
-    },
-    true
-  )
+  // Playing with sound before a press waits; so does muted video that the page unmutes by itself later.
+  const hold = (event: any) => {
+    const media = event.target
+    if (pressed || !media || typeof media.pause !== 'function' || media.paused || media.muted || media.volume === 0) return
+    media.pause()
+  }
+  page.addEventListener('play', hold, true)
+  page.addEventListener('volumechange', hold, true)
 }
 

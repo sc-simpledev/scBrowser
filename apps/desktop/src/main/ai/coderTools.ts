@@ -237,7 +237,9 @@ export function lineDiff(before: string, after: string, context = 3): string {
   for (let i = from; i < start; i++) out.push(`  ${a[i]}`)
   for (let i = start; i < endA; i++) out.push(`- ${a[i]}`)
   for (let i = start; i < endB; i++) out.push(`+ ${b[i]}`)
-  for (let i = endA; i < Math.min(a.length, endA + context); i++) out.push(`  ${a[i]}`)
+  // The empty piece after a file's last newline isn't a line to show.
+  const lines = a.length - (before.endsWith('\n') ? 1 : 0)
+  for (let i = endA; i < Math.min(lines, endA + context); i++) out.push(`  ${a[i]}`)
   return clip(out.join('\n'), 20_000)
 }
 

@@ -13,7 +13,6 @@ import {
   STUDY_HUES,
   STUDY_IDLE_CHOICES,
   STUDY_SOUNDS,
-  shortDuration,
   stopwatch,
   studyDayKey,
   studyDuration,
@@ -354,7 +353,16 @@ function Stat({ label, value, hint }: { label: string; value: string; icon?: Rea
     <div className="flex min-w-0 flex-col gap-1 rounded-lg bg-surface px-4 py-3.5 shadow-1">
       <span className="text-xs text-text-muted">{label}</span>
       <span className="truncate text-xl leading-tight font-semibold tracking-[-0.03em] tabular-nums" title={hint}>
-        {value}
+        {/* Numbers carry the weight and units sit small and quiet beside them, as scSpace's big figures do. */}
+        {value.split(/(\d+)/).map((part, index) =>
+          /^\d+$/.test(part) ? (
+            part
+          ) : part ? (
+            <span key={index} className={cx('text-sm font-regular tracking-normal text-text-faint', part.startsWith(' ') && 'ml-1', part.endsWith(' ') && 'mr-1.5')}>
+              {part.trim()}
+            </span>
+          ) : null
+        )}
       </span>
       {hint && <span className="text-2xs text-text-faint">{hint}</span>}
     </div>
@@ -888,9 +896,9 @@ export function FocusPage() {
 
       <div className="grid grid-cols-4 gap-3 max-[860px]:grid-cols-2">
         <Stat label="Streak" value={`${state.streak} ${state.streak === 1 ? 'day' : 'days'}`} icon={<Flame size={16} strokeWidth={1.75} className={state.streak > 0 ? 'text-accent' : undefined} />} />
-        <Stat label="Last 7 days" value={shortDuration(stats.weekTotal)} icon={<TrendingUp size={16} strokeWidth={1.75} />} />
-        <Stat label="Daily average" value={shortDuration(stats.average)} icon={<Timer size={16} strokeWidth={1.75} />} />
-        <Stat label="Best day" value={shortDuration(stats.best)} icon={<Target size={16} strokeWidth={1.75} />} hint={goal > 0 ? `Goal ${goalLabel(goal)}` : undefined} />
+        <Stat label="Last 7 days" value={studyDuration(stats.weekTotal)} icon={<TrendingUp size={16} strokeWidth={1.75} />} />
+        <Stat label="Daily average" value={studyDuration(stats.average)} icon={<Timer size={16} strokeWidth={1.75} />} />
+        <Stat label="Best day" value={studyDuration(stats.best)} icon={<Target size={16} strokeWidth={1.75} />} hint={goal > 0 ? `Goal ${goalLabel(goal)}` : undefined} />
       </div>
 
       <div className="flex gap-3 max-[860px]:flex-col">

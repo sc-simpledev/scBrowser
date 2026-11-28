@@ -405,7 +405,7 @@ export function AssistantPanel() {
                             }}
                             className="flex h-8 items-center gap-2.5 rounded-md px-1.5 text-left text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                           >
-                            <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+                            <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint" />
                             {label}
                           </button>
                         )

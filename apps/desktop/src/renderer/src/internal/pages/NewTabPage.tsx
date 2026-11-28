@@ -303,7 +303,7 @@ function QuickAiWidget({ keepChats }: { keepChats: boolean }) {
           ask()
         }}
       >
-        <Sparkles aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <Sparkles aria-hidden size={15} strokeWidth={1.75} className="shrink-0 text-text-faint" />
         <input
           aria-label="Ask a quick question"
           placeholder="Ask AI a quick question"

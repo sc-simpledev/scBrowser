@@ -61,7 +61,7 @@ export function HighlightsPage() {
       <div className="flex gap-2">
         <Input aria-label="Search highlights" placeholder="Search highlights and notes" className="flex-1" value={query} onChange={(e) => setQuery(e.target.value)} />
         <Button disabled={shown.length === 0} onClick={() => report(shown.map((highlight) => highlight.id))}>
-          <FileText aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+          <FileText aria-hidden size={14} strokeWidth={1.75} />
           Write a report from {query ? 'these' : 'all'}
         </Button>
         <Button variant="ghost" title="Save all highlights and notes as a Markdown file" disabled={highlights.length === 0} onClick={() => void api().invoke('highlights:export')}>

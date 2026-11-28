@@ -1457,11 +1457,14 @@ export class TabManager {
     const contents = tab.view?.webContents
     if (contents?.isLoading()) {
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 15_000)
-        contents.once('did-stop-loading', () => {
+        // Whichever comes first, the other is taken away, so a page that never stops loading keeps no listeners.
+        const finish = () => {
           clearTimeout(timer)
+          contents.off('did-stop-loading', finish)
           resolve()
-        })
+        }
+        const timer = setTimeout(finish, 15_000)
+        contents.once('did-stop-loading', finish)
       })
     }
     return contents && !contents.isDestroyed() ? contents : undefined

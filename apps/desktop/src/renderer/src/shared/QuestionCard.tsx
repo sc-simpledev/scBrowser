@@ -68,7 +68,7 @@ export function QuestionCard({ questions, answers, onAnswer, asker = 'A question
   return (
     <section role="group" aria-label={asker} className="flex flex-col gap-2.5 rounded-lg border border-border-strong bg-surface p-2.5">
       <div className="flex min-w-0 items-center gap-2 px-0.5 text-xs text-text-muted">
-        <MessageCircleQuestion aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <MessageCircleQuestion aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="min-w-0 flex-1 truncate">{asker}</span>
         {many && (
           <span className="shrink-0 tabular-nums">

@@ -63,8 +63,8 @@ describe('1.0.1 settings and defaults', () => {
     expect(DEFAULT_NEW_TAB.widgets.map((widget) => widget.id)).not.toContain('greeting')
   })
 
-  it('offers bookmarking all tabs in the palette, and leads What’s New with 1.0.1', () => {
+  it('offers bookmarking all tabs in the palette, and has What’s New for 1.0.1', () => {
     expect(PALETTE_COMMANDS.map((command) => command.id)).toContain('bookmark-all-tabs')
-    expect(WHATS_NEW[0]!.version).toBe('1.0.1')
+    expect(WHATS_NEW.some((notes) => notes.version === '1.0.1')).toBe(true)
   })
 })

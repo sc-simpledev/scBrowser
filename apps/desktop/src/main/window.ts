@@ -21,6 +21,8 @@ import {
   siteOf,
   siteBlocks,
   withSiteBlock,
+  withSiteAutoplay,
+  autoplayBlocked,
   SITE_CONTENT_BLOCKS,
   NEW_TAB_URL,
   PALETTE_SHORTCUTS,
@@ -1249,11 +1251,15 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       qrOpen: siteQrOpen,
       workspaces: tabs.workspaceList().length > 1 ? tabs.workspaceList().map(({ id, name }) => ({ id, name })) : [],
       workspace: current.siteWorkspaces[site] ?? null,
-      content: SITE_CONTENT_BLOCKS.map(({ id, label, blocked, allowed }) => {
-        const locked = id === 'drm' && !current.protectedContent
-        const isBlocked = locked || siteBlocks(current.siteContent, url, id)
-        return { id, label, blocked: isBlocked, locked, hint: locked ? 'Off everywhere, in Settings' : isBlocked ? blocked : allowed }
-      }),
+      content: [
+        ...SITE_CONTENT_BLOCKS.map(({ id, label, blocked, allowed }) => {
+          const locked = id === 'drm' && !current.protectedContent
+          const isBlocked = locked || siteBlocks(current.siteContent, url, id)
+          return { id, label, blocked: isBlocked, locked, hint: locked ? 'Off everywhere, in Settings' : isBlocked ? blocked : allowed }
+        }),
+        // Autoplay can go either way from Settings' switch, so it's a choice of the site's own rather than a block.
+        ...[autoplayBlocked(current.siteAutoplay, url, current.blockAutoplay)].map((held) => ({ id: 'autoplay' as const, label: 'Autoplay', blocked: held, locked: false, hint: held ? 'Sound and video wait for a press' : 'Can play by itself' }))
+      ],
       contentOpen: siteContentOpen,
       permissions: core.services.permissions
         .list()
@@ -1314,6 +1320,14 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
       siteContentOpen = !siteContentOpen
       const bounds = overlay.siteControlsAt()
       if (bounds) return openSiteControls(bounds.x, bounds.y, siteQrOpen)
+    }
+    else if (action === 'content:autoplay') {
+      const row = state.content.find((one) => one.id === 'autoplay')
+      if (row) {
+        settings.set({ siteAutoplay: withSiteAutoplay(settings.get().siteAutoplay, state.site, !row.blocked, settings.get().blockAutoplay) })
+        // The page decides as it loads, so it loads again.
+        reload()
+      }
     }
     else if (action.startsWith('content:')) {
       const kind = action.slice('content:'.length) as SiteContentBlock

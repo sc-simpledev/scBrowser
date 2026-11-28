@@ -401,6 +401,7 @@ export const CODER_BUILTIN_COMMANDS: { name: string; description: string; args?:
   { name: 'pr-comments', description: 'Read a pull request’s review comments and deal with them', args: '[#PR]' },
   { name: 'memory', description: 'Open TERRA.md, the project’s notes for Terra Code, in your editor' },
   { name: 'resume', description: 'Pick a saved session to carry on with' },
+  { name: 'rename', description: 'Give this session a name of your own, or its first message back', args: '<name>' },
   { name: 'cost', description: 'Tokens and cost so far, in the session panel' },
   { name: 'release-notes', description: 'What’s new in this version of scTerra' },
   { name: 'commit', description: 'Commit the changes, with a message written for you' },

@@ -872,28 +872,32 @@ export function BriefsPage() {
         </section>
       )}
 
-      <section aria-label="Brief options" className="flex flex-col gap-3 border-t border-border pt-4">
-        <label className="flex items-center justify-between gap-4">
+      {/* As Settings' rows are: one card, a hairline between each. */}
+      <section aria-label="Brief options" className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">Options</h2>
+        <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
+        <label className="flex items-center justify-between gap-4 px-3.5 py-2.5">
           <span className="flex flex-col">
             <span>Open new briefs when scTerra starts</span>
             <span className="text-xs text-text-faint">The first time you open scTerra after a brief is written, it opens in a tab.</span>
           </span>
           <Switch label="Open new briefs when scTerra starts" checked={state.prefs.openOnStart} onChange={(openOnStart) => void update(api().invoke('briefs:prefs', { openOnStart }))} />
         </label>
-        <label className="flex items-center justify-between gap-4">
+        <label className="flex items-center justify-between gap-4 px-3.5 py-2.5">
           <span className="flex flex-col">
             <span>Notify me when a brief is ready</span>
             <span className="text-xs text-text-faint">A system notification while scTerra is open.</span>
           </span>
           <Switch label="Notify me when a brief is ready" checked={state.prefs.notify} onChange={(notify) => void update(api().invoke('briefs:prefs', { notify }))} />
         </label>
-        <label className="flex items-center justify-between gap-4">
+        <label className="flex items-center justify-between gap-4 px-3.5 py-2.5">
           <span className="flex flex-col">
             <span>Keep my questions</span>
             <span className="text-xs text-text-faint">Follow-up questions and their answers stay with each brief, on this computer. Turning this off forgets them.</span>
           </span>
           <Switch label="Keep my questions" checked={state.prefs.keepQuestions} onChange={(keepQuestions) => void update(api().invoke('briefs:prefs', { keepQuestions }))} />
         </label>
+        </div>
       </section>
     </>
   )

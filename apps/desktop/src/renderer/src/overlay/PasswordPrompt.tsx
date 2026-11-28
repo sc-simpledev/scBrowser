@@ -9,7 +9,7 @@ export function PasswordPrompt({ prompt, x, y }: { prompt: PasswordPromptState; 
   return (
     <div role="dialog" aria-label="Save password" className="sc-glass-strong sc-tooltip absolute flex flex-col gap-2.5 rounded-lg p-3 shadow-3" style={{ left: x, top: y, width: PASSWORD_POPUP.width, height: PASSWORD_POPUP.height }}>
       <div className="flex min-w-0 items-start gap-2.5">
-        <KeyRound aria-hidden size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+        <KeyRound aria-hidden size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-muted" />
         <div className="min-w-0">
           <div className="truncate font-medium">{prompt.update ? 'Update the saved password?' : 'Save this password?'}</div>
           <div className="truncate text-xs text-text-muted">

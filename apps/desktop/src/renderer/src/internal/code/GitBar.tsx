@@ -53,10 +53,17 @@ export function checksLabel(pr: CoderPullRequest): string {
   return pr.checks === 'passing' ? 'checks passed' : pr.checks === 'failing' ? 'checks failing' : pr.checks === 'pending' ? 'checks running' : 'open'
 }
 
-function Row({ icon: Icon, label, hint, disabled, danger, onClick }: { icon: LucideIcon; label: string; hint?: string; disabled?: boolean; danger?: boolean; onClick: () => void }) {
+function Row({ icon: Icon, label, hint, disabled, danger, current, onClick }: { icon: LucideIcon; label: string; hint?: string; disabled?: boolean; danger?: boolean; current?: boolean; onClick: () => void }) {
   return (
-    <button type="button" role="menuitem" disabled={disabled} onClick={onClick} className={cx('flex min-h-8 items-center gap-2.5 rounded-md px-2 py-1 text-left text-xs transition-colors enabled:hover:bg-surface-hover disabled:opacity-50', danger && 'text-danger')}>
-      <Icon aria-hidden size={13} strokeWidth={1.75} className={cx('shrink-0', danger ? 'text-danger' : 'text-text-muted')} />
+    <button
+      type="button"
+      role={current === undefined ? 'menuitem' : 'menuitemradio'}
+      aria-checked={current}
+      disabled={disabled || current}
+      onClick={onClick}
+      className={cx('flex min-h-8 items-center gap-2.5 rounded-md px-2 py-1 text-left text-xs transition-colors enabled:hover:bg-surface-hover', current ? 'font-medium' : 'disabled:opacity-50', danger && 'text-danger')}
+    >
+      <Icon aria-hidden size={13} strokeWidth={current ? 2 : 1.75} className={cx('shrink-0', danger ? 'text-danger' : current ? 'text-accent' : 'text-text-muted')} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate">{label}</span>
         {hint && <span className="text-2xs text-text-faint">{hint}</span>}
@@ -148,7 +155,7 @@ export function GitMenu({ git, busy, working, onAction }: { git: CoderGitState; 
           )}
           {git.repo && !git.midway && (
             <>
-              <div className="my-1 h-px bg-border" />
+              {git.remote && <div className="my-1 h-px bg-border" />}
               {pr && pr.state === 'open' ? (
                 <>
                   <Row icon={ExternalLink} label={`Pull request #${pr.number}`} hint={`${pr.title} · ${checksLabel(pr)}`} onClick={() => (setOpen(false), void api().invoke('browser:open', pr.url))} />
@@ -166,11 +173,12 @@ export function GitMenu({ git, busy, working, onAction }: { git: CoderGitState; 
               {pr && pr.state !== 'open' && <Row icon={ExternalLink} label={`#${pr.number} is ${pr.state}`} hint={pr.title} onClick={() => (setOpen(false), void api().invoke('browser:open', pr.url))} />}
             </>
           )}
-          <div className="my-1 h-px bg-border" />
-          <p className="px-2 pt-0.5 pb-1 text-2xs font-medium text-text-faint">Branches</p>
+          {/* The midway section ends in a line of its own, and nothing may come before the branches. */}
+          {!git.midway && (git.remote || git.repo) && <div className="my-1 h-px bg-border" />}
+          <p className="px-2 pt-1 pb-1 text-2xs font-medium text-text-faint">Branches</p>
           <div className="sc-scroll-quiet flex max-h-44 flex-col overflow-y-auto">
             {git.branches.slice(0, 12).map((branch) => (
-              <Row key={branch} icon={branch === git.branch ? Check : GitBranch} label={branch} disabled={branch === git.branch || stopped || !!git.midway} onClick={() => act(`switch:${branch}`)} />
+              <Row key={branch} icon={branch === git.branch ? Check : GitBranch} label={branch} current={branch === git.branch} disabled={stopped || !!git.midway} onClick={() => act(`switch:${branch}`)} />
             ))}
           </div>
           <Row icon={GitBranchPlus} label="New branch…" hint="Your changes come along" disabled={stopped || !!git.midway} onClick={() => act('new-branch')} />
@@ -215,7 +223,7 @@ function CardShell({ icon: Icon, title, children, onCancel }: { icon: LucideIcon
   return (
     <section aria-label={title} className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2.5">
       <div className="flex items-center gap-2 px-0.5 text-sm font-medium">
-        <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="min-w-0 flex-1 truncate">{title}</span>
         <button type="button" aria-label="Close" onClick={onCancel} className="grid size-6 place-items-center rounded-md text-text-faint hover:bg-surface-hover hover:text-text">
           <X aria-hidden size={13} strokeWidth={2} />
@@ -247,6 +255,8 @@ export function PullRequestCard({ session, git, onDone, onCancel }: { session: s
   const [writing, setWriting] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** The branch made for this, so trying again after a failure doesn't try to make it twice. */
+  const made = useRef<string | null>(null)
   useEffect(() => {
     setWriting(true)
     void api()
@@ -267,7 +277,10 @@ export function PullRequestCard({ session, git, onDone, onCancel }: { session: s
     setBusy(true)
     setError(null)
     try {
-      if (onBase) await api().invoke('coder:git-switch', session, branch, true)
+      if (onBase && made.current !== branch.trim()) {
+        await api().invoke('coder:git-switch', session, branch, true)
+        made.current = branch.trim()
+      }
       const pr = await api().invoke('coder:pr-create', session, { title, body, base, draft })
       onDone(`Opened pull request #${pr.number}: ${pr.title}`, pr)
     } catch (failure) {
@@ -289,7 +302,7 @@ export function PullRequestCard({ session, git, onDone, onCancel }: { session: s
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-0.5 text-xs text-text-muted">
         <label className="flex items-center gap-1.5">
           Into
-          <select aria-label="Base branch" value={base} onChange={(e) => setBase(e.target.value)} className="h-6.5 rounded-md border border-border bg-field px-1.5 font-mono text-xs">
+          <select aria-label="Base branch" value={base} onChange={(e) => setBase(e.target.value)} className="sc-select h-6.5 rounded-md border border-border bg-field pl-1.5 font-mono text-xs">
             {bases.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -410,7 +423,7 @@ export function BranchCard({ session, git, kind, onDone, onCancel }: { session: 
           className="h-7 font-mono text-xs"
         />
       ) : (
-        <select aria-label="Branch to merge in" value={value} onChange={(e) => setValue(e.target.value)} className="h-7 rounded-md border border-border bg-field px-1.5 font-mono text-xs">
+        <select aria-label="Branch to merge in" value={value} onChange={(e) => setValue(e.target.value)} className="sc-select h-7 rounded-md border border-border bg-field pl-1.5 font-mono text-xs">
           {[...others, ...(git.defaultBranch && git.remote ? [`origin/${git.defaultBranch}`] : [])].map((name) => (
             <option key={name} value={name}>
               {name}

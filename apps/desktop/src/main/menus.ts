@@ -317,7 +317,7 @@ export function popupTabMenu(id: TabId, actions: BrowserActions, window: BaseWin
     { label: actions.verticalTabs() ? 'Close tabs below' : 'Close tabs to the right', enabled: open.slice(open.findIndex((other) => other.id === id) + 1).some((other) => !other.pinned), click: () => tabs.closeAfter(id) },
     { label: 'Close duplicate tabs', click: actions.closeDuplicates },
     { label: 'Copy links of all tabs', click: () => actions.copyTabLinks() },
-    { label: 'Bookmark all tabs…', click: actions.bookmarkAllTabs },
+    { label: 'Bookmark all tabs…', accelerator: keyFor('bookmark-all-tabs'), click: actions.bookmarkAllTabs },
     { type: 'separator' },
     ...closedTabRows(tabs),
     { label: 'Search tabs', accelerator: keyFor('search-tabs'), click: actions.searchTabs },
@@ -555,7 +555,7 @@ export function popupAppMenu(actions: BrowserActions, bookmarksBarAlways: boolea
       submenu: [
         { label: 'All bookmarks', accelerator: keyFor('bookmarks'), click: () => actions.openPage('bookmarks') },
         { type: 'checkbox', label: 'Bookmarks bar', accelerator: keyFor('bookmarks-bar'), checked: bookmarksBarAlways, click: actions.toggleBookmarksBar },
-        { label: 'Bookmark all tabs…', click: actions.bookmarkAllTabs }
+        { label: 'Bookmark all tabs…', accelerator: keyFor('bookmark-all-tabs'), click: actions.bookmarkAllTabs }
       ]
     },
     {

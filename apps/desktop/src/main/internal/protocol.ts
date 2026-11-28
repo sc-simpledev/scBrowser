@@ -5,6 +5,7 @@ import { INTERNAL_PAGES } from '@scbrowser/shared'
 import { handlePreviews, PREVIEW_SCHEME } from '../filePreview'
 import { MINI_APP_SCHEME } from '../miniApps'
 import { errorPage } from './error'
+import { missingPage } from './missing'
 import { READER_CSP, readerPage } from './reader'
 
 export const INTERNAL_SCHEME = 'sc'
@@ -47,6 +48,16 @@ async function serveAppPage(url: URL): Promise<Response> {
   return new Response(response.body, { status: response.status, headers })
 }
 
+/** A page built here, with no scripts or requests from anywhere else. */
+const staticResponse = (html: string, status = 200) =>
+  new Response(html, {
+    status,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; ${FRAME_POLICY}`
+    }
+  })
+
 /** Serves `sc://<page>` internal pages to tabs in the default session. */
 export function handleInternalPages(target = session.defaultSession): void {
   handlePreviews(target)
@@ -55,16 +66,12 @@ export function handleInternalPages(target = session.defaultSession): void {
     if (isAppPage(url.host)) return serveAppPage(url)
     if (url.host === 'reader') {
       const page = readerPage(url.searchParams.get('id'))
-      if (!page) return new Response('This article has expired.', { status: 404 })
+      if (!page) return staticResponse(missingPage('article'), 404)
       return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': READER_CSP } })
     }
     const render = staticPages[url.host]
-    if (!render) return new Response('Not found', { status: 404 })
-    return new Response(render(), {
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; ${FRAME_POLICY}`
-      }
-    })
+    // An address that isn't one of scTerra's pages, such as sc://extensions typed from habit.
+    if (!render) return staticResponse(missingPage('page'), 404)
+    return staticResponse(render())
   })
 }

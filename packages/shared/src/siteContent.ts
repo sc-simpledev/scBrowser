@@ -58,6 +58,28 @@ export function withSiteBlock(rules: Record<string, SiteContentBlock[]>, site: s
   return next.length ? { ...rest, [site]: next } : rest
 }
 
+/** A site's own say on autoplay, overriding Settings' Block autoplay in either direction. */
+export type SiteAutoplay = 'allow' | 'block'
+
+export const isSiteAutoplay = (v: unknown): v is Record<string, SiteAutoplay> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length <= MAX_SITE_CONTENT && Object.entries(v).every(([site, choice]) => isSiteHost(site) && (choice === 'allow' || choice === 'block'))
+
+/** Whether sound and video on this page wait for a press: its site's own choice, else the switch in Settings. */
+export function autoplayBlocked(rules: Record<string, SiteAutoplay>, url: string, everywhere: boolean): boolean {
+  const site = siteOf(url)
+  if (!site) return everywhere
+  // The closest site wins, so `music.example.com` can differ from `example.com`.
+  let closest: [string, SiteAutoplay] | null = null
+  for (const [base, choice] of Object.entries(rules)) if (belongsToSite(site, base) && (!closest || base.length > closest[0].length)) closest = [base, choice]
+  return closest ? closest[1] === 'block' : everywhere
+}
+
+/** The rules with a site's autoplay set; a site that matches Settings needs no rule of its own. */
+export function withSiteAutoplay(rules: Record<string, SiteAutoplay>, site: string, blocked: boolean, everywhere: boolean): Record<string, SiteAutoplay> {
+  const { [site]: _old, ...rest } = rules
+  return blocked === everywhere ? rest : { ...rest, [site]: blocked ? 'block' : 'allow' }
+}
+
 /** Adds `script-src 'none'` to a response's headers, keeping any policy the site sent: policies only add up. */
 export function withScriptsBlocked(headers: Record<string, string[]> | undefined): Record<string, string[]> {
   const out: Record<string, string[]> = { ...(headers ?? {}) }

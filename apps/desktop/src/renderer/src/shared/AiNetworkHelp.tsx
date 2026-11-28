@@ -49,7 +49,7 @@ export function AiNetworkHelp({ message, loadHasVpn, useVpn, onRetry, onOpenVpn,
   return (
     <div role="alert" className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 text-xs">
       <div className="flex items-start gap-2.5">
-        <ShieldCheck aria-hidden size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+        <ShieldCheck aria-hidden size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-muted" />
         <div className="flex min-w-0 flex-col gap-1">
           <div className="font-medium text-text">{message}</div>
           <div className="text-text-muted">{hasVpn === 'removed' ? 'Some networks block AI services. Check your connection, then try again.' : 'Some networks block AI services. Turn on a VPN to use AI?'}</div>

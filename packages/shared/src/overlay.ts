@@ -228,16 +228,16 @@ export interface SiteControlsState {
   workspaces: { id: string; name: string }[]
   workspace: string | null
   /** What the site may do (scripts, images, pop-ups, protected content), folded under "Site settings". */
-  content: { id: SiteContentBlock; label: string; hint: string; blocked: boolean; locked: boolean }[]
+  content: { id: SiteContentBlock | 'autoplay'; label: string; hint: string; blocked: boolean; locked: boolean }[]
   contentOpen: boolean
   x: number
   y: number
 }
 
-export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | 'blocked-toggle' | 'qr-toggle' | 'copy-link' | `font:${SiteFont}` | `permission:${string}` | `workspace:${string}` | 'content-toggle' | `content:${SiteContentBlock}`
+export type SiteAction = 'tracking' | 'ai' | 'forget-on-close' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'forget-now' | 'settings' | 'blocked-toggle' | 'qr-toggle' | 'copy-link' | `font:${SiteFont}` | `permission:${string}` | `workspace:${string}` | 'content-toggle' | `content:${SiteContentBlock | 'autoplay'}`
 
 export const isSiteAction = (value: unknown): value is SiteAction =>
-  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings|blocked-toggle|qr-toggle|copy-link|content-toggle|content:(?:scripts|images|popups|drm)|font:(?:default|sans|serif|mono))$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value) || /^workspace:[\w-]{0,64}$/.test(value))
+  typeof value === 'string' && (/^(tracking|ai|forget-on-close|zoom-in|zoom-out|zoom-reset|forget-now|settings|blocked-toggle|qr-toggle|copy-link|content-toggle|content:(?:scripts|images|popups|drm|autoplay)|font:(?:default|sans|serif|mono))$/.test(value) || /^permission:[\w:.-]{1,64}$/.test(value) || /^workspace:[\w-]{0,64}$/.test(value))
 
 export const SITE_POPUP = { width: 320, header: 58, row: 44, permissionRow: 36, footer: 48, blockedRow: 24, maxBlockedRows: 6, qr: 280 }
 

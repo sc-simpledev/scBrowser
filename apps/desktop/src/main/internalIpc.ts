@@ -109,7 +109,9 @@ interface InternalServices {
 
 /** Pinned and archived chats, by id. */
 const CHAT_FLAGS_KEY = 'chats:flags'
-type ChatFlags = Record<string, { pinned?: boolean; archived?: boolean }>
+type ChatFlags = Record<string, { pinned?: boolean; archived?: boolean; name?: string }>
+/** The longest name a chat can be given, as long as a title from its first message. */
+const MAX_CHAT_NAME = 80
 const chatFlags = (kv: KeyValueRepo): ChatFlags => {
   const saved = kv.get(CHAT_FLAGS_KEY)
   return saved && typeof saved === 'object' ? (saved as ChatFlags) : {}
@@ -405,21 +407,29 @@ export function registerInternalIpc(services: InternalServices): () => void {
     'ai:set-site': (host, disabled) => aiStore.setSiteDisabled(text(host, 512), disabled === true),
     'chats:clear': () => {
       core.services.kv.delete(DESIGNS_KEY)
+      core.services.kv.delete(CHAT_FLAGS_KEY)
       chats.clear()
       void ai.coder.forgetAll()
     },
     'chats:list': () => {
       const flags = chatFlags(core.services.kv)
-      return chats.list().map((chat) => ({ ...chat, ...flags[chat.id] }))
+      return chats.list().map((chat) => {
+        const { name, ...rest } = flags[chat.id] ?? {}
+        return { ...chat, ...rest, ...(name ? { name, title: name } : {}) }
+      })
     },
     'chats:flag': (id, patch) => {
       const chat = text(id, 64)
       if (!patch || typeof patch !== 'object') throw new Error('Invalid flags')
-      const { pinned, archived } = patch as { pinned?: unknown; archived?: unknown }
+      const { pinned, archived, name } = patch as { pinned?: unknown; archived?: unknown; name?: unknown }
+      if (name !== undefined && name !== null && typeof name !== 'string') throw new Error('Invalid name')
       const all = chatFlags(core.services.kv)
-      const next = { ...all[chat], ...(typeof pinned === 'boolean' ? { pinned } : {}), ...(typeof archived === 'boolean' ? { archived } : {}) }
+      // An empty name, or null, gives the chat its first message back as its title.
+      const named = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT_NAME) : undefined
+      const next = { ...all[chat], ...(typeof pinned === 'boolean' ? { pinned } : {}), ...(typeof archived === 'boolean' ? { archived } : {}), ...(name !== undefined ? { name: named ?? '' } : {}) }
       if (!next.pinned) delete next.pinned
       if (!next.archived) delete next.archived
+      if (!next.name) delete next.name
       if (Object.keys(next).length) all[chat] = next
       else delete all[chat]
       core.services.kv.set(CHAT_FLAGS_KEY, all)

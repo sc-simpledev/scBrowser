@@ -13,7 +13,7 @@ import { ARCHIVE_CHOICES } from './archive'
 import { isShortcutOverrides } from './shortcuts'
 import { DEFAULT_READER_STYLE, isReaderStyle, type ReaderStyle } from './reader'
 import { isDownloadRules, type DownloadRule } from './downloadRules'
-import { isSiteContent, type NotificationQuiet, type SiteContentBlock } from './siteContent'
+import { isSiteAutoplay, isSiteContent, type NotificationQuiet, type SiteAutoplay, type SiteContentBlock } from './siteContent'
 
 /** Zoom levels offered for every site, in percent. */
 export const ZOOM_CHOICES = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const
@@ -121,6 +121,8 @@ export interface Settings {
   popupsAllowed: string[]
   /** Sound and video wait for a press on the page before playing, as in Safari and Firefox (preload/pageExtras.ts `holdAutoplay`). */
   blockAutoplay: boolean
+  /** Sites that differ from `blockAutoplay`, from the padlock's Site settings. */
+  siteAutoplay: Record<string, SiteAutoplay>
   /** Plays protected video and music (Netflix, Spotify) with Widevine. Sites can still be blocked one by one. */
   protectedContent: boolean
   /** What each site is stopped from doing, from the padlock: scripts, images, every pop-up, protected content. */
@@ -381,6 +383,7 @@ export const DEFAULT_SETTINGS: Settings = {
   globalPrivacyControl: true,
   popupsAllowed: [],
   blockAutoplay: false,
+  siteAutoplay: {},
   protectedContent: true,
   siteContent: {},
   notificationQuiet: 'focus',
@@ -528,6 +531,7 @@ const validators: { [K in keyof Settings]: (value: unknown) => boolean } = {
   globalPrivacyControl: (v) => typeof v === 'boolean',
   popupsAllowed: (v) => Array.isArray(v) && v.length <= 500 && v.every(isSiteHost),
   blockAutoplay: (v) => typeof v === 'boolean',
+  siteAutoplay: isSiteAutoplay,
   protectedContent: (v) => typeof v === 'boolean',
   siteContent: isSiteContent,
   notificationQuiet: (v) => v === 'never' || v === 'focus' || v === 'always',

@@ -51,7 +51,7 @@ Most of these can be changed in Settings, under Keyboard shortcuts.
 | Ctrl Tab, Ctrl PgUp/PgDn, Ctrl 1–9 | Switch tabs |
 | F12, Ctrl Shift I | Developer tools for the page |
 | Ctrl F | Find in page |
-| Ctrl D / Ctrl Shift B | Bookmark page / show bookmarks bar |
+| Ctrl D / Ctrl Shift D / Ctrl Shift B | Bookmark page / bookmark all tabs / show bookmarks bar |
 | Ctrl H, Ctrl J, Ctrl Shift O | History, downloads, bookmarks |
 | Ctrl S | Save page |
 | Ctrl Shift Delete | Clear browsing data |

@@ -24,6 +24,10 @@ Twenty from the lists below: 66 (edit keyboard shortcuts), 80 to 96 (pop-up bloc
 
 62 (hide the toolbar) was started and taken out again: the window's own buttons are drawn over its top right corner, so with the toolbar hidden they'd sit over the page. It needs those buttons moved somewhere else first (into the sidebar, as Arc does, or shown only with the toolbar). Still open: 62, 63, 75, 97 to 99, 101 to 106, 108, 109.
 
+## Built in 1.0.2
+
+From the batch after 1.0: 117 (Ctrl Shift D bookmarks all tabs, through the shortcut table) and 118 (autoplay allowed or blocked per site from the padlock, either way from the global switch), and the naming half of 119 (`/rename` and Rename in the session and chat lists; there are no names written by the quick model yet). Also: Block autoplay now holds sound a page starts muted and unmutes by itself, and the polish and fixes in CONTEXT.md. Still open: 62, 114 to 116, the quick-model names of 119, 120, 121.
+
 ## Built in 1.0.1
 
 From the batch brainstormed after 1.0 (at the end of this file): 110 (close tabs below or to the right), 111 (bookmark all tabs), 112 (bookmarks as an HTML file, both ways) and 113 (block autoplay). Also a fix for the Dark theme doing nothing on Linux, and a polish pass towards theme.html's look. Still open: 62, 114 to 121.

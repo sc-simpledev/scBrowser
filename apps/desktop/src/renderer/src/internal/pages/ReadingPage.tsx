@@ -52,7 +52,7 @@ function ReadingRow({ item, reload }: { item: ReadingItem; reload: () => void })
                 .finally(() => setBusy(false))
             }}
           >
-            <Sparkles aria-hidden size={12} strokeWidth={1.75} className="text-accent" />
+            <Sparkles aria-hidden size={12} strokeWidth={1.75} />
             {busy ? 'Summarising…' : 'Summarise'}
           </Button>
         )}
@@ -171,7 +171,7 @@ export function ReadingPage() {
             onClick={() => void summariseAll()}
             className="ml-auto flex h-6 items-center gap-1 rounded-sm border border-border px-2 text-text-muted hover:bg-surface-hover hover:text-text disabled:pointer-events-none disabled:opacity-50"
           >
-            <Sparkles aria-hidden size={11} strokeWidth={1.75} className="text-accent" />
+            <Sparkles aria-hidden size={11} strokeWidth={1.75} />
             Summarise unread{waiting.length > 0 ? ` (${waiting.length})` : ''}
           </button>
         )}

@@ -84,9 +84,36 @@ const dayLabel = (time: number) => {
 }
 
 /** Saved conversations and Terra Code sessions together, newest first. */
-function ChatList({ chats, current, onDelete, newHref = 'sc://assistant/' }: { chats: ChatSummary[]; current: string | null; onDelete: (id: string) => void; newHref?: string }) {
+/** A chat's own name, typed in place of its title. Empty gives it its first message back. */
+function RenameField({ chat, onDone }: { chat: ChatSummary; onDone: (name: string | null | undefined) => void }) {
+  const shown = chat.name ?? chat.title
   return (
-    <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border p-3">
+    <input
+      aria-label="Chat name"
+      autoFocus
+      defaultValue={shown}
+      maxLength={80}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => {
+        const next = e.currentTarget.value.trim()
+        onDone(next === shown ? undefined : next || null)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') {
+          e.currentTarget.value = shown
+          e.currentTarget.blur()
+        }
+      }}
+      className="h-6.5 min-w-0 flex-1 rounded-sm border border-border-strong bg-field px-1.5 text-sm outline-none"
+    />
+  )
+}
+
+function ChatList({ chats, current, onDelete, onChanged, newHref = 'sc://assistant/' }: { chats: ChatSummary[]; current: string | null; onDelete: (id: string) => void; onChanged: () => void; newHref?: string }) {
+  const [renaming, setRenaming] = useState<string | null>(null)
+  return (
+    <div className="flex w-60 shrink-0 flex-col gap-2 border-r border-border bg-bg p-3 text-sm">
     <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-2">
       <Button onClick={() => (location.href = newHref)}>
         <Plus aria-hidden size={14} strokeWidth={1.75} />
@@ -99,20 +126,37 @@ function ChatList({ chats, current, onDelete, newHref = 'sc://assistant/' }: { c
             {dayLabel(chat.updatedAt) !== (chats[index - 1] && dayLabel(chats[index - 1]!.updatedAt)) && (
               <div className="px-2 pt-2 pb-1 text-2xs font-medium text-text-faint">{dayLabel(chat.updatedAt)}</div>
             )}
+            {renaming === chat.id ? (
+              <div className="flex items-center rounded-md bg-surface-active px-1 py-0.5">
+                <RenameField
+                  chat={chat}
+                  onDone={(name) => {
+                    setRenaming(null)
+                    if (name !== undefined) void api().invoke('chats:flag', chat.id, { name }).then(onChanged)
+                  }}
+                />
+              </div>
+            ) : (
             <div className={cx('group relative flex items-center rounded-md transition-colors', chat.id === current ? 'bg-surface-active' : 'hover:bg-surface-hover')}>
               <a
                 href={`sc://assistant/?chat=${encodeURIComponent(chat.id)}`}
                 aria-current={chat.id === current ? 'page' : undefined}
                 title={isCodeChat(chat.id) ? `Terra Code: ${chat.title}` : chat.title}
-                className={cx('flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 pr-8', chat.id === current ? 'font-medium text-text' : 'text-text-muted')}
+                className={cx('flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 pr-2 group-hover:pr-13 group-focus-within:pr-13', chat.id === current ? 'font-medium text-text' : 'text-text-muted')}
               >
                 {isCodeChat(chat.id) && <SquareTerminal aria-label="Terra Code" size={12} strokeWidth={1.75} className="shrink-0 text-text-faint" />}
                 <span className="min-w-0 flex-1 truncate">{chat.title}</span>
               </a>
-              <IconButton size="sm" label="Delete chat" className="absolute right-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onClick={() => onDelete(chat.id)}>
-                <Trash2 size={12} strokeWidth={1.75} />
-              </IconButton>
+              <span className="absolute right-1 flex items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                <IconButton size="sm" label="Rename chat" className="size-5!" onClick={() => setRenaming(chat.id)}>
+                  <Pencil size={11} strokeWidth={1.75} />
+                </IconButton>
+                <IconButton size="sm" label="Delete chat" className="size-5!" onClick={() => onDelete(chat.id)}>
+                  <Trash2 size={11} strokeWidth={1.75} />
+                </IconButton>
+              </span>
             </div>
+            )}
           </li>
         ))}
       </ul>
@@ -455,7 +499,7 @@ export function AssistantPage() {
   if (view === 'chat' && !codeOpened && status && !status.ready && turns.length === 0) {
     return (
       <div className="flex h-full">
-        {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />}
+        {listOpen && <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} onChanged={refreshChats} />}
         <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 px-8 pb-16 text-center">
           <div className="flex max-w-90 flex-col gap-1.5">
             <h1 className="text-lg font-semibold tracking-[-0.02em]">Set up AI to start chatting</h1>
@@ -570,11 +614,12 @@ export function AssistantPage() {
 
   return (
     <div className="flex h-full">
-      {listOpen && (view === 'code' ? <CodeSessions chats={chats} current={codeId} onDelete={deleteChat} onChanged={refreshChats} /> : <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} />)}
+      {listOpen && (view === 'code' ? <CodeSessions chats={chats} current={codeId} onDelete={deleteChat} onChanged={refreshChats} /> : <ChatList chats={chats} current={chatId.current} onDelete={deleteChat} onChanged={refreshChats} />)}
       {codeOpened && (
         <div className={cx('min-w-72 flex-1 flex-col', view === 'code' ? 'flex' : 'hidden')}>
           <CodeWorkspace
             onShowSessions={() => setListOpen(true)}
+            name={chats.find((chat) => chat.id === codeId)?.name ?? null}
             chat={codeChat}
             onChat={onCodeChat}
             initialTask={codeTask}
@@ -617,7 +662,7 @@ export function AssistantPage() {
             {status?.ready && !gallery && (
               <div className="mx-auto flex w-full max-w-180 flex-wrap gap-2 px-8 [&>button]:whitespace-nowrap">
                 <Button onClick={() => setGallery(true)}>
-                  <LayoutTemplate aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  <LayoutTemplate aria-hidden size={14} strokeWidth={1.75} className="text-text-muted" />
                   Make a report
                 </Button>
                 <Button
@@ -626,15 +671,15 @@ export function AssistantPage() {
                     setPicking(true)
                   }}
                 >
-                  <Layers aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  <Layers aria-hidden size={14} strokeWidth={1.75} className="text-text-muted" />
                   Research my tabs
                 </Button>
                 <Button onClick={() => setDraft('Make a web page that ')}>
-                  <Code2 aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  <Code2 aria-hidden size={14} strokeWidth={1.75} className="text-text-muted" />
                   Build something
                 </Button>
                 <Button onClick={() => setView('code')}>
-                  <SquareTerminal aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+                  <SquareTerminal aria-hidden size={14} strokeWidth={1.75} className="text-text-muted" />
                   Code in a folder
                 </Button>
               </div>
@@ -820,7 +865,7 @@ function ApprovalCard({ text, reason, onAnswer }: { text: string; reason: string
   return (
     <div role="group" aria-label={text} className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-3">
       <div className="flex items-center gap-2 text-sm font-medium">
-        <Plug aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <Plug aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
       </div>
       {reason && <code className="sc-scroll-quiet max-h-24 overflow-auto rounded-md bg-surface-hover px-2 py-1.5 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere] text-text-muted">{reason}</code>}

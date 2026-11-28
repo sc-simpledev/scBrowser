@@ -225,7 +225,7 @@ function QuizMode({ cards, memory, progress, onClose }: { cards: QuizCard[]; mem
   return (
     <div role="dialog" aria-label="Quiz" className="absolute inset-0 z-20 flex flex-col bg-bg">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface pr-2 pl-4">
-        <GraduationCap aria-hidden size={15} strokeWidth={1.75} className="text-accent" />
+        <GraduationCap aria-hidden size={15} strokeWidth={1.75} className="text-text-muted" />
         <div className="flex-1 font-medium">Quiz</div>
         <span className="text-xs text-text-muted tabular-nums">
           {done} of {cards.length}
@@ -590,7 +590,7 @@ export function ReportPane(props: ReportPaneProps) {
         )}
         {cards.length > 0 && (
           <Button className="shrink-0 px-2.5 text-xs whitespace-nowrap" onClick={() => setQuiz(true)}>
-            <GraduationCap aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+            <GraduationCap aria-hidden size={14} strokeWidth={1.75} />
             Quiz me
             {due > 0 && <span className="rounded-sm bg-accent-soft px-1 text-2xs text-accent tabular-nums">{due} due</span>}
           </Button>

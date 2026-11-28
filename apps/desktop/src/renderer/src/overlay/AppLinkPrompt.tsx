@@ -23,7 +23,7 @@ export function AppLinkPrompt({ prompt, x, y }: { prompt: AppLinkPromptState; x:
       style={{ left: x, top: y, width: APP_LINK_POPUP.width, height: APP_LINK_POPUP.height }}
     >
       <div className="flex min-w-0 items-start gap-2.5">
-        <ExternalLink aria-hidden size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+        <ExternalLink aria-hidden size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-muted" />
         <div className="min-w-0">
           <div className="truncate font-medium">{prompt.host ? `${prompt.host} wants to open ${prompt.appName}` : `Open ${prompt.appName}?`}</div>
           <div className="truncate text-xs text-text-muted" title={prompt.url}>

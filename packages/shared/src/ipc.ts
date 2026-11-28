@@ -742,7 +742,7 @@ export interface InternalCommands {
   /** Sessions working, and sessions waiting for an answer, for the session list. */
   'coder:activity': () => { running: string[]; waiting: string[] }
   /** Pins or archives a chat in the list. */
-  'chats:flag': (id: string, flags: { pinned?: boolean; archived?: boolean }) => void
+  'chats:flag': (id: string, flags: { pinned?: boolean; archived?: boolean; name?: string | null }) => void
   /** Signs in to a remote MCP server that asks for it, in a tab. */
   'coder:mcp-signin': (name: string) => void
   'coder:mcp-signout': (name: string) => void

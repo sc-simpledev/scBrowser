@@ -168,8 +168,9 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
         >
           <span className="min-w-0 truncate">
             Site settings
-            {!state.contentOpen && state.content.some((row) => row.blocked && !row.locked) && (
-              <span className="text-text-faint"> · {state.content.filter((row) => row.blocked && !row.locked).map((row) => siteBlockWord(row.label)).join(', ')} blocked</span>
+            {/* Held autoplay is a preference that breaks nothing, so it isn't called out as a block. */}
+            {!state.contentOpen && state.content.some((row) => row.blocked && !row.locked && row.id !== 'autoplay') && (
+              <span className="text-text-faint"> · {state.content.filter((row) => row.blocked && !row.locked && row.id !== 'autoplay').map((row) => siteBlockWord(row.label)).join(', ')} blocked</span>
             )}
           </span>
           <ChevronRight aria-hidden size={13} strokeWidth={2} className={state.contentOpen ? 'shrink-0 rotate-90 text-text-faint' : 'shrink-0 text-text-faint'} />
@@ -180,7 +181,7 @@ export function SiteControls({ state, x, y }: { state: SiteControlsState; x: num
               <div key={row.id} className="flex items-center justify-between gap-3 px-3" style={{ height: SITE_POPUP.permissionRow }}>
                 <div className="min-w-0">
                   <div className="truncate text-sm">{row.label}</div>
-                  <div className={row.blocked && !row.locked ? 'truncate text-2xs text-danger' : 'truncate text-2xs text-text-faint'}>{row.hint}</div>
+                  <div className={row.blocked && !row.locked && row.id !== 'autoplay' ? 'truncate text-2xs text-danger' : 'truncate text-2xs text-text-faint'}>{row.hint}</div>
                 </div>
                 {!row.locked && <Switch label={`${row.label} on ${state.site}`} checked={!row.blocked} onChange={() => act(`content:${row.id}`)} />}
               </div>

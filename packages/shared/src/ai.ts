@@ -203,6 +203,8 @@ export interface ChatSummary {
   folder?: string
   pinned?: boolean
   archived?: boolean
+  /** A name the person gave it, shown as its title in place of its first message. */
+  name?: string
 }
 
 export interface SavedChat extends ChatSummary {

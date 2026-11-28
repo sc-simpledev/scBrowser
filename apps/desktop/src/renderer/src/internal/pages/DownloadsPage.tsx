@@ -49,7 +49,7 @@ function RenameForm({ download, onDone }: { download: DownloadInfo; onDone: () =
               .finally(() => setBusy(false))
           }}
         >
-          <Sparkles size={14} strokeWidth={1.75} className="text-accent" />
+          <Sparkles size={14} strokeWidth={1.75} />
         </IconButton>
         <Button type="submit" variant="primary" disabled={!name.trim()}>
           Rename

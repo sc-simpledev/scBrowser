@@ -68,7 +68,7 @@ function NavLink({ page, current }: { page: InternalPage; current: InternalPage 
         aria-label={title}
         title={title}
         aria-current={page === current ? 'page' : undefined}
-        className={cx('flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2 transition-colors', page === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
+        className={cx('flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2 transition-colors', page === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted hover:bg-surface-hover hover:text-text')}
       >
         <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0" />
         <span className="truncate max-[720px]:sr-only">{title}</span>
@@ -121,7 +121,7 @@ function SettingsSections() {
           key={group.id}
           href={`#${group.id}`}
           aria-current={group.id === current ? 'page' : undefined}
-          className={cx('flex h-7 items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text', group.id === current ? 'bg-surface-hover font-medium text-text' : 'text-text-muted')}
+          className={cx('flex h-7 items-center rounded-md px-2 text-left text-xs transition-colors hover:bg-surface-hover hover:text-text', group.id === current ? 'bg-surface-active font-medium text-text' : 'text-text-muted')}
           onClick={(event) => {
             event.preventDefault()
             openSettingsGroup(group.id)
@@ -157,7 +157,7 @@ function PageFrame() {
     <TooltipProvider>
       <div className="flex h-full">
         {/* The assistant wants the width, and has its own way back to Settings. */}
-        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg p-2.5 [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
+        {current !== 'assistant' && <nav aria-label="Browser pages" className="flex w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg p-2.5 text-sm [scrollbar-width:thin] max-[720px]:w-14 max-[720px]:px-2">
           {NAV.map(({ label, pages: section }) => (
             <div key={section[0]} className="flex shrink-0 flex-col gap-px">
               {label && <h2 className="px-2 pt-4 pb-1.5 text-2xs font-semibold tracking-[0.06em] text-text-faint uppercase max-[720px]:sr-only">{label}</h2>}

@@ -3,7 +3,7 @@ import { INTERNAL_COMMAND_CHANNELS, SIGN_IN_HOSTS, type AssistantEvent, type Cod
 import { holdAutoplay, middleClickScroll, mouseGestures } from './pageExtras'
 import { followTheme } from './theme'
 
-declare const location: { protocol: string; hostname: string }
+declare const location: { protocol: string; hostname: string; href: string }
 declare const navigator: { userAgent: string }
 declare const process: { versions: Record<string, string> }
 
@@ -81,7 +81,8 @@ if (/^(https?|file):$/.test(location.protocol)) {
   middleClickScroll(() => on.middleClickScroll)
   let prefs: PagePrefs | null = null
   try {
-    prefs = ipcRenderer.sendSync('page:prefs') as PagePrefs | null
+    // The page says where it is: this early, the tab may still report the page it's leaving.
+    prefs = ipcRenderer.sendSync('page:prefs', location.href) as PagePrefs | null
   } catch {
     prefs = null
   }

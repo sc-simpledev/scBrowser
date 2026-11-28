@@ -74,11 +74,13 @@ export interface FileHunk {
 export function fileHunks(beforeText: string, afterText: string): FileHunk[] {
   const before = beforeText.split('\n')
   const after = afterText.split('\n')
+  // A file ending in a newline splits into an empty piece after it, which isn't a line to show around a change.
+  const lines = before.length - (beforeText.endsWith('\n') ? 1 : 0)
   return diffRanges(before, after).map((range) => {
     const removed = before.slice(range.beforeStart, range.beforeEnd)
     const added = after.slice(range.afterStart, range.afterEnd)
     const lead = before.slice(Math.max(0, range.beforeStart - CONTEXT), range.beforeStart)
-    const tail = before.slice(range.beforeEnd, range.beforeEnd + CONTEXT)
+    const tail = before.slice(range.beforeEnd, Math.max(range.beforeEnd, Math.min(range.beforeEnd + CONTEXT, lines)))
     return {
       id: fingerprint(range, removed, added),
       line: range.afterStart + 1,

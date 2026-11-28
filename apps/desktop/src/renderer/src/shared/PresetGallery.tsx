@@ -21,7 +21,7 @@ export function PresetGallery({ onPick, onClose, wide = false, custom = [], onDe
   return (
     <div ref={root} role="dialog" aria-label="Report presets" className="flex max-h-[min(440px,60vh)] flex-col overflow-hidden rounded-lg bg-surface shadow-2">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3">
-        <FileText aria-hidden size={14} strokeWidth={1.75} className="text-accent" />
+        <FileText aria-hidden size={14} strokeWidth={1.75} className="text-text-muted" />
         <span className="min-w-0 flex-1 font-medium">Make a report</span>
         <IconButton size="sm" label="Close presets" onClick={onClose}>
           <X size={13} strokeWidth={2} />

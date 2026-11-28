@@ -45,7 +45,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'reopen-tab', label: 'Reopen closed tab', shortcut: 'Ctrl Shift T' },
   { id: 'find', label: 'Find in page', shortcut: 'Ctrl F' },
   { id: 'bookmark', label: 'Bookmark this page', shortcut: 'Ctrl D' },
-  { id: 'bookmark-all-tabs', label: 'Bookmark all tabs in a new folder' },
+  { id: 'bookmark-all-tabs', label: 'Bookmark all tabs in a new folder', shortcut: 'Ctrl Shift D' },
   { id: 'bookmarks-bar', label: 'Show or hide bookmarks bar', shortcut: 'Ctrl Shift B' },
   { id: 'reader', label: 'Reader view', shortcut: 'F9' },
   { id: 'read-aloud', label: 'Read this page aloud' },

@@ -352,7 +352,7 @@ function ApprovalCard({ item, onAnswer }: { item: Extract<Item, { kind: 'approva
   return (
     <div role="group" aria-label={item.summary} className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2.5">
       <div className="flex items-center gap-2 px-0.5 text-sm font-medium">
-        <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <Icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="min-w-0 truncate">{item.summary}</span>
       </div>
       <Detail text={item.detail} diff={item.type === 'change'} />
@@ -384,7 +384,7 @@ function JobsBar({ jobs, onStop }: { jobs: CoderJob[]; onStop: (id: number) => v
     <section aria-label="Background jobs" className="flex flex-col">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors hover:bg-surface-hover">
         <ChevronRight aria-hidden size={12} strokeWidth={1.75} className={cx('shrink-0 text-text-faint transition-transform', open && 'rotate-90')} />
-        <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-success" />
+        <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
         <span className="shrink-0 font-medium">
           {running.length} running in the background
         </span>
@@ -477,7 +477,7 @@ function CommitCard({ session, git, pushByDefault, onDone, onCancel }: { session
   return (
     <section aria-label="Commit" className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2.5">
       <div className="flex items-center gap-2 px-0.5 text-sm font-medium">
-        <GitCommitHorizontal aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <GitCommitHorizontal aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         Commit
       </div>
       <textarea
@@ -551,7 +551,9 @@ export function commentsTask(comments: ReviewComment[]): string {
 function DiffRows({ rows, startLine, path, comments, onComment, onRemove }: { rows: string[]; startLine: number; path: string; comments: ReviewComment[]; onComment: (comment: ReviewComment) => void; onRemove: (id: string) => void }) {
   const [writing, setWriting] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
-  let line = startLine
+  // A change is named by its first changed line, and the lines shown above it come before that.
+  const lead = rows.findIndex((row) => row.startsWith('- ') || row.startsWith('+ '))
+  let line = Math.max(1, startLine - Math.max(0, lead))
   const numbered = rows.map((row) => {
     const removed = row.startsWith('- ')
     const at = line
@@ -581,7 +583,7 @@ function DiffRows({ rows, startLine, path, comments, onComment, onRemove }: { ro
             </div>
             {here.map((comment) => (
               <div key={comment.id} className="mx-2 my-1 flex max-w-160 items-start gap-2 rounded-md border border-border bg-surface px-2 py-1.5 font-sans text-xs text-text">
-                <MessageSquare aria-hidden size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-accent" />
+                <MessageSquare aria-hidden size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-text-faint" />
                 <span className="min-w-0 flex-1 whitespace-pre-wrap">{comment.text}</span>
                 <IconButton size="sm" label="Remove comment" className="size-5!" onClick={() => onRemove(comment.id)}>
                   <X size={11} strokeWidth={1.75} />
@@ -674,8 +676,16 @@ function ReviewScreen({ session, files, busy, focus, onChange, onClose, onSendCo
     void api().invoke('coder:decide', session, path, hunk, decision).then(onChange, (failure: Error) => setError(cleanError(failure.message)))
   }
   const keepAll = async () => {
-    for (const file of files) await api().invoke('coder:decide', session, file.path, null, 'accept')
-    onChange([], 'Kept every change.')
+    setError(null)
+    let left = files
+    try {
+      for (const file of files) left = await api().invoke('coder:decide', session, file.path, null, 'accept')
+      onChange([], 'Kept every change.')
+    } catch (failure) {
+      // What was kept stays kept, and the rest is still there to look at.
+      onChange(left)
+      setError(cleanError(failure instanceof Error ? failure.message : 'Not every change could be kept.'))
+    }
   }
   return (
     <div role="region" aria-label="Review changes" className="flex min-h-0 flex-1">
@@ -698,7 +708,7 @@ function ReviewScreen({ session, files, busy, focus, onChange, onClose, onSendCo
                     {file.path}
                   </span>
                   {comments.some((comment) => comment.path === file.path) && (
-                    <span className="flex shrink-0 items-center gap-0.5 text-2xs text-accent tabular-nums">
+                    <span className="flex shrink-0 items-center gap-0.5 text-2xs text-text-muted tabular-nums">
                       <MessageSquare aria-hidden size={10} strokeWidth={2} />
                       {comments.filter((comment) => comment.path === file.path).length}
                     </span>
@@ -768,7 +778,7 @@ function ReviewScreen({ session, files, busy, focus, onChange, onClose, onSendCo
         </div>
         {comments.length > 0 && (
           <div className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2">
-            <MessageSquare aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-accent" />
+            <MessageSquare aria-hidden size={13} strokeWidth={1.75} className="shrink-0 text-text-muted" />
             <span className="min-w-0 flex-1 text-xs">
               {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
               {new Set(comments.map((comment) => comment.path)).size > 1 && <span className="text-text-muted"> in {new Set(comments.map((comment) => comment.path)).size} files</span>}
@@ -794,7 +804,7 @@ function PlanCard({ plan, onStart }: { plan: string; onStart: (mode: 'ask' | 'ed
   return (
     <section aria-label="Plan ready" className="flex flex-col gap-2 rounded-lg border border-border-strong bg-surface p-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pl-1">
-        <ListChecks aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <ListChecks aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
         <span className="text-sm font-medium">Plan ready</span>
         <span className="min-w-0 flex-1 truncate text-xs text-text-muted">{editing ? 'Change it, then start' : 'Start it, or change it first'}</span>
         <div className="ml-auto flex items-center gap-1.5">
@@ -928,6 +938,8 @@ export interface CodeWorkspaceProps {
   leading?: ReactNode
   /** Shows the list of saved sessions, for /resume. */
   onShowSessions?: () => void
+  /** The name the person gave this session, shown in the bar in place of its first message. */
+  name?: string | null
 }
 
 interface SavedData {
@@ -1040,7 +1052,7 @@ function ContextCard({ breakdown }: { breakdown: CoderContextBreakdown }) {
 }
 
 /** Terra Code (beta): a model works on files in one folder, and asks before changing anything. */
-export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading, onShowSessions }: CodeWorkspaceProps) {
+export function CodeWorkspace({ chat = null, onChat, initialTask = null, onInitialTaskTaken, leading, onShowSessions, name = null }: CodeWorkspaceProps) {
   const [status, setStatus] = useState<CoderStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [mode, setMode] = useState<CoderMode>('ask')
@@ -1200,7 +1212,10 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
     const save = () => {
       unsaved.current = null
       const data: SavedData = { items: savedItems(items), todo, agents: state.agents, model, effort, where, cloudPr }
-      void api().invoke('coder:save', id, first.shown ?? first.text, JSON.stringify(data)).then(() => onChatRef.current?.(id))
+      // Leaving the page can beat the save to the main process, which then turns it away: the last timed save stands.
+      void api()
+        .invoke('coder:save', id, first.shown ?? first.text, JSON.stringify(data))
+        .then(() => onChatRef.current?.(id), () => undefined)
     }
     unsaved.current = save
     const timer = setTimeout(save, 400)
@@ -1669,6 +1684,24 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
             () => note('There’s no TERRA.md here yet. /init writes one, and /remember or # adds a line.', true)
           )
         return true
+      case 'rename': {
+        // A session is only in the list once its first message is saved.
+        if (!items.some((item) => item.kind === 'task')) {
+          note('Send a message first. The session can be named once it’s saved.', true)
+          return true
+        }
+        const id = session.current
+        void api()
+          .invoke('chats:flag', id, { name: args || null })
+          .then(
+            () => {
+              onChatRef.current?.(id)
+              note(args ? `Named this session “${args.replace(/\s+/g, ' ').slice(0, 80)}”.` : 'This session is titled by its first message again.')
+            },
+            (error: Error) => note(cleanError(error.message), true)
+          )
+        return true
+      }
       case 'resume':
         if (onShowSessions) onShowSessions()
         else note('Saved sessions are listed in the assistant, at sc://assistant.', true)
@@ -1877,7 +1910,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
 
   const stepActions = { undo: undoStep, busy: working }
   const firstTask = items.find((item): item is Extract<Item, { kind: 'task' }> => item.kind === 'task')
-  const title = firstTask ? (firstTask.shown ?? firstTask.text).split('\n')[0]! : null
+  const title = name || (firstTask ? (firstTask.shown ?? firstTask.text).split('\n')[0]! : null)
   const compactNow = () => command('/compact')
   const panelBeside = panelOpen && !narrow && screen === 'log'
   const panelFloating = floatOpen && narrow && screen === 'log'
@@ -1990,7 +2023,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
 
   return (
     <div ref={rootRef} className="flex h-full min-w-0 flex-col">
-      <div className="@container flex h-11 shrink-0 items-center gap-1.5 border-b border-border px-3">
+      <div className="@container relative z-40 flex h-11 shrink-0 items-center gap-1.5 border-b border-border px-3">
         {leading}
         {controls}
       </div>
@@ -2087,7 +2120,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
                       <div className="grid grid-cols-2 gap-2 max-[640px]:grid-cols-1">
                         {STARTERS.map((starter) => (
                           <button key={starter.label} type="button" onClick={() => send({ text: starter.task, images: [], mentions: [] })} className="group flex h-11 min-w-0 items-center gap-2.5 rounded-lg border border-border px-3 text-left transition-colors hover:border-border-strong hover:bg-surface-hover">
-                            <starter.icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint transition-colors group-hover:text-accent" />
+                            <starter.icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-text-faint transition-colors group-hover:text-text-muted" />
                             <span className="min-w-0 flex-1 truncate text-sm">{starter.label}</span>
                             <ArrowUp aria-hidden size={13} strokeWidth={1.75} className="shrink-0 rotate-45 text-text-faint opacity-0 transition-opacity group-hover:opacity-100" />
                           </button>
@@ -2184,7 +2217,7 @@ export function CodeWorkspace({ chat = null, onChat, initialTask = null, onIniti
               </div>
             </div>
             {awayFromEnd && (
-              <button type="button" onClick={scrollToEnd} className="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-2xs text-text-muted shadow-2 transition-colors hover:text-text">
+              <button type="button" onClick={scrollToEnd} className="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-2xs text-text-muted shadow-2 transition-colors hover:text-text">
                 <ArrowDown aria-hidden size={12} strokeWidth={1.75} />
                 Latest
               </button>
