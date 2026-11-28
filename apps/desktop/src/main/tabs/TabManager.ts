@@ -72,7 +72,7 @@ interface TabManagerOptions {
   closeWhenEmpty: () => boolean
   devToolsWidth: () => number
   /** Performance Mode: pages opened from now on wait for a press before playing sound or video. */
-  quietMedia: () => boolean
+  quietMedia: (url: string) => boolean
   onDevToolsWidth: (width: number) => void
   /** The side bar's own contents, for shortcuts and for keeping popups above it. */
   onDevToolsCreated: (contents: WebContents) => void
@@ -1568,7 +1568,8 @@ export class TabManager {
         // Enables Chromium's built-in PDF viewer.
         plugins: true,
         ...(this.options.fontSizes?.() ?? {}),
-        ...(this.options.quietMedia() ? { autoplayPolicy: 'document-user-activation-required' as const } : {})
+        // Chosen for the page the tab opens on, as a view's policy can't change after it's made.
+        ...(this.options.quietMedia(tab.state.url) ? { autoplayPolicy: 'document-user-activation-required' as const } : {})
       }
     })
     view.setBorderRadius(PAGE_RADIUS)

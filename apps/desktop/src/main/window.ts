@@ -213,7 +213,7 @@ export function createBrowserWindow(core: BrowserCore, options: WindowOptions = 
     appOrigin: isApp && options.urls?.[0] ? new URL(options.urls[0]).origin : undefined,
     closeWhenEmpty: () => isApp || core.otherBrowserWindowsOpen(),
     devToolsWidth: () => settings.get().devToolsWidth,
-    quietMedia: () => settings.get().performanceMode || settings.get().blockAutoplay,
+    quietMedia: (url) => settings.get().performanceMode || autoplayBlocked(settings.get().siteAutoplay, url, settings.get().blockAutoplay),
     onDevToolsWidth: (devToolsWidth) => settings.set({ devToolsWidth }),
     onDevToolsCreated: (contents) => {
       attachShortcuts(contents, actions)

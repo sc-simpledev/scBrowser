@@ -96,10 +96,10 @@ test('autoplay can be set for one site from the padlock, either way from Setting
   await held.waitForTimeout(400)
   expect(await paused(held)).toBe(true)
 
-  // With Block autoplay on everywhere, the site can be let through instead; matching Settings needs no rule.
+  // With Block autoplay on everywhere, the site can be let through instead, in a tab opened at its address
+  // (a link, a bookmark, a restored tab), as Chromium's own policy is fixed when a tab's page view is made.
   await setSetting(h, { blockAutoplay: true, siteAutoplay: { '127.0.0.1': 'allow' } })
-  await shortcut(h, 'T')
-  await go(h, `${url}?allowed`)
+  await main((g, address) => g.scbTabs.create(address), `${url}?allowed`)
   await expect.poll(async () => paused(await h.page('?allowed'))).toBe(false)
 })
 
